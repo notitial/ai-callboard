@@ -125,7 +125,7 @@ decides what a pull brings and what git runs. ai-toolkit's protected-paths hook,
 in the checkout, denies an agent's writes to it. Agents never need to edit it: they work in `/tmp` clones, and `.archive/` (state,
 reports) stays in the checkout. Set the hook and
 the markers up as described in [Before escalation: the protected-paths hook](#before-escalation-the-protected-paths-hook).
-The limits of the hook are listed there too, and in [ADR 0003](adr/0003-symlinked-install.md), Consequences.
+The limits of the hook are listed there too.
 
 If you run a conductor repo: callboard refuses its `.claude` folder as unsafe when group or other may write it (as
 under umask 002). Run this once:
