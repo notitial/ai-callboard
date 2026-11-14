@@ -53,7 +53,7 @@ test('prompts: a decision of deny comes back as a deny with the tier named, and 
   expect(JSON.stringify(r)).not.toContain('updatedPermissions')
 })
 
-test('prompts: off by default: with no switch stored there is no request, no row and no wait', async ($, on) => {
+test('prompts: with no switch stored and the guard not wired there is no request, no row and no wait', async ($, on) => {
   const argv: string[][] = []
   await answerer($, on, [], { switchOn: false, argv })
   const r = await runRequest($, [])
