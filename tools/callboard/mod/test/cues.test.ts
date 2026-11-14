@@ -1,6 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 import { h, GOOD, LANESDIR, ROOT, SID, T0, YES, engine, extraStat, laneSeed, longTest, modelRuns, renames, resultFiles, seen, storeFiles, submitted } from './harness'
 import type { Trace } from './harness'
+import { LANE_CUE_DEADLINE_MS } from '../hooks/core'
 import { LEAD_LANES, MFOLDER, OTHER, PIN, REG, REGFILE, RESULT, STOREFILE, TURN, allEvents, bornStore, callCreate, creator, cue, cueSession, dirStat, events, fileStat, grantAt, lane, laneTarget, lateLane, lead, leadCall, logged, newTrace, nudges, pause, putStore, renameThroughTick, retireCue, retireTarget, settle, started, tickTwice, ticks, waitFor } from './fixtures'
 
 test('a lead cue is written as a 0600 temp file and renamed into the target cue path', async ($, on) => {
@@ -89,7 +90,7 @@ for (const [added, surface, expectOk] of [[1, 'a panel', true], [0, 'the termina
     await renameThroughTick($, on, stdins, added)
     const names = allEvents(stdins).map((e) => `${e.event}:${e.reason}`)
     expect(names.some((n) => n.startsWith('error'))).toBe(false)
-    expect(names).toContain('renamed:')
+    expect(names.includes('renamed:')).toBe(expectOk)
     expect(names.includes('refused:bind-turns-mismatch')).toBe(!expectOk)
     expect(h.cueFile!.present).toBe(false)
   })
@@ -286,7 +287,7 @@ longTest('an answer to an older cue, no answer, and an unsafe answer file all en
   }
 })
 
-test('lane_start counts its wait for the rename against the one deadline', async ($, on) => {
+longTest('lane_start counts its wait for the rename against the one deadline', async ($, on) => {
   await lead($, on, [], { sess: cueSession(OTHER, undefined), clock: true })
   h.autoAnswer = undefined
   let done = false
@@ -297,9 +298,9 @@ test('lane_start counts its wait for the rename against the one deadline', async
   let ms = 0
   for (; ms < 3500; ms += 500) await h.clock!.advance(500)
   h.sessions = cueSession(OTHER, 'LABLANE')
-  for (; !done && ms < 20_000; ms += 500) await h.clock!.advance(500)
+  for (; !done && ms < 30_000; ms += 500) await h.clock!.advance(500)
   expect(JSON.stringify(await p)).toContain('no-answer')
-  expect(ms).toBeLessThanOrEqual(7000)
+  expect(ms).toBeLessThanOrEqual(LANE_CUE_DEADLINE_MS + 1000)
 })
 
 test('session start drops answers older than 10 minutes and keeps newer ones', async ($, on) => {
@@ -543,6 +544,7 @@ test('a count that grows by more than a rename adds is not bound: the rename is 
   await modelLane($, on, stdins, undefined, { late: { afterMs: 100, added: 2 }, added: 0 }).catch(() => undefined)
   expect(resultFiles.get(RESULT)).toBe('rename refused bind-turns-mismatch 42\n')
   expect(logged(stdins)).toContain('refused:bind-turns-mismatch')
+  expect(logged(stdins)).not.toContain('renamed:')
 })
 
 test('start still refuses a session someone typed into after the rename, and logs the counts', async ($, on) => {

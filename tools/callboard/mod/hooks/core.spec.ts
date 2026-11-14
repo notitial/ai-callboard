@@ -623,7 +623,8 @@ test('parseOpenResult for a lead request takes an answer with its nonce, or with
   assert.deepEqual(c.parseOpenResult(`ok ${OTHER} ${N}\n`), { ok: false, reason: 'bad-result' })
   assert.deepEqual(c.parseOpenResult('error timeout\n', c.OPEN_TEXT_BY_CODE, N), { ok: false, reason: 'timeout' })
   assert.ok(`ok ${OTHER} ${N}\n`.length <= c.LEAD_OPEN_RESULT_MAX)
-  assert.ok(c.LEAD_OPEN_POLL_MAX * c.OPEN_POLL_MS > 45_000)
+  // The extension's 45 s wait for a lead's panel starts when it reaches the request, so the mod also covers one lane open (20 s) queued ahead of it, and its own poll.
+  assert.ok(c.LEAD_OPEN_POLL_MAX * c.OPEN_POLL_MS >= 20_000 + 45_000 + 5_000)
 })
 
 test('the lead question names every ability the grant turns on', () => {
@@ -1558,6 +1559,62 @@ test('MODEL_TIMEOUT_MS leaves room in the lead\'s wait: a 2 s tick, the start ch
   assert.ok(2000 + c.MODEL_TIMEOUT_MS < c.RESULT_DEADLINE_MS)
 })
 
+test('lane_rename and lane_start wait longer for the answer than the other verbs, and lane_open longer than the extension', () => {
+  assert.ok(c.LANE_CUE_DEADLINE_MS > c.RESULT_DEADLINE_MS)
+  // A rename keeps at least 10 s for the cue itself after its longest wait for the session to register.
+  assert.ok(c.RENAME_WAIT_TRIES * c.START_WAIT_MS + 10_000 <= c.LANE_CUE_DEADLINE_MS)
+  assert.ok(c.START_WAIT_TRIES * c.START_WAIT_MS + 10_000 <= c.LANE_CUE_DEADLINE_MS)
+  // The extension waits 20 s for a lane's panel and handles requests one at a time: the lead's wait covers one open queued behind another, and its own poll.
+  assert.ok(c.OPEN_POLL_MAX * c.OPEN_POLL_MS >= 2 * 20_000 + 5_000)
+})
+
+test('renameNoSessionText names the one session a rename could take, and says so when there is none', () => {
+  const FOLDER = '/work/repo/lab'
+  const lane = { name: 'LAB', folder: FOLDER } as c.Lane
+  const SELFSID = '5a1b2c3d-0000-4000-8000-123456789abc'
+  const WANTED = '1a1b2c3d-0000-4000-8000-123456789abc'
+  const REAL = '2a1b2c3d-0000-4000-8000-123456789abc'
+  const MORE = '3a1b2c3d-0000-4000-8000-123456789abc'
+  const now = 1_000_000
+  const row = (sessionId: string, over: Partial<c.RegEntry> = {}): c.RegEntry => ({ sessionId, cwd: FOLDER, nameSource: 'derived', entrypoint: 'claude-vscode', startedAt: now - 20_000, ...over })
+  const text = (e: c.RegEntry[]) => c.renameNoSessionText(e, lane, SELFSID, WANTED, now)
+  // None: not a refusal about the lane name, and it says the panel may still be registering.
+  const none = text([])
+  assert.ok(none.startsWith(`no-live-session: no live session has id ${WANTED}.`))
+  assert.ok(none.includes('20 seconds or more'))
+  assert.ok(!none.includes('lane name'))
+  // One candidate: its id is in the text.
+  const one = text([row(REAL)])
+  assert.ok(one.includes(`The one unnamed session in the lane folder is ${REAL}`))
+  assert.ok(one.includes('call lane_rename with that sid'))
+  // Rows a rename would refuse or should not take are not offered: the caller itself, another folder, a named session, one that is too old, one with no start time, one that starts in the future, one with no name source, a terminal session.
+  assert.equal(text([row(SELFSID), row(REAL, { cwd: '/work/repo/other' }), row(REAL, { nameSource: 'user' }), row(REAL, { startedAt: now - 130_000 }), row(REAL, { startedAt: undefined }), row(REAL, { startedAt: now + 60_000 }), row(REAL, { nameSource: undefined }), row(REAL, { entrypoint: 'cli' })]), none)
+  // Several candidates: up to three ids.
+  const many = text([row(REAL), row(MORE), row('4a1b2c3d-0000-4000-8000-123456789abc'), row('6a1b2c3d-0000-4000-8000-123456789abc')])
+  assert.ok(many.includes(`${REAL}, ${MORE}, 4a1b2c3d-0000-4000-8000-123456789abc and more`))
+  assert.ok(!many.includes('6a1b2c3d'))
+})
+
+const OTHER_SID = '1a1b2c3d-0000-4000-8000-123456789abc'
+test('lateLogDone takes a log line of the verb written at or after the cue, and nothing older', () => {
+  const line = (event: string, t: number) => `${JSON.stringify({ t: new Date(t).toISOString(), event, reason: '' })}\n`
+  const since = 1_000_000
+  assert.equal(c.lateLogDone(line('started', since + 5000), 'start', since), true)
+  assert.equal(c.lateLogDone(line('renamed', since), 'rename', since), true)
+  assert.equal(c.lateLogDone(line('started', since - 1), 'start', since), false)
+  assert.equal(c.lateLogDone(line('renamed', since + 5000), 'start', since), false)
+  assert.equal(c.lateLogDone(line('started', since - 9000) + line('started', since + 9000), 'start', since), true)
+  for (const bad of ['', 'not json\n', '{"event":"started"}\n', '{"event":"started","t":5}\n', '{"event":"started","t":"nope"}\n', 'null\n']) assert.equal(c.lateLogDone(bad, 'start', since), false, bad)
+})
+
+test('the late-answer texts name the verb, and the waiting text says not to repeat the call', () => {
+  assert.ok(c.lateDoneText('rename', 'LAB', OTHER_SID).includes(`session ${OTHER_SID} took the rename`))
+  assert.ok(c.lateDoneText('rename', 'LAB', OTHER_SID).includes('lane_start'))
+  assert.ok(c.lateDoneText('start', 'LAB', OTHER_SID).includes('the session started'))
+  assert.ok(c.NO_ANSWER_WAITING.startsWith('no-answer:'))
+  assert.ok(c.NO_ANSWER_WAITING.includes('do not repeat the call'))
+})
+
 // ---- v13: park, unpark, rebind, lead re-grant (store fields, pure checks, fixed texts) ----
 const V13_SID = '7a1b2c3d-0000-4000-8000-123456789abc'
 const v13Store = (l: Record<string, unknown>) => JSON.stringify({ repo: '/Users/x/code/app', lanes: [{ name: 'API', folder: '/Users/x/code/app/api', brief: '/Users/x/code/app/api/B.md', createdAt: 1, ...l }], creates: [] })
@@ -1607,14 +1664,57 @@ test('storeText writes the store through storeLaneJson and refuses one every rea
   assert.deepEqual(c.storeText({ ...s, creates: Array.from({ length: 3000 }, (_, i) => i * 1_000_000) }), { no: 'store-size' })
 })
 
+const ME = { name: 'LEAD', sid: V13_SID }
 test('watchText: a sid or parked change hashes the same; any other change, and a store that does not parse, does not', () => {
-  const base = c.watchText('ok', v13Store({}))
-  assert.equal(c.watchText('ok', v13Store({ sid: V13_SID })), base)
-  assert.equal(c.watchText('ok', v13Store({ sid: V13_SID, parked: 8 })), base)
-  assert.notEqual(c.watchText('ok', v13Store({ brief: '/Users/x/code/app/api/C.md' })), base)
-  assert.notEqual(c.watchText('absent', ''), base)
-  assert.equal(c.watchText('ok', '{'), 'ok\n{')
-  assert.equal(c.watchText('bad', ''), 'bad\n')
+  const base = c.watchText('ok', v13Store({}), ME)
+  assert.equal(c.watchText('ok', v13Store({ sid: V13_SID }), ME), base)
+  assert.equal(c.watchText('ok', v13Store({ sid: V13_SID, parked: 8 }), ME), base)
+  assert.notEqual(c.watchText('ok', v13Store({ brief: '/Users/x/code/app/api/C.md' }), ME), base)
+  assert.notEqual(c.watchText('absent', '', ME), base)
+  assert.equal(c.watchText('ok', '{', ME), 'ok\n{')
+  assert.equal(c.watchText('bad', '', ME), 'bad\n')
+})
+
+const OTHER_SID = '6a1b2c3d-0000-4000-8000-123456789abc'
+const laneJson = (name: string, over: Record<string, unknown> = {}) => ({ name, folder: `/Users/x/code/app/${name}`, brief: `/Users/x/code/app/${name}/B.md`, createdAt: 1, ...over })
+const storeOf = (lanes: unknown[], creates: number[] = []) => JSON.stringify({ repo: '/Users/x/code/app', lanes, creates })
+test('watchText: only the lanes that name this lead or no lead, and not the create times, move the hash', () => {
+  const mine = laneJson('MINE', { leadName: 'LEAD', leadSid: V13_SID })
+  const legacy = laneJson('OLD')
+  const base = c.watchText('ok', storeOf([mine, legacy, laneJson('THEIRS', { leadName: 'ZED', leadSid: OTHER_SID })]), ME)
+  assert.equal(c.watchText('ok', storeOf([mine, legacy]), ME), base)
+  assert.equal(c.watchText('ok', storeOf([mine, legacy, laneJson('THEIRS', { leadName: 'ZED', leadSid: OTHER_SID, brief: '/Users/x/code/app/THEIRS/C.md' }), laneJson('NEW', { leadName: 'ZED' })]), ME), base)
+  assert.equal(c.watchText('ok', storeOf([mine, legacy, laneJson('BYSID', { leadSid: OTHER_SID })], [5, 6]), ME), base)
+  assert.notEqual(c.watchText('ok', storeOf([{ ...mine, brief: '/Users/x/code/app/MINE/C.md' }, legacy]), ME), base)
+  assert.notEqual(c.watchText('ok', storeOf([mine, { ...legacy, brief: '/Users/x/code/app/OLD/C.md' }]), ME), base)
+  assert.notEqual(c.watchText('ok', storeOf([mine, legacy, laneJson('BYSID', { leadSid: V13_SID })]), ME), base)
+  assert.notEqual(c.watchText('ok', storeOf([mine]), ME), base)
+})
+
+test('noticeReach: the lane of this lead, a legacy lane, and the lane of a lead that is not live reach a lead in reach; the lane of a live other lead does not', () => {
+  const g = c.leadGrant('/w/repo', 'LEAD')
+  const l = (over: Record<string, unknown> = {}): c.Lane => ({ name: 'A', folder: '/w/repo/a', brief: '/w/repo/a/B.md', repo: '/w/repo', ...over })
+  assert.equal(c.noticeReach(g, l({ leadName: 'LEAD' }), V13_SID, true), true)
+  assert.equal(c.noticeReach(g, l({ leadSid: V13_SID }), V13_SID, true), true)
+  assert.equal(c.noticeReach(g, l(), V13_SID, true), true)
+  assert.equal(c.noticeReach(g, l({ adopted: true, lead: V13_SID }), V13_SID, true), true)
+  assert.equal(c.noticeReach(g, l({ leadSid: OTHER_SID }), V13_SID, true), false)
+  assert.equal(c.noticeReach(g, l({ adopted: true, lead: OTHER_SID }), V13_SID, true), false)
+  assert.equal(c.noticeReach(g, l({ leadSid: OTHER_SID }), V13_SID, false), true)
+  assert.equal(c.noticeReach(g, l({ leadName: 'ZED' }), V13_SID, false), false)
+  assert.equal(c.noticeReach(g, l({ repo: undefined }), V13_SID, false), false)
+  assert.equal(c.noticeReach(c.leadGrant('/w/other', 'LEAD'), l(), V13_SID, false), false)
+  assert.equal(c.noticeReach({ ...g, level: 'manager' }, l({ leadSid: OTHER_SID }), V13_SID, true), true)
+})
+
+test('laneLead: the session id of this lead wins over a name, so a lead named after it was last read still owns its lanes', () => {
+  const l = (over: Record<string, unknown> = {}): c.Lane => ({ name: 'A', folder: '/w/repo/a', brief: '/w/repo/a/B.md', repo: '/w/repo', ...over })
+  const unnamed = { name: '', sid: V13_SID }
+  assert.equal(c.laneLead(l({ leadName: 'LEAD', leadSid: V13_SID }), unnamed), 'me')
+  assert.equal(c.laneLead(l({ adopted: true, lead: V13_SID, leadName: 'LEAD' }), unnamed), 'me')
+  assert.equal(c.laneLead(l({ leadName: 'LEAD', leadSid: OTHER_SID }), { name: 'LEAD', sid: V13_SID }), 'me')
+  assert.equal(c.laneLead(l({ leadName: 'LEAD', leadSid: OTHER_SID }), unnamed), 'other')
+  assert.equal(c.laneLead(l(), unnamed), 'none')
 })
 
 test('laneListText: a parked lane shows parked with empty figures, and a live session wins', () => {
@@ -1931,6 +2031,23 @@ test('laneListText: the lead view is one table with a Lead header line, no Manag
   assert.ok(!text.includes('Manager'))
   assert.ok(!text.includes('>'))
   assert.equal(c.laneListText(lanes, [], 0).split('\n').slice(1).join('\n'), text.split('\n').slice(1).join('\n'))
+})
+
+test('aboveText and the header line: conductors, then the manager, else none; names escaped; the manager has no layer above', () => {
+  assert.equal(c.aboveText({ conductors: [], managers: [] }), 'none')
+  assert.equal(c.aboveText({ conductors: ['CONDB', 'CONDA'], managers: [] }), 'conductor CONDA, CONDB')
+  assert.equal(c.aboveText({ conductors: [undefined], managers: [] }), 'conductor a conductor')
+  assert.equal(c.aboveText({ conductors: [undefined, undefined], managers: [] }), 'conductor a conductor')
+  assert.equal(c.aboveText({ conductors: ['C'], managers: ['MANAGER'] }), 'conductor C · manager MANAGER')
+  assert.equal(c.aboveText({ conductors: [], managers: ['M|*'] }), 'manager M\\|\\*')
+  assert.equal(c.aboveText('error'), 'above unreadable')
+  const lanes = [boxLane('LANE-A', '/w/app-one', '/w/app-one', 'LEAD-B')]
+  const head = (view: Parameters<typeof c.laneListText>[3]) => c.laneListText(lanes, [], 0, view).split('\n')[0]
+  assert.equal(head({ level: 'lead', name: 'LEAD-B', above: { conductors: ['COND'], managers: [] } }), '**Lead LEAD-B** · live · conductor COND')
+  assert.equal(head({ level: 'lead', name: 'LEAD-B', above: { conductors: [], managers: [] } }), '**Lead LEAD-B** · live · none')
+  assert.equal(head({ level: 'conductor', name: 'COND', above: { conductors: [], managers: ['MANAGER'] } }), '**Conductor COND** · live · manager MANAGER')
+  assert.equal(head({ level: 'manager', name: 'MANAGER', above: { conductors: [], managers: [] } }), '**Manager MANAGER** · live')
+  assert.equal(head({ level: 'lead', name: 'LEAD-B' }), '**Lead LEAD-B** · live')
 })
 
 test('v14.1 laneListText: a Folder column appears in the table only when one of its lanes is outside the repo root, relative to the repo with . for the root', () => {

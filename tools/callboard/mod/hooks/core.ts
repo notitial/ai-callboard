@@ -193,13 +193,14 @@ export function storeText(s: Store): { text: string } | { no: 'store-size' } {
   return text.length > STORE_MAX_BYTES ? { no: 'store-size' } : { text }
 }
 
-// What a lead's watch on its lane list hashes: the store without each lane's sid and parked, so a lane's own sid write, a park or an unpark is not news to it
-// (the lead reads those in lane_list). A store that does not parse is hashed as it is.
-export function watchText(state: string, text: string): string {
+// What a lead's watch on its lane list hashes: the lanes that name this lead or no lead, without each lane's sid and parked, so a lane's own sid write, a park or
+// an unpark is not news to it (the lead reads those in lane_list). Another lead's lanes and the repo's create times are not its news, even when that lead is gone
+// (the check-in tells of such a lane). A store that does not parse is hashed as it is.
+export function watchText(state: string, text: string, me: { name: string; sid: string }): string {
   const parsed = state === 'ok' ? parseStore(text) : undefined
   if (!parsed?.ok) return `${state}\n${text}`
-  const lanes = parsed.store.lanes.map((l) => storeLaneJson({ ...l, sid: undefined, parked: undefined }))
-  return `${state}\n${JSON.stringify({ repo: parsed.store.repo, lanes, creates: parsed.store.creates })}`
+  const lanes = parsed.store.lanes.filter((l) => laneLead(l, me) !== 'other').map((l) => storeLaneJson({ ...l, sid: undefined, parked: undefined }))
+  return `${state}\n${JSON.stringify({ repo: parsed.store.repo, lanes })}`
 }
 
 // A folder is too broad to hold lead-made lanes: the root, the home folder, its standard folders, a mount point, a system folder.
@@ -878,6 +879,8 @@ export const leadQuestion = (folder: string): string =>
 // lane_start retries while the lane's session is not named yet: a rename cue takes up to 2 seconds to be applied.
 export const START_WAIT_TRIES = 4
 export const START_WAIT_MS = 1000
+// lane_rename waits longer: its session may still be registering (a slow panel takes 20 s), and the id lane_open returned may not be the one it keeps.
+export const RENAME_WAIT_TRIES = 8
 export const LEAD_YES = 'Lead'
 export const LEAD_NO = 'Cancel'
 
@@ -888,6 +891,8 @@ export type LeadVerb = (typeof LEAD_VERBS)[number]
 export type RegEntry = {
   sessionId: string
   name?: string
+  nameSource?: string
+  entrypoint?: string
   cwd?: string
   pid?: number
   procStart?: string
@@ -908,6 +913,20 @@ export function leadLane(lanes: Lane[], g: Grant, name: unknown): { ok: true; la
   if (!inReach(g, { ...l, leadName: undefined })) return { ok: false, reason: 'other-repo' }
   if (!inReach(g, l)) return { ok: false, reason: 'other-lead' }
   return { ok: true, lane: l }
+}
+
+// The words for a lane_rename whose sid no live session carries. lane_open's id can name a session that never registers (the panel rewrites its registry row with
+// another id once its session is up), so the text names the session a rename could take instead: unnamed, in the lane folder, under BIRTH_WINDOW_MS old. It
+// never renames one by itself; the lead calls again with the id.
+export function renameNoSessionText(entries: RegEntry[], lane: Lane, selfSid: string, sid: string, now: number): string {
+  const cands = entries.filter(
+    (x) => x.cwd === lane.folder && x.sessionId !== selfSid && SID_RE.test(x.sessionId) && x.entrypoint === 'claude-vscode' && typeof x.nameSource === 'string' && x.nameSource !== 'user' && typeof x.startedAt === 'number' && x.startedAt <= now + SKEW_MS && now - x.startedAt <= BIRTH_WINDOW_MS,
+  )
+  const head = `no-live-session: no live session has id ${sid}.`
+  if (cands.length === 0) return `${head} No unnamed session under 2 minutes old is in the lane folder either: a new panel can take 20 seconds or more to register. Retry lane_rename once in a few seconds; do not open another panel.`
+  const ids = cands.slice(0, 3).map((x) => x.sessionId)
+  const some = cands.length === 1 ? `The one unnamed session in the lane folder is ${ids[0]}` : `Unnamed sessions in the lane folder: ${ids.join(', ')}${cands.length > 3 ? ' and more' : ''}`
+  return `${head} A panel can register under another id than lane_open returned. ${some}: call lane_rename with that sid. The rename still works only on an empty, unnamed session under 2 minutes old.`
 }
 
 const inFolder = (folder: string, cwd: unknown) => typeof cwd === 'string' && (cwd === folder || within(folder, cwd))
@@ -1211,7 +1230,7 @@ export const GONE_CACHE_MAX = 512
 // The longest a mod waits on one engine call held inside a lane or lead mark (a rename, a state write, tool registration) before it gives up.
 export const ENGINE_CALL_TIMEOUT_MS = 30_000
 // The lane's /model step at start. The cue is claimed on a 2 s tick, then the start checks run, then this: together they must stay under the lead's
-// 6 s wait for the start answer (RESULT_DEADLINE_MS). A /model that has not returned by then is model-failed.
+// 20 s wait for the start answer (LANE_CUE_DEADLINE_MS). A /model that has not returned by then is model-failed.
 export const MODEL_TIMEOUT_MS = 2000
 export const TAKEN_SWEEP_MS = 600_000
 // A .taken name claim made for this session (<sid>.<claim ms>.<seq>.<random>.taken), and its claim time; undefined for any other name.
@@ -1275,9 +1294,11 @@ export function processRefusal(args: string | undefined, targetPid: unknown, sel
 // lane_rename and starts it with lane_start.
 export const OPEN_TEXT = 'open\n'
 export const OPEN_POLL_MS = 500
-export const OPEN_POLL_MAX = 16
-// A lead's panel is waited for longer (50 s): the extension gives up at 45 s. An upper bound: a fast open answers at the next poll.
-export const LEAD_OPEN_POLL_MAX = 100
+// 45 s: the panels extension waits up to 20 s for a lane's panel and for its session id to settle, and handles requests one at a time, so a request
+// queued behind another open can wait that long before its own wait starts.
+export const OPEN_POLL_MAX = 90
+// A lead's panel is waited for longer (70 s): the extension gives up at 45 s, and its request can queue behind one lane open (20 s) first. An upper bound: a fast open answers at the next poll.
+export const LEAD_OPEN_POLL_MAX = 140
 // The longest answer to a lead request, `ok <session id> <nonce>\n` (73 bytes), as the mod reads it; a lane's answers keep RESULT_MAX.
 export const LEAD_OPEN_RESULT_MAX = 96
 
@@ -1466,6 +1487,9 @@ export type Outcome = 'ok' | 'refused' | 'held'
 export const RESULT_MAX = 64
 export const RESULT_POLL_MS = 500
 export const RESULT_DEADLINE_MS = 6000
+// lane_rename and lane_start wait longer for the answer, counted from the tool call like the other verbs: the session takes its next 2 s tick, then a rename
+// settles its turn count (about a second) or a start sets the model, hashes the brief and submits it, and the registry wait for the session counts against it too.
+export const LANE_CUE_DEADLINE_MS = 20_000
 // A retire waits for its answer from the cue write, not from the tool start: the target answers on its next 2 s tick.
 export const RETIRE_WAIT_MS = 10_000
 export const RETIRE_POLL_MS = 200
@@ -1494,6 +1518,26 @@ export const LOG_KEEP_MS = 90 * 24 * 60 * 60_000
 export const LOG_PRUNE_MAX = 10
 export const LOG_MAX_BYTES = 1024 * 1024
 export const NO_ANSWER = 'no-answer: the session did not answer in time; it may be busy or the cue replaced. Check it before another cue.'
+// What lane_rename and lane_start found when no answer came: the cue is still in the session's cue folder (it has not read it yet), or the session's own log
+// holds the line it writes once it has done the cue (the answer is written first, so a late or unreadable answer still leaves that line).
+export type CueFate = 'done' | 'waiting' | 'taken'
+export const NO_ANSWER_WAITING = 'no-answer: the session has not read the cue yet; it may be busy. The cue stays valid for 2 minutes and the session acts on it when it reads it, so do not repeat the call: check lane_list in a few seconds.'
+// A line of the target's own log (one JSON object per line) that says the cue was carried out: its event is the one the verb writes, and it was written
+// at or after `since`, the time the cue was sent, so an earlier session's or an earlier cue's line is not taken for this one.
+export function lateLogDone(text: string, verb: 'rename' | 'start', since: number): boolean {
+  const event = verb === 'rename' ? 'renamed' : 'started'
+  for (const line of text.split('\n')) {
+    try {
+      const j = JSON.parse(line) as { event?: unknown; t?: unknown }
+      if (j && j.event === event && typeof j.t === 'string' && Date.parse(j.t) >= since) return true
+    } catch {}
+  }
+  return false
+}
+export const lateDoneText = (verb: 'rename' | 'start', lane: string, sid: string): string =>
+  verb === 'rename'
+    ? `lane ${lane}: session ${sid} took the rename; its answer came after the wait, but its log shows it done. Next: lane_start.`
+    : `lane ${lane}: the session started; its answer came after the wait, but its log shows it started.`
 const NO_REPEAT = 'Do not repeat this call unless the text says to retry.'
 // These refusals of a compact cue end any request the session had (failRequest), or come with no request at all (the nudge path), so
 // a retry of the cue right away cannot work: their text says so in place of any retry advice. Every other compact refusal leaves the
@@ -1510,7 +1554,7 @@ export function cueRefusalText(verb: Verb, outcome: Outcome, reason: string): st
 // lane_open's answer codes, as the panels extension writes them (extension/spool.js); anything else becomes other, so no file text reaches the model.
 export const OPEN_TEXT_BY_CODE: Record<string, string> = {
   'unnamed-panel': 'an unnamed panel already sits in that folder. If a lane is being opened right now (by you or another lead), wait 30 seconds and retry once. Otherwise name it with lane_rename (session id in ~/.claude/sessions), or if it is over 2 minutes old, ask the person to close it.',
-  timeout: 'the panel did not register in time. It may still appear: name the unnamed session in that folder with lane_rename within 2 minutes; do not open another.',
+  timeout: 'the panel did not register in time. It may still appear: wait, then name the unnamed session in that folder with lane_rename (its id is the one in ~/.claude/sessions, which can differ from any id seen earlier) within 2 minutes; do not open another.',
   'lanes-file': 'the panels extension could not read the lane list.',
   'unknown-lane': 'the panels extension does not know that lane.',
   'bad-request': 'the open request was not valid.',
@@ -1787,6 +1831,23 @@ export function inReach(g: Grant, l: Lane): boolean {
   return pins.some((pin) => (pin === repo || within(repo, pin)) && !(l.src && pin !== repo))
 }
 
+// Whose lane this is, for notices: 'me' when the record names this session (`leadSid` of a made record, `lead` of an attached one) or this lead's name, 'none' for
+// a record that names no lead, else 'other'. The session id comes first: a lead's name can be set or changed after the watch last read it, its session id cannot.
+export const laneLeadSid = (l: Lane): string | undefined => (l.adopted ? l.lead : l.leadSid)
+export function laneLead(l: Lane, me: { name: string; sid: string }): 'me' | 'none' | 'other' {
+  const sid = laneLeadSid(l)
+  if (sid !== undefined && sid === me.sid) return 'me'
+  if (l.leadName !== undefined) return l.leadName === me.name ? 'me' : 'other'
+  return sid === undefined ? 'none' : 'other'
+}
+// Who a lane's notices (check-ins) go to: a lead in reach of the lane that is its own lead, or that finds the lane naming no lead, or whose own lead is not live.
+// A manager and a conductor keep inReach. ownLeadLive is only read for a lane of another lead.
+export function noticeReach(g: Grant, l: Lane, mySid: string, ownLeadLive: boolean): boolean {
+  if (!inReach(g, l)) return false
+  if (g.level !== 'lead') return true
+  return laneLead(l, { name: g.name, sid: mySid }) !== 'other' || !ownLeadLive
+}
+
 // The presence file: <root>/leads/<sid>.json, a filter that says a lead (or, later, a conductor or manager) runs and for which repos. Nothing is ever sent to the
 // sid in it. A file without level is a lead's from before the levels plan, and reads as one for one release.
 export const LEAD_FILE_MAX = 4096
@@ -1940,7 +2001,7 @@ export function usageCells(r: UsageReading | undefined, now: number): string[] {
 export const USAGE_FOOTNOTE = "5h/7d are the account's limits: sessions on one account show the same figures."
 
 // One table, not blockquote boxes, which rendered as stray bars and differed between the CLI and VS Code. The text is a plain header line (`**Manager NAME** · live`,
-// `**Conductor NAME** · live` or `**Lead NAME** · live`), a blank line, then ONE table with the columns Lane, Session, Context, 5h, 7d, Cost, Read, Waiting (the figures:
+// `**Conductor NAME** · live` or `**Lead NAME** · live`, the last two followed by the layer above them when the caller gives `above`: aboveText), a blank line, then ONE table with the columns Lane, Session, Context, 5h, 7d, Cost, Read, Waiting (the figures:
 // usageCells). Each repo and lead the lanes name is a group row, bold, `**repo · LEAD**`, with session `lead` and the lead's own figures; its lanes follow, indented with
 // `↳`. A lane that names no lead goes under `Any lead` (no session, no figures), a lead no live session carries is `NAME (not live)` (no figures), and a live lead with no
 // lanes is a group row alone. A row that is parked or not live leaves its figure cells empty; a live one with no reading shows `?` in each.
@@ -1964,7 +2025,19 @@ export function leadStateOf(e: RegEntry): { state: LeadState; since?: number } {
   if (e.status === 'idle' && (e.waitingFor ?? null) === null) return { state: 'idle' }
   return { state: e.status === 'busy' ? 'busy' : 'unknown' }
 }
-export function laneListText(lanes: Lane[], entries: RegEntry[], now: number, view: { level?: 'lead' | 'manager' | 'conductor'; name?: string; self?: string; conductors?: ConductorView[] | 'error'; leads?: LiveLead[]; usage?: Map<string, UsageReading> } = {}): string {
+// The layer above the viewer, shown on the header line: a lead's trusted conductors and live manager, a conductor's live manager (names; a conductor with no name is
+// `a conductor`). 'error': the lookup failed. Left out in the manager's view, which has nothing above it.
+export type LayerAbove = { conductors: (string | undefined)[]; managers: string[] } | 'error'
+export function aboveText(above: LayerAbove): string {
+  if (above === 'error') return 'above unreadable'
+  const named = (xs: string[]) => [...new Set(xs)].sort().map(mdEscape).join(', ')
+  const parts = [
+    ...(above.conductors.length > 0 ? [`conductor ${named(above.conductors.map((n) => n ?? 'a conductor'))}`] : []),
+    ...(above.managers.length > 0 ? [`manager ${named(above.managers)}`] : []),
+  ]
+  return parts.length > 0 ? parts.join(' · ') : 'none'
+}
+export function laneListText(lanes: Lane[], entries: RegEntry[], now: number, view: { level?: 'lead' | 'manager' | 'conductor'; name?: string; self?: string; conductors?: ConductorView[] | 'error'; leads?: LiveLead[]; usage?: Map<string, UsageReading>; above?: LayerAbove } = {}): string {
   const liveLeads = view.level === 'manager' || view.level === 'conductor' ? (view.leads ?? []) : []
   if (lanes.length === 0 && liveLeads.length === 0) return mdTable(['Lanes'], [[view.level === 'conductor' ? 'no lanes in its repos' : 'no lanes in this repo']]).join('\n')
   const names = entries.flatMap((e) => (typeof e.name === 'string' ? [e.name] : []))
@@ -2045,7 +2118,7 @@ export function laneListText(lanes: Lane[], entries: RegEntry[], now: number, vi
   }
   const head = [...(conds.length > 0 ? ['Conductor'] : []), 'Lane', ...(withFolder ? ['Folder'] : []), 'Session', ...USAGE_HEAD, 'Waiting']
   const level = view.level === 'manager' ? 'Manager' : view.level === 'conductor' ? 'Conductor' : 'Lead'
-  return mdPage(`**${level}${view.name ? ` ${mdEscape(view.name)}` : ''}** · live`, head, rows, [...(view.level === 'manager' && view.conductors === 'error' ? ['(conductors could not be read)'] : []), ...(withWindows >= 2 ? [USAGE_FOOTNOTE] : [])])
+  return mdPage(`**${level}${view.name ? ` ${mdEscape(view.name)}` : ''}** · live${view.above !== undefined && view.level !== 'manager' ? ` · ${aboveText(view.above)}` : ''}`, head, rows, [...(view.level === 'manager' && view.conductors === 'error' ? ['(conductors could not be read)'] : []), ...(withWindows >= 2 ? [USAGE_FOOTNOTE] : [])])
 }
 
 // ---- lead check-ins ----

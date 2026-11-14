@@ -9,6 +9,8 @@ const ADOPT_MAX = 64
 const PID_MAX = 2 ** 22
 // An adopted panel is dropped when its process is still alive this long after the request and no registry entry ever showed it: a close request for an unrelated live process.
 const ADOPT_TTL_MS = 5 * 60_000
+// How long a new panel's registry row must keep its session id before an open answers with it.
+const SETTLE_MS = 2000
 
 // Start time of a process as `ps` prints it in UTC, the way the session registry records procStart; undefined when it cannot be read.
 function psStart(pid) {
@@ -20,7 +22,7 @@ function psStart(pid) {
 }
 const startKey = (s) => (typeof s === 'string' && s.trim() !== '' ? s.trim().replace(/\s+/g, ' ') : undefined)
 
-function createLanes({ vscode, registry, sleep, now, workspaceFolders = () => undefined, timeoutMs = 15000, pollMs = 200, guardMs = 120000, adoptTtlMs = ADOPT_TTL_MS, alive = pidAlive, startOf = psStart }) {
+function createLanes({ vscode, registry, sleep, now, workspaceFolders = () => undefined, timeoutMs = 15000, pollMs = 200, settleMs = SETTLE_MS, guardMs = 120000, adoptTtlMs = ADOPT_TTL_MS, alive = pidAlive, startOf = psStart }) {
   // registry.list() -> [{ sessionId, cwd, entrypoint, name }] (parsed ~/.claude/sessions/*.json)
   let chain = Promise.resolve()
   function serial(fn) {
@@ -67,11 +69,35 @@ function createLanes({ vscode, registry, sleep, now, workspaceFolders = () => un
     for (;;) {
       lastFound = panels(await registry.list()).filter((e) => !seen.has(e.sessionId) && e.cwd === cwd)
       if (lastFound.length > 1) throw new Error('ambiguous: more than one new panel in that folder')
-      if (lastFound.length === 1) return lastFound[0].sessionId
+      if (lastFound.length === 1) return lastFound[0]
       if (now() - start >= limitMs) break
       await sleep(pollMs)
     }
     throw new Error('timeout: no new panel registered')
+  }
+
+  // A new panel's process writes its registry row, and the row can be rewritten with another session id once the panel's session is up (seen: about a
+  // second after the first write on a fast open, and the first id never appears in the registry again). The row is followed by its pid until its session
+  // id and start time have held for settleMs, and that id is the answer. An id still moving when `end` passes is a timeout, as is a row that is gone by then:
+  // the panel stays tracked as late (trackLate), and the mod names it from the registry.
+  async function settled(first, cwd, end) {
+    const same = (a, b) => (a.pid !== undefined ? a.pid === b.pid : a.sessionId === b.sessionId)
+    let cur = first
+    let since = now()
+    let missing = false
+    for (;;) {
+      if (!missing && now() - since >= settleMs) return cur.sessionId
+      if (now() >= end) throw new Error(missing ? 'timeout: the new panel left the registry' : 'timeout: the panel session id did not settle')
+      await sleep(pollMs)
+      const row = panels(await registry.list()).find((e) => e.cwd === cwd && same(cur, e))
+      missing = row === undefined
+      if (missing) {
+        since = now()
+        continue
+      }
+      if (row.sessionId !== cur.sessionId || row.startedAt !== cur.startedAt) since = now()
+      cur = row
+    }
   }
 
   // Opens one panel without a prompt and returns its session id. Opens run one at a time.
@@ -86,18 +112,23 @@ function createLanes({ vscode, registry, sleep, now, workspaceFolders = () => un
       const before = await fullList()
       if (refuseUnnamed && unnamedOurs(before, folder)) throw new Error('unnamed-panel: an unnamed panel already sits in that folder')
       const prev = activeTab()
+      let refocused = false
       try {
         // The fifth argument opens it as a full editor, like a panel opened by hand: no panel header, the editor's background.
         // One time limit covers the registry read, the command and the wait, so the spool still answers before the lead stops waiting.
         await bounded(vscode.commands.executeCommand('claude-vscode.editor.open', undefined, undefined, undefined, undefined, true), left(start, limitMs), 'the open command')
-        const sid = await waitNew(before, folder, left(start, limitMs))
+        const row = await waitNew(before, folder, left(start, limitMs))
+        // The panel took focus when it opened: the lead's tab gets it back now, not after the wait for the id to settle.
+        await refocus(prev)
+        refocused = true
+        const sid = await settled(row, folder, start + limitMs)
         opened.set(sid, now())
         return sid
       } catch (err) {
         if (/^(timeout|ambiguous)/.test(String(err && err.message))) trackLate(folder, before)
         throw err
       } finally {
-        await refocus(prev)
+        if (!refocused) await refocus(prev)
       }
     })
   }

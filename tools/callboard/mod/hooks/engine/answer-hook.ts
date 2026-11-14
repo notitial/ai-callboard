@@ -3,7 +3,7 @@
 import * as c from '../core.ts'
 import * as pr from '../prompts.ts'
 import { grants, checks, openReqs, doneIds, unclosed, askingSids, relayAskedTurn, mem } from '../mem.ts'
-import { run, MKDIR, dirOk, INSTALL, TEE, MV, rmF, where, facts, sha, statR, readSmallR, pause, RMDIR, realR, toast, withTimeout } from './base.ts'
+import { run, MKDIR, dirOk, INSTALL, TEE, MV, rmF, where, facts, sha, statR, readSmallR, pause, RMDIR, realR, toast, withTimeout, GREP } from './base.ts'
 import { registryEntries, registryOf } from './store.ts'
 import { leadsFor, homeOf, presenceCheck } from './grants.ts'
 import { reportLaneOf, sessionRoot } from './lanes.ts'
@@ -11,11 +11,10 @@ import type { Bound } from './lanes.ts'
 import { promptLinkOnce, promptReachTiers, promptStand } from './answer-tiers.ts'
 import { getLane } from '../state.ts'
 
-// ---- prompt answering (ADR 0004): the hook, the files and the switch. Off by default; nothing here lets an agent write a decision. ----
+// ---- prompt answering (ADR 0004): the hook, the files and the switch. On by default while the guard holds; nothing here lets an agent write a decision. ----
 // A PermissionRequest hook in the asking session: it refuses what no agent may answer, writes a request file and waits. The decision comes from
 // prompt_answer or the person, and the hook applies it under every check of pr.applyCheck.
 const UUIDGEN = '/usr/bin/uuidgen'
-const GREP = '/usr/bin/grep'
 
 export const PROMPT_DIRS_MAX = 512
 export const ANSWERING_KEY = 'answering'
@@ -565,9 +564,11 @@ async function promptHook($: any, e: any, nextOnce: (x: any) => Promise<any>, si
     // session list does not show: no row for a judge, the dialog stays the person's.
     if (!leadRead) lead = await promptLeadOf($, cov.level, sid, cwd, cov.lead)
     const leadName = lead?.name
+    // A named lead is reached by its name, which outlives a restart; an unnamed one only by its session id.
+    const leadSid = leadName ? undefined : lead?.sid
     const own = await registryOf($, sid)
     const liveNow = await registryEntries($)
-    const reach = own && typeof own.pid === 'number' && typeof own.procStart === 'string' && liveNow ? await promptReachTiers($, liveNow, cov.a, { sid, pid: own.pid, procStart: own.procStart, level: cov.level, lane: cov.lane ?? cov.self, ...(leadName ? { leadName } : {}), repo: cwd, tool }, cov.level === 'lane' && lead === undefined).catch(() => [] as pr.Tier[]) : ([] as pr.Tier[])
+    const reach = own && typeof own.pid === 'number' && typeof own.procStart === 'string' && liveNow ? await promptReachTiers($, liveNow, cov.a, { sid, pid: own.pid, procStart: own.procStart, level: cov.level, lane: cov.lane ?? cov.self, ...(leadName ? { leadName } : {}), ...(leadSid ? { leadSid } : {}), repo: cwd, tool }, cov.level === 'lane' && lead === undefined).catch(() => [] as pr.Tier[]) : ([] as pr.Tier[])
     if (reach.length === 0 && own && typeof own.pid === 'number' && typeof own.procStart === 'string') {
       await ledgerAdd($, { ...base, kind: 'abandoned', code: 'no-tier' })
       return beneath
@@ -582,7 +583,7 @@ async function promptHook($: any, e: any, nextOnce: (x: any) => Promise<any>, si
     const id = await promptNewId($)
     const nonce = await promptNewId($)
     const capped = pr.capInput(input)
-    const req: pr.Request = { id, sid, pid: own.pid, procStart: own.procStart, level: cov.level, lane: cov.lane ?? cov.self, ...(leadName ? { leadName } : {}), ...(cov.level === 'lane' && lead === undefined ? { noLead: true } : {}), repo: cwd, tool, inputHash: hash, raisedBy: judged.raisedBy, at: started, expiresAt: started + pr.EXPIRES_MS, nonce, input: capped.input, truncated: capped.truncated }
+    const req: pr.Request = { id, sid, pid: own.pid, procStart: own.procStart, level: cov.level, lane: cov.lane ?? cov.self, ...(leadName ? { leadName } : {}), ...(leadSid ? { leadSid } : {}), ...(cov.level === 'lane' && lead === undefined ? { noLead: true } : {}), repo: cwd, tool, inputHash: hash, raisedBy: judged.raisedBy, at: started, expiresAt: started + pr.EXPIRES_MS, nonce, input: capped.input, truncated: capped.truncated }
     const text = pr.requestText(req)
     if (new TextEncoder().encode(text).length > pr.REQUEST_MAX || !(await promptPut($, `${dir}/${id}.request.json`, text))) {
       await ledgerAdd($, { ...base, kind: 'abandoned', code: 'hook-failed' })

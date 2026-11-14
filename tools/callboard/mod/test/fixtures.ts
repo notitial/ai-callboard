@@ -242,7 +242,7 @@ export const listed = async ($: any) => (await $.tool.call(listCall())).result a
 // waiting]; four columns means the table has a Folder column. A named lead is the live one that lists (session `lead`, no reading); `Any lead` has no session. The figure
 // cells are added here: `?` for a live row with no reading, empty for the rest. noNote drops the lanes-changed note, which follows the table after a blank line.
 export const ANY: [string, string] = ['Any lead', 'app']
-const LEADHEAD = '**Lead LEAD** · live'
+const LEADHEAD = '**Lead LEAD** · live · none'
 const NO_READING = ['?', '?', '?', '?', '–']
 export const mdTable = (groups: Array<[string, string, string[][]]>, head = LEADHEAD) => {
   const withFolder = groups.some(([, , rows]) => rows.some((r) => r.length === 4))
@@ -267,7 +267,8 @@ export const COMPOSE = { model: 'm', promptModel: 'm', surfaces: [], tools: ['Ba
 export const briefings = (r: any) => (r.sections as { id: string; text: string; scope: string }[]).filter((x) => x.id === 'callboard:lead')
 
 export const noteRows = () => h.appendRows.map((m) => ({ type: m.type, blocks: m.content.length, text: m.content[0].text as string }))
-export const storeText = (n: number) => JSON.stringify({ repo: PIN, lanes: [], creates: Array.from({ length: n }, (_, i) => i) })
+// A store with n lanes that name no lead, so every lead's watch sees each change of n.
+export const storeText = (n: number) => JSON.stringify({ repo: PIN, lanes: Array.from({ length: n }, (_, i) => ({ name: `L${i}`, folder: `${PIN}/l${i}`, brief: `${PIN}/l${i}/BRIEF.md`, createdAt: 1 })), creates: [] })
 export const notices = () => submitted.filter((t) => t === LANES_CHANGED_TEXT).length
 
 export const OTHERLEAD = '6a1b2c3d-0000-4000-8000-123456789abc'

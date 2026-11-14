@@ -212,12 +212,12 @@ test('lane_open refuses an answer that is not exactly ok or error', async ($, on
   expect(JSON.stringify(await p)).toContain('bad-result')
 })
 
-test('lane_open gives up after 8 seconds and withdraws its request', async ($, on) => {
+longTest('lane_open gives up after 45 seconds and withdraws its request', async ($, on) => {
   const argv: string[][] = []
   await lead($, on, [], { sess: {}, argv, clock: true })
   const p = $.tool.call(leadCall('open'))
-  for (let i = 0; i < 17; i++) await h.clock!.advance(500)
-  expect(JSON.stringify(await p)).toContain('no window answered in time')
+  for (let i = 0; i < 91; i++) await h.clock!.advance(500)
+  expect(JSON.stringify(await p)).toContain('no window answered within 45 seconds')
   expect(argv.some((a) => a[0] === '/bin/rm' && a[a.length - 1] === '/Users/x/.claude/callboard/open/LABLANE.open')).toBe(true)
 })
 
@@ -532,6 +532,28 @@ test('a sid-only or parked-only change of the store raises no lanes-changed turn
   expect(notices()).toBe(2)
 })
 
+test('a change to the lane of another lead, or to the create times, raises no lanes-changed turn; a change to a lane of this lead, or of none, does', async ($, on) => {
+  await leadAt($, on, [], { clock: true })
+  const api = { name: 'API', folder: `${PIN}/api`, brief: `${PIN}/api/BRIEF.md`, createdAt: 1 }
+  const theirs = { ...api, name: 'THEIRS', leadName: 'LEAD2', leadSid: OTHERLEAD }
+  putStore([api])
+  await tickTwice()
+  expect(notices()).toBe(1)
+  putStore([api, theirs])
+  await tickTwice()
+  putStore([api, { ...theirs, brief: `${PIN}/api/OTHER.md` }, { ...theirs, name: 'MORE', leadName: undefined }], [1, 2])
+  await tickTwice()
+  putStore([api, theirs], [1, 2, 3])
+  await tickTwice()
+  expect(notices()).toBe(1)
+  putStore([{ ...api, brief: `${PIN}/api/NEW.md` }, theirs])
+  await tickTwice()
+  expect(notices()).toBe(2)
+  putStore([{ ...api, brief: `${PIN}/api/NEW.md` }, theirs, { ...api, name: 'MINE', leadName: 'LEAD', leadSid: SID }])
+  await tickTwice()
+  expect(notices()).toBe(3)
+})
+
 for (const cmd of ['off', 'lane off']) {
   test(`/callboard ${cmd} in a born store lane removes its session id from the record and says nothing more`, async ($, on) => {
     const stdins: string[] = []
@@ -784,7 +806,7 @@ test('lane_unpark: a row of that sid whose pid start no longer matches counts as
   expect(reopenWrites(argv).length).toBe(1)
 })
 
-test('lane_unpark gives up after 8 seconds and withdraws its request; a window error gets the reopen text, not lane_open\'s', async ($, on) => {
+longTest('lane_unpark gives up after 45 seconds and withdraws its request; a window error gets the reopen text, not lane_open\'s', async ($, on) => {
   const argv: string[][] = []
   await unparker($, on, [], argv)
   expect(JSON.stringify(await unparkCall($))).toContain('lane_unpark refused: reopen-timeout: no window answered in time. A VS Code window with the lane folder as its first folder must run the callboard panels extension.')

@@ -62,8 +62,8 @@ For waking a lead:
   request** for the extension (name, repo, nonce). The extension claims the request once, opens a panel only in a
   window whose first workspace folder is the repo's exact real path, and answers the new session's id. It never
   reads the offer or the brief.
-- **Waiting.** A lead's panel is waited for up to 45 s in the extension and 50 s in the mod, which gives a slow
-  cold window room; a fast open answers at the next poll. The extension echoes the request's nonce in its answer
+- **Waiting.** A lead's panel is waited for up to 45 s in the extension and 70 s in the mod, which gives a slow
+  cold window room and covers one lane open queued ahead of it; a fast open answers at the next poll. The extension echoes the request's nonce in its answer
   (`ok <session id> <nonce>`) and the mod refuses an answer that names another. The brief is written once the
   panel is open and before the cue: a brief that cannot be written sends no cue, takes the offer back and voids
   its row (`brief-write`).

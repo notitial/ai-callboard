@@ -42,6 +42,7 @@ import {
   real,
   REALPATH,
   HEAD,
+  GREP,
   withTimeout,
   submitOwn,
   logFail,
@@ -89,6 +90,7 @@ import {
   leadBusy,
   leadHere,
   managerTrusted,
+  managersLive,
   conductorsTrusted,
   pinOf,
   conductorReach,
@@ -520,7 +522,8 @@ async function birthRename(
     if (stored === undefined) await refuse('bind-turns-mismatch')
     else await answer('ok')
     await withTimeout($, leadLookup, c.ENGINE_CALL_TIMEOUT_MS)
-    return log($, sid, 'renamed')
+    // The log's `renamed` line is the proof a cue with no answer was carried out: a refused rename leaves none.
+    if (stored !== undefined) await log($, sid, 'renamed')
   } finally {
     laneBinding.delete(sid)
   }
@@ -946,6 +949,21 @@ export async function leadCore($: any, sid: string) {
   return { lanes, live, g }
 }
 
+// Who is live above a lead (pin: its repo, for the conductors that list it) or a conductor (no pin): conductorsTrusted and managersLive, no new trust logic.
+// A manager counts as the cues count it: its file passed the checks and the registry gives it a name. A manager look that could not be made (an unverified entry) is
+// 'error', never `none`; conductorsTrusted gives nothing when its look fails, so a failed conductor look reads as no conductor.
+async function layerAbove($: any, live: RegRow[], sid: string, pin: string | undefined): Promise<c.LayerAbove> {
+  try {
+    const conductors = pin === undefined ? [] : (await conductorsTrusted($, live, sid, pin)).map((x) => x.name)
+    const found = await managersLive($, live, sid)
+    if (found.some((m) => m.unverified === true)) return 'error'
+    const managers = found.flatMap((m) => (m.name !== undefined ? [m.name] : []))
+    return { conductors, managers }
+  } catch {
+    return 'error'
+  }
+}
+
 // The table behind both lane_list and `/callboard lanes`, so the two cannot drift.
 export async function laneTable($: any, sid: string) {
   const base = await leadCore($, sid)
@@ -959,7 +977,9 @@ export async function laneTable($: any, sid: string) {
   // The figure columns read the live lanes' files, the lead's own in its own list, and the leads' in a conductor's or the manager's list; any read that fails leaves a row at no reading.
   const wanted = [...(base.g.level === 'lead' ? [sid] : []), ...lanes.map((l) => { const one = c.laneSession(entries, l, ''); return one.ok ? one.entry.sessionId : '' }), ...leads.map((x) => x.sid ?? '')]
   const usage = await usageReadings($, wanted.flatMap((sid) => entries.filter((e) => e.sessionId === sid)), now).catch(() => new Map<string, c.UsageReading>())
-  const text = c.laneListText(lanes, entries, now, { level: base.g.level, name: base.g.name, self: sid, conductors, leads, usage })
+  // The layer above: a lead's trusted conductors and its live manager, a conductor's live manager; the manager has none. The same lookups the cues use.
+  const above = base.g.level === 'manager' ? undefined : await layerAbove($, base.live, sid, base.g.level === 'lead' ? pinOf(sid) : undefined)
+  const text = c.laneListText(lanes, entries, now, { level: base.g.level, name: base.g.name, self: sid, conductors, leads, usage, above })
   return { text }
 }
 
@@ -1120,7 +1140,9 @@ export async function detach($: any, sid: string, b: Bound): Promise<{ sidKept: 
 
 export async function leadVerbCall($: any, e: any, next: any, verb: (typeof c.LEAD_VERBS)[number]) {
   return leadTool($, e, verb, async (sid, no) => {
-      const deadline = (await $.clock.now()) + c.RESULT_DEADLINE_MS
+      // A rename and a start get the longer deadline: the session needs its next tick, then settles its turn count or sets its model, and the wait for it to register counts too.
+      const slow = verb === 'rename' || verb === 'start'
+      const deadline = (await $.clock.now()) + (slow ? c.LANE_CUE_DEADLINE_MS : c.RESULT_DEADLINE_MS)
       // The manager's lane_compact may name a live lead by its session name, in any repo (leadByName).
       // The conductor's too, for a lead of its repos.
       if (verb === 'compact' && (grantOf(sid)?.level === 'manager' || grantOf(sid)?.level === 'conductor')) {
@@ -1137,14 +1159,18 @@ export async function leadVerbCall($: any, e: any, next: any, verb: (typeof c.LE
       // A parked lane keeps its conversation: a new session is never bound over it (lane_unpark reopens it).
       if (verb === 'rename' && prep.lane.parked !== undefined) return no('parked', c.reasonWhy('parked'))
       let to = c.leadTarget(prep.entries, prep.lane, sid, verb, (e as { sid?: unknown }).sid)
-      for (let i = 0; verb === 'start' && !to.ok && to.reason === 'no-live-session' && i < c.START_WAIT_TRIES; i++) {
+      const tries = verb === 'rename' ? c.RENAME_WAIT_TRIES : c.START_WAIT_TRIES
+      for (let i = 0; slow && !to.ok && to.reason === 'no-live-session' && i < tries; i++) {
         if (!(await pause($, c.START_WAIT_MS))) break
         const again = await leadPrep($, e, sid)
         if ('err' in again) return no(...again.err)
         prep = again
         to = c.leadTarget(prep.entries, prep.lane, sid, verb, (e as { sid?: unknown }).sid)
       }
-      if (!to.ok) return no(to.reason, c.reasonWhy(to.reason))
+      if (!to.ok) {
+        if (verb === 'rename' && to.reason === 'no-live-session') return no(to.reason, c.renameNoSessionText(prep.entries, prep.lane, sid, (e as { sid: string }).sid, await $.clock.now()))
+        return no(to.reason, c.reasonWhy(to.reason))
+      }
       // A lead's lane_compact never cues a session that holds a live presence file (another lead carrying the lane's name),
       // as leadByName's lane-or-lead; a file whose check could not be made counts (fail closed).
       if (verb === 'compact' && (grantOf(sid)?.level === 'lead' || grantOf(sid)?.level === 'conductor')) {
@@ -1152,10 +1178,44 @@ export async function leadVerbCall($: any, e: any, next: any, verb: (typeof c.LE
         if (!live) return no('registry-unreadable', c.reasonWhy('registry-unreadable'))
         if (await presenceHeld($, live, to.sid)) return no('lane-or-lead', c.reasonWhy('lane-or-lead'))
       }
-      const sent = await cueExchange($, sid, prep.lane.name, to.sid, verb, deadline, no)
+      // No answer for a rename or a start is not yet a failure: the session's cue folder and its own log say whether it read the cue and did it.
+      const target = to.sid
+      const st: { fate?: c.CueFate } = {}
+      const cueSince = await $.clock.now()
+      const noCue = !slow
+        ? no
+        : async (reason: string, why: string) => {
+            if (reason !== 'no-answer') return no(reason, why)
+            st.fate = await cueFate($, target, verb, cueSince)
+            if (st.fate === 'done') return { deny: '' }
+            return no(reason, st.fate === 'waiting' ? c.NO_ANSWER_WAITING : why)
+          }
+      const sent = await cueExchange($, sid, prep.lane.name, target, verb, deadline, noCue)
+      if (sent && st.fate === 'done') {
+        await log($, sid, 'acted-late', `${verb} ${prep.lane.name}`)
+        return { result: c.lateDoneText(verb, prep.lane.name, target) }
+      }
       if (sent) return sent
       return { result: `cue ${verb} acted for lane ${prep.lane.name}.` }
     })
+}
+
+// What became of a rename or start cue that got no answer in time: 'waiting' while the cue file is still in the session's cue folder (unread), 'done' when the
+// session's own log holds the line it writes once it has carried the cue out (renamed, started; the answer goes first) dated at or after `since`, the time the
+// cue was sent, otherwise 'taken'. Any failed check is 'taken'.
+async function cueFate($: any, toSid: string, verb: 'rename' | 'start', since: number): Promise<c.CueFate> {
+  try {
+    const p = await where($)
+    if (!p) return 'taken'
+    if (await facts($, `${p.root}/cue/${toSid}.cue`)) return 'waiting'
+    const file = `${p.root}/log/${toSid}.jsonl`
+    const f = await facts($, file)
+    if (!f || c.cueFileOk(f, p.uid)) return 'taken'
+    const r = await run($, [GREP, '-F', '--', verb === 'rename' ? '"event":"renamed"' : '"event":"started"', file])
+    return r.exitCode === 0 && c.lateLogDone(r.stdout, verb, since) ? 'done' : 'taken'
+  } catch {
+    return 'taken'
+  }
 }
 
 export async function laneCreateCall($: any, e: any, next: any) {
@@ -1277,7 +1337,7 @@ export async function laneOpenCall($: any, e: any, next: any) {
     if (prep.lane.adopted) return no('adopted-record', c.reasonWhy('adopted-record'))
     if (prep.lane.parked !== undefined) return no('parked', c.reasonWhy('parked'))
     if (prep.entries.some((x) => x.name === prep.lane.name)) return no('name-in-use', 'a live session already carries that lane name.')
-    const r = await openExchange($, sid, prep.lane.name, 'open', c.OPEN_TEXT, 'no window answered in time. A VS Code window with the lane folder as its first workspace folder must run the callboard panels extension. A panel may still appear: check for an unnamed session in that folder first.', no)
+    const r = await openExchange($, sid, prep.lane.name, 'open', c.OPEN_TEXT, 'no window answered within 45 seconds. A VS Code window with the lane folder as its first workspace folder must run the callboard panels extension. A panel may still appear: check for an unnamed session in that folder first.', no)
     if ('deny' in r) return r
     await log($, sid, 'opened', prep.lane.name)
     return { result: `lane ${prep.lane.name}: panel opened as session ${r.sid}. Next: lane_rename with sid ${r.sid}, then lane_start.` }

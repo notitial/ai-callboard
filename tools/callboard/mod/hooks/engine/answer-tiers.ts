@@ -82,7 +82,7 @@ async function promptRequests($: any, p: { uid: number; root: string }, accept?:
 // names; a lead is a live lead of the repo (narrowed to the lead the request names), a conductor one whose approved pins hold the request's folder, the manager a
 // trusted one. The switch's scope applies to each. Nobody is the asker. noLead: the lane's own lead could not be resolved (its record names another, or none is
 // found), so no lead is asked, whichever leads are live. Empty: nobody can be asked, and the prompt stays the person's.
-type ReachQ = Pick<pr.Request, 'sid' | 'pid' | 'procStart' | 'level' | 'lane' | 'leadName' | 'repo' | 'tool'>
+type ReachQ = Pick<pr.Request, 'sid' | 'pid' | 'procStart' | 'level' | 'lane' | 'leadName' | 'leadSid' | 'repo' | 'tool'>
 export async function promptReachTiers($: any, live: RegRow[], a: pr.Answering, q: ReachQ, noLead = false): Promise<pr.Tier[]> {
   if (!live.some((r) => r.j.sessionId === q.sid && String(r.j.pid) === r.pid && r.pid === String(q.pid) && r.j.procStart === q.procStart)) return []
   const rows = live.map((r) => r.j)
@@ -91,7 +91,7 @@ export async function promptReachTiers($: any, live: RegRow[], a: pr.Answering, 
   if (q.level === 'lane' && !noLead) {
     for (const l of await leadsFor($, live, q.repo).catch(() => [] as c.LeadFile[])) {
       const name = c.leadNameOf(rows, l.sid) ?? ''
-      if (l.sid === q.sid || (q.leadName !== undefined && (name === '' || q.leadName !== name))) continue
+      if (l.sid === q.sid || (q.leadSid !== undefined && l.sid !== q.leadSid) || (q.leadName !== undefined && (name === '' || q.leadName !== name))) continue
       if (pr.requestCovered(a, q, { lane: q.lane, lead: name === '' ? undefined : name })) tiers.push({ level: 'lead', sid: l.sid, name })
     }
   }

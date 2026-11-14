@@ -113,7 +113,8 @@ export const laneBriefed = new Map<string, string>()
 
 // ---- the lead's watch on its own lane list ----
 // cur: the hash of the store file as last read; told: the hash the lead has been told about (or was dropped); seen: the hash at the lead's last lane tool call.
-export type Watch = { path: string; sig?: string; cur: string; told: string; seen: string }
+// name: the lead's name that cur was hashed under; last: the store as read for it (rehashed when the name changes).
+export type Watch = { path: string; sig?: string; name?: string; last?: { state: string; text: string }; cur: string; told: string; seen: string }
 export const watch = new Map<string, Watch>()
 export const laneNotices = new Map<string, number[]>()
 export const cappedLogged = new Set<string>()

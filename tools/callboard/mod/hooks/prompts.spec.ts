@@ -95,6 +95,12 @@ test('capInput: strings redacted and capped, the whole kept under the cap, trunc
   assert.equal(wide.truncated, true)
   assert.ok(new TextEncoder().encode(JSON.stringify(wide.input)).length <= p.INPUT_CAP)
   assert.equal(p.capInput({ f: () => 1 } as any).truncated, true)
+  assert.equal(p.capInput({ n: 1n } as any).truncated, true)
+  // An undefined value is what JSON drops, so nothing is cut: a field is left out and an array slot is null, as the whole-input hash sees it.
+  const undef = p.capInput({ command: 'ls -t /x | head -5', description: undefined, list: ['a', undefined], deep: { x: undefined } })
+  assert.deepEqual(undef, { input: { command: 'ls -t /x | head -5', list: ['a', null], deep: {} }, truncated: false })
+  assert.equal(p.capInput({ f: () => 1, description: undefined } as any).truncated, true)
+  assert.equal(p.capInput(undefined).truncated, false)
   // What prompt_list would have to cut is marked truncated here too, so prompt_answer refuses an allow of it: `<` is escaped to six bytes, and the list is indented.
   const angle = p.capInput({ a: '<'.repeat(10_000), b: '<'.repeat(10_000), c: '<'.repeat(10_000) })
   assert.equal(angle.truncated, true)
@@ -217,7 +223,7 @@ test('patternOf: argv0 only, owner/repo and number for GitHub, a repo-relative p
 })
 
 // ---- the switch ----
-test('answering: off by default, scope and asks parsed, a look-alike covers nothing', () => {
+test('answering: a missing or malformed value parses to nothing, scope and asks parsed, a look-alike covers nothing', () => {
   assert.equal(p.parseAnswering(undefined), undefined)
   assert.equal(p.parseAnswering({ scope: 'all', asks: false }), undefined)
   assert.deepEqual(p.parseAnswering({ scope: 'LANE1', asks: false, savedAt: 1 }), { scope: 'LANE1', asks: false, savedAt: 1 })

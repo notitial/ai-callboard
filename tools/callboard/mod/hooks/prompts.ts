@@ -91,7 +91,7 @@ export const LIST_TEXT_MAX = 48 * 1024
 const LIST_INPUT_MAX = LIST_TEXT_MAX - 16 * 1024
 const listJson = (input: unknown): string => (JSON.stringify(input, null, 1) ?? 'null').replace(/</g, '\\u003c')
 // The copy of a tool's input the tier reads: every string redacted and capped, the whole kept under INPUT_CAP. truncated: the tier has not seen all of it, and
-// the rubric then passes it up. Anything not plain JSON (a function, a cycle) is cut the same way, never thrown.
+// the rubric then passes it up. Anything not plain JSON (a function, a cycle) is cut the same way, never thrown; an undefined value is not, as JSON drops it.
 export function capInput(input: unknown): { input: unknown; truncated: boolean } {
   let cut = false
   const walk = (v: any, depth: number, secret = false): any => {
@@ -109,13 +109,15 @@ export function capInput(input: unknown): { input: unknown; truncated: boolean }
       return r.text
     }
     if (v === null || typeof v === 'number' || typeof v === 'boolean') return v
+    // JSON has no undefined: an object drops the field and an array holds null, as in the whole-input hash, so nothing is cut.
+    if (v === undefined) return undefined
     if (depth > 12) {
       cut = true
       return '[too deep]'
     }
-    if (Array.isArray(v)) return v.slice(0, 200).map((x) => walk(x, depth + 1, secret)).concat(v.length > 200 ? ((cut = true), ['[more]']) : [])
+    if (Array.isArray(v)) return v.slice(0, 200).map((x) => walk(x, depth + 1, secret) ?? null).concat(v.length > 200 ? ((cut = true), ['[more]']) : [])
     if (v && typeof v === 'object') {
-      const keys = Object.keys(v)
+      const keys = Object.keys(v).filter((k) => v[k] !== undefined)
       if (keys.length > 100) cut = true
       return Object.fromEntries(keys.slice(0, 100).map((k) => [capBytes(redact(k), 200).text, walk(v[k], depth + 1, secret || SECRET_KEY(k))]))
     }
@@ -173,7 +175,7 @@ export function classify(tool: string, f: CheckFacts): Judge {
   return set(f.rule) ? { judge: 'agents', raisedBy: 'rule' } : { judge: 'agents', raisedBy: 'mode' }
 }
 
-// ---- the switch: stored under `answering`; off by default ----
+// ---- the switch: stored under `answering`; nothing stored means the default, on while the guard holds ----
 // asks is kept `false` in every value this mod writes, so that an older mod after a rollback (which requires a boolean) still reads the value; it is read for nothing.
 // asksScope is the questions scope: a question is covered only by it (and by the permission scope). Only /callboard escalation writes it now, and always `all`; a narrower value an earlier version stored still reads.
 export type Answering = { scope: string; asks: boolean; savedAt: number; asksScope?: string }
@@ -266,6 +268,8 @@ export type Request = {
   // The lane's name; for a lead's own prompt (level 'lead') the lead's own name.
   lane?: string
   leadName?: string
+  // The session id of the lane's own lead, when it was resolved and has no name: the one lead tier asked. A named lead is reached by leadName.
+  leadSid?: string
   // The lane's own lead could not be resolved when the request was raised (its record names a lead that is not live, or none is found): no lead is asked, whichever leads are live.
   noLead?: boolean
   repo: string
@@ -835,8 +839,8 @@ export function parseRequest(text: string): Request | undefined {
   if (typeof o.repo !== 'string' || typeof o.tool !== 'string' || typeof o.inputHash !== 'string' || !HASH_RE.test(o.inputHash) || typeof o.nonce !== 'string' || o.nonce === '') return undefined
   if (o.raisedBy !== 'mode' && o.raisedBy !== 'rule' && o.raisedBy !== 'guard') return undefined
   if (!finite(o.at) || !finite(o.expiresAt) || typeof o.truncated !== 'boolean') return undefined
-  if ((o.lane !== undefined && typeof o.lane !== 'string') || (o.leadName !== undefined && typeof o.leadName !== 'string') || (o.agentType !== undefined && typeof o.agentType !== 'string') || (o.noLead !== undefined && typeof o.noLead !== 'boolean')) return undefined
-  return { id: o.id, sid: o.sid, pid: o.pid as number, procStart: o.procStart, level: o.level, lane: o.lane as string | undefined, leadName: o.leadName as string | undefined, ...(o.noLead === true ? { noLead: true } : {}), repo: o.repo, tool: o.tool, agentType: o.agentType as string | undefined, inputHash: o.inputHash, raisedBy: o.raisedBy, at: o.at, expiresAt: o.expiresAt, nonce: o.nonce, input: o.input, truncated: o.truncated }
+  if ((o.lane !== undefined && typeof o.lane !== 'string') || (o.leadName !== undefined && typeof o.leadName !== 'string') || (o.leadSid !== undefined && (typeof o.leadSid !== 'string' || !SID_RE.test(o.leadSid))) || (o.agentType !== undefined && typeof o.agentType !== 'string') || (o.noLead !== undefined && typeof o.noLead !== 'boolean')) return undefined
+  return { id: o.id, sid: o.sid, pid: o.pid as number, procStart: o.procStart, level: o.level, lane: o.lane as string | undefined, leadName: o.leadName as string | undefined, ...(o.leadSid !== undefined ? { leadSid: o.leadSid as string } : {}), ...(o.noLead === true ? { noLead: true } : {}), repo: o.repo, tool: o.tool, agentType: o.agentType as string | undefined, inputHash: o.inputHash, raisedBy: o.raisedBy, at: o.at, expiresAt: o.expiresAt, nonce: o.nonce, input: o.input, truncated: o.truncated }
 }
 // prompt_escalate by position: a tier that is not the top passes the request up, and its right to answer ends. The file is `<id>.escalate-<level>.json`
 // (level: the tier that passed it; sid: that tier's session).
