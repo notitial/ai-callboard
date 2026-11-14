@@ -242,7 +242,7 @@ export const listed = async ($: any) => (await $.tool.call(listCall())).result a
 // waiting]; four columns means the table has a Folder column. A named lead is the live one that lists (session `lead`, no reading); `Any lead` has no session. The figure
 // cells are added here: `?` for a live row with no reading, empty for the rest. noNote drops the lanes-changed note, which follows the table after a blank line.
 export const ANY: [string, string] = ['Any lead', 'app']
-const LEADHEAD = '**Lead LEAD** · live'
+const LEADHEAD = '**Lead LEAD** · live · none'
 const NO_READING = ['?', '?', '?', '?', '–']
 export const mdTable = (groups: Array<[string, string, string[][]]>, head = LEADHEAD) => {
   const withFolder = groups.some(([, , rows]) => rows.some((r) => r.length === 4))
