@@ -1296,8 +1296,8 @@ export const OPEN_POLL_MS = 500
 // 45 s: the panels extension waits up to 20 s for a lane's panel and for its session id to settle, and handles requests one at a time, so a request
 // queued behind another open can wait that long before its own wait starts.
 export const OPEN_POLL_MAX = 90
-// A lead's panel is waited for longer (50 s): the extension gives up at 45 s. An upper bound: a fast open answers at the next poll.
-export const LEAD_OPEN_POLL_MAX = 100
+// A lead's panel is waited for longer (70 s): the extension gives up at 45 s, and its request can queue behind one lane open (20 s) first. An upper bound: a fast open answers at the next poll.
+export const LEAD_OPEN_POLL_MAX = 140
 // The longest answer to a lead request, `ok <session id> <nonce>\n` (73 bytes), as the mod reads it; a lane's answers keep RESULT_MAX.
 export const LEAD_OPEN_RESULT_MAX = 96
 

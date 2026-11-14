@@ -12,11 +12,11 @@ const SESSIONS = path.join(CLAUDE, 'sessions')
 
 const registry = createRegistry(SESSIONS)
 
-// Shorter than the lead's 30 s wait for lane_open, which also covers the spool's 1 s scan and the lead's 0.5 s poll. Long enough for a slow panel and for
+// Shorter than the lead's 45 s wait for lane_open, which also covers the spool's 1 s scan and the lead's 0.5 s poll. Long enough for a slow panel and for
 // its session id to settle (lanes.js).
 const SPOOL_OPEN_MS = 20000
 
-// A lead's panel gets a longer wait than a lane's: an upper bound that gives a slow cold window room (a fast open still answers at once). Shorter than the mod's 50 s wait for it.
+// A lead's panel gets a longer wait than a lane's: an upper bound that gives a slow cold window room (a fast open still answers at once). Shorter than the mod's 70 s wait for it, which also covers one lane open queued ahead.
 const LEAD_OPEN_MS = 45000
 
 // claude-vscode.editor.open opens the panel in the window's first folder, so a lane is only this window's when its folder is that one.

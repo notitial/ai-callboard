@@ -90,7 +90,7 @@ for (const [added, surface, expectOk] of [[1, 'a panel', true], [0, 'the termina
     await renameThroughTick($, on, stdins, added)
     const names = allEvents(stdins).map((e) => `${e.event}:${e.reason}`)
     expect(names.some((n) => n.startsWith('error'))).toBe(false)
-    expect(names).toContain('renamed:')
+    expect(names.includes('renamed:')).toBe(expectOk)
     expect(names.includes('refused:bind-turns-mismatch')).toBe(!expectOk)
     expect(h.cueFile!.present).toBe(false)
   })
@@ -544,6 +544,7 @@ test('a count that grows by more than a rename adds is not bound: the rename is 
   await modelLane($, on, stdins, undefined, { late: { afterMs: 100, added: 2 }, added: 0 }).catch(() => undefined)
   expect(resultFiles.get(RESULT)).toBe('rename refused bind-turns-mismatch 42\n')
   expect(logged(stdins)).toContain('refused:bind-turns-mismatch')
+  expect(logged(stdins)).not.toContain('renamed:')
 })
 
 test('start still refuses a session someone typed into after the rename, and logs the counts', async ($, on) => {

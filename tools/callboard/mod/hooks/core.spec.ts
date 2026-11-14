@@ -623,7 +623,8 @@ test('parseOpenResult for a lead request takes an answer with its nonce, or with
   assert.deepEqual(c.parseOpenResult(`ok ${OTHER} ${N}\n`), { ok: false, reason: 'bad-result' })
   assert.deepEqual(c.parseOpenResult('error timeout\n', c.OPEN_TEXT_BY_CODE, N), { ok: false, reason: 'timeout' })
   assert.ok(`ok ${OTHER} ${N}\n`.length <= c.LEAD_OPEN_RESULT_MAX)
-  assert.ok(c.LEAD_OPEN_POLL_MAX * c.OPEN_POLL_MS > 45_000)
+  // The extension's 45 s wait for a lead's panel starts when it reaches the request, so the mod also covers one lane open (20 s) queued ahead of it, and its own poll.
+  assert.ok(c.LEAD_OPEN_POLL_MAX * c.OPEN_POLL_MS >= 20_000 + 45_000 + 5_000)
 })
 
 test('the lead question names every ability the grant turns on', () => {

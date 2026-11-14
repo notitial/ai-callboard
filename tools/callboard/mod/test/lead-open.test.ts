@@ -80,14 +80,14 @@ longTest('lead_open takes an answer that echoes the request nonce, one with none
   expect(offers()).toEqual([])
 })
 
-longTest('a lead panel is waited for up to 50 s: an answer at 30 s is taken, a window silent for the whole wait is not', async ($, on) => {
+longTest('a lead panel is waited for up to 70 s: an answer at 30 s is taken, a window silent for the whole wait is not', async ($, on) => {
   const argv: string[][] = []
   await conductor($, on, argv)
   expect(await openEchoing($, (n) => n, 30_000)).toContain('lead LEAD-N is on as session')
   const p = $.tool.call(call({ name: 'LEAD-M' }))
   let done = false
   void p.then(() => { done = true })
-  for (let i = 0; i < 45; i++) await h.clock!.advance(1000)
+  for (let i = 0; i < 65; i++) await h.clock!.advance(1000)
   expect(done).toBe(false)
   for (let i = 0; i < 10; i++) await h.clock!.advance(1000)
   expect(JSON.stringify(await p)).toContain('no window answered in time')

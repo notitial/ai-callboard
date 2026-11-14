@@ -522,7 +522,8 @@ async function birthRename(
     if (stored === undefined) await refuse('bind-turns-mismatch')
     else await answer('ok')
     await withTimeout($, leadLookup, c.ENGINE_CALL_TIMEOUT_MS)
-    return log($, sid, 'renamed')
+    // The log's `renamed` line is the proof a cue with no answer was carried out: a refused rename leaves none.
+    if (stored !== undefined) await log($, sid, 'renamed')
   } finally {
     laneBinding.delete(sid)
   }
