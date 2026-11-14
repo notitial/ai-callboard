@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.3.2
+
+- A `<NAME>.close` request may carry the lane's folder as a fourth line, and then needs no lane record: the tab of a retired or terminated lane closes even though the record is gone before the next scan. The three-line form still works while the lane is listed. The body limit is 1200 bytes.
+
 ## 1.3.1
 
 - Docs only: the README and the package description say the extension also opens a new lead's panel for a conductor, and the README no longer shows the icon inline (it appeared broken on the details page).
