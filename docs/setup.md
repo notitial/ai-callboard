@@ -119,24 +119,13 @@ conductor repo: for each conductor repo, add the absolute form too
 
 ### Keep agents off the live checkout
 
-By hand too: ai-toolkit carries nothing about callboard. Add these six lines to `permissions.deny` in your global
-`~/.claude/settings.json`, with `/<checkout>` written as your checkout's real path. `<checkout>` starts with `/`, so
-each rule starts with `//`, as in `Edit(//Users/x/ai-manager/tools/**)`:
-
-```json
-"Edit(/<checkout>/tools/**)",
-"Edit(/<checkout>/rules/**)",
-"Edit(/<checkout>/.claude/**)",
-"Edit(/<checkout>/docs/**)",
-"Edit(/<checkout>/CLAUDE.md)",
-"Edit(/<checkout>/.git/**)"
-```
-
-The live checkout feeds every session more than the mod: the extension, the always-on rule `rules/callboard.md`,
-`CLAUDE.md`, the skills under `.claude/` and the manager's `docs/`. Its `.git/` decides what a pull brings and what
-git runs. These lines keep an agent's Edit and Write tools off all of it; `.archive/` stays writable. Agents never
-need the rest: they edit in `/tmp` clones. Like the lines above, they do not stop a shell write
-([ADR 0003](adr/0003-symlinked-install.md), Consequences).
+No deny lines are needed for this. The live checkout feeds every session more than the mod: the extension, the
+always-on rule `rules/callboard.md`, `CLAUDE.md`, the skills under `.claude/` and the manager's `docs/`. Its `.git/`
+decides what a pull brings and what git runs. ai-toolkit's protected-paths hook, with the `.protected-checkout` marker
+in the checkout, denies an agent's writes to it. Agents never need to edit it: they work in `/tmp` clones, and `.archive/` (state,
+reports) stays in the checkout. Set the hook and
+the markers up as described in [Escalation is on by default once the protected-paths hook is in place](#escalation-is-on-by-default-once-the-protected-paths-hook-is-in-place).
+The limits of the hook are listed there too.
 
 If you run a conductor repo: callboard refuses its `.claude` folder as unsafe when group or other may write it (as
 under umask 002). Run this once:
@@ -300,7 +289,7 @@ lane or a live lead carries cannot be reserved. Details: callboard README, The m
 | Default load | type `! echo $CLAUDE_CODE_PLUGIN_DIRS` in a new session | `<checkout>/tools/callboard/mod` |
 | Mod loaded | type `/callboard status` in a session | it answers a status table with a `Lane` row (`NONE`) and a `Lead` row (`OFF`) or similar |
 | Reserved names | type `/callboard reserve` | the manager's name, when it is not `MANAGER`, is listed |
-| Deny lines | read `permissions.deny` in `~/.claude/settings.json` | the two store and list-file lines and the six live-checkout lines are there |
+| Deny lines | read `permissions.deny` in `~/.claude/settings.json` | the two store and list-file lines are there |
 | Protected-paths hook | `jq -e '[.hooks.PreToolUse[]?.hooks[]?.command] \| any(endswith("/protected-paths-guard.sh"))' ~/.claude/settings.json`, and `ls <checkout>/.protected-checkout <toolkit>/.protected-checkout ~/.claude/callboard/.protected-checkout` | `true`, and all three markers exist; escalation is on by default only while this holds (`/callboard status` names what is missing) |
 | Usage watcher | `bash tools/usage-watcher/install.sh --status --ref <commit>` | exit 0, the job loaded |
 | Summary | `ls -l ~/.local/state/usage-watcher/usage-summary.json` | written in the last 5 minutes |

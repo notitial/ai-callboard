@@ -102,3 +102,5 @@ and a version bump left the entry out of step.
 - **Accepted risk.** If the format changes, the script refuses or the final check fails. Only the default profile gets
   the entry. Settings Sync is not verified: a synced removal of an old version could unlist the extension on another
   Mac, so the docs suggest `settingsSync.ignoredExtensions` as a hand edit; the script changes no setting.
+
+*Note 2026-11-14: the six checkout `Edit` deny lines under Permission rules are no longer asked for. ai-toolkit's protected-paths hook with the `.protected-checkout` marker denies agent writes to the live checkout, so `docs/setup.md` and `/setup-manager` drop them. The two store and list-file denies stay.*
