@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { h, NO, PS_TABLE, T0, leadFiles, longTest, resultFiles } from './harness'
+import { h, NO, PS_TABLE, ROOT, SID, T0, leadFiles, longTest, resultFiles } from './harness'
 import { ANY, LEADPATH, MGR_SESS, MIN, OTHER, OTHERLEAD, OWN_ROW, PIN, QUIET, RESULT, TURN, bareList, checkins, ckLane, ckLead, ckRow, ckText, cueSession, grantAt, idleFor, lane, leadAt, leadCall, leadFileText, leadReg, leadSelfReg, logged, madeLane, mdBox, mgrAt, newTrace, notices, putStore, regAs, sleepFor, started, statusTable, ticks } from './fixtures'
 
 longTest('check-in: a lane quiet 30 min gets one fixed notice from an idle lead, not before; once per since; again after it worked (seen busy twice)', async ($, on) => {
@@ -110,7 +110,7 @@ test('check-in: shares the hourly cap with the lanes-changed notice; capped, it 
   const stdins: string[] = []
   await ckLead($, on, stdins)
   for (let i = 1; i <= 12; i++) {
-    putStore([ckLane()], Array.from({ length: i }, (_, k) => k))
+    putStore([ckLane({ createdAt: 10 ** i })])
     await h.clock!.advance(2000)
   }
   expect(notices()).toBe(12)
@@ -118,6 +118,30 @@ test('check-in: shares the hourly cap with the lanes-changed notice; capped, it 
   expect(checkins()).toEqual([])
   expect(logged(stdins).filter((x) => x === 'notice-capped:attention')).toEqual(['notice-capped:attention'])
   await idleFor(24 * MIN)
+  expect(checkins()).toEqual([ckText(QUIET)])
+})
+
+const otherLeadLive = (live: boolean) => {
+  const path = `${ROOT}/leads/${OTHERLEAD}.json`
+  if (live) leadFiles.set(path, { text: leadFileText({ sid: OTHERLEAD, pid: 4243 }) })
+  else leadFiles.delete(path)
+  h.sessions = { ...leadSelfReg(), ...ckRow(), ...(live ? regAs(OTHERLEAD, 4243, 'LEAD2') : {}) }
+}
+
+test('check-in: a lane that names another lead by its session id is told to that lead, and to this one only once that lead is gone', async ($, on) => {
+  await ckLead($, on, [], {}, [ckLane({ leadSid: OTHERLEAD })])
+  otherLeadLive(true)
+  await idleFor(40 * MIN)
+  expect(checkins()).toEqual([])
+  otherLeadLive(false)
+  await idleFor(36 * MIN)
+  expect(checkins()).toEqual([ckText(QUIET)])
+})
+
+test('check-in: a lane that names this lead by its session id is told while another lead is live', async ($, on) => {
+  await ckLead($, on, [], {}, [ckLane({ leadSid: SID })])
+  otherLeadLive(true)
+  await idleFor(36 * MIN)
   expect(checkins()).toEqual([ckText(QUIET)])
 })
 

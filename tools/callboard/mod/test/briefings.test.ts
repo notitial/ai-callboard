@@ -329,20 +329,20 @@ test('the next lane tool result says once that the lanes changed since the last 
 })
 
 // The notice tells the lead the list changed, so the lane_list it makes in answer is not told again; the footer is for a change the lead has not been told about.
-test('a notice counts as telling the lead: the lane_list made in answer has no footer, for a lead with no lanes too', async ($, on) => {
+test('a notice counts as telling the lead: the lane_list made in answer has no footer', async ($, on) => {
   await leadAt($, on, [], { clock: true })
   expect(await listed($)).toBe(NO_LANES)
   storeFiles.set(STOREFILE, storeText(1))
   await tickTwice()
   expect(notices()).toBe(1)
-  expect(await listed($)).toBe(NO_LANES)
-  expect(await listed($)).toBe(NO_LANES)
+  expect(await listed($)).not.toContain(LANES_CHANGED_NOTE)
+  expect(await listed($)).not.toContain(LANES_CHANGED_NOTE)
   await tickTwice()
   expect(notices()).toBe(1)
   storeFiles.set(STOREFILE, storeText(2))
   await tickTwice()
   expect(notices()).toBe(2)
-  expect(await listed($)).toBe(NO_LANES)
+  expect(await listed($)).not.toContain(LANES_CHANGED_NOTE)
 })
 
 test('a change that lands after the notice is still news to the next lane tool call', async ($, on) => {
@@ -352,7 +352,7 @@ test('a change that lands after the notice is still news to the next lane tool c
   expect(notices()).toBe(1)
   storeFiles.set(STOREFILE, storeText(2))
   expect((await listed($)).endsWith(LANES_CHANGED_NOTE)).toBe(true)
-  expect(await listed($)).toBe(NO_LANES)
+  expect(await listed($)).not.toContain(LANES_CHANGED_NOTE)
 })
 
 test('a lead whose lane list has not changed does not read its store again', async ($, on) => {
@@ -401,7 +401,7 @@ test('a lane notice that could not be submitted told the lead nothing: its next 
   await h.clock!.advance(2000)
   expect(notices()).toBe(1)
   expect((await listed($)).endsWith(LANES_CHANGED_NOTE)).toBe(true)
-  expect(await listed($)).toBe(NO_LANES)
+  expect(await listed($)).not.toContain(LANES_CHANGED_NOTE)
 })
 
 test('a lane tool call that carries the news also settles the notice: nothing is sent for it afterwards', async ($, on) => {

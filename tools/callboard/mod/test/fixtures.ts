@@ -267,7 +267,8 @@ export const COMPOSE = { model: 'm', promptModel: 'm', surfaces: [], tools: ['Ba
 export const briefings = (r: any) => (r.sections as { id: string; text: string; scope: string }[]).filter((x) => x.id === 'callboard:lead')
 
 export const noteRows = () => h.appendRows.map((m) => ({ type: m.type, blocks: m.content.length, text: m.content[0].text as string }))
-export const storeText = (n: number) => JSON.stringify({ repo: PIN, lanes: [], creates: Array.from({ length: n }, (_, i) => i) })
+// A store with n lanes that name no lead, so every lead's watch sees each change of n.
+export const storeText = (n: number) => JSON.stringify({ repo: PIN, lanes: Array.from({ length: n }, (_, i) => ({ name: `L${i}`, folder: `${PIN}/l${i}`, brief: `${PIN}/l${i}/BRIEF.md`, createdAt: 1 })), creates: [] })
 export const notices = () => submitted.filter((t) => t === LANES_CHANGED_TEXT).length
 
 export const OTHERLEAD = '6a1b2c3d-0000-4000-8000-123456789abc'

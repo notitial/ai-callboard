@@ -565,9 +565,11 @@ async function promptHook($: any, e: any, nextOnce: (x: any) => Promise<any>, si
     // session list does not show: no row for a judge, the dialog stays the person's.
     if (!leadRead) lead = await promptLeadOf($, cov.level, sid, cwd, cov.lead)
     const leadName = lead?.name
+    // A named lead is reached by its name, which outlives a restart; an unnamed one only by its session id.
+    const leadSid = leadName ? undefined : lead?.sid
     const own = await registryOf($, sid)
     const liveNow = await registryEntries($)
-    const reach = own && typeof own.pid === 'number' && typeof own.procStart === 'string' && liveNow ? await promptReachTiers($, liveNow, cov.a, { sid, pid: own.pid, procStart: own.procStart, level: cov.level, lane: cov.lane ?? cov.self, ...(leadName ? { leadName } : {}), repo: cwd, tool }, cov.level === 'lane' && lead === undefined).catch(() => [] as pr.Tier[]) : ([] as pr.Tier[])
+    const reach = own && typeof own.pid === 'number' && typeof own.procStart === 'string' && liveNow ? await promptReachTiers($, liveNow, cov.a, { sid, pid: own.pid, procStart: own.procStart, level: cov.level, lane: cov.lane ?? cov.self, ...(leadName ? { leadName } : {}), ...(leadSid ? { leadSid } : {}), repo: cwd, tool }, cov.level === 'lane' && lead === undefined).catch(() => [] as pr.Tier[]) : ([] as pr.Tier[])
     if (reach.length === 0 && own && typeof own.pid === 'number' && typeof own.procStart === 'string') {
       await ledgerAdd($, { ...base, kind: 'abandoned', code: 'no-tier' })
       return beneath
@@ -582,7 +584,7 @@ async function promptHook($: any, e: any, nextOnce: (x: any) => Promise<any>, si
     const id = await promptNewId($)
     const nonce = await promptNewId($)
     const capped = pr.capInput(input)
-    const req: pr.Request = { id, sid, pid: own.pid, procStart: own.procStart, level: cov.level, lane: cov.lane ?? cov.self, ...(leadName ? { leadName } : {}), ...(cov.level === 'lane' && lead === undefined ? { noLead: true } : {}), repo: cwd, tool, inputHash: hash, raisedBy: judged.raisedBy, at: started, expiresAt: started + pr.EXPIRES_MS, nonce, input: capped.input, truncated: capped.truncated }
+    const req: pr.Request = { id, sid, pid: own.pid, procStart: own.procStart, level: cov.level, lane: cov.lane ?? cov.self, ...(leadName ? { leadName } : {}), ...(leadSid ? { leadSid } : {}), ...(cov.level === 'lane' && lead === undefined ? { noLead: true } : {}), repo: cwd, tool, inputHash: hash, raisedBy: judged.raisedBy, at: started, expiresAt: started + pr.EXPIRES_MS, nonce, input: capped.input, truncated: capped.truncated }
     const text = pr.requestText(req)
     if (new TextEncoder().encode(text).length > pr.REQUEST_MAX || !(await promptPut($, `${dir}/${id}.request.json`, text))) {
       await ledgerAdd($, { ...base, kind: 'abandoned', code: 'hook-failed' })
