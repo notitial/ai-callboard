@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { folderName, briefingFolder, leadBriefing, STOPPABLE_BY_NAME, LANES_CHANGED_TEXT, LANES_CHANGED_NOTE } from '../hooks/core'
+import { folderName, briefingFolder, leadBriefing, NOTE_END, noteText, STOPPABLE_BY_NAME, LANES_CHANGED_TEXT, LANES_CHANGED_NOTE } from '../hooks/core'
 import { h, LANESDIR, NO, REPORT, ROOT, SID, T0, TOOL, YES, engine, extraStat, laneSeed, leadFiles, longTest, resultFiles, storeFiles, submitted } from './harness'
 import type { Trace } from './harness'
 import { ANY, ATTACHED, ATTLEAD, ATTSESS, ATT_REC, COMPOSE, LANES, LANE_COMPOSE, LEADPATH, LEADPS, LEADSID, LEAD_LANES, NO_LANES, OTHER, OTHERLEAD, PIN, REG, REGFILE, RESULT, STOREFILE, SVC, attRec, attacher, bornWithTwoLeads, briefings, callCreate, cue, cueSession, dirStat, doLane, fileStat, grantAt, lane, laneSections, leadAt, leadCall, leadFileText, leadReg, leadSelfReg, listCall, listed, logged, mdBox, newTrace, noNote, noteRows, notices, ownReg, putStore, renameThroughTick, sleepMs, started, statusTable, storeText, tickTwice, ticks, waitFor } from './fixtures'
@@ -125,7 +125,7 @@ test('lead on appends one user-role note: the plugin opener, a blank line, then 
   expect(rows.length).toBe(1)
   expect(rows[0].type).toBe('user')
   expect(rows[0].blocks).toBe(1)
-  expect(rows[0].text).toBe(`${NOTE_OPENER}\n\n${leadBriefing(PIN)}`)
+  expect(rows[0].text).toBe(noteText(leadBriefing(PIN)))
   expect(rows[0].text).toContain(`You are the lead for the lanes in \`${briefingFolder(PIN)}\`.`)
   expect(h.appendRows[0].content[0].type).toBe('text')
 })
@@ -155,7 +155,7 @@ test('the person moving the lead to another folder adds a note for that folder',
   extraStat.set(`${PIN}/svc/.git`, dirStat)
   await grantAt($, `${PIN}/svc`)
   expect(h.appendRows.length).toBe(2)
-  expect(h.appendRows[1].content[0].text).toBe(`${NOTE_OPENER}\n\n${leadBriefing(`${PIN}/svc`)}`)
+  expect(h.appendRows[1].content[0].text).toBe(noteText(leadBriefing(`${PIN}/svc`)))
 })
 
 test('a lead question that is cancelled appends no note', async ($, on) => {
@@ -551,7 +551,8 @@ test('an attached lane gets one note and the same text as its section, naming it
   expect(note).toContain(`\`${PIN}/.archive/svc-api/REPORT.md\` (a plain file`)
   const s = laneSections(await $.prompt.compose(LANE_COMPOSE))
   expect(s.length).toBe(1)
-  expect(`${NOTE_OPENER}\n\n${s[0].text}`).toBe(note)
+  expect(noteText(s[0].text)).toBe(note)
+  expect(note.endsWith(`\n\n${NOTE_END}`)).toBe(true)
   expect((await doLane($, 'lane off')).text).toBe(`This session is no longer lane svc-api.${STOPPABLE_BY_NAME('svc-api')}`)
   expect(laneSections(await $.prompt.compose(LANE_COMPOSE)).length).toBe(0)
   expect(h.appendRows.length).toBe(1)
@@ -606,6 +607,7 @@ test('a restore appends one note: a born lane restored, with the report path of 
   expect(h.appendRows.length).toBe(1)
   const note = h.appendRows[0].content[0].text as string
   expect(note.startsWith(`${NOTE_OPENER}\n\n**Callboard lane.** You are lane \`LABLANE\`, session \`${SID}\`, working in \`/data/x/work/lab\`. Your lead is the lead session of this repo.\n`)).toBe(true)
+  expect(note.endsWith(`\n\n${NOTE_END}`)).toBe(true)
   expect(note).toContain('- Put questions and blockers in `/data/x/work/.archive/LABLANE/REPORT.md`; your lead reads it.')
   expect(note).toContain('- Your brief holds your task.')
   expect(laneSections(await $.prompt.compose(LANE_COMPOSE)).length).toBe(1)
