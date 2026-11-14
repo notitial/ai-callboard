@@ -988,10 +988,17 @@ export async function checkinTick($: any, sid: string, submitsAtStart: number) {
     if (l.parked !== undefined || !c.inReach(base.g, l)) continue
     if (base.g.level === 'lead' && c.laneLead(l, { name: base.g.name, sid }) === 'other') {
       const leads = l.repo ? await repoLeads(l.repo) : 'held'
-      if (!c.noticeReach(base.g, l, sid, leads === 'held' || leads.some((x) => x.sid === c.laneLeadSid(l)))) continue
+      if (!c.noticeReach(base.g, l, sid, leads === 'held' || leads.some((x) => x.sid === c.laneLeadSid(l)))) {
+        // A lead check that could not be made keeps what was seen of the lane: its quiet clock and told key survive a transient read error.
+        const kept = leads === 'held' ? prev.get(l.name) : undefined
+        if (kept) obs.set(l.name, kept)
+        continue
+      }
     }
     obs.set(l.name, c.observeLane(prev.get(l.name), l, entries, sid, now))
   }
+  // The repo reads above wait: an off or a re-grant meanwhile has cleared this grant's memory, and the observations are not written back over it.
+  if (epochOf(sid) !== ep) return
   laneObs.set(sid, obs)
   const items = c.checkinItems(obs, now)
   // The told set keeps only conditions that still hold: one that cleared and comes back has a new since.
@@ -1150,13 +1157,14 @@ async function attentionNotice($: any, sid: string, items: c.AttentionItem[], su
 // records of its repo that name its session id (c.leadOwns: `lead` of an attached record, `leadSid` of a made one) and its old name take the new name, in one store
 // write under the lock. A record it cannot prove is its own (a lane made before records carried `leadSid`; a lead that restarted has another session id) is left
 // as it is. A rename that
-// leaves no usable name carries nothing and keeps the old name cached, so the next valid name still finds the records. Checked at most every RENAME_CHECK_MS.
+// leaves no usable name carries nothing and keeps the old name cached, so the next valid name still finds the records. An empty cached name is filled in the
+// same way, so the lane-list watch (watchPoll) hears the name. Checked at most every RENAME_CHECK_MS.
 const RENAME_CHECK_MS = 10_000
 
 export async function leadRenameTick($: any, sid: string) {
   const g = grantOf(sid)
   const epoch = epochOf(sid)
-  if (g?.level !== 'lead' || g.name === '' || g.pins.length !== 1) return
+  if (g?.level !== 'lead' || (g.name !== '' && g.pins.length !== 1)) return
   const now = await $.clock.now()
   const last = renameChecked.get(sid)
   if (!c.dueEvery(last, now, RENAME_CHECK_MS)) return
@@ -1165,6 +1173,11 @@ export async function leadRenameTick($: any, sid: string) {
   if (!live) return
   const cur = c.leadNameOf(live.map((r) => r.j), sid)
   if (cur === undefined || cur === g.name) return
+  // An empty cached name (the registry gave none at the grant: a timeout, or a session not yet named) takes the first usable name, with no lanes to carry.
+  if (g.name === '') {
+    if (grants.get(sid) === g) grants.set(sid, { ...g, name: cur })
+    return
+  }
   const old = g.name
   const lanes = await loadLanes($)
   if (typeof lanes === 'string') return

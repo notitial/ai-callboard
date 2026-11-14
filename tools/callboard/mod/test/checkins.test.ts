@@ -145,6 +145,42 @@ test('check-in: a lane that names this lead by its session id is told while anot
   expect(checkins()).toEqual([ckText(QUIET)])
 })
 
+test('check-in: a presence read that fails keeps what the lead saw of another lead\'s lane: it is not told again', async ($, on) => {
+  await ckLead($, on, [], {}, [ckLane({ leadSid: OTHERLEAD })])
+  otherLeadLive(false)
+  await idleFor(36 * MIN)
+  expect(checkins()).toEqual([ckText(QUIET)])
+  h.leadsListHook = () => Promise.reject(new Error('read failed'))
+  await idleFor(4 * MIN)
+  h.leadsListHook = undefined
+  await idleFor(36 * MIN)
+  expect(checkins()).toEqual([ckText(QUIET)])
+})
+
+test('check-in: an off while the tick reads another lead\'s presence leaves no memory behind for the next grant', async ($, on) => {
+  await ckLead($, on, [], {}, [ckLane({ leadSid: OTHERLEAD })])
+  otherLeadLive(false)
+  await idleFor(20 * MIN)
+  // The tick's own presence read is the first at an instant; the check-in's reads after it hang.
+  const gates: (() => void)[] = []
+  let at = -1
+  let reads = 0
+  h.leadsListHook = () => {
+    reads = h.nowMs === at ? reads + 1 : 1
+    at = h.nowMs
+    return reads > 1 ? new Promise<void>((r) => gates.push(r)) : Promise.resolve()
+  }
+  await idleFor(4 * MIN)
+  expect(gates.length).toBeGreaterThan(0)
+  await $.command.run(lane('off'))
+  h.leadsListHook = undefined
+  for (const r of gates) r()
+  await ticks(2)
+  await grantAt($, PIN)
+  await idleFor(20 * MIN)
+  expect(checkins()).toEqual([])
+})
+
 test('check-in: the lead\'s own lane_resume starts what it saw of that lane over', async ($, on) => {
   await ckLead($, on)
   await idleFor(20 * MIN)
