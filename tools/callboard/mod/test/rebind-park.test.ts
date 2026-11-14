@@ -532,6 +532,28 @@ test('a sid-only or parked-only change of the store raises no lanes-changed turn
   expect(notices()).toBe(2)
 })
 
+test('a change to the lane of another lead, or to the create times, raises no lanes-changed turn; a change to a lane of this lead, or of none, does', async ($, on) => {
+  await leadAt($, on, [], { clock: true })
+  const api = { name: 'API', folder: `${PIN}/api`, brief: `${PIN}/api/BRIEF.md`, createdAt: 1 }
+  const theirs = { ...api, name: 'THEIRS', leadName: 'LEAD2', leadSid: OTHERLEAD }
+  putStore([api])
+  await tickTwice()
+  expect(notices()).toBe(1)
+  putStore([api, theirs])
+  await tickTwice()
+  putStore([api, { ...theirs, brief: `${PIN}/api/OTHER.md` }, { ...theirs, name: 'MORE', leadName: undefined }], [1, 2])
+  await tickTwice()
+  putStore([api, theirs], [1, 2, 3])
+  await tickTwice()
+  expect(notices()).toBe(1)
+  putStore([{ ...api, brief: `${PIN}/api/NEW.md` }, theirs])
+  await tickTwice()
+  expect(notices()).toBe(2)
+  putStore([{ ...api, brief: `${PIN}/api/NEW.md` }, theirs, { ...api, name: 'MINE', leadName: 'LEAD', leadSid: SID }])
+  await tickTwice()
+  expect(notices()).toBe(3)
+})
+
 for (const cmd of ['off', 'lane off']) {
   test(`/callboard ${cmd} in a born store lane removes its session id from the record and says nothing more`, async ($, on) => {
     const stdins: string[] = []

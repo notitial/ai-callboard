@@ -732,11 +732,23 @@ export async function watchPoll($: any, sid: string) {
   if (!w || !p) return
   const f = await facts($, w.path)
   const sig = f ? `${f.ino}:${f.size}:${f.mtimeMs}` : 'none'
-  if (sig === w.sig) return
-  const cur = f ? await readStoreFile($, w.path, p.uid) : { state: 'absent', text: '' }
+  // The lead's name is set after the grant (nameGrant) and moves on a rename: a change of it alone is not news, so a settled watch is moved with it.
+  const name = grants.get(sid)?.name ?? ''
+  if (sig === w.sig && name === w.name) return
+  // A change of the name alone rehashes what was read last, with no new read.
+  const cur = sig === w.sig && w.last ? w.last : f ? await readStoreFile($, w.path, p.uid) : { state: 'absent', text: '' }
+  const was = w.cur
+  // The text last hashed, under the name that is now this lead's: what the lead had been told, as it reads now.
+  const settled = name !== w.name && w.last ? await sha($, c.watchText(w.last.state, w.last.text, { name, sid })) : undefined
   w.sig = sig
-  // Hashed without each lane's sid and parked (c.watchText): a lane's own sid write, a park or an unpark is not news to the lead.
-  w.cur = await sha($, c.watchText(cur.state, cur.text))
+  w.last = cur
+  // Hashed as this lead sees the list (c.watchText): its own lanes and legacy ones, without each lane's sid and parked.
+  w.cur = await sha($, c.watchText(cur.state, cur.text, { name, sid }))
+  if (name !== w.name) {
+    w.name = name
+    if (settled !== undefined && was === w.told) w.told = settled
+    if (settled !== undefined && was === w.seen) w.seen = settled
+  }
 }
 // The first look at grant time is the baseline: no notice for what was already there.
 export async function watchInit($: any, sid: string) {
@@ -752,10 +764,11 @@ export async function watchInit($: any, sid: string) {
 async function watchOwn($: any, sid: string) {
   const w = watch.get(sid)
   if (!w) return
-  const was = w.cur
+  // Taken before the poll: a name fill in it rebases told and seen, and the rebased values no longer equal what was there before this write.
+  const { cur: was, told, seen } = w
   await watchPoll($, sid)
-  if (was === w.told) w.told = w.cur
-  if (was === w.seen) w.seen = w.cur
+  if (was === told) w.told = w.cur
+  if (was === seen) w.seen = w.cur
 }
 
 export async function ownWrite<T>($: any, sid: string, fn: () => Promise<T>): Promise<T> {
@@ -963,9 +976,38 @@ export async function checkinTick($: any, sid: string, submitsAtStart: number) {
   if ('err' in base || (base.g.level === 'lead' && base.g.name === '' && (grants.get(sid)?.name ?? '') !== '') || epochOf(sid) !== ep) return
   const entries = base.live.map(regEntry)
   const prev = laneObs.get(sid) ?? new Map<string, c.LaneObs>()
-  // Parked lanes are skipped: someone stopped them on purpose.
+  // A repo's leads are kept LEADLESS_KEEP_MS across evaluations (leadlessSeen); a lead check that could not be made ('held': not clearly gone) counts as a live
+  // lead of the repo. It serves the notice's reach below and the manager's leadless filter further down.
+  const rows = base.live.map((r) => r.j)
+  const byRepo = leadlessSeen.get(sid) ?? new Map<string, { at: number; leads: c.LeadFile[] | 'held' }>()
+  leadlessSeen.set(sid, byRepo)
+  const repoLeads = async (repo: string) => {
+    let seen = byRepo.get(repo)
+    if (!seen || now < seen.at || now - seen.at > LEADLESS_KEEP_MS) {
+      const errs = { error: false }
+      const leads = await leadsFor($, base.live, repo, repo, errs).catch(() => undefined)
+      byRepo.set(repo, (seen = { at: now, leads: errs.error || leads === undefined ? 'held' : leads }))
+    }
+    return seen.leads
+  }
+  // Parked lanes are skipped: someone stopped them on purpose. A lead is told of its own lanes and legacy ones; a lane of another lead (named by its session id)
+  // only once that lead is not live (c.noticeReach); its quiet and gone times then start from that first look.
   const obs = new Map<string, c.LaneObs>()
-  for (const l of base.lanes) if (l.parked === undefined && c.inReach(base.g, l)) obs.set(l.name, c.observeLane(prev.get(l.name), l, entries, sid, now))
+  for (const l of base.lanes) {
+    if (l.parked !== undefined || !c.inReach(base.g, l)) continue
+    if (base.g.level === 'lead' && c.laneLead(l, { name: base.g.name, sid }) === 'other') {
+      const leads = l.repo ? await repoLeads(l.repo) : 'held'
+      if (!c.noticeReach(base.g, l, sid, leads === 'held' || leads.some((x) => x.sid === c.laneLeadSid(l)))) {
+        // A lead check that could not be made keeps what was seen of the lane: its quiet clock and told key survive a transient read error.
+        const kept = leads === 'held' ? prev.get(l.name) : undefined
+        if (kept) obs.set(l.name, kept)
+        continue
+      }
+    }
+    obs.set(l.name, c.observeLane(prev.get(l.name), l, entries, sid, now))
+  }
+  // The repo reads above wait: an off or a re-grant meanwhile has cleared this grant's memory, and the observations are not written back over it.
+  if (epochOf(sid) !== ep) return
   laneObs.set(sid, obs)
   const items = c.checkinItems(obs, now)
   // The told set keeps only conditions that still hold: one that cleared and comes back has a new since.
@@ -985,23 +1027,13 @@ export async function checkinTick($: any, sid: string, submitsAtStart: number) {
   // lead of its repo with that registry name; a legacy lane: any live lead of its repo). The leads of a repo are read at most once per evaluation. A lane a lead
   // reaches is left untold, so it is told once its lead is gone. The filter runs right after the timing gates, before the notice's own gate
   // reads, and a manager left with nothing owed stops here.
-  // A repo's leads are kept LEADLESS_KEEP_MS across evaluations (leadlessSeen); a lead check that could not be made ('held': not clearly
-  // gone) counts as a live lead of the repo, so no notice.
+  // A 'held' repo counts as having a live lead, so no notice.
   const leadless = async (items: c.AttentionItem[]) => {
-    const rows = base.live.map((r) => r.j)
-    const byRepo = leadlessSeen.get(sid) ?? new Map<string, { at: number; leads: c.LeadFile[] | 'held' }>()
-    leadlessSeen.set(sid, byRepo)
     const out: c.AttentionItem[] = []
     for (const i of items) {
       const l = base.lanes.find((x) => x.name === i.lane)
       if (!l?.repo) continue
-      let seen = byRepo.get(l.repo)
-      if (!seen || now < seen.at || now - seen.at > LEADLESS_KEEP_MS) {
-        const errs = { error: false }
-        const leads = await leadsFor($, base.live, l.repo, l.repo, errs)
-        byRepo.set(l.repo, (seen = { at: now, leads: errs.error ? 'held' : leads }))
-      }
-      const leads = seen.leads
+      const leads = await repoLeads(l.repo)
       if (leads !== 'held' && !(l.leadName !== undefined ? leads.some((x) => c.leadNameOf(rows, x.sid) === l.leadName) : leads.length > 0)) out.push(i)
     }
     return out
@@ -1134,13 +1166,14 @@ async function attentionNotice($: any, sid: string, items: c.AttentionItem[], su
 // records of its repo that name its session id (c.leadOwns: `lead` of an attached record, `leadSid` of a made one) and its old name take the new name, in one store
 // write under the lock. A record it cannot prove is its own (a lane made before records carried `leadSid`; a lead that restarted has another session id) is left
 // as it is. A rename that
-// leaves no usable name carries nothing and keeps the old name cached, so the next valid name still finds the records. Checked at most every RENAME_CHECK_MS.
+// leaves no usable name carries nothing and keeps the old name cached, so the next valid name still finds the records. An empty cached name is filled in the
+// same way, so the lane-list watch (watchPoll) hears the name. Checked at most every RENAME_CHECK_MS.
 const RENAME_CHECK_MS = 10_000
 
 export async function leadRenameTick($: any, sid: string) {
   const g = grantOf(sid)
   const epoch = epochOf(sid)
-  if (g?.level !== 'lead' || g.name === '' || g.pins.length !== 1) return
+  if (g?.level !== 'lead' || (g.name !== '' && g.pins.length !== 1)) return
   const now = await $.clock.now()
   const last = renameChecked.get(sid)
   if (!c.dueEvery(last, now, RENAME_CHECK_MS)) return
@@ -1149,6 +1182,11 @@ export async function leadRenameTick($: any, sid: string) {
   if (!live) return
   const cur = c.leadNameOf(live.map((r) => r.j), sid)
   if (cur === undefined || cur === g.name) return
+  // An empty cached name (the registry gave none at the grant: a timeout, or a session not yet named) takes the first usable name, with no lanes to carry.
+  if (g.name === '') {
+    if (grants.get(sid) === g) grants.set(sid, { ...g, name: cur })
+    return
+  }
   const old = g.name
   const lanes = await loadLanes($)
   if (typeof lanes === 'string') return

@@ -714,6 +714,17 @@ test('a restored lead watches the lane list from its first tick: a record added 
   expect(notices()).toBe(1)
 })
 
+test('a lead granted with no registry name takes its name once the registry gives one: lanes that carry only the name then reach its lane-list watch', async ($, on) => {
+  const rec = { name: 'API', folder: `${PIN}/api`, brief: `${PIN}/api/BRIEF.md`, createdAt: 1, leadName: 'LEAD' }
+  await leadAt($, on, [], { clock: true, sess: leadSelfReg({ name: undefined }), seed: () => putStore([rec]) })
+  await tickTwice()
+  h.sessions = leadSelfReg()
+  await ticks(8)
+  putStore([rec, { ...rec, name: 'SVC' }])
+  await tickTwice()
+  expect(notices()).toBe(1)
+})
+
 test('a saved grant for another folder: no lead, and the key is deleted', async ($, on) => {
   const stdins: string[] = []
   await leadRestarter($, on, stdins, { cwd: `${PIN}/svc` })

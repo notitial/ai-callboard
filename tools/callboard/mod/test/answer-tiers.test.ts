@@ -86,6 +86,16 @@ test('prompts: prompt_list shows a request that names no lead to any lead of the
   expect(said(await $.tool.call(pcall('prompt_list')))).not.toContain(TID)
 })
 
+test('prompts: a request with the session id of a lead and no name reaches only that lead; one with neither still reaches every lead', async ($, on) => {
+  await tier($, on)
+  putQ({ leadName: undefined, leadSid: OTHER })
+  expect(said(await $.tool.call(pcall('prompt_list')))).not.toContain(TID)
+  putQ({ leadName: undefined, leadSid: SID })
+  expect(said(await $.tool.call(pcall('prompt_list')))).toContain(TID)
+  putQ({ leadName: undefined })
+  expect(said(await $.tool.call(pcall('prompt_list')))).toContain(TID)
+})
+
 test('prompts: prompt_list says a truncated input cannot be allowed, and counts decisions dropped for a reason that can mean a forgery', async ($, on) => {
   await tier($, on)
   putQ({ truncated: true })
@@ -564,6 +574,30 @@ test('prompts hook: a request names the lead the lane is bound to; a decision fr
   }), stop(30_000))
   expect(await startReq($)).toEqual({})
   expect(hookKinds()).toContain('dropped by-sid')
+})
+
+test('prompts hook: a request carries the session id of an unnamed lead, and no name; a named lead is reached by its name alone', async ($, on) => {
+  await answerer($, on, [])
+  await askCheck($)
+  h.sessions = { ...h.sessions, ...waitingRow(T0 + 500) }
+  driveClock()
+  h.clockHooks.push(at(4000, () => {
+    expect(readReq().leadName).toBe('LEAD')
+    expect('leadSid' in readReq()).toBe(false)
+    handDecision(readReq())
+  }), stop(30_000))
+  await startReq($)
+  const lane = (storeJson().lanes as Record<string, unknown>[])[0]
+  putStore([{ ...lane, leadName: undefined }])
+  h.sessions = { ...h.sessions, ...leadReg({ name: undefined }) }
+  await askCheck($)
+  driveClock()
+  h.clockHooks.push(at(4000, () => {
+    expect(readReq().leadName).toBeUndefined()
+    expect(readReq().leadSid).toBe(LEADSID)
+    handDecision(readReq())
+  }), stop(30_000))
+  await startReq($)
 })
 
 test('prompts hook: with no lead, a live conductor of the repo is the tier: the request is made, its decision applies after 30 s, and the row names the tier', async ($, on) => {

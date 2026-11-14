@@ -193,13 +193,14 @@ export function storeText(s: Store): { text: string } | { no: 'store-size' } {
   return text.length > STORE_MAX_BYTES ? { no: 'store-size' } : { text }
 }
 
-// What a lead's watch on its lane list hashes: the store without each lane's sid and parked, so a lane's own sid write, a park or an unpark is not news to it
-// (the lead reads those in lane_list). A store that does not parse is hashed as it is.
-export function watchText(state: string, text: string): string {
+// What a lead's watch on its lane list hashes: the lanes that name this lead or no lead, without each lane's sid and parked, so a lane's own sid write, a park or
+// an unpark is not news to it (the lead reads those in lane_list). Another lead's lanes and the repo's create times are not its news, even when that lead is gone
+// (the check-in tells of such a lane). A store that does not parse is hashed as it is.
+export function watchText(state: string, text: string, me: { name: string; sid: string }): string {
   const parsed = state === 'ok' ? parseStore(text) : undefined
   if (!parsed?.ok) return `${state}\n${text}`
-  const lanes = parsed.store.lanes.map((l) => storeLaneJson({ ...l, sid: undefined, parked: undefined }))
-  return `${state}\n${JSON.stringify({ repo: parsed.store.repo, lanes, creates: parsed.store.creates })}`
+  const lanes = parsed.store.lanes.filter((l) => laneLead(l, me) !== 'other').map((l) => storeLaneJson({ ...l, sid: undefined, parked: undefined }))
+  return `${state}\n${JSON.stringify({ repo: parsed.store.repo, lanes })}`
 }
 
 // A folder is too broad to hold lead-made lanes: the root, the home folder, its standard folders, a mount point, a system folder.
@@ -1828,6 +1829,23 @@ export function inReach(g: Grant, l: Lane): boolean {
   if (g.level === 'lead' && l.leadName !== undefined && (g.name === '' || l.leadName !== g.name)) return false
   const pins = g.level === 'lead' ? g.pins.slice(0, 1) : g.level === 'conductor' ? g.pins : []
   return pins.some((pin) => (pin === repo || within(repo, pin)) && !(l.src && pin !== repo))
+}
+
+// Whose lane this is, for notices: 'me' when the record names this session (`leadSid` of a made record, `lead` of an attached one) or this lead's name, 'none' for
+// a record that names no lead, else 'other'. The session id comes first: a lead's name can be set or changed after the watch last read it, its session id cannot.
+export const laneLeadSid = (l: Lane): string | undefined => (l.adopted ? l.lead : l.leadSid)
+export function laneLead(l: Lane, me: { name: string; sid: string }): 'me' | 'none' | 'other' {
+  const sid = laneLeadSid(l)
+  if (sid !== undefined && sid === me.sid) return 'me'
+  if (l.leadName !== undefined) return l.leadName === me.name ? 'me' : 'other'
+  return sid === undefined ? 'none' : 'other'
+}
+// Who a lane's notices (check-ins) go to: a lead in reach of the lane that is its own lead, or that finds the lane naming no lead, or whose own lead is not live.
+// A manager and a conductor keep inReach. ownLeadLive is only read for a lane of another lead.
+export function noticeReach(g: Grant, l: Lane, mySid: string, ownLeadLive: boolean): boolean {
+  if (!inReach(g, l)) return false
+  if (g.level !== 'lead') return true
+  return laneLead(l, { name: g.name, sid: mySid }) !== 'other' || !ownLeadLive
 }
 
 // The presence file: <root>/leads/<sid>.json, a filter that says a lead (or, later, a conductor or manager) runs and for which repos. Nothing is ever sent to the
