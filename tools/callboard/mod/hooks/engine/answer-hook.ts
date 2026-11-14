@@ -3,7 +3,7 @@
 import * as c from '../core.ts'
 import * as pr from '../prompts.ts'
 import { grants, checks, openReqs, doneIds, unclosed, askingSids, relayAskedTurn, mem } from '../mem.ts'
-import { run, MKDIR, dirOk, INSTALL, TEE, MV, rmF, where, facts, sha, statR, readSmallR, pause, RMDIR, realR, toast, withTimeout } from './base.ts'
+import { run, MKDIR, dirOk, INSTALL, TEE, MV, rmF, where, facts, sha, statR, readSmallR, pause, RMDIR, realR, toast, withTimeout, GREP } from './base.ts'
 import { registryEntries, registryOf } from './store.ts'
 import { leadsFor, homeOf, presenceCheck } from './grants.ts'
 import { reportLaneOf, sessionRoot } from './lanes.ts'
@@ -15,7 +15,6 @@ import { getLane } from '../state.ts'
 // A PermissionRequest hook in the asking session: it refuses what no agent may answer, writes a request file and waits. The decision comes from
 // prompt_answer or the person, and the hook applies it under every check of pr.applyCheck.
 const UUIDGEN = '/usr/bin/uuidgen'
-const GREP = '/usr/bin/grep'
 
 export const PROMPT_DIRS_MAX = 512
 export const ANSWERING_KEY = 'answering'

@@ -177,6 +177,8 @@ export const toasts: string[] = []
 // Answer files under <root>/result. A lead cue gets `autoAnswer` from its "target" at once (inode 12, the temp file's); undefined: no answer.
 export const ROOT = '/Users/x/.claude/callboard'
 export const resultFiles = new Map<string, string>()
+// Session logs the lead reads to learn what became of a cue (<root>/log/<sid>.jsonl), by path: stat sees a plain 0600 file, grep -F finds a line in its text.
+export const targetLogs = new Map<string, string>()
 export const OPEN_RESULT = '/Users/x/.claude/callboard/open/LABLANE.result'
 export const PS_TABLE = '    1     0 /sbin/launchd\n 4300     1 /x/native-binary/claude --resume LABLANE\n 4310  4300 node /x/mcp-server.js\n 4311  4300 /usr/bin/caffeinate -i -t 300\n'
 // A pid that got a SIGTERM that exited 0 is gone from `ps -p` unless a test sets survivesKill (the record is removed only once the process ended).
@@ -556,6 +558,7 @@ function resetCueFiles() {
   h.cueSwapAtMv = undefined
   h.cueNext = undefined
   resultFiles.clear()
+  targetLogs.clear()
   h.resultStat = undefined
   h.autoAnswer = 'ok -'
   h.autoIno = 12
@@ -1100,6 +1103,11 @@ export function engine(on0: any, argvSeen: string[][], stdins: string[] = [], cl
     if (a[0] === '/usr/bin/head' && storeFiles.has(a[a.length - 1])) return ok(h.lockState.held && storeReads.length > 0 ? storeReads.shift()! : storeFiles.get(a[a.length - 1])!)
     if (a[0] === '/usr/bin/stat' && statErr.has(last)) return ok('', 1, statErr.get(last)!)
     if (a[0] === '/usr/bin/stat' && storeFiles.has(a[a.length - 1])) return ok(h.storeStatOverride ?? `501 600 1 Regular File 77 ${storeFiles.get(a[a.length - 1])!.length} 1700000000\n`)
+    if (a[0] === '/usr/bin/stat' && targetLogs.has(last)) return ok(`501 600 1 Regular File 77 ${targetLogs.get(last)!.length} ${T0 / 1000}\n`)
+    if (a[0] === '/usr/bin/grep' && a[1] === '-F' && targetLogs.has(last)) {
+      const hits = targetLogs.get(last)!.split('\n').filter((l) => l.includes(a[a.length - 2]))
+      return hits.length > 0 ? ok(`${hits.join('\n')}\n`) : ok('', 1)
+    }
     if (a[0] === '/usr/bin/stat' && extraStat.has(a[a.length - 1])) return ok(extraStat.get(a[a.length - 1])!)
     if (a[0] === '/usr/bin/head' && gitFiles.has(last)) return ok(gitFiles.get(last)!)
     // A `.git` folder (or a link to one: stat follows it below the link) set in extraStat holds a plain HEAD, unless the test says otherwise (gitNoHead) or sets the HEAD itself.
