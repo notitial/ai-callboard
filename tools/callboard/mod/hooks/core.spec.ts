@@ -1558,6 +1558,51 @@ test('MODEL_TIMEOUT_MS leaves room in the lead\'s wait: a 2 s tick, the start ch
   assert.ok(2000 + c.MODEL_TIMEOUT_MS < c.RESULT_DEADLINE_MS)
 })
 
+test('lane_rename and lane_start wait longer for the answer than the other verbs, and lane_open longer than the extension', () => {
+  assert.ok(c.LANE_CUE_DEADLINE_MS > c.RESULT_DEADLINE_MS)
+  // A rename keeps at least 10 s for the cue itself after its longest wait for the session to register.
+  assert.ok(c.RENAME_WAIT_TRIES * c.START_WAIT_MS + 10_000 <= c.LANE_CUE_DEADLINE_MS)
+  assert.ok(c.START_WAIT_TRIES * c.START_WAIT_MS + 10_000 <= c.LANE_CUE_DEADLINE_MS)
+  // The extension waits 20 s for a lane's panel; the lead's wait covers that, the scan and its own poll.
+  assert.ok(c.OPEN_POLL_MAX * c.OPEN_POLL_MS >= 20_000 + 5_000)
+})
+
+test('renameNoSessionText names the one session a rename could take, and says so when there is none', () => {
+  const FOLDER = '/work/repo/lab'
+  const lane = { name: 'LAB', folder: FOLDER } as c.Lane
+  const SELFSID = '5a1b2c3d-0000-4000-8000-123456789abc'
+  const WANTED = '1a1b2c3d-0000-4000-8000-123456789abc'
+  const REAL = '2a1b2c3d-0000-4000-8000-123456789abc'
+  const MORE = '3a1b2c3d-0000-4000-8000-123456789abc'
+  const now = 1_000_000
+  const row = (sessionId: string, over: Partial<c.RegEntry> = {}): c.RegEntry => ({ sessionId, cwd: FOLDER, nameSource: 'derived', startedAt: now - 20_000, ...over })
+  const text = (e: c.RegEntry[]) => c.renameNoSessionText(e, lane, SELFSID, WANTED, now)
+  // None: not a refusal about the lane name, and it says the panel may still be registering.
+  const none = text([])
+  assert.ok(none.startsWith(`no-live-session: no live session has id ${WANTED}.`))
+  assert.ok(none.includes('20 seconds or more'))
+  assert.ok(!none.includes('lane name'))
+  // One candidate: its id is in the text.
+  const one = text([row(REAL)])
+  assert.ok(one.includes(`The one unnamed session in the lane folder is ${REAL}`))
+  assert.ok(one.includes('call lane_rename with that sid'))
+  // Rows a rename would refuse are not offered: the caller itself, another folder, a named session, one that is too old, one with no start time, one that starts in the future.
+  assert.equal(text([row(SELFSID), row(REAL, { cwd: '/work/repo/other' }), row(REAL, { nameSource: 'user' }), row(REAL, { startedAt: now - 130_000 }), row(REAL, { startedAt: undefined }), row(REAL, { startedAt: now + 60_000 })]), none)
+  // Several candidates: up to three ids.
+  const many = text([row(REAL), row(MORE), row('4a1b2c3d-0000-4000-8000-123456789abc'), row('6a1b2c3d-0000-4000-8000-123456789abc')])
+  assert.ok(many.includes(`${REAL}, ${MORE}, 4a1b2c3d-0000-4000-8000-123456789abc and more`))
+  assert.ok(!many.includes('6a1b2c3d'))
+})
+
+const OTHER_SID = '1a1b2c3d-0000-4000-8000-123456789abc'
+test('the late-answer texts name the verb, and the waiting text says not to repeat the call', () => {
+  assert.ok(c.lateDoneText('rename', 'LAB', OTHER_SID).includes(`session ${OTHER_SID} took the rename`))
+  assert.ok(c.lateDoneText('rename', 'LAB', OTHER_SID).includes('lane_start'))
+  assert.ok(c.lateDoneText('start', 'LAB', OTHER_SID).includes('the session started'))
+  assert.ok(c.NO_ANSWER_WAITING.startsWith('no-answer:'))
+  assert.ok(c.NO_ANSWER_WAITING.includes('do not repeat the call'))
+})
+
 // ---- v13: park, unpark, rebind, lead re-grant (store fields, pure checks, fixed texts) ----
 const V13_SID = '7a1b2c3d-0000-4000-8000-123456789abc'
 const v13Store = (l: Record<string, unknown>) => JSON.stringify({ repo: '/Users/x/code/app', lanes: [{ name: 'API', folder: '/Users/x/code/app/api', brief: '/Users/x/code/app/api/B.md', createdAt: 1, ...l }], creates: [] })

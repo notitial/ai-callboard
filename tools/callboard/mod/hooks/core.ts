@@ -878,6 +878,8 @@ export const leadQuestion = (folder: string): string =>
 // lane_start retries while the lane's session is not named yet: a rename cue takes up to 2 seconds to be applied.
 export const START_WAIT_TRIES = 4
 export const START_WAIT_MS = 1000
+// lane_rename waits longer: its session may still be registering (a slow panel takes 20 s), and the id lane_open returned may not be the one it keeps.
+export const RENAME_WAIT_TRIES = 8
 export const LEAD_YES = 'Lead'
 export const LEAD_NO = 'Cancel'
 
@@ -888,6 +890,7 @@ export type LeadVerb = (typeof LEAD_VERBS)[number]
 export type RegEntry = {
   sessionId: string
   name?: string
+  nameSource?: string
   cwd?: string
   pid?: number
   procStart?: string
@@ -908,6 +911,20 @@ export function leadLane(lanes: Lane[], g: Grant, name: unknown): { ok: true; la
   if (!inReach(g, { ...l, leadName: undefined })) return { ok: false, reason: 'other-repo' }
   if (!inReach(g, l)) return { ok: false, reason: 'other-lead' }
   return { ok: true, lane: l }
+}
+
+// The words for a lane_rename whose sid no live session carries. lane_open's id can name a session that never registers (the panel rewrites its registry row with
+// another id once its session is up), so the text names the session a rename could take instead: unnamed, in the lane folder, under BIRTH_WINDOW_MS old. It
+// never renames one by itself; the lead calls again with the id.
+export function renameNoSessionText(entries: RegEntry[], lane: Lane, selfSid: string, sid: string, now: number): string {
+  const cands = entries.filter(
+    (x) => x.cwd === lane.folder && x.sessionId !== selfSid && SID_RE.test(x.sessionId) && x.nameSource !== 'user' && typeof x.startedAt === 'number' && x.startedAt <= now + SKEW_MS && now - x.startedAt <= BIRTH_WINDOW_MS,
+  )
+  const head = `no-live-session: no live session has id ${sid}.`
+  if (cands.length === 0) return `${head} No unnamed session under 2 minutes old is in the lane folder either: a new panel can take 20 seconds or more to register. Retry lane_rename once in a few seconds; do not open another panel.`
+  const ids = cands.slice(0, 3).map((x) => x.sessionId)
+  const some = cands.length === 1 ? `The one unnamed session in the lane folder is ${ids[0]}` : `Unnamed sessions in the lane folder: ${ids.join(', ')}${cands.length > 3 ? ' and more' : ''}`
+  return `${head} A panel can register under another id than lane_open returned. ${some}: call lane_rename with that sid. The rename still works only on an empty, unnamed session under 2 minutes old.`
 }
 
 const inFolder = (folder: string, cwd: unknown) => typeof cwd === 'string' && (cwd === folder || within(folder, cwd))
@@ -1275,7 +1292,8 @@ export function processRefusal(args: string | undefined, targetPid: unknown, sel
 // lane_rename and starts it with lane_start.
 export const OPEN_TEXT = 'open\n'
 export const OPEN_POLL_MS = 500
-export const OPEN_POLL_MAX = 16
+// 30 s: the panels extension waits up to 20 s for a lane's panel and for its session id to settle, and the scan and a slower request ahead of it take a while more.
+export const OPEN_POLL_MAX = 60
 // A lead's panel is waited for longer (50 s): the extension gives up at 45 s. An upper bound: a fast open answers at the next poll.
 export const LEAD_OPEN_POLL_MAX = 100
 // The longest answer to a lead request, `ok <session id> <nonce>\n` (73 bytes), as the mod reads it; a lane's answers keep RESULT_MAX.
@@ -1466,6 +1484,9 @@ export type Outcome = 'ok' | 'refused' | 'held'
 export const RESULT_MAX = 64
 export const RESULT_POLL_MS = 500
 export const RESULT_DEADLINE_MS = 6000
+// lane_rename and lane_start wait longer for the answer, counted from the tool call like the other verbs: the session takes its next 2 s tick, then a rename
+// settles its turn count (about a second) or a start sets the model, hashes the brief and submits it, and the registry wait for the session counts against it too.
+export const LANE_CUE_DEADLINE_MS = 20_000
 // A retire waits for its answer from the cue write, not from the tool start: the target answers on its next 2 s tick.
 export const RETIRE_WAIT_MS = 10_000
 export const RETIRE_POLL_MS = 200
@@ -1494,6 +1515,14 @@ export const LOG_KEEP_MS = 90 * 24 * 60 * 60_000
 export const LOG_PRUNE_MAX = 10
 export const LOG_MAX_BYTES = 1024 * 1024
 export const NO_ANSWER = 'no-answer: the session did not answer in time; it may be busy or the cue replaced. Check it before another cue.'
+// What lane_rename and lane_start found when no answer came: the cue is still in the session's cue folder (it has not read it yet), or the session's own log
+// holds the line it writes once it has done the cue (the answer is written first, so a late or unreadable answer still leaves that line).
+export type CueFate = 'done' | 'waiting' | 'taken'
+export const NO_ANSWER_WAITING = 'no-answer: the session has not read the cue yet; it may be busy. The cue stays valid for 2 minutes and the session acts on it when it reads it, so do not repeat the call: check lane_list in a few seconds.'
+export const lateDoneText = (verb: 'rename' | 'start', lane: string, sid: string): string =>
+  verb === 'rename'
+    ? `lane ${lane}: session ${sid} took the rename; its answer came after the wait, but its log shows it done. Next: lane_start.`
+    : `lane ${lane}: the session started; its answer came after the wait, but its log shows it started.`
 const NO_REPEAT = 'Do not repeat this call unless the text says to retry.'
 // These refusals of a compact cue end any request the session had (failRequest), or come with no request at all (the nudge path), so
 // a retry of the cue right away cannot work: their text says so in place of any retry advice. Every other compact refusal leaves the
@@ -1510,7 +1539,7 @@ export function cueRefusalText(verb: Verb, outcome: Outcome, reason: string): st
 // lane_open's answer codes, as the panels extension writes them (extension/spool.js); anything else becomes other, so no file text reaches the model.
 export const OPEN_TEXT_BY_CODE: Record<string, string> = {
   'unnamed-panel': 'an unnamed panel already sits in that folder. If a lane is being opened right now (by you or another lead), wait 30 seconds and retry once. Otherwise name it with lane_rename (session id in ~/.claude/sessions), or if it is over 2 minutes old, ask the person to close it.',
-  timeout: 'the panel did not register in time. It may still appear: name the unnamed session in that folder with lane_rename within 2 minutes; do not open another.',
+  timeout: 'the panel did not register in time. It may still appear: wait, then name the unnamed session in that folder with lane_rename (its id is the one in ~/.claude/sessions, which can differ from any id seen earlier) within 2 minutes; do not open another.',
   'lanes-file': 'the panels extension could not read the lane list.',
   'unknown-lane': 'the panels extension does not know that lane.',
   'bad-request': 'the open request was not valid.',

@@ -212,12 +212,12 @@ test('lane_open refuses an answer that is not exactly ok or error', async ($, on
   expect(JSON.stringify(await p)).toContain('bad-result')
 })
 
-test('lane_open gives up after 8 seconds and withdraws its request', async ($, on) => {
+longTest('lane_open gives up after 30 seconds and withdraws its request', async ($, on) => {
   const argv: string[][] = []
   await lead($, on, [], { sess: {}, argv, clock: true })
   const p = $.tool.call(leadCall('open'))
-  for (let i = 0; i < 17; i++) await h.clock!.advance(500)
-  expect(JSON.stringify(await p)).toContain('no window answered in time')
+  for (let i = 0; i < 61; i++) await h.clock!.advance(500)
+  expect(JSON.stringify(await p)).toContain('no window answered within 30 seconds')
   expect(argv.some((a) => a[0] === '/bin/rm' && a[a.length - 1] === '/Users/x/.claude/callboard/open/LABLANE.open')).toBe(true)
 })
 
@@ -784,7 +784,7 @@ test('lane_unpark: a row of that sid whose pid start no longer matches counts as
   expect(reopenWrites(argv).length).toBe(1)
 })
 
-test('lane_unpark gives up after 8 seconds and withdraws its request; a window error gets the reopen text, not lane_open\'s', async ($, on) => {
+longTest('lane_unpark gives up after 30 seconds and withdraws its request; a window error gets the reopen text, not lane_open\'s', async ($, on) => {
   const argv: string[][] = []
   await unparker($, on, [], argv)
   expect(JSON.stringify(await unparkCall($))).toContain('lane_unpark refused: reopen-timeout: no window answered in time. A VS Code window with the lane folder as its first folder must run the callboard panels extension.')

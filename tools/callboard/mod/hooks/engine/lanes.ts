@@ -42,6 +42,7 @@ import {
   real,
   REALPATH,
   HEAD,
+  GREP,
   withTimeout,
   submitOwn,
   logFail,
@@ -1120,7 +1121,9 @@ export async function detach($: any, sid: string, b: Bound): Promise<{ sidKept: 
 
 export async function leadVerbCall($: any, e: any, next: any, verb: (typeof c.LEAD_VERBS)[number]) {
   return leadTool($, e, verb, async (sid, no) => {
-      const deadline = (await $.clock.now()) + c.RESULT_DEADLINE_MS
+      // A rename and a start get the longer deadline: the session needs its next tick, then settles its turn count or sets its model, and the wait for it to register counts too.
+      const slow = verb === 'rename' || verb === 'start'
+      const deadline = (await $.clock.now()) + (slow ? c.LANE_CUE_DEADLINE_MS : c.RESULT_DEADLINE_MS)
       // The manager's lane_compact may name a live lead by its session name, in any repo (leadByName).
       // The conductor's too, for a lead of its repos.
       if (verb === 'compact' && (grantOf(sid)?.level === 'manager' || grantOf(sid)?.level === 'conductor')) {
@@ -1137,14 +1140,18 @@ export async function leadVerbCall($: any, e: any, next: any, verb: (typeof c.LE
       // A parked lane keeps its conversation: a new session is never bound over it (lane_unpark reopens it).
       if (verb === 'rename' && prep.lane.parked !== undefined) return no('parked', c.reasonWhy('parked'))
       let to = c.leadTarget(prep.entries, prep.lane, sid, verb, (e as { sid?: unknown }).sid)
-      for (let i = 0; verb === 'start' && !to.ok && to.reason === 'no-live-session' && i < c.START_WAIT_TRIES; i++) {
+      const tries = verb === 'rename' ? c.RENAME_WAIT_TRIES : c.START_WAIT_TRIES
+      for (let i = 0; slow && !to.ok && to.reason === 'no-live-session' && i < tries; i++) {
         if (!(await pause($, c.START_WAIT_MS))) break
         const again = await leadPrep($, e, sid)
         if ('err' in again) return no(...again.err)
         prep = again
         to = c.leadTarget(prep.entries, prep.lane, sid, verb, (e as { sid?: unknown }).sid)
       }
-      if (!to.ok) return no(to.reason, c.reasonWhy(to.reason))
+      if (!to.ok) {
+        if (verb === 'rename' && to.reason === 'no-live-session') return no(to.reason, c.renameNoSessionText(prep.entries, prep.lane, sid, (e as { sid: string }).sid, await $.clock.now()))
+        return no(to.reason, c.reasonWhy(to.reason))
+      }
       // A lead's lane_compact never cues a session that holds a live presence file (another lead carrying the lane's name),
       // as leadByName's lane-or-lead; a file whose check could not be made counts (fail closed).
       if (verb === 'compact' && (grantOf(sid)?.level === 'lead' || grantOf(sid)?.level === 'conductor')) {
@@ -1152,10 +1159,42 @@ export async function leadVerbCall($: any, e: any, next: any, verb: (typeof c.LE
         if (!live) return no('registry-unreadable', c.reasonWhy('registry-unreadable'))
         if (await presenceHeld($, live, to.sid)) return no('lane-or-lead', c.reasonWhy('lane-or-lead'))
       }
-      const sent = await cueExchange($, sid, prep.lane.name, to.sid, verb, deadline, no)
+      // No answer for a rename or a start is not yet a failure: the session's cue folder and its own log say whether it read the cue and did it.
+      const target = to.sid
+      let fate: c.CueFate | undefined
+      const noCue = !slow
+        ? no
+        : async (reason: string, why: string) => {
+            if (reason !== 'no-answer') return no(reason, why)
+            fate = await cueFate($, target, verb)
+            if (fate === 'done') return { deny: '' }
+            return no(reason, fate === 'waiting' ? c.NO_ANSWER_WAITING : why)
+          }
+      const sent = await cueExchange($, sid, prep.lane.name, target, verb, deadline, noCue)
+      if (sent && fate === 'done') {
+        await log($, sid, 'acted-late', `${verb} ${prep.lane.name}`)
+        return { result: c.lateDoneText(verb, prep.lane.name, target) }
+      }
       if (sent) return sent
       return { result: `cue ${verb} acted for lane ${prep.lane.name}.` }
     })
+}
+
+// What became of a rename or start cue that got no answer in time: 'waiting' while the cue file is still in the session's cue folder (unread), 'done' when the
+// session's own log holds the line it writes once it has carried the cue out (renamed, started; the answer goes first), otherwise 'taken'. Any failed check is 'taken'.
+async function cueFate($: any, toSid: string, verb: 'rename' | 'start'): Promise<c.CueFate> {
+  try {
+    const p = await where($)
+    if (!p) return 'taken'
+    if (await facts($, `${p.root}/cue/${toSid}.cue`)) return 'waiting'
+    const file = `${p.root}/log/${toSid}.jsonl`
+    const f = await facts($, file)
+    if (!f || c.cueFileOk(f, p.uid)) return 'taken'
+    const r = await run($, [GREP, '-q', '-F', '--', verb === 'rename' ? '"event":"renamed"' : '"event":"started"', file])
+    return r.exitCode === 0 ? 'done' : 'taken'
+  } catch {
+    return 'taken'
+  }
 }
 
 export async function laneCreateCall($: any, e: any, next: any) {
@@ -1277,7 +1316,7 @@ export async function laneOpenCall($: any, e: any, next: any) {
     if (prep.lane.adopted) return no('adopted-record', c.reasonWhy('adopted-record'))
     if (prep.lane.parked !== undefined) return no('parked', c.reasonWhy('parked'))
     if (prep.entries.some((x) => x.name === prep.lane.name)) return no('name-in-use', 'a live session already carries that lane name.')
-    const r = await openExchange($, sid, prep.lane.name, 'open', c.OPEN_TEXT, 'no window answered in time. A VS Code window with the lane folder as its first workspace folder must run the callboard panels extension. A panel may still appear: check for an unnamed session in that folder first.', no)
+    const r = await openExchange($, sid, prep.lane.name, 'open', c.OPEN_TEXT, 'no window answered within 30 seconds. A VS Code window with the lane folder as its first workspace folder must run the callboard panels extension. A panel may still appear: check for an unnamed session in that folder first.', no)
     if ('deny' in r) return r
     await log($, sid, 'opened', prep.lane.name)
     return { result: `lane ${prep.lane.name}: panel opened as session ${r.sid}. Next: lane_rename with sid ${r.sid}, then lane_start.` }

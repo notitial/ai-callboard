@@ -12,8 +12,9 @@ const SESSIONS = path.join(CLAUDE, 'sessions')
 
 const registry = createRegistry(SESSIONS)
 
-// Shorter than the lead's 8 s wait for lane_open, which also covers the spool's 1 s scan and the lead's 0.5 s poll.
-const SPOOL_OPEN_MS = 5000
+// Shorter than the lead's 30 s wait for lane_open, which also covers the spool's 1 s scan and the lead's 0.5 s poll. Long enough for a slow panel and for
+// its session id to settle (lanes.js).
+const SPOOL_OPEN_MS = 20000
 
 // A lead's panel gets a longer wait than a lane's: an upper bound that gives a slow cold window room (a fast open still answers at once). Shorter than the mod's 50 s wait for it.
 const LEAD_OPEN_MS = 45000

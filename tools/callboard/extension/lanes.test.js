@@ -22,7 +22,7 @@ function trackTabs(w, ...tabs) {
 // A new panel gets a generated name (nameSource auto), as in the real registry; renaming it sets nameSource to user.
 // `tabs`: { column, activeColumn, failFocus } gives the fake an active tab at index 0, to test switching back to it.
 // `cwd`: the folder each panel it opens registers under (the folder the caller asks for, A, unless a test says otherwise); setCwd changes it between opens.
-function world({ delays = [], extra = [], tabs, guardMs, alive, pids = false, startOf, cwd = A } = {}) {
+function world({ delays = [], extra = [], tabs, guardMs, alive, pids = false, startOf, cwd = A, settleMs = 0, rewrites = [] } = {}) {
   const entries = []
   const focusCalls = []
   let t = 0
@@ -43,17 +43,26 @@ function world({ delays = [], extra = [], tabs, guardMs, alive, pids = false, st
         const i = opens++
         const id = s ?? sid()
         const cwdOf = cwd
-        pending.push({ at: t + (delays[i] ?? 1), entry: { sessionId: id, cwd: cwdOf, entrypoint: 'claude-vscode', name: `auto-${i}`, nameSource: 'auto', ...(pids ? { pid: 5000 + i } : {}) } })
+        const entry = { sessionId: id, cwd: cwdOf, entrypoint: 'claude-vscode', name: `auto-${i}`, nameSource: 'auto', startedAt: t, ...(pids ? { pid: 5000 + i } : {}) }
+        pending.push({ at: t + (delays[i] ?? 1), entry })
+        // A rewrite: `after` ticks into the open the panel's row takes another session id and start time, as a real panel's does once its session is up.
+        for (const r of rewrites) if (r.onOpen === i) pending.push({ at: t + r.after, rewrite: { entry, sessionId: r.sessionId } })
         for (const x of extra) if (x.onOpen === i) pending.push({ at: t + x.after, entry: x.entry })
       },
     },
     window: { tabGroups: { all: [], close: async () => {}, ...(tabs ? { activeTabGroup: { viewColumn: tabs.activeColumn ?? tabs.column, activeTab: group.tabs[0] } } : {}) } },
   }
-  const flush = () => { for (const p of pending.filter((p) => p.at <= t)) { entries.push(p.entry); pending.splice(pending.indexOf(p), 1) } }
+  const flush = () => {
+    for (const p of pending.filter((p) => p.at <= t)) {
+      pending.splice(pending.indexOf(p), 1)
+      if (p.rewrite) Object.assign(p.rewrite.entry, { sessionId: p.rewrite.sessionId, startedAt: t })
+      else entries.push(p.entry)
+    }
+  }
   const registry = { async list() { flush(); return entries.map((e) => ({ procStart: `start-${e.pid}`, ...e })) } }
   world.opens = () => opens
   const sleep = async () => { t += 1 }
-  const lanes = createLanes({ vscode, registry, sleep, now: () => t, timeoutMs: 50, pollMs: 1, ...(guardMs ? { guardMs } : {}), ...(alive ? { alive } : {}), startOf: startOf ?? (async (pid) => `start-${pid}`) })
+  const lanes = createLanes({ vscode, registry, sleep, now: () => t, timeoutMs: 50, pollMs: 1, settleMs, ...(guardMs ? { guardMs } : {}), ...(alive ? { alive } : {}), startOf: startOf ?? (async (pid) => `start-${pid}`) })
   return { lanes, entries, vscode, registry, focusCalls, tick: (n) => { t += n }, setCwd: (c) => { cwd = c } }
 }
 
@@ -87,6 +96,33 @@ test('a terminal session in the same folder is ignored', async () => {
 test('a foreign panel in the same folder at the same moment is ambiguous, never guessed', async () => {
   const w = world({ extra: [{ onOpen: 0, after: 1, entry: { sessionId: 'f0000000-0000-4000-8000-000000000003', cwd: A, entrypoint: 'claude-vscode', name: 'x' } }] })
   await assert.rejects(w.lanes.open(A), /ambiguous/)
+})
+
+test('an open answers with the id the panel row keeps, not the first id it showed', async () => {
+  const w = world({ delays: [1], pids: true, settleMs: 10, rewrites: [{ onOpen: 0, after: 4, sessionId: 'final-id' }] })
+  assert.equal(await w.lanes.open(A, { timeoutMs: 200 }), 'final-id')
+  assert.equal(w.entries[0].sessionId, 'final-id')
+})
+
+test('an id that changes before settleMs has passed is followed to its new value', async () => {
+  const w = world({ delays: [1], pids: true, settleMs: 10, rewrites: [{ onOpen: 0, after: 8, sessionId: 'second-id' }] })
+  assert.equal(await w.lanes.open(A, { timeoutMs: 200 }), 'second-id')
+})
+
+test('an id still moving when the time limit ends is answered as it stands', async () => {
+  const w = world({ delays: [1], pids: true, settleMs: 1000, rewrites: [{ onOpen: 0, after: 3, sessionId: 'late-id' }] })
+  assert.equal(await w.lanes.open(A, { timeoutMs: 40 }), 'late-id')
+})
+
+test('a row that is gone when the limit ends is a timeout', async () => {
+  const w = world({ delays: [1], pids: true, settleMs: 1000 })
+  const real = w.registry.list
+  let calls = 0
+  w.registry.list = async () => {
+    const list = await real()
+    return ++calls > 6 ? Object.defineProperty([], 'complete', { value: true }) : list
+  }
+  await assert.rejects(w.lanes.open(A, { timeoutMs: 40 }), /timeout/)
 })
 
 test('timeout when no panel registers', async () => {

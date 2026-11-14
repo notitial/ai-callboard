@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.3.3
+
+- A lane's open answers with the session id its panel keeps: the new panel's registry row is followed by its pid until its session id has held for 2 s, in place of answering with the first id seen (a panel can rewrite its row with another id soon after it registers, and the first id then names no session).
+- A lane's open waits up to 20 s for its panel, in place of 5 s. The mod's wait for `lane_open` is 30 s with this version (it was 8 s). While a lane's panel is being waited for the window handles no other request, as for a lead's panel.
+
 ## 1.3.2
 
 - A `<NAME>.close` request may carry the lane's folder as a fourth line, and then needs no lane record: the tab of a retired or terminated lane closes even though the record is gone before the next scan. The three-line form still works while the lane is listed. The body limit is 1200 bytes.

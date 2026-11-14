@@ -1,6 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 import { h, GOOD, LANESDIR, ROOT, SID, T0, YES, engine, extraStat, laneSeed, longTest, modelRuns, renames, resultFiles, seen, storeFiles, submitted } from './harness'
 import type { Trace } from './harness'
+import { LANE_CUE_DEADLINE_MS } from '../hooks/core'
 import { LEAD_LANES, MFOLDER, OTHER, PIN, REG, REGFILE, RESULT, STOREFILE, TURN, allEvents, bornStore, callCreate, creator, cue, cueSession, dirStat, events, fileStat, grantAt, lane, laneTarget, lateLane, lead, leadCall, logged, newTrace, nudges, pause, putStore, renameThroughTick, retireCue, retireTarget, settle, started, tickTwice, ticks, waitFor } from './fixtures'
 
 test('a lead cue is written as a 0600 temp file and renamed into the target cue path', async ($, on) => {
@@ -286,7 +287,7 @@ longTest('an answer to an older cue, no answer, and an unsafe answer file all en
   }
 })
 
-test('lane_start counts its wait for the rename against the one deadline', async ($, on) => {
+longTest('lane_start counts its wait for the rename against the one deadline', async ($, on) => {
   await lead($, on, [], { sess: cueSession(OTHER, undefined), clock: true })
   h.autoAnswer = undefined
   let done = false
@@ -297,9 +298,9 @@ test('lane_start counts its wait for the rename against the one deadline', async
   let ms = 0
   for (; ms < 3500; ms += 500) await h.clock!.advance(500)
   h.sessions = cueSession(OTHER, 'LABLANE')
-  for (; !done && ms < 20_000; ms += 500) await h.clock!.advance(500)
+  for (; !done && ms < 30_000; ms += 500) await h.clock!.advance(500)
   expect(JSON.stringify(await p)).toContain('no-answer')
-  expect(ms).toBeLessThanOrEqual(7000)
+  expect(ms).toBeLessThanOrEqual(LANE_CUE_DEADLINE_MS + 1000)
 })
 
 test('session start drops answers older than 10 minutes and keeps newer ones', async ($, on) => {
