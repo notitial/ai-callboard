@@ -9,7 +9,7 @@ import { log, logq, sha, where, real, statR, readSmallR, gitRoot, rmF, withTimeo
 import { registryEntries, idleCheck } from './store.ts'
 import type { Reg, Answer } from './store.ts'
 import { sessionRoot, modelSet } from './lanes.ts'
-import { leadBusy, conductorsTrusted, leadsFor, cfgReadStrict } from './grants.ts'
+import { leadBusy, conductorTrustedSid, leadsFor, cfgReadStrict } from './grants.ts'
 import { heldNo } from './levels.ts'
 import { ledgerAdd, ledgerRowsFor } from './answer-hook.ts'
 import { promptLinkOnce } from './answer-tiers.ts'
@@ -102,7 +102,7 @@ export async function leadAccept(
     const live = await registryEntries($)
     if (!live) return 'registry-unreadable'
     const cond = live.find((r) => r.j.sessionId === offer.conductor.sid && String(r.j.pid) === r.pid && r.pid === String(offer.conductor.pid) && c.sameStart(r.j.procStart, offer.conductor.start))
-    const trusted = cond !== undefined && (await bounded(conductorsTrusted($, live, sid, repo)))?.some((t) => t.sid === offer.conductor.sid) === true
+    const trusted = cond !== undefined && (await bounded(conductorTrustedSid($, live, sid, repo, offer.conductor.sid))) === true
     const errs = { error: false }
     const leads = await bounded(leadsFor($, live, undefined, repo, errs))
     return c.leadTrustNo({
