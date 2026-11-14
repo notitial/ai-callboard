@@ -78,13 +78,13 @@ first; it is the source for every step here, and wins where the two differ.
    show the person the missing lines to add to `permissions.deny` by hand. If they run a conductor repo, give them
    `chmod go-w <conductor repo>/.claude`. The live checkout needs no deny lines: the hook and the markers below
    protect it (docs/setup.md, Keep agents off the live checkout).
-   - Protected-paths hook: docs/setup.md, Before escalation: the protected-paths hook. Run
+   - Protected-paths hook: docs/setup.md, Escalation is on by default once the protected-paths hook is in place. Run
      `jq -e '[.hooks.PreToolUse[]?.hooks[]?.command] | any(endswith("/protected-paths-guard.sh"))' ~/.claude/settings.json`
      and `ls ~/.claude/hooks/protected-paths-guard.sh`. If either fails, tell the person to update their ai-toolkit
      checkout and run `/setup-claude` themselves, then come back: it is ai-toolkit's, never yours to wire or edit.
      Then run `ls <checkout>/.protected-checkout <toolkit>/.protected-checkout ~/.claude/callboard/.protected-checkout`; for each marker that is
      missing, give the person the `touch` command from that section (the marker is theirs to make). Say that the
-     hook and all three markers are required before any `/callboard escalation`, which only the person types. Last, on the
+     hook and all three markers are what escalation, on by default, needs before it turns on; `/callboard status` names what is missing, and `/callboard escalation off` is the person's off. Last, on the
      person's own request in their own turn, run one probe: a Write of a scratch file inside `<checkout>` and another inside
      `<toolkit>`. Each must be denied by the hook; a write into a `/tmp` clone must go through. If the Write is accepted, report it.
 6. **Old watcher.** First ask whether the repo is public; if unsure, run the dry run

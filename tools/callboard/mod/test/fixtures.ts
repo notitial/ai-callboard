@@ -15,7 +15,9 @@ export const statusText = async ($: any) => (await $.command.run(lane('status'))
 
 // Helpers the tests share, declared before their first use.
 // The /callboard status text: a bold header, then a Role and State table with one row per [role, state]. Written here apart from the mod's own renderer, so a test checks the bytes.
-export const statusTable = (...rows: [string, string][]) => ['**Callboard status**', '', '| Role | State |', '|---|---|', ...rows.map(([role, state]) => `| ${role} | ${state} |`)].join('\n')
+// The test machine has no protected-paths hook wired, so the default escalation is blocked and the table ends on that row (a test that wires the guard builds its own).
+export const ESCALATION_BLOCKED = 'OFF (default blocked: the protected-paths hook is not wired in ~/.claude/settings.json)'
+export const statusTable = (...rows: [string, string][]) => ['**Callboard status**', '', '| Role | State |', '|---|---|', ...[...rows, ['Escalation', ESCALATION_BLOCKED]].map(([role, state]) => `| ${role} | ${state} |`)].join('\n')
 // The status of a session with no lane and no lead.
 export const STATUS_NONE = statusTable(['Lane', 'NONE'], ['Lead', 'OFF'])
 // What lane_list and /callboard lanes say with no lanes at all: a one-column table with one row.
