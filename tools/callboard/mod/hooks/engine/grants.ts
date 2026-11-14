@@ -756,10 +756,11 @@ export async function watchInit($: any, sid: string) {
 async function watchOwn($: any, sid: string) {
   const w = watch.get(sid)
   if (!w) return
-  const was = w.cur
+  // Taken before the poll: a name fill in it rebases told and seen, and the rebased values no longer equal what was there before this write.
+  const { cur: was, told, seen } = w
   await watchPoll($, sid)
-  if (was === w.told) w.told = w.cur
-  if (was === w.seen) w.seen = w.cur
+  if (was === told) w.told = w.cur
+  if (was === seen) w.seen = w.cur
 }
 
 export async function ownWrite<T>($: any, sid: string, fn: () => Promise<T>): Promise<T> {

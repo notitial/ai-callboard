@@ -2,7 +2,7 @@ import { expect, test } from 'claude-code/testing'
 import { folderName, briefingFolder, leadBriefing, NOTE_END, noteText, STOPPABLE_BY_NAME, LANES_CHANGED_TEXT, LANES_CHANGED_NOTE } from '../hooks/core'
 import { h, LANESDIR, NO, REPORT, ROOT, SID, T0, TOOL, YES, engine, extraStat, laneSeed, leadFiles, longTest, resultFiles, storeFiles, submitted } from './harness'
 import type { Trace } from './harness'
-import { ANY, ATTACHED, ATTLEAD, ATTSESS, ATT_REC, COMPOSE, LANES, LANE_COMPOSE, LEADPATH, LEADPS, LEADSID, LEAD_LANES, NO_LANES, OTHER, OTHERLEAD, PIN, REG, REGFILE, RESULT, STOREFILE, SVC, attRec, attacher, bornWithTwoLeads, briefings, callCreate, cue, cueSession, dirStat, doLane, fileStat, grantAt, lane, laneSections, leadAt, leadCall, leadFileText, leadReg, leadSelfReg, listCall, listed, logged, mdBox, newTrace, noNote, noteRows, notices, ownReg, putStore, renameThroughTick, sleepMs, started, statusTable, storeText, tickTwice, ticks, waitFor } from './fixtures'
+import { ANY, ATTACHED, ATTLEAD, ATTSESS, ATT_REC, COMPOSE, LANES, LANE_COMPOSE, LEADPATH, LEADPS, LEADSID, LEAD_LANES, NO_LANES, OTHER, OTHERLEAD, PARK_API, PIN, REG, REGFILE, RESULT, STOREFILE, SVC, attRec, attacher, bornWithTwoLeads, briefings, callCreate, cue, cueSession, dirStat, doLane, fileStat, grantAt, lane, laneSections, leadAt, leadCall, leadFileText, leadReg, leadSelfReg, listCall, listed, logged, mdBox, newTrace, noNote, noteRows, notices, ownReg, putStore, renameThroughTick, sleepMs, started, statusTable, storeText, tickTwice, ticks, waitFor } from './fixtures'
 
 test('lane_list gives one fixed line per lane of this repo: lanes the lead made, attached lanes, and whether a session carries the name', async ($, on) => {
   await leadAt($, on, [], { sess: { ...leadSelfReg(), ...cueSession(OTHER, 'API', `${PIN}/api`, { pid: 4500 }) } })
@@ -422,6 +422,18 @@ test('a tick that runs between the lead own store write and the end of its tool 
   const p = callCreate($)
   await sleepMs(40)
   await tickTwice()
+  expect(JSON.stringify(await p)).toContain('lane API created')
+  await h.clock!.advance(2000)
+  expect(notices()).toBe(0)
+})
+
+test('a lead whose cached name is filled while its own store write is in flight is not told about that write', async ($, on) => {
+  await leadAt($, on, [], { clock: true, sess: leadSelfReg({ name: undefined }), seed: () => putStore([{ ...PARK_API({ name: 'OLD' }), leadName: 'LEAD' }]) })
+  h.storeAfterMs = 120
+  const p = callCreate($)
+  await sleepMs(40)
+  h.sessions = leadSelfReg()
+  await h.clock!.advance(10_000)
   expect(JSON.stringify(await p)).toContain('lane API created')
   await h.clock!.advance(2000)
   expect(notices()).toBe(0)
