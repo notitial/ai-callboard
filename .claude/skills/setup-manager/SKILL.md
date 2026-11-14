@@ -1,6 +1,6 @@
 ---
 name: setup-manager
-description: "Walk the person through docs/setup.md on this Mac: prerequisites, callboard from the live checkout (extension link and default load), the deny lines, the two prompt answering lines (a deny and an ask rule, needed before `/callboard escalation`), the usage watcher (once the repo is public), the old-watcher cut-over, the callboard rule link, the manager's reserved name, and a final status table. Runs only read-only checks and dry runs; every --apply, sudo, settings edit, link and launchctl bootout is shown as an exact command for the person to run. Use on '/setup-manager'."
+description: "Walk the person through docs/setup.md on this Mac: prerequisites, callboard from the live checkout (extension link and default load), the two deny lines for the list file and the store, the two prompt answering lines (a deny and an ask rule, needed before `/callboard escalation`), the usage watcher (once the repo is public), the old-watcher cut-over, the callboard rule link, the manager's reserved name, and a final status table. Runs only read-only checks and dry runs; every --apply, sudo, settings edit, link and launchctl bootout is shown as an exact command for the person to run. Use on '/setup-manager'."
 disable-model-invocation: true
 ---
 
@@ -73,12 +73,11 @@ first; it is the source for every step here, and wins where the two differ.
    plainly: report it.
 5. **Deny lines and prompt answering lines.**
    - Deny lines: for each of the two lines in docs/setup.md (Manager setup: keep agents off the list file and the
-   store (by hand)), and for the six lines in Keep agents off the live checkout (also by hand: `Edit` on `/<checkout>/` `tools/**`,
-   `rules/**`, `.claude/**`, `docs/**`, `CLAUDE.md` and `.git/**`; no `Write` lines, an `Edit` rule covers Write; `<checkout>` starts with `/`, so each string starts with `//`; ai-toolkit's
-   `/setup-claude` writes it), run
+   store (by hand)), run
    `jq -e --arg r '<line>' '(.permissions.deny // []) | index($r) != null' ~/.claude/settings.json`. For any `false`,
    show the person the missing lines to add to `permissions.deny` by hand. If they run a conductor repo, give them
-   `chmod go-w <conductor repo>/.claude`.
+   `chmod go-w <conductor repo>/.claude`. The live checkout needs no deny lines: the hook and the markers below
+   protect it (docs/setup.md, Keep agents off the live checkout).
    - Protected-paths hook: docs/setup.md, Before escalation: the protected-paths hook. Run
      `jq -e '[.hooks.PreToolUse[]?.hooks[]?.command] | any(endswith("/protected-paths-guard.sh"))' ~/.claude/settings.json`
      and `ls ~/.claude/hooks/protected-paths-guard.sh`. If either fails, tell the person to update their ai-toolkit

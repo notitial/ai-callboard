@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.3.1
+
+- Docs only: the README and the package description say the extension also opens a new lead's panel for a conductor, and the README no longer shows the icon inline (it appeared broken on the details page).
+
 ## 1.3.0
 
 - A `<NAME>.lead` request waits up to 45 s for its panel to register, in place of 5 s, so a slow cold window has room. A fast open still answers at once. Other requests keep their 5 s.
