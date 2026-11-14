@@ -1675,16 +1675,16 @@ test('watchText: a sid or parked change hashes the same; any other change, and a
   assert.equal(c.watchText('bad', '', ME), 'bad\n')
 })
 
-const OTHER_SID = '6a1b2c3d-0000-4000-8000-123456789abc'
+const LEAD_OTHER_SID = '6a1b2c3d-0000-4000-8000-123456789abc'
 const laneJson = (name: string, over: Record<string, unknown> = {}) => ({ name, folder: `/Users/x/code/app/${name}`, brief: `/Users/x/code/app/${name}/B.md`, createdAt: 1, ...over })
 const storeOf = (lanes: unknown[], creates: number[] = []) => JSON.stringify({ repo: '/Users/x/code/app', lanes, creates })
 test('watchText: only the lanes that name this lead or no lead, and not the create times, move the hash', () => {
   const mine = laneJson('MINE', { leadName: 'LEAD', leadSid: V13_SID })
   const legacy = laneJson('OLD')
-  const base = c.watchText('ok', storeOf([mine, legacy, laneJson('THEIRS', { leadName: 'ZED', leadSid: OTHER_SID })]), ME)
+  const base = c.watchText('ok', storeOf([mine, legacy, laneJson('THEIRS', { leadName: 'ZED', leadSid: LEAD_OTHER_SID })]), ME)
   assert.equal(c.watchText('ok', storeOf([mine, legacy]), ME), base)
-  assert.equal(c.watchText('ok', storeOf([mine, legacy, laneJson('THEIRS', { leadName: 'ZED', leadSid: OTHER_SID, brief: '/Users/x/code/app/THEIRS/C.md' }), laneJson('NEW', { leadName: 'ZED' })]), ME), base)
-  assert.equal(c.watchText('ok', storeOf([mine, legacy, laneJson('BYSID', { leadSid: OTHER_SID })], [5, 6]), ME), base)
+  assert.equal(c.watchText('ok', storeOf([mine, legacy, laneJson('THEIRS', { leadName: 'ZED', leadSid: LEAD_OTHER_SID, brief: '/Users/x/code/app/THEIRS/C.md' }), laneJson('NEW', { leadName: 'ZED' })]), ME), base)
+  assert.equal(c.watchText('ok', storeOf([mine, legacy, laneJson('BYSID', { leadSid: LEAD_OTHER_SID })], [5, 6]), ME), base)
   assert.notEqual(c.watchText('ok', storeOf([{ ...mine, brief: '/Users/x/code/app/MINE/C.md' }, legacy]), ME), base)
   assert.notEqual(c.watchText('ok', storeOf([mine, { ...legacy, brief: '/Users/x/code/app/OLD/C.md' }]), ME), base)
   assert.notEqual(c.watchText('ok', storeOf([mine, legacy, laneJson('BYSID', { leadSid: V13_SID })]), ME), base)
@@ -1698,13 +1698,13 @@ test('noticeReach: the lane of this lead, a legacy lane, and the lane of a lead 
   assert.equal(c.noticeReach(g, l({ leadSid: V13_SID }), V13_SID, true), true)
   assert.equal(c.noticeReach(g, l(), V13_SID, true), true)
   assert.equal(c.noticeReach(g, l({ adopted: true, lead: V13_SID }), V13_SID, true), true)
-  assert.equal(c.noticeReach(g, l({ leadSid: OTHER_SID }), V13_SID, true), false)
-  assert.equal(c.noticeReach(g, l({ adopted: true, lead: OTHER_SID }), V13_SID, true), false)
-  assert.equal(c.noticeReach(g, l({ leadSid: OTHER_SID }), V13_SID, false), true)
+  assert.equal(c.noticeReach(g, l({ leadSid: LEAD_OTHER_SID }), V13_SID, true), false)
+  assert.equal(c.noticeReach(g, l({ adopted: true, lead: LEAD_OTHER_SID }), V13_SID, true), false)
+  assert.equal(c.noticeReach(g, l({ leadSid: LEAD_OTHER_SID }), V13_SID, false), true)
   assert.equal(c.noticeReach(g, l({ leadName: 'ZED' }), V13_SID, false), false)
   assert.equal(c.noticeReach(g, l({ repo: undefined }), V13_SID, false), false)
   assert.equal(c.noticeReach(c.leadGrant('/w/other', 'LEAD'), l(), V13_SID, false), false)
-  assert.equal(c.noticeReach({ ...g, level: 'manager' }, l({ leadSid: OTHER_SID }), V13_SID, true), true)
+  assert.equal(c.noticeReach({ ...g, level: 'manager' }, l({ leadSid: LEAD_OTHER_SID }), V13_SID, true), true)
 })
 
 test('laneLead: the session id of this lead wins over a name, so a lead named after it was last read still owns its lanes', () => {
@@ -1712,8 +1712,8 @@ test('laneLead: the session id of this lead wins over a name, so a lead named af
   const unnamed = { name: '', sid: V13_SID }
   assert.equal(c.laneLead(l({ leadName: 'LEAD', leadSid: V13_SID }), unnamed), 'me')
   assert.equal(c.laneLead(l({ adopted: true, lead: V13_SID, leadName: 'LEAD' }), unnamed), 'me')
-  assert.equal(c.laneLead(l({ leadName: 'LEAD', leadSid: OTHER_SID }), { name: 'LEAD', sid: V13_SID }), 'me')
-  assert.equal(c.laneLead(l({ leadName: 'LEAD', leadSid: OTHER_SID }), unnamed), 'other')
+  assert.equal(c.laneLead(l({ leadName: 'LEAD', leadSid: LEAD_OTHER_SID }), { name: 'LEAD', sid: V13_SID }), 'me')
+  assert.equal(c.laneLead(l({ leadName: 'LEAD', leadSid: LEAD_OTHER_SID }), unnamed), 'other')
   assert.equal(c.laneLead(l(), unnamed), 'none')
 })
 
