@@ -91,7 +91,7 @@ export const LIST_TEXT_MAX = 48 * 1024
 const LIST_INPUT_MAX = LIST_TEXT_MAX - 16 * 1024
 const listJson = (input: unknown): string => (JSON.stringify(input, null, 1) ?? 'null').replace(/</g, '\\u003c')
 // The copy of a tool's input the tier reads: every string redacted and capped, the whole kept under INPUT_CAP. truncated: the tier has not seen all of it, and
-// the rubric then passes it up. Anything not plain JSON (a function, a cycle) is cut the same way, never thrown.
+// the rubric then passes it up. Anything not plain JSON (a function, a cycle) is cut the same way, never thrown; an undefined value is not, as JSON drops it.
 export function capInput(input: unknown): { input: unknown; truncated: boolean } {
   let cut = false
   const walk = (v: any, depth: number, secret = false): any => {
@@ -109,13 +109,15 @@ export function capInput(input: unknown): { input: unknown; truncated: boolean }
       return r.text
     }
     if (v === null || typeof v === 'number' || typeof v === 'boolean') return v
+    // JSON has no undefined: an object drops the field and an array holds null, as in the whole-input hash, so nothing is cut.
+    if (v === undefined) return undefined
     if (depth > 12) {
       cut = true
       return '[too deep]'
     }
-    if (Array.isArray(v)) return v.slice(0, 200).map((x) => walk(x, depth + 1, secret)).concat(v.length > 200 ? ((cut = true), ['[more]']) : [])
+    if (Array.isArray(v)) return v.slice(0, 200).map((x) => walk(x, depth + 1, secret) ?? null).concat(v.length > 200 ? ((cut = true), ['[more]']) : [])
     if (v && typeof v === 'object') {
-      const keys = Object.keys(v)
+      const keys = Object.keys(v).filter((k) => v[k] !== undefined)
       if (keys.length > 100) cut = true
       return Object.fromEntries(keys.slice(0, 100).map((k) => [capBytes(redact(k), 200).text, walk(v[k], depth + 1, secret || SECRET_KEY(k))]))
     }
@@ -173,7 +175,7 @@ export function classify(tool: string, f: CheckFacts): Judge {
   return set(f.rule) ? { judge: 'agents', raisedBy: 'rule' } : { judge: 'agents', raisedBy: 'mode' }
 }
 
-// ---- the switch: stored under `answering`; off by default ----
+// ---- the switch: stored under `answering`; nothing stored means the default, on while the guard holds ----
 // asks is kept `false` in every value this mod writes, so that an older mod after a rollback (which requires a boolean) still reads the value; it is read for nothing.
 // asksScope is the questions scope: a question is covered only by it (and by the permission scope). Only /callboard escalation writes it now, and always `all`; a narrower value an earlier version stored still reads.
 export type Answering = { scope: string; asks: boolean; savedAt: number; asksScope?: string }

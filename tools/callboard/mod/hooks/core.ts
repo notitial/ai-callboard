@@ -1983,7 +1983,7 @@ export function usageCells(r: UsageReading | undefined, now: number): string[] {
 export const USAGE_FOOTNOTE = "5h/7d are the account's limits: sessions on one account show the same figures."
 
 // One table, not blockquote boxes, which rendered as stray bars and differed between the CLI and VS Code. The text is a plain header line (`**Manager NAME** · live`,
-// `**Conductor NAME** · live` or `**Lead NAME** · live`), a blank line, then ONE table with the columns Lane, Session, Context, 5h, 7d, Cost, Read, Waiting (the figures:
+// `**Conductor NAME** · live` or `**Lead NAME** · live`, the last two followed by the layer above them when the caller gives `above`: aboveText), a blank line, then ONE table with the columns Lane, Session, Context, 5h, 7d, Cost, Read, Waiting (the figures:
 // usageCells). Each repo and lead the lanes name is a group row, bold, `**repo · LEAD**`, with session `lead` and the lead's own figures; its lanes follow, indented with
 // `↳`. A lane that names no lead goes under `Any lead` (no session, no figures), a lead no live session carries is `NAME (not live)` (no figures), and a live lead with no
 // lanes is a group row alone. A row that is parked or not live leaves its figure cells empty; a live one with no reading shows `?` in each.
@@ -2007,7 +2007,19 @@ export function leadStateOf(e: RegEntry): { state: LeadState; since?: number } {
   if (e.status === 'idle' && (e.waitingFor ?? null) === null) return { state: 'idle' }
   return { state: e.status === 'busy' ? 'busy' : 'unknown' }
 }
-export function laneListText(lanes: Lane[], entries: RegEntry[], now: number, view: { level?: 'lead' | 'manager' | 'conductor'; name?: string; self?: string; conductors?: ConductorView[] | 'error'; leads?: LiveLead[]; usage?: Map<string, UsageReading> } = {}): string {
+// The layer above the viewer, shown on the header line: a lead's trusted conductors and live manager, a conductor's live manager (names; a conductor with no name is
+// `a conductor`). 'error': the lookup failed. Left out in the manager's view, which has nothing above it.
+export type LayerAbove = { conductors: (string | undefined)[]; managers: string[] } | 'error'
+export function aboveText(above: LayerAbove): string {
+  if (above === 'error') return 'above unreadable'
+  const named = (xs: string[]) => [...new Set(xs)].sort().map(mdEscape).join(', ')
+  const parts = [
+    ...(above.conductors.length > 0 ? [`conductor ${named(above.conductors.map((n) => n ?? 'a conductor'))}`] : []),
+    ...(above.managers.length > 0 ? [`manager ${named(above.managers)}`] : []),
+  ]
+  return parts.length > 0 ? parts.join(' · ') : 'none'
+}
+export function laneListText(lanes: Lane[], entries: RegEntry[], now: number, view: { level?: 'lead' | 'manager' | 'conductor'; name?: string; self?: string; conductors?: ConductorView[] | 'error'; leads?: LiveLead[]; usage?: Map<string, UsageReading>; above?: LayerAbove } = {}): string {
   const liveLeads = view.level === 'manager' || view.level === 'conductor' ? (view.leads ?? []) : []
   if (lanes.length === 0 && liveLeads.length === 0) return mdTable(['Lanes'], [[view.level === 'conductor' ? 'no lanes in its repos' : 'no lanes in this repo']]).join('\n')
   const names = entries.flatMap((e) => (typeof e.name === 'string' ? [e.name] : []))
@@ -2088,7 +2100,7 @@ export function laneListText(lanes: Lane[], entries: RegEntry[], now: number, vi
   }
   const head = [...(conds.length > 0 ? ['Conductor'] : []), 'Lane', ...(withFolder ? ['Folder'] : []), 'Session', ...USAGE_HEAD, 'Waiting']
   const level = view.level === 'manager' ? 'Manager' : view.level === 'conductor' ? 'Conductor' : 'Lead'
-  return mdPage(`**${level}${view.name ? ` ${mdEscape(view.name)}` : ''}** · live`, head, rows, [...(view.level === 'manager' && view.conductors === 'error' ? ['(conductors could not be read)'] : []), ...(withWindows >= 2 ? [USAGE_FOOTNOTE] : [])])
+  return mdPage(`**${level}${view.name ? ` ${mdEscape(view.name)}` : ''}** · live${view.above !== undefined && view.level !== 'manager' ? ` · ${aboveText(view.above)}` : ''}`, head, rows, [...(view.level === 'manager' && view.conductors === 'error' ? ['(conductors could not be read)'] : []), ...(withWindows >= 2 ? [USAGE_FOOTNOTE] : [])])
 }
 
 // ---- lead check-ins ----

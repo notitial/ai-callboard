@@ -11,7 +11,7 @@ import type { Bound } from './lanes.ts'
 import { promptLinkOnce, promptReachTiers, promptStand } from './answer-tiers.ts'
 import { getLane } from '../state.ts'
 
-// ---- prompt answering (ADR 0004): the hook, the files and the switch. Off by default; nothing here lets an agent write a decision. ----
+// ---- prompt answering (ADR 0004): the hook, the files and the switch. On by default while the guard holds; nothing here lets an agent write a decision. ----
 // A PermissionRequest hook in the asking session: it refuses what no agent may answer, writes a request file and waits. The decision comes from
 // prompt_answer or the person, and the hook applies it under every check of pr.applyCheck.
 const UUIDGEN = '/usr/bin/uuidgen'

@@ -1989,6 +1989,23 @@ test('laneListText: the lead view is one table with a Lead header line, no Manag
   assert.equal(c.laneListText(lanes, [], 0).split('\n').slice(1).join('\n'), text.split('\n').slice(1).join('\n'))
 })
 
+test('aboveText and the header line: conductors, then the manager, else none; names escaped; the manager has no layer above', () => {
+  assert.equal(c.aboveText({ conductors: [], managers: [] }), 'none')
+  assert.equal(c.aboveText({ conductors: ['CONDB', 'CONDA'], managers: [] }), 'conductor CONDA, CONDB')
+  assert.equal(c.aboveText({ conductors: [undefined], managers: [] }), 'conductor a conductor')
+  assert.equal(c.aboveText({ conductors: [undefined, undefined], managers: [] }), 'conductor a conductor')
+  assert.equal(c.aboveText({ conductors: ['C'], managers: ['MANAGER'] }), 'conductor C · manager MANAGER')
+  assert.equal(c.aboveText({ conductors: [], managers: ['M|*'] }), 'manager M\\|\\*')
+  assert.equal(c.aboveText('error'), 'above unreadable')
+  const lanes = [boxLane('LANE-A', '/w/app-one', '/w/app-one', 'LEAD-B')]
+  const head = (view: Parameters<typeof c.laneListText>[3]) => c.laneListText(lanes, [], 0, view).split('\n')[0]
+  assert.equal(head({ level: 'lead', name: 'LEAD-B', above: { conductors: ['COND'], managers: [] } }), '**Lead LEAD-B** · live · conductor COND')
+  assert.equal(head({ level: 'lead', name: 'LEAD-B', above: { conductors: [], managers: [] } }), '**Lead LEAD-B** · live · none')
+  assert.equal(head({ level: 'conductor', name: 'COND', above: { conductors: [], managers: ['MANAGER'] } }), '**Conductor COND** · live · manager MANAGER')
+  assert.equal(head({ level: 'manager', name: 'MANAGER', above: { conductors: [], managers: [] } }), '**Manager MANAGER** · live')
+  assert.equal(head({ level: 'lead', name: 'LEAD-B' }), '**Lead LEAD-B** · live')
+})
+
 test('v14.1 laneListText: a Folder column appears in the table only when one of its lanes is outside the repo root, relative to the repo with . for the root', () => {
   const rootOnly = c.laneListText([boxLane('R1', '/w/repo', '/w/repo'), boxLane('R2', '/w/repo', '/w/repo')], [], 0)
   assert.ok(!rootOnly.includes('Folder'))

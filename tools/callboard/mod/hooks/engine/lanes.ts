@@ -90,6 +90,7 @@ import {
   leadBusy,
   leadHere,
   managerTrusted,
+  managersLive,
   conductorsTrusted,
   pinOf,
   conductorReach,
@@ -947,6 +948,21 @@ export async function leadCore($: any, sid: string) {
   return { lanes, live, g }
 }
 
+// Who is live above a lead (pin: its repo, for the conductors that list it) or a conductor (no pin): conductorsTrusted and managersLive, no new trust logic.
+// A manager counts as the cues count it: its file passed the checks and the registry gives it a name. A manager look that could not be made (an unverified entry) is
+// 'error', never `none`; conductorsTrusted gives nothing when its look fails, so a failed conductor look reads as no conductor.
+async function layerAbove($: any, live: RegRow[], sid: string, pin: string | undefined): Promise<c.LayerAbove> {
+  try {
+    const conductors = pin === undefined ? [] : (await conductorsTrusted($, live, sid, pin)).map((x) => x.name)
+    const found = await managersLive($, live, sid)
+    if (found.some((m) => m.unverified === true)) return 'error'
+    const managers = found.flatMap((m) => (m.name !== undefined ? [m.name] : []))
+    return { conductors, managers }
+  } catch {
+    return 'error'
+  }
+}
+
 // The table behind both lane_list and `/callboard lanes`, so the two cannot drift.
 export async function laneTable($: any, sid: string) {
   const base = await leadCore($, sid)
@@ -960,7 +976,9 @@ export async function laneTable($: any, sid: string) {
   // The figure columns read the live lanes' files, the lead's own in its own list, and the leads' in a conductor's or the manager's list; any read that fails leaves a row at no reading.
   const wanted = [...(base.g.level === 'lead' ? [sid] : []), ...lanes.map((l) => { const one = c.laneSession(entries, l, ''); return one.ok ? one.entry.sessionId : '' }), ...leads.map((x) => x.sid ?? '')]
   const usage = await usageReadings($, wanted.flatMap((sid) => entries.filter((e) => e.sessionId === sid)), now).catch(() => new Map<string, c.UsageReading>())
-  const text = c.laneListText(lanes, entries, now, { level: base.g.level, name: base.g.name, self: sid, conductors, leads, usage })
+  // The layer above: a lead's trusted conductors and its live manager, a conductor's live manager; the manager has none. The same lookups the cues use.
+  const above = base.g.level === 'manager' ? undefined : await layerAbove($, base.live, sid, base.g.level === 'lead' ? pinOf(sid) : undefined)
+  const text = c.laneListText(lanes, entries, now, { level: base.g.level, name: base.g.name, self: sid, conductors, leads, usage, above })
   return { text }
 }
 

@@ -10,17 +10,17 @@ longTest('lane_create stamps the lead name; another lead (or this one renamed) n
   putStore([...storeJson().lanes, { name: 'OLD', folder: SVC, brief: `${SVC}/B.md`, createdAt: 1 }], storeJson().creates)
   const api = ['API', 'api', 'none', '–']
   const old = ['OLD', 'svc', 'none', '–']
-  const both = mdTable([['LEADA', 'app', [api]], ['Any lead', 'app', [old]]], '**Lead LEADA** · live')
+  const both = mdTable([['LEADA', 'app', [api]], ['Any lead', 'app', [old]]], '**Lead LEADA** · live · none')
   expect(await bareList($)).toBe(both)
   h.sessions = { ...selfAs('LEADB'), ...cueSession(OTHER, 'OLD', SVC, { pid: 4500 }) }
   // The lane that names LEADA is not in the list: LEADA is not running.
-  expect(await bareList($)).toBe(mdBox(ANY, [['OLD', 'svc', 'live', '–']], '**Lead LEADB** · live'))
+  expect(await bareList($)).toBe(mdBox(ANY, [['OLD', 'svc', 'live', '–']], '**Lead LEADB** · live · none'))
   for (const verb of ['resume', 'compact', 'start', 'rename', 'park', 'retire', 'terminate', 'open', 'unpark'])
     expect(JSON.stringify(await $.tool.call(leadCall(verb, { lane: 'API' })))).toContain(`lane_${verb} refused: other-lead: that lane belongs to another lead. Only that lead can reach it.`)
   expect((await $.tool.call(leadCall('resume', { lane: 'OLD' }))).result).toContain('cue resume acted')
   // No valid name: legacy lanes only.
   h.sessions = selfAs('LEAD A')
-  const NOHEAD = '**Lead** · live'
+  const NOHEAD = '**Lead** · live · none'
   expect(await bareList($)).toBe(mdBox(ANY, [old], NOHEAD))
   // A twin row in another letter case voids the name; so does a reserved name.
   h.sessions = { ...selfAs('LEADA'), ...regAs(OTHER, 4600, 'leada') }
@@ -180,7 +180,7 @@ test('two leads in one repo, two lanes each: lane_list, lane_resume, lane_unpark
   for (const [me, other, mine, theirs] of [['LEADA', 'LEADB', ['A1', 'A2'], ['B1', 'B2']], ['LEADB', 'LEADA', ['B1', 'B2'], ['A1', 'A2']]] as const) {
     h.sessions = { ...selfAs(me), ...regAs(OTHERLEAD, 4243, other), ...cueSession(OTHER, mine[0], SVC, { pid: 4500 }) }
     const row = (n: string) => [n, 'svc', n === mine[0] ? 'live' : 'none', '–']
-    expect(await bareList($)).toBe(mdTable([[me, 'app', mine.map(row)], ['Any lead', 'app', [row('OLD')]]], `**Lead ${me}** · live`))
+    expect(await bareList($)).toBe(mdTable([[me, 'app', mine.map(row)], ['Any lead', 'app', [row('OLD')]]], `**Lead ${me}** · live · none`))
     for (const n of theirs) for (const verb of ['resume', 'unpark', 'park', 'retire']) expect(JSON.stringify(await $.tool.call(leadCall(verb, { lane: n }))), `${me} ${verb} ${n}`).toContain(`lane_${verb} refused: other-lead`)
     expect((await $.tool.call(leadCall('resume', { lane: mine[0] }))).result).toContain('cue resume acted')
     // A retire of a lane no live session carries removes its record, so it is not in this list.

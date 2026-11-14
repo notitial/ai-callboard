@@ -2,7 +2,7 @@ import { expect, test } from 'claude-code/testing'
 import { HINT_PREFIX, usageFileText, conductorFileText, conductorAddQuestion, conductorRefusalText, conductorAddedText, CONDUCTOR_NOT_PERSON, CONDUCTOR_USAGE, conductorQuestion, conductorRestoreQuestion, conductorBriefing, conductorBriefingNote, conductorRestoredToast, conductorUnansweredToast, conductorFileBadToast, conductorNoReposToast, CONDUCTOR_ON_TEXT, CONDUCTOR_OFF_QUESTION, conductorStatus, leadBriefing, LANES_CHANGED_TEXT, reboundToast, REASON_TEXT, managerRefusalText, terminateQuestion, leadConductorText } from '../hooks/core'
 import { h, GOOD, LANESDIR, NO, PS_TABLE, ROOT, SID, T0, USAGE_DIR, YES, condFiles, condStat, extraStat, laneSeed, leadFiles, longTest, pdirs, pfs, psDead, realFails, realMap, seen, storeFiles, submitted, toasts, toolDefs } from './harness'
 import type { Trace } from './harness'
-import { APISID, APP2, COMPOSE, COND, CONDFILE, CSESS, FAR, LANE_HINT, LEADKEY, LEADPATH, LEADPS, LEADSID, MGR_SESS, MIN, NO_LANES, NO_LANES_COND, OTHER, OTHERLEAD, OTHERPATH, PIN, SELFPATH, STATUS_NONE, TURN, allEvents, attacher, briefings, ckLane, condAt, condOn, condPresenceOf, condRun, condSelf, cue, dirStat, doLane, grantAt, idleFor, killed, lane, leadAt, leadFileText, leadReg, leadSelfReg, listCall, listed, logged, madeLane, mgrAt, mgrCall, mgrFile, mgrRow, newTrace, noteRows, nudges, ownReg, putCond, putStore, regAs, renameThroughTick, selfAs, started, statusTable, statusText, ticks, unanswered, waitFor } from './fixtures'
+import { APISID, APP2, COMPOSE, COND, CONDFILE, CSESS, FAR, LANE_HINT, LEADKEY, LEADPATH, LEADPS, LEADSID, MGR_SESS, MIN, NO_LANES, NO_LANES_COND, OTHER, OTHERLEAD, OTHERPATH, PIN, SELFPATH, STATUS_NONE, TURN, allEvents, attacher, briefings, ckLane, ckRow, condAt, condOn, condPresenceOf, condRun, condSelf, cue, dirStat, doLane, grantAt, idleFor, killed, lane, leadAt, leadFileText, leadReg, leadSelfReg, listCall, listed, logged, madeLane, mgrAt, mgrCall, mgrFile, mgrRow, newTrace, noteRows, nudges, ownReg, putCond, putStore, regAs, renameThroughTick, selfAs, started, statusTable, statusText, ticks, unanswered, waitFor } from './fixtures'
 
 const CONDSTORE = `${LANESDIR}/${'c'.repeat(64)}.json`
 const condEntries = () => JSON.parse(condFiles.get(CONDFILE) ?? '{"repos":[]}').repos as string[]
@@ -618,7 +618,7 @@ test('the restore dialog shows a long absolute entry whole', async ($, on) => {
 test('the conductor\'s lane_list shows its repos\' lanes inside one Conductor box, none of another repo and none of the conductor repo', async ($, on) => {
   await condOn($, on)
   const t = (await $.tool.call(listCall())).result as string
-  expect(t.split('\n')[0]).toBe('**Conductor COND** · live')
+  expect(t.split('\n')[0]).toBe('**Conductor COND** · live · none')
   expect(t).toContain('**app · Any lead**')
   expect(t).toContain('| ↳ API |')
   expect(t).not.toContain('LABLANE')
@@ -906,7 +906,7 @@ test('laneless leads (conductor): a live lead of a listed repo is in the Conduct
     },
   })
   const t = (await $.tool.call(listCall())).result as string
-  expect(t.split('\n')[0]).toBe('**Conductor COND** · live')
+  expect(t.split('\n')[0]).toBe('**Conductor COND** · live · none')
   expect(t).toMatch(/^\| \*\*app · LEAD-A\*\* \(idle\) \|.*\| lead \| \? \| \? \| \? \| \? \| – \|  \|$/m)
   expect(t).not.toContain('LEAD-B')
   expect((await $.command.run(lane('lanes'))).text).toBe(t)
@@ -1273,4 +1273,36 @@ test('a list file that becomes unreadable empties the reach: the presence file g
   await h.clock!.advance(2000)
   await waitFor(() => !leadFiles.has(SELFPATH))
   expect(await statusText($)).toContain(`| Conductor | ${conductorStatus(0)} |`)
+})
+
+// ---- lane_list shows the layer above: a lead's conductor or manager, a conductor's manager ----
+const headOf = (t: string) => t.split('\n')[0]
+test('a lead\'s lane_list names its trusted conductor on the header line, and /callboard lanes agrees', async ($, on) => {
+  await leadAt($, on, [], { sess: { ...CTSESS(), ...ckRow() }, seed: () => { trustSeed()(); putStore([ckLane()]) } })
+  const t = await listed($)
+  expect(headOf(t)).toBe('**Lead LEAD** · live · conductor CONDX')
+  expect(headOf((await $.command.run(lane('lanes'))).text)).toBe(headOf(t))
+})
+
+test('a lead\'s lane_list names the live manager when no conductor is trusted, and says none once the manager is gone', async ($, on) => {
+  await leadAt($, on, [], { sess: { ...leadSelfReg(), ...mgrRow(), ...ckRow() }, seed: () => { mgrFile(); putStore([ckLane()]) } })
+  expect(headOf(await listed($))).toBe('**Lead LEAD** · live · manager MANAGER')
+  leadFiles.delete(`${ROOT}/leads/${OTHERLEAD}.json`)
+  expect(headOf(await listed($))).toBe('**Lead LEAD** · live · none')
+})
+
+test('a lead\'s lane_list shows an untrusted conductor as none: the presence file alone is not enough', async ($, on) => {
+  await leadAt($, on, [], { sess: { ...CTSESS(), ...ckRow() }, seed: () => { trustSeed()(); h.store.delete(`conductor:${OTHERLEAD}`); putStore([ckLane()]) } })
+  expect(headOf(await listed($))).toBe('**Lead LEAD** · live · none')
+})
+
+test('a conductor\'s lane_list names the live manager above it', async ($, on) => {
+  await condOn($, on, [], { sess: { ...CSESS(), ...mgrRow() }, seed: () => mgrFile() })
+  expect(headOf(await listed($))).toBe('**Conductor COND** · live · manager MANAGER')
+  expect((await $.command.run(lane('lanes'))).text).toBe(await listed($))
+  // A manager look that cannot be made is said so, never shown as none.
+  h.leadsListHook = async () => {
+    throw new Error('list')
+  }
+  expect(headOf(await listed($))).toBe('**Conductor COND** · live · above unreadable')
 })
