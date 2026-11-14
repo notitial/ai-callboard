@@ -960,6 +960,17 @@ test('tiers: the relayed questions are listed with the request\'s tool and patte
   assert.match(text, /mcp__github__add_issue_comment/)
 })
 
+test('e: the rows the default-on writes (answering-on code default, then asks) cover a request and a question; a guard off row makes the next request stale', () => {
+  const fx = fixture()
+  const DEFAULT = (at) => R('answering-on', at, { code: 'default', hash: H('7') })
+  ledger(fx, [DEFAULT(BASE - 3000), R('answering-on', BASE - 2900, { code: 'asks' }), ...clean(), ...qClean({ id: uid(2), at: BASE + 60_000 })])
+  assert.deepEqual(run(fx).anomalies, [])
+  ledger(fx, [DEFAULT(BASE - 3000), R('answering-on', BASE - 2900, { code: 'asks' }), R('answering-off', BASE - 1000, { code: 'guard' }), ...clean()])
+  assert.deepEqual(rules(run(fx)), ['requested-while-answering-off'])
+  ledger(fx, [...clean()])
+  assert.deepEqual(rules(run(fx)), ['requested-before-answering-on'])
+})
+
 // ---- questions (PR 4) ----
 const lhOf = (id, label) => createHash('sha256').update(`${id}\n${label}`).digest('hex').slice(0, 16)
 const QT = { lane: 'api', repo: '/Users/x/api', tool: 'AskUserQuestion', pattern: 'AskUserQuestion', hash: H('q') }

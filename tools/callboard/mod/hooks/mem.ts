@@ -31,6 +31,9 @@ export const mem = {
   lastSweepAt: 0,
   sweepFrom: 0,
   lastQuestionsPruneAt: 0,
+  // The default-on guard (engine/answer-hook.ts): the last check of the hook and the three markers, kept for GUARD_TTL_MS; the one default-rows write in flight.
+  guard: undefined as { at: number; missing?: pr.GuardMissing } | undefined,
+  defaultSyncing: undefined as Promise<boolean> | undefined,
   // When the usage files were last swept (usage.ts).
   usageSweptAt: undefined as number | undefined,
 }

@@ -1,8 +1,9 @@
 import { expect, test } from 'claude-code/testing'
 import * as prm from '../hooks/prompts'
-import { h, NO, PROMPTS_DIR, SID, T0, YES, leadFiles, longTest, pdirs, pfs, psFail } from './harness'
+import { h, NO, PROMPTS_DIR, SID, T0, YES, leadFiles, longTest, pdirs, pfs, psFail, toasts } from './harness'
 import { HOOK_BUDGET_MS, LEADPATH, LEADPS, LEADSID, OTHER, SVC, lane, leadReg, ownReg, sleeps, started } from './fixtures'
-import { GONE, LDIR, LEAD2, LEDGER_FILE, OFF_FILE, PCOMMENT, PDIR, PRQ, TID, answerCall, answered, answerer, askCheck, at, callOf, decFile, driveClock, handDecision, hookKinds, hookRows, ledgerRows, noFiles, putLedger, putQ, putRelay, readReq, refusal, reqFiles, retRow, rowKinds, runRequest, said, startReq, stop, tier, waitingRow } from './answer-fixtures'
+import { ROOT } from './harness'
+import { GONE, LDIR, LEAD2, LEDGER_FILE, OFF_FILE, PCOMMENT, PDIR, PRQ, TID, answerCall, answered, answerer, askCheck, at, callOf, decFile, driveClock, handDecision, hookKinds, hookRows, ledgerRows, noFiles, putLedger, putQ, putRelay, readReq, refusal, reqFiles, retRow, rowKinds, runRequest, said, startReq, stop, tier, waitingRow, wireGuard } from './answer-fixtures'
 
 longTest('prompts: a lead\'s answer after 30 s of awake time is returned, the ledger says so, and the files are removed', async ($, on) => {
   const stdins: string[] = []
@@ -86,7 +87,7 @@ test('prompts: /callboard escalation off during a wait closes it too, and a deci
   expect(r).toEqual({})
   expect(rowKinds()).toContain('off')
   expect(rowKinds()).not.toContain('returned allow')
-  expect(h.store.has('answering')).toBe(false)
+  expect(h.store.get('answering')).toMatchObject({ off: true })
 })
 
 longTest('prompts: P-I5: a subagent\'s ask returns the chain beneath at once: no request, no wait, no row', async ($, on) => {
@@ -524,7 +525,7 @@ test('prompts: sweep: with no prompts folder the tick makes no process call for 
 // ---- /callboard escalation ----
 const EXPECT_Q = prm.ESCALATION_QUESTION
 const ESC_VALUE = { scope: 'all', asks: false, asksScope: 'all', savedAt: T0 }
-test('prompts: /callboard config shows escalation OFF (its default), help has no dialog line, and the prompts word is the usage line', async ($, on) => {
+test('prompts: /callboard config shows escalation OFF (the default is blocked on this machine), help has no dialog line, and the prompts word is the usage line', async ($, on) => {
   await started($, on, [])
   expect((await $.command.run(lane('config'))).text).toContain('| Escalation | OFF |')
   expect((await $.command.run(lane('help'))).text).not.toContain('Never answered by an agent')
@@ -597,14 +598,14 @@ for (const kind of ['plugin', 'peer', 'other']) {
     expect(ledgerRows()).toEqual([])
   })
 }
-test('prompts: /callboard escalation off from any origin: no dialog, everything stored is cleared (an old narrowed value too), a row is written', async ($, on) => {
+test('prompts: /callboard escalation off from any origin: no dialog, whatever was stored (an old narrowed value too) is replaced by an explicit off, a row is written', async ($, on) => {
   await started($, on, [])
   for (const old of [{ scope: 'all', asks: true, savedAt: T0 }, ESC_VALUE, { scope: 'svc-api', asks: false, asksScope: 'svc-api', savedAt: T0 }]) {
     h.store.set('answering', old)
     const r = await $.command.run(lane('escalation off', { kind: 'plugin' }))
     expect(r.text).toBe('Escalation is off on this Mac.')
     expect(h.askCount).toBe(0)
-    expect(h.store.has('answering')).toBe(false)
+    expect(h.store.get('answering')).toMatchObject({ off: true })
   }
   expect(rowKinds()).toEqual(['answering-off off', 'answering-off off', 'answering-off off'])
 })
@@ -632,7 +633,7 @@ test('prompts: /callboard escalation: the plain row lands and the asks row fails
   await started($, on, [])
   h.askAnswer = YES
   const cases: [string, unknown, string[]][] = [
-    ['nothing stored', undefined, ['answering-on', 'answering-off off']],
+    ['nothing stored (the default takes over: the next read closes the plain row)', undefined, ['answering-on']],
     ['an earlier narrower value with a questions scope', { scope: 'svc-api', asks: false, asksScope: 'svc-api', savedAt: T0 - 5 }, ['answering-on', 'answering-on', 'answering-on asks']],
     ['an earlier value with no questions scope', { scope: 'svc-api', asks: false, savedAt: T0 - 5 }, ['answering-on', 'answering-on']],
     ['an earlier value that is not a valid switch', { scope: 5 }, ['answering-on', 'answering-off off']],
@@ -649,6 +650,11 @@ test('prompts: /callboard escalation: the plain row lands and the asks row fails
     else expect(h.store.get('answering')).toEqual(old)
     expect(rowKinds()).toEqual(rows)
     h.pfsFails = undefined
+    if (old === undefined) {
+      // The default is blocked on this machine: the next read writes the off row that closes the plain row.
+      await statusOf($)
+      expect(rowKinds()).toEqual([...rows, 'answering-off guard'])
+    }
   }
 })
 test('prompts: the config row reads a value an earlier version stored (a narrowed scope, the old asks flag) as ON, and the OFF file as OFF', async ($, on) => {
@@ -877,4 +883,195 @@ test('prompts hook: a decision whose author could not be looked up (a ps that fa
   const r = await runRequest($, [at(4000, () => { handDecision(readReq()); psFail.add('4242') }), at(10_000, () => { expect(pfs.has(`${PDIR}/${readReq().id}.decision.json`)).toBe(true); expect(rowKinds().some((k) => k.startsWith('dropped'))).toBe(false); psFail.clear() })])
   expect(r).toEqual({ decision: { behavior: 'allow' } })
   expect(rowKinds()).toEqual(['requested', 'answered allow', 'returned allow'])
+})
+
+// ---- escalation on by default, behind the guard ----
+const DEFAULT_ROWS = ['answering-on default', 'answering-on asks']
+const BLOCKED = (why: string) => `| Escalation | OFF (default blocked: ${why}) |`
+const statusOf = async ($: any) => (await $.command.run(lane('status'))).text as string
+
+test('prompts: with nothing stored and the guard in place escalation is on for all, with the two rows, a toast once and a status row', async ($, on) => {
+  await started($, on, [])
+  wireGuard()
+  expect(await statusOf($)).toContain('| Escalation | ON (default) |')
+  expect((await $.command.run(lane('config'))).text).toContain('| Escalation | ON |')
+  expect(rowKinds()).toEqual(DEFAULT_ROWS)
+  expect(toasts.filter((t) => t === prm.ESCALATION_DEFAULT_TOAST)).toHaveLength(1)
+  expect(h.store.has('answering')).toBe(false)
+  await statusOf($)
+  h.nowMs += 120_000
+  await statusOf($)
+  expect(rowKinds()).toEqual(DEFAULT_ROWS)
+  expect(toasts.filter((t) => t === prm.ESCALATION_DEFAULT_TOAST)).toHaveLength(1)
+})
+
+for (const [without, why] of [
+  ['settings', 'the protected-paths hook is not wired in ~/.claude/settings.json'],
+  ['hook-entry', 'the protected-paths hook is not wired in ~/.claude/settings.json'],
+  ['callboard', 'the .protected-checkout marker is missing in callboard\'s folder'],
+  ['toolkit', 'the .protected-checkout marker is missing in the ai-toolkit checkout'],
+  ['checkout', 'the .protected-checkout marker is missing in the ai-manager checkout'],
+] as const) {
+  test(`prompts: with nothing stored and ${without} missing, escalation stays off, status says why, and no row or toast is written`, async ($, on) => {
+    await started($, on, [])
+    wireGuard(without)
+    expect(await statusOf($)).toContain(BLOCKED(why))
+    expect((await $.command.run(lane('config'))).text).toContain('| Escalation | OFF | ON |')
+    expect(rowKinds()).toEqual([])
+    expect(toasts).not.toContain(prm.ESCALATION_DEFAULT_TOAST)
+  })
+}
+
+test('prompts: a guard that fails after the default was on turns it off with a row, and back on with rows when it holds again', async ($, on) => {
+  await started($, on, [])
+  wireGuard()
+  expect(await statusOf($)).toContain('| Escalation | ON (default) |')
+  pfs.delete(`${ROOT}/.protected-checkout`)
+  expect(await statusOf($)).toContain('| Escalation | ON (default) |')
+  h.nowMs += 61_000
+  expect(await statusOf($)).toContain(BLOCKED('the .protected-checkout marker is missing in callboard\'s folder'))
+  expect(rowKinds()).toEqual([...DEFAULT_ROWS, 'answering-off guard'])
+  wireGuard()
+  h.nowMs += 61_000
+  expect(await statusOf($)).toContain('| Escalation | ON (default) |')
+  expect(rowKinds()).toEqual([...DEFAULT_ROWS, 'answering-off guard', ...DEFAULT_ROWS])
+  expect(toasts.filter((t) => t === prm.ESCALATION_DEFAULT_TOAST)).toHaveLength(1)
+})
+
+test('prompts: /callboard escalation off stores an explicit off: the default does not come back, with the guard in place or after the OFF file goes', async ($, on) => {
+  await started($, on, [])
+  wireGuard()
+  expect(await statusOf($)).toContain('| Escalation | ON (default) |')
+  expect((await $.command.run(lane('escalation off', { kind: 'plugin' }))).text).toBe('Escalation is off on this Mac.')
+  expect(h.store.get('answering')).toMatchObject({ off: true })
+  h.nowMs += 120_000
+  expect(await statusOf($)).toContain('| Escalation | OFF |')
+  pfs.set(OFF_FILE, { text: '', mtimeSec: T0 / 1000 })
+  pfs.delete(OFF_FILE)
+  expect(await statusOf($)).toContain('| Escalation | OFF |')
+  expect(rowKinds()).toEqual([...DEFAULT_ROWS, 'answering-off off'])
+})
+
+test('prompts: the OFF file beats the default at once', async ($, on) => {
+  await started($, on, [])
+  wireGuard()
+  pfs.set(OFF_FILE, { text: '', mtimeSec: T0 / 1000 })
+  expect(await statusOf($)).toContain('| Escalation | OFF (the OFF file exists) |')
+})
+
+test('prompts: a value stored before still rules as stored, guard or not, and gets no default rows or toast', async ($, on) => {
+  await started($, on, [])
+  h.store.set('answering', ESC_VALUE)
+  expect(await statusOf($)).toContain('| Escalation | ON |')
+  expect(rowKinds()).toEqual([])
+  expect(toasts).not.toContain(prm.ESCALATION_DEFAULT_TOAST)
+})
+
+test('prompts: a ledger that cannot take the default rows keeps escalation off, and the rows land when it can', async ($, on) => {
+  await started($, on, [])
+  wireGuard()
+  h.pfsFails = (a) => a[0] === '/usr/bin/tee' && a[1] === '-a'
+  expect(await statusOf($)).toContain(BLOCKED('the ledger did not answer'))
+  expect(toasts).not.toContain(prm.ESCALATION_DEFAULT_TOAST)
+  h.pfsFails = undefined
+  expect(await statusOf($)).toContain('| Escalation | ON (default) |')
+  expect(rowKinds()).toEqual(DEFAULT_ROWS)
+})
+
+test('prompts: the dialog on a machine with the default writes its own value; a failed ledger puts the default back and the next read writes its rows', async ($, on) => {
+  await started($, on, [])
+  wireGuard()
+  expect(await statusOf($)).toContain('| Escalation | ON (default) |')
+  h.askAnswer = YES
+  h.pfsFails = (a) => a[0] === '/usr/bin/tee' && a[1] === '-a'
+  expect((await $.command.run(lane('escalation'))).text).toBe('Escalation could not be turned on: the ledger did not answer. Nothing changed.')
+  expect(h.store.has('answering')).toBe(false)
+  h.pfsFails = undefined
+  expect(await statusOf($)).toContain('| Escalation | ON (default) |')
+  expect(rowKinds().slice(-2)).toEqual(DEFAULT_ROWS)
+})
+
+test('prompts: the default guard parser: only the linked hook, on a matcher that covers the tools, with hooks not disabled, counts', () => {
+  const LINK = '/Users/x/.claude/hooks/protected-paths-guard.sh'
+  const wire = (command: unknown, matcher: unknown = 'Edit|Write|MultiEdit|Bash', extra: object = {}) => prm.settingsWireGuard(JSON.stringify({ ...extra, hooks: { PreToolUse: [{ matcher, hooks: [{ command }] }] } }), LINK, '/Users/x')
+  expect(wire(LINK)).toBe(true)
+  expect(wire('$HOME/.claude/hooks/protected-paths-guard.sh')).toBe(true)
+  expect(wire('${HOME}/.claude/hooks/protected-paths-guard.sh')).toBe(true)
+  expect(wire('~/.claude/hooks/protected-paths-guard.sh')).toBe(true)
+  expect(wire(LINK, undefined)).toBe(true)
+  expect(wire(LINK, '*')).toBe(true)
+  expect(wire(LINK, '')).toBe(true)
+  expect(wire(`${LINK} --probe`)).toBe(false)
+  expect(wire('/opt/stub/protected-paths-guard.sh')).toBe(false)
+  expect(wire('protected-paths-guard.sh')).toBe(false)
+  expect(wire(5)).toBe(false)
+  expect(wire(LINK, 'NoSuchTool')).toBe(false)
+  expect(wire(LINK, 'Edit|Write')).toBe(false)
+  expect(wire(LINK, 'Edit|Write|Bash', { disableAllHooks: true })).toBe(false)
+  for (const bad of ['', '{', '[]', '{"hooks":[]}', `{"hooks":{"PostToolUse":[{"hooks":[{"command":"${LINK}"}]}]}}`]) expect(prm.settingsWireGuard(bad, LINK, '/Users/x')).toBe(false)
+  expect(prm.settingsWireGuard(undefined, LINK, '/Users/x')).toBe(false)
+  expect(prm.toolkitOfHook('/Users/x/ai-toolkit/hooks/protected-paths-guard.sh')).toBe('/Users/x/ai-toolkit')
+  for (const bad of ['', '/hooks/protected-paths-guard.sh', '/x/hooks/other.sh', 'rel/hooks/protected-paths-guard.sh', undefined]) expect(prm.toolkitOfHook(bad)).toBeUndefined()
+})
+
+test('prompts: a lane\'s ask is raised and waits under the default, and a guard that fails during the wait hands it back to the person', async ($, on) => {
+  await answerer($, on, [], { switchOn: false })
+  wireGuard()
+  const r = await runRequest($, [at(4000, () => { expect(reqFiles().length).toBe(1) }), at(6000, () => { pfs.delete(`${ROOT}/.protected-checkout`); h.nowMs += 61_000 }), stop(120_000)])
+  expect(r).toEqual({})
+  expect(rowKinds()).toEqual([...DEFAULT_ROWS, 'requested', 'answering-off guard', 'off'])
+  expect(noFiles()).toBe(true)
+})
+
+test('prompts: an `escalation off` typed before the default existed (the ledger\'s latest switch row, nothing stored) stays off, stored as the explicit off, with no rows and no toast', async ($, on) => {
+  await started($, on, [])
+  wireGuard()
+  putLedger([{ t: new Date(T0 - 5000).toISOString(), kind: 'answering-on' }, { t: new Date(T0 - 4000).toISOString(), kind: 'answering-on', code: 'asks' }, { t: new Date(T0 - 3000).toISOString(), kind: 'answering-off', code: 'off' }])
+  expect(await statusOf($)).toContain('| Escalation | OFF |')
+  expect(h.store.get('answering')).toMatchObject({ off: true })
+  expect(rowKinds()).toEqual(['answering-on', 'answering-on asks', 'answering-off off'])
+  expect(toasts).not.toContain(prm.ESCALATION_DEFAULT_TOAST)
+  h.nowMs += 120_000
+  expect(await statusOf($)).toContain('| Escalation | OFF |')
+})
+
+test('prompts: a switch row that is on, or only a guard off row, does not stop the default; a ledger that cannot be read does', async ($, on) => {
+  await started($, on, [])
+  wireGuard()
+  putLedger([{ t: new Date(T0 - 5000).toISOString(), kind: 'answering-off', code: 'off' }, { t: new Date(T0 - 3000).toISOString(), kind: 'answering-on' }])
+  h.pfsFails = (a) => a[0] === '/usr/bin/grep'
+  expect(await statusOf($)).toContain(BLOCKED('the ledger did not answer'))
+  expect(h.store.has('answering')).toBe(false)
+  h.pfsFails = undefined
+  expect(await statusOf($)).toContain('| Escalation | ON (default) |')
+})
+
+test('prompts: with the OFF file there the default writes no rows and no toast; once the file goes it turns on with both', async ($, on) => {
+  await started($, on, [])
+  wireGuard()
+  pfs.set(OFF_FILE, { text: '', mtimeSec: T0 / 1000 })
+  expect(await statusOf($)).toContain('| Escalation | OFF (the OFF file exists) |')
+  expect((await $.command.run(lane('config'))).text).toContain('| Escalation | OFF | ON |')
+  expect(rowKinds()).toEqual([])
+  expect(toasts).not.toContain(prm.ESCALATION_DEFAULT_TOAST)
+  pfs.delete(OFF_FILE)
+  expect(await statusOf($)).toContain('| Escalation | ON (default) |')
+  expect(rowKinds()).toEqual(DEFAULT_ROWS)
+  expect(toasts.filter((t) => t === prm.ESCALATION_DEFAULT_TOAST)).toHaveLength(1)
+})
+
+test('prompts: a process whose cached guard differs from the record runs the guard again before writing, and settles on what is true now', async ($, on) => {
+  await started($, on, [])
+  wireGuard()
+  expect(await statusOf($)).toContain('| Escalation | ON (default) |')
+  // Another process saw a marker missing and wrote off; here the marker is gone too, so no row is written over it.
+  h.store.set('answering-default', { state: 'off', savedAt: T0 })
+  pfs.delete(`${ROOT}/.protected-checkout`)
+  expect(await statusOf($)).toContain(BLOCKED('the .protected-checkout marker is missing in callboard\'s folder'))
+  expect(rowKinds()).toEqual(DEFAULT_ROWS)
+  // The marker is back there, so this process puts the on rows over the other's off.
+  wireGuard()
+  h.nowMs += 61_000
+  expect(await statusOf($)).toContain('| Escalation | ON (default) |')
+  expect(rowKinds()).toEqual([...DEFAULT_ROWS, ...DEFAULT_ROWS])
 })

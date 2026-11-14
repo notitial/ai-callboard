@@ -72,7 +72,7 @@ import { restoreFromHint, saveHint, bump, isEligible, dropRequest } from './comp
 import { ensureTimer } from './tick.ts'
 import { epochOf, heldNo, holdsOf, levelSave } from './levels.ts'
 import type { LevelDesc } from './levels.ts'
-import { ANSWERING_KEY, ledgerAdd, promptsOff } from './answer-hook.ts'
+import { ANSWERING_KEY, ledgerAdd, promptsOff, escalationNow, defaultForget } from './answer-hook.ts'
 import { ledgerRestore } from './answer-tiers.ts'
 import { getCheckinPause, getLane, getRequest, setCheckinPause, setLane, setNudgeDue, setNudgedAt, setRequest, setRest } from '../state.ts'
 
@@ -545,8 +545,8 @@ async function conductorGrant($: any, sid: string, code: c.OriginCode, busy: () 
 // last write wins), and the two levels are checked against each other as stored.
 async function configCommand($: any, sid: string, code: c.OriginCode, op: c.ConfigOp): Promise<{ text: string }> {
   if (op === 'show') {
-    // Escalation is on when a switch is stored and the OFF file is not there.
-    const on = pr.parseAnswering(await $.store.get(ANSWERING_KEY).catch(() => undefined)) !== undefined && !(await promptsOff($))
+    // Escalation is on when it is stored or the default holds (the guard), and the OFF file is not there.
+    const on = (await escalationNow($)).a !== undefined && !(await promptsOff($))
     return { text: c.configText(await cfgGet($, sid, true), on) }
   }
   if (op === 'bad') return { text: c.CONFIG_USAGE }
@@ -648,15 +648,16 @@ async function reserveCommand($: any, sid: string, code: c.OriginCode, op: c.Res
 // the two ledger rows are the ones the audit reads (the plain `answering-on`, then the one with code asks that opens the questions).
 async function escalationCommand($: any, sid: string, code: c.OriginCode, op: pr.EscalationOp): Promise<{ text: string }> {
   if (op === 'bad') return { text: pr.ESCALATION_USAGE }
-  // Off narrows only: any origin, no dialog. It clears the stored switch as well, so deleting the OFF file later does not turn escalation back on.
+  // Off narrows only: any origin, no dialog. It stores an explicit off in place of the switch, so deleting the OFF file later does not turn escalation back on,
+  // and with nothing stored the default (on, behind the guard) does not come back either.
   if (op === 'off') {
     try {
-      await $.store.delete(ANSWERING_KEY)
+      await $.store.set(ANSWERING_KEY, { off: true, savedAt: await $.clock.now() })
     } catch {
       await logq($, sid, 'error', 'escalation-store')
       return { text: 'Escalation could not be changed: the store did not answer. Create ~/.claude/callboard/prompts/OFF to stop it now.' }
     }
-    await ledgerAdd($, { kind: 'answering-off', code: 'off' })
+    if (!(await ledgerAdd($, { kind: 'answering-off', code: 'off' }))) await logq($, sid, 'error', 'escalation-ledger')
     return { text: 'Escalation is off on this Mac.' }
   }
   // On is the person's own command, with a dialog that names exactly what turns on.
@@ -681,13 +682,16 @@ async function escalationCommand($: any, sid: string, code: c.OriginCode, op: pr
   if (!plainRow || !(await ledgerAdd($, { kind: 'answering-on', code: 'asks', hash }))) {
     await logq($, sid, 'error', 'escalation-ledger')
     try {
-      if (before === undefined || before === null) await $.store.delete(ANSWERING_KEY)
-      else await $.store.set(ANSWERING_KEY, before)
+      if (before === undefined || before === null) {
+        await $.store.delete(ANSWERING_KEY)
+        // Nothing stored means the default again; the ledger rows are put right by the next read.
+        await defaultForget($)
+      } else await $.store.set(ANSWERING_KEY, before)
     } catch {
       return { text: 'Escalation could not be turned on, and the store would not take it back: the ledger did not answer. Whether escalation is on is now unknown. Create ~/.claude/callboard/prompts/OFF to stop it now.' }
     }
     // The plain row may already be in the ledger, which would then read as a wider "on" than the value put back: it gets rows for that value (best effort, the ledger just failed once).
-    if (plainRow && !(await ledgerRestore($, before))) await logq($, sid, 'error', 'escalation-ledger-restore')
+    if (plainRow && before !== undefined && before !== null && !(await ledgerRestore($, before))) await logq($, sid, 'error', 'escalation-ledger-restore')
     return { text: 'Escalation could not be turned on: the ledger did not answer. Nothing changed.' }
   }
   return { text: `${pr.escalationState(value, await promptsOff($))} ${c.DIALOG_LINE}` }
@@ -887,7 +891,10 @@ export async function commandRun($: any, e: any) {
   const gs = grants.get(sid)
   const grantPart: [string, string] = gs?.level === 'manager' ? ['Manager', 'ON'] : gs?.level === 'conductor' ? ['Conductor', c.conductorStatus(gs.pins.length)] : ['Lead', grants.has(sid) ? 'ON' : 'OFF']
   const laneLead: [string, string][] = bound ? [["This lane's lead", c.laneStatusLead(laneBrief.get(sid), bound.name)]] : []
-  if (arg === 'status') return { text: c.statusTableText([['Lane', bound ? bound.name : 'NONE'], grantPart, ...ckStatus, ...laneLead]) }
+  if (arg === 'status') {
+    const esc: [string, string][] = [['Escalation', pr.escalationStatus(await escalationNow($), await promptsOff($))]]
+    return { text: c.statusTableText([['Lane', bound ? bound.name : 'NONE'], grantPart, ...ckStatus, ...laneLead, ...esc]) }
+  }
   if (arg === 'off') {
     // A recorded nudge and an open grant go too. Off does not opt out of nudges: a later turn past the level records a new one.
     await setNudgeDue($, null)

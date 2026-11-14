@@ -1,5 +1,5 @@
 import * as prm from '../hooks/prompts'
-import { h, PROMPTS_DIR, ROOT, SID, T0, extraStat, leadFiles, pdirs, pfs } from './harness'
+import { h, PROMPTS_DIR, ROOT, SETTINGS_FILE, SID, T0, extraStat, leadFiles, pdirs, pfs, realMap } from './harness'
 import { APISID, APP2, COND, LEADPATH, LEADPS, LEADSID, PIN, SVC, attacher, condOn, condPresenceOf, dirStat, doLane, lead, leadAt, leadFileText, leadReg, leadSelfReg, ownReg, putCond, regAs } from './fixtures'
 
 // ---- ADR 0004 prompt answering: the hook, the files and the switch ----
@@ -172,3 +172,17 @@ export const decOf = (id = TID) => JSON.parse(decFile(id)!.text)
 export const QTEXT = 'Which port do I use?'
 export const QIN = { questions: [{ question: QTEXT, header: 'Port', options: [{ label: '3000', description: 'dev' }, { label: ' 8080 ', description: 'alt' }], multiSelect: false }] }
 export const QASK = { decision: 'ask' }
+
+// The escalation default's guard on the test machine: the hook wired in settings, linked into an ai-toolkit checkout, and the three markers (the callboard folder, the
+// toolkit, the checkout the mod loads from). `without` leaves one thing out: 'settings', 'hook-entry' (a settings file with no such hook), or a marker's folder.
+export const TOOLKIT = '/Users/x/ai-toolkit'
+export const HOOK_LINK = '/Users/x/.claude/hooks/protected-paths-guard.sh'
+// The checkout the mod loads from, as the session start's HEAD read named it (the mod folder is <checkout>/tools/callboard/mod); after `started`.
+export const checkoutOf = (): string => h.liveHeadAsked!.path.slice(0, -'/.git/HEAD'.length)
+export function wireGuard(without?: 'settings' | 'hook-entry' | 'callboard' | 'toolkit' | 'checkout') {
+  const entry = { hooks: { PreToolUse: [{ matcher: 'Edit|Write|MultiEdit|Bash', hooks: [{ type: 'command', command: HOOK_LINK }] }] } }
+  if (without !== 'settings') pfs.set(SETTINGS_FILE, { text: JSON.stringify(without === 'hook-entry' ? { hooks: { PreToolUse: [{ hooks: [{ type: 'command', command: '/x/other.sh' }] }] } } : entry), mtimeSec: T0 / 1000 })
+  realMap.set(HOOK_LINK, `${TOOLKIT}/hooks/protected-paths-guard.sh`)
+  const dirs = { callboard: ROOT, toolkit: TOOLKIT, checkout: checkoutOf() }
+  for (const [k, d] of Object.entries(dirs)) if (k !== without) pfs.set(`${d}/.protected-checkout`, { text: '', mtimeSec: T0 / 1000 })
+}

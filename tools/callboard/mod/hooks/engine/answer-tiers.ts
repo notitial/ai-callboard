@@ -23,7 +23,7 @@ import { ensureTimer } from './tick.ts'
 import {
   ledgerAdd,
   PROMPT_DIRS_MAX,
-  ANSWERING_KEY,
+  answeringNow,
   promptsOff,
   promptNewId,
   ledgerRowsFor,
@@ -149,7 +149,7 @@ async function promptTierCtx($: any, e: unknown, sid: string) {
   if ('err' in base) return base
   const p = await where($)
   if (!p) return { err: ['write-failed', pr.PROMPT_REFUSE['write-failed']] as const }
-  const answering = pr.parseAnswering(await $.store.get(ANSWERING_KEY).catch(() => undefined))
+  const answering = await answeringNow($)
   return { ...base, p, answering, off: await promptsOff($) }
 }
 
@@ -370,7 +370,7 @@ const PROMPT_WINDOW_RECHECK_MS = 15_000
 export async function promptNoticeTick($: any, sid: string, submitsAtStart: number): Promise<void> {
   const g = grantOf(sid)
   if (g?.level !== 'lead' && g?.level !== 'conductor' && g?.level !== 'manager') return
-  const answering = pr.parseAnswering(await $.store.get(ANSWERING_KEY).catch(() => undefined))
+  const answering = await answeringNow($)
   if (!answering || (await promptsOff($))) {
     promptTold.delete(sid)
     return
@@ -505,7 +505,7 @@ export async function promptMidTurnNotice($: any, e: any): Promise<string | unde
       return undefined
     }
     // Answering turned off since the tick looked: nothing is told.
-    if (!pr.parseAnswering(await $.store.get(ANSWERING_KEY).catch(() => undefined)) || (await promptsOff($))) return undefined
+    if (!(await answeringNow($)) || (await promptsOff($))) return undefined
     // Nothing is awaited between this read of the marks and their change.
     const owed = [...told].filter(([id, v]) => v === -1 && !promptMidRetold.get(sid)?.has(id)).map(([id]) => id)
     if (owed.length === 0) return undefined
