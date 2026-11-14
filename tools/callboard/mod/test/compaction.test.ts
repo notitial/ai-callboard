@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { orderText, COMPACT_START_TOAST, COMPACT_CANCELLED_TOAST, mergeCounters, requestExpired, ON_CUE_TTL_MS, RESUME_PER_HOUR, STOPPABLE_BY_NAME, RESTORE_YES, nudgeText, COMPACT_CUT_NOTE } from '../hooks/core'
+import { NOTE_END, orderText, COMPACT_START_TOAST, COMPACT_CANCELLED_TOAST, mergeCounters, requestExpired, ON_CUE_TTL_MS, RESUME_PER_HOUR, STOPPABLE_BY_NAME, RESTORE_YES, nudgeText, COMPACT_CUT_NOTE } from '../hooks/core'
 import { h, GOOD, NO, SID, T0, YES, laneSeed, longTest, resultFiles, seen, submitted, toasts } from './harness'
 import type { Trace } from './harness'
 import { LANES, MIN, NOW, OTHER, REG, REGFILE, RESULT, STATUS_NONE, TURN, allEvents, armNow, ckLead, cue, events, idleFor, lane, leadCall, leadSelfReg, logged, newTrace, nudges, person, renameThroughTick, retireTarget, started, ticks } from './fixtures'
@@ -524,6 +524,7 @@ test('a fresh cut mark at start gives one note and a toast on the first tick, an
   expect(cutNotes().length).toBe(0)
   await ticks(1)
   expect(cutNotes().length).toBe(1)
+  expect(h.appendRows.find((m) => m.content?.[0]?.text === COMPACT_CUT_NOTE).content[0].text.endsWith(`\n\n${NOTE_END}`)).toBe(true)
   expect(toasts).toContain('A compaction may have been cut off by the restart.')
   expect(logged(stdins)).toContain('compact-cut:')
   expect(h.store.has(CMPKEY)).toBe(false)
