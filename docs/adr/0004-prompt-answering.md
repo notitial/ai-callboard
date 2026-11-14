@@ -374,7 +374,12 @@ deleting the value, because nothing stored means the default. A value the person
 as stored and is not subject to the guard (the person chose it). The default writes the rows the audit reads: `answering-on`
 code `default` and `answering-on` code `asks` when it turns on, `answering-off` code `guard` when the guard turns it off after
 it was on, only on a change, and it stays off if the ledger cannot take them. The audit needs no change (rule e reads the latest
-row). Existing Macs get one toast the first time the default holds, and no dialog.
+row). Existing Macs get one toast the first time the default holds, and no dialog. A Mac whose person typed `/callboard escalation off` before this
+amendment has no stored value (the old off deleted it): the first time the default would turn on, the mod reads the ledger's latest
+switch row of this and last month, and if it is `answering-off` code `off` it stores the explicit off and the default never turns on;
+a ledger it cannot read keeps the default off for that call. An off older than last month's ledger is not seen. A change of the default's
+rows is written only after the guard is run again uncached, so two processes whose cached results differ settle on what is true now. While the OFF
+file exists the default writes no rows and shows no toast.
 
 ### Limits
 

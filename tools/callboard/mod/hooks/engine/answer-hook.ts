@@ -178,36 +178,57 @@ async function guardCheck($: any): Promise<pr.GuardMissing | undefined> {
 // latest row). On: the plain row and the asks row, as `/callboard escalation` writes them. Off: `answering-off` with code guard. Written on a change only. The
 // state last written is kept in the store (read each time, so another process or a restart agrees): `on` once both rows landed, `pending` while they are
 // being written or after a restart of the story (defaultForget), `off` once the off row landed. Nothing ever written and a guard that fails writes nothing.
-// One write at a time inside this process. true: the ledger holds the rows for `want`.
-async function defaultSyncOnce($: any, want: 'on' | 'off'): Promise<boolean> {
+// One write at a time inside this process. A change is written only after the guard is run again uncached, so two processes whose cached results differ
+// settle on what is true now rather than overwriting each other. The result is the state the ledger holds: 'on', 'off' (the guard fails, with what is missing),
+// 'cleared' (an earlier `/callboard escalation off` was found, and stored as the explicit off), or 'fail' (the store or the ledger did not answer).
+type Synced = { state: 'on' } | { state: 'off'; missing: pr.GuardMissing } | { state: 'cleared' } | { state: 'fail' }
+async function defaultSyncOnce($: any, cached: pr.GuardMissing | undefined): Promise<Synced> {
+  const state = (missing: pr.GuardMissing | undefined): Synced => (missing === undefined ? { state: 'on' } : { state: 'off', missing })
   let rec: { state?: unknown } | undefined
   try {
     rec = await $.store.get(DEFAULT_REC_KEY)
   } catch {
-    return false
+    return { state: 'fail' }
   }
-  if (rec?.state === want) return true
-  if (want === 'off' && (rec === undefined || rec === null)) return true
+  const wantOf = (m: pr.GuardMissing | undefined): 'on' | 'off' => (m === undefined ? 'on' : 'off')
+  const settled = (w: 'on' | 'off'): boolean => rec?.state === w || (w === 'off' && (rec === undefined || rec === null))
+  if (settled(wantOf(cached))) return state(cached)
+  const missing = await guardRun($).catch(() => 'hook' as pr.GuardMissing)
+  mem.guard = { at: await $.clock.now(), ...(missing !== undefined ? { missing } : {}) }
+  const want = wantOf(missing)
+  if (settled(want)) return state(missing)
   try {
     if (want === 'on') {
+      // First time on this machine: an `/callboard escalation off` typed before this version deleted the stored switch, so the ledger's latest switch row is the person's
+      // last word. It is kept as the explicit off; a ledger that cannot be read is no answer.
+      if (rec === undefined || rec === null) {
+        const p = await where($)
+        const rows = p ? await ledgerRowsFor($, p, '"kind":"answering-') : 'unreadable'
+        if (rows === 'unreadable') return { state: 'fail' }
+        const last = rows.filter((r) => r.kind === 'answering-on' || r.kind === 'answering-off').sort((a, b) => (a.t < b.t ? -1 : a.t > b.t ? 1 : 0)).pop()
+        if (last?.kind === 'answering-off' && last.code === 'off') {
+          await $.store.set(ANSWERING_KEY, { off: true, savedAt: await $.clock.now() })
+          return { state: 'cleared' }
+        }
+      }
       await $.store.set(DEFAULT_REC_KEY, { state: 'pending', savedAt: await $.clock.now() })
       const hash = await sha($, pr.canonical(pr.DEFAULT_ANSWERING)).catch(() => undefined)
-      if (!(await ledgerAdd($, { kind: 'answering-on', code: 'default', hash })) || !(await ledgerAdd($, { kind: 'answering-on', code: 'asks', hash }))) return false
-    } else if (!(await ledgerAdd($, { kind: 'answering-off', code: 'guard' }))) return false
+      if (!(await ledgerAdd($, { kind: 'answering-on', code: 'default', hash })) || !(await ledgerAdd($, { kind: 'answering-on', code: 'asks', hash }))) return { state: 'fail' }
+    } else if (!(await ledgerAdd($, { kind: 'answering-off', code: 'guard' }))) return { state: 'fail' }
     await $.store.set(DEFAULT_REC_KEY, { state: want, savedAt: await $.clock.now() })
   } catch {
-    return false
+    return { state: 'fail' }
   }
-  // Once per machine, when the default first holds.
-  if (want === 'on' && (await $.store.get(DEFAULT_NOTICE_KEY).catch(() => 'unknown')) === undefined) {
+  // Once per machine, when the default first holds and the OFF file is not there (the toast would tell the person it is on).
+  if (want === 'on' && !(await promptsOff($)) && (await $.store.get(DEFAULT_NOTICE_KEY).catch(() => 'unknown')) === undefined) {
     toast($, pr.ESCALATION_DEFAULT_TOAST)
     await $.store.set(DEFAULT_NOTICE_KEY, { savedAt: await $.clock.now() }).catch(() => undefined)
   }
-  return true
+  return state(missing)
 }
-async function defaultSync($: any, want: 'on' | 'off'): Promise<boolean> {
-  while (mem.defaultSyncing) await mem.defaultSyncing.catch(() => false)
-  const job = defaultSyncOnce($, want).finally(() => {
+async function defaultSync($: any, cached: pr.GuardMissing | undefined): Promise<Synced> {
+  while (mem.defaultSyncing) await mem.defaultSyncing.catch(() => undefined)
+  const job = defaultSyncOnce($, cached).finally(() => {
     if (mem.defaultSyncing === job) mem.defaultSyncing = undefined
   })
   mem.defaultSyncing = job
@@ -217,15 +238,15 @@ async function defaultSync($: any, want: 'on' | 'off'): Promise<boolean> {
 // Marks the default's rows as not matching (after `/callboard escalation` ended on a ledger failure), so the next read writes rows for the state then: on rows,
 // or an off row that closes any plain row the dialog left.
 export async function defaultForget($: any): Promise<void> {
-  while (mem.defaultSyncing) await mem.defaultSyncing.catch(() => false)
+  while (mem.defaultSyncing) await mem.defaultSyncing.catch(() => undefined)
   await $.store.set(DEFAULT_REC_KEY, { state: 'pending', savedAt: await $.clock.now() }).catch(() => undefined)
 }
 
 export type Escalation = { a: pr.Answering | undefined; source: pr.EscalationSource; why?: string }
 
 // Whether escalation is on, and from where. A stored valid value wins as it always did (a narrower old one too). The person's off, or a value that is not
-// valid, is off. With nothing stored, it is on for everyone while the guard holds and its rows are in the ledger; else off, with what is missing. The OFF file is
-// judged by the callers (promptsOff). A store that does not answer is off.
+// valid, is off. With nothing stored, it is on for everyone while the guard holds and its rows are in the ledger; else off, with what is missing. An OFF file
+// leaves the default alone (no rows, no toast); the callers judge it (promptsOff) beside this. A store that does not answer is off.
 export async function escalationNow($: any): Promise<Escalation> {
   let raw: unknown
   try {
@@ -237,10 +258,11 @@ export async function escalationNow($: any): Promise<Escalation> {
   const stored = pr.parseAnswering(raw)
   if (stored) return { a: stored, source: 'stored' }
   if (raw !== undefined && raw !== null) return { a: undefined, source: 'off' }
-  const missing = await guardCheck($)
-  const landed = await defaultSync($, missing === undefined ? 'on' : 'off')
-  if (missing !== undefined) return { a: undefined, source: 'guard', why: pr.GUARD_WHY[missing] }
-  if (!landed) return { a: undefined, source: 'guard', why: 'the ledger did not answer' }
+  if (await promptsOff($)) return { a: undefined, source: 'off' }
+  const s = await defaultSync($, await guardCheck($))
+  if (s.state === 'cleared') return { a: undefined, source: 'off' }
+  if (s.state === 'off') return { a: undefined, source: 'guard', why: pr.GUARD_WHY[s.missing] }
+  if (s.state === 'fail') return { a: undefined, source: 'guard', why: 'the ledger did not answer' }
   return { a: pr.DEFAULT_ANSWERING, source: 'default' }
 }
 export async function answeringNow($: any): Promise<pr.Answering | undefined> {

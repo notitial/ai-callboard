@@ -1022,3 +1022,56 @@ test('prompts: a lane\'s ask is raised and waits under the default, and a guard 
   expect(rowKinds()).toEqual([...DEFAULT_ROWS, 'requested', 'answering-off guard', 'off'])
   expect(noFiles()).toBe(true)
 })
+
+test('prompts: an `escalation off` typed before the default existed (the ledger\'s latest switch row, nothing stored) stays off, stored as the explicit off, with no rows and no toast', async ($, on) => {
+  await started($, on, [])
+  wireGuard()
+  putLedger([{ t: new Date(T0 - 5000).toISOString(), kind: 'answering-on' }, { t: new Date(T0 - 4000).toISOString(), kind: 'answering-on', code: 'asks' }, { t: new Date(T0 - 3000).toISOString(), kind: 'answering-off', code: 'off' }])
+  expect(await statusOf($)).toContain('| Escalation | OFF |')
+  expect(h.store.get('answering')).toMatchObject({ off: true })
+  expect(rowKinds()).toEqual(['answering-on', 'answering-on asks', 'answering-off off'])
+  expect(toasts).not.toContain(prm.ESCALATION_DEFAULT_TOAST)
+  h.nowMs += 120_000
+  expect(await statusOf($)).toContain('| Escalation | OFF |')
+})
+
+test('prompts: a switch row that is on, or only a guard off row, does not stop the default; a ledger that cannot be read does', async ($, on) => {
+  await started($, on, [])
+  wireGuard()
+  putLedger([{ t: new Date(T0 - 5000).toISOString(), kind: 'answering-off', code: 'off' }, { t: new Date(T0 - 3000).toISOString(), kind: 'answering-on' }])
+  h.pfsFails = (a) => a[0] === '/usr/bin/grep'
+  expect(await statusOf($)).toContain(BLOCKED('the ledger did not answer'))
+  expect(h.store.has('answering')).toBe(false)
+  h.pfsFails = undefined
+  expect(await statusOf($)).toContain('| Escalation | ON (default) |')
+})
+
+test('prompts: with the OFF file there the default writes no rows and no toast; once the file goes it turns on with both', async ($, on) => {
+  await started($, on, [])
+  wireGuard()
+  pfs.set(OFF_FILE, { text: '', mtimeSec: T0 / 1000 })
+  expect(await statusOf($)).toContain('| Escalation | OFF (the OFF file exists) |')
+  expect((await $.command.run(lane('config'))).text).toContain('| Escalation | OFF | ON |')
+  expect(rowKinds()).toEqual([])
+  expect(toasts).not.toContain(prm.ESCALATION_DEFAULT_TOAST)
+  pfs.delete(OFF_FILE)
+  expect(await statusOf($)).toContain('| Escalation | ON (default) |')
+  expect(rowKinds()).toEqual(DEFAULT_ROWS)
+  expect(toasts.filter((t) => t === prm.ESCALATION_DEFAULT_TOAST)).toHaveLength(1)
+})
+
+test('prompts: a process whose cached guard differs from the record runs the guard again before writing, and settles on what is true now', async ($, on) => {
+  await started($, on, [])
+  wireGuard()
+  expect(await statusOf($)).toContain('| Escalation | ON (default) |')
+  // Another process saw a marker missing and wrote off; here the marker is gone too, so no row is written over it.
+  h.store.set('answering-default', { state: 'off', savedAt: T0 })
+  pfs.delete(`${ROOT}/.protected-checkout`)
+  expect(await statusOf($)).toContain(BLOCKED('the .protected-checkout marker is missing in callboard\'s folder'))
+  expect(rowKinds()).toEqual(DEFAULT_ROWS)
+  // The marker is back there, so this process puts the on rows over the other's off.
+  wireGuard()
+  h.nowMs += 61_000
+  expect(await statusOf($)).toContain('| Escalation | ON (default) |')
+  expect(rowKinds()).toEqual([...DEFAULT_ROWS, ...DEFAULT_ROWS])
+})
