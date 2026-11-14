@@ -2,7 +2,7 @@ import { expect } from 'claude-code/testing'
 import * as c from '../hooks/core'
 import { h, longTest, pfs, pdirs, OFFERS_DIR, PROMPTS_DIR, ROOT, SID, T0, extraStat, briefFiles, laneSeed, leadFiles, modelRuns, renames, resultFiles, submitted, toasts } from './harness'
 import { ledgerRows } from './answer-fixtures'
-import { COND, KEY, LEADPS, OTHERLEAD, PIN, RESULT, cue, condPresenceOf, dirStat, grantAt, lane, leadFileText, leadReg, LEADPATH, logged, putCond, regAs, started, tickTwice, ticks, waitFor } from './fixtures'
+import { APP2, COND, KEY, LEADPS, OTHERLEAD, PIN, RESULT, cue, condPresenceOf, dirStat, grantAt, lane, leadFileText, leadReg, LEADPATH, logged, putCond, regAs, started, tickTwice, ticks, waitFor } from './fixtures'
 
 // The new panel taking a conductor's lead offer (ADR 0006). The session under test is the new panel (SID) in PIN; the conductor (OTHERLEAD, CONDX) is a fixture
 // with its registry row, presence file, saved grant and list file, as the lead's compact-cue tests build it.
@@ -113,6 +113,31 @@ REFUSALS.forEach(([code, setup, why], i) => {
     expect(offers().includes(CLAIM_PATH)).toBe(code === 'lead-offer-taken')
     expect(modelRuns).toEqual([])
   })
+})
+
+// Four more live conductors, each passing every check and sorting before the offering one (OTHERLEAD), so a search over all conductors stops at four
+// before it reaches it.
+const CROWD = [1, 2, 3, 4].map((n) => ({ sid: `${n}a1b2c3d-0000-4000-8000-123456789abc`, pid: 4243 + n, name: `CONDY${n}` }))
+const crowdRows = Object.assign({}, ...CROWD.map((x) => regAs(x.sid, x.pid, x.name)))
+const crowd = () => {
+  for (const x of CROWD) {
+    h.store.set(`conductor:${x.sid}`, { home: COND, repos: [PIN], savedAt: T0 - 60_000 })
+    condPresenceOf(x.sid, x.pid, x.name, [PIN])
+  }
+}
+
+longTest('the offering conductor is trusted when four others that sort first are too: the cap does not reach it', async ($, on) => {
+  await accepting($, on, { extra: crowdRows, seed: crowd })
+  expect(await cue(150, CUE)).toBe('lead ok - 150\n')
+  expect(renames).toEqual(['LEAD-N'])
+  expect(grantRows().length).toBe(1)
+})
+
+longTest('the offering conductor that sorts last is still refused when it fails a check, though the others pass', async ($, on) => {
+  await accepting($, on, { extra: crowdRows, seed: () => { crowd(); h.store.set(`conductor:${OTHERLEAD}`, { home: COND, repos: [APP2], savedAt: T0 - 60_000 }) } })
+  expect(await cue(151, CUE)).toBe('lead refused conductor-not-trusted 151\n')
+  plain()
+  expect(renames).toEqual([])
 })
 
 longTest('a lead panel is refused already-lead, and a panel with no registry row yet is held registry-pending', async ($, on) => {

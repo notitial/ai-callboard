@@ -593,15 +593,23 @@ export async function managerTrusted($: any, live: RegRow[], except: string): Pr
 }
 // The live conductors a lead (pin) takes a compact cue from: another session's fresh conductor file that passes presenceCheck and lists the pin, whose
 // home is its own real path, not too broad and a git root; that session's saved grant (conductor:<sid>) parses, names the same home and approves the pin; and the
-// list file at that home, resolved, lists the pin. Any read that fails: not trusted. Names by c.laneLeadOf; at most 4. A filter, not proof (as the manager's).
+// list file at that home, resolved, lists the pin. Any read that fails: not trusted. Names by c.laneLeadOf. A filter, not proof (as the manager's).
+// A search over every conductor stops at the first CONDUCTORS_SEEN_MAX (4) that pass, in session-id order; a search for one named conductor
+// (conductorTrustedSid) runs the same checks on it alone, so the cap of 4 does not apply to it.
 const CONDUCTORS_SEEN_MAX = 4
 export async function conductorsTrusted($: any, live: RegRow[], except: string, pin: string | undefined): Promise<{ sid: string; name?: string }[]> {
   if (pin === undefined) return []
   return conductorsReaching($, live, except, (r) => r === pin)
 }
+// Whether the one conductor `sid` passes the checks of conductorsTrusted for the pin, whatever other conductors are live (the cap of 4 does not apply).
+export async function conductorTrustedSid($: any, live: RegRow[], except: string, pin: string | undefined, sid: string): Promise<boolean> {
+  if (pin === undefined) return false
+  return (await conductorsReaching($, live, except, (r) => r === pin, sid)).length > 0
+}
 // The same checks for the conductors whose approved list holds a repo that `match` accepts (a request's folder is in a conductor's reach when a pin holds it,
-// the same within-folder match a lead's pin gets), every one of them judged against the pins that matched.
-export async function conductorsReaching($: any, live: RegRow[], except: string, match: (repo: string) => boolean): Promise<{ sid: string; name?: string }[]> {
+// the same within-folder match a lead's pin gets), every one of them judged against the pins that matched. With `only`, no other session is examined and
+// the cap of 4 does not apply.
+export async function conductorsReaching($: any, live: RegRow[], except: string, match: (repo: string) => boolean, only?: string): Promise<{ sid: string; name?: string }[]> {
   const d = await presenceNames($)
   if (typeof d === 'string') return []
   const p = d.p
@@ -609,7 +617,7 @@ export async function conductorsReaching($: any, live: RegRow[], except: string,
   const now = await $.clock.now()
   const out: { sid: string; name?: string }[] = []
   for (const s of d.names) {
-    if (s === except || out.length >= CONDUCTORS_SEEN_MAX) continue
+    if (s === except || (only !== undefined ? s !== only : out.length >= CONDUCTORS_SEEN_MAX)) continue
     const f = await presenceCheck($, p, live, s, (x) => x.level === 'conductor' && x.repos.some(match))
     if (typeof f === 'string' || f.level !== 'conductor') continue
     const home = f.home
