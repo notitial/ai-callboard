@@ -60,11 +60,19 @@ v15.3). A restore is never silent. The manager's `lane_remove` is dropped in the
 `lane_terminate` delete the lane's record once the session has stopped, each behind its own dialog, so the manager has
 five tools.
 
+*2026-11-15 ([ADR 0007](0007-conductor-owns-leads.md), proposed):* the manager also gets `lead_resume`, `lead_compact`
+(on the lead's own on-cue request only), `lead_retire` and `lead_terminate`, each stop behind its own dialog; it still
+never parks or unparks a lead. H3 and the closed list under "Limits are convention" then include the `lead_*` tools,
+and H5's exception covers a `lead_compact` on the lead's own request and a `lead_resume` the lead itself asked for. The
+role file and the callboard briefing change with it when those tools ship.
+
 **The hard line.** The role file carries it, and the callboard briefing carries H2 word for word:
 - **H1** Never decide an approval.
 - **H2** Never dispatch, cancel, `kill_all` or restart anything. One exception: a callboard `lane_terminate` or
   `lane_retire` at manager reach, only through its own dialog, which the person answers themselves every time;
   never unattended.
+  *2026-11-15 ([ADR 0007](0007-conductor-owns-leads.md), proposed): the exception also covers `lead_terminate` and
+  `lead_retire` at manager reach, each through its own dialog on the same terms.*
 - **H3** Reach lanes only through the `lane_*` tools; never type into a lane's session. Message only leads and the
   plain sessions the person names, never a dispatched worker. The one exception: the runaway stop message below.
 - **H4** Never write under the dispatch spool, or any file a dispatch tool reads.
