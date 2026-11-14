@@ -2,8 +2,8 @@
 
 ## 1.3.3
 
-- A lane's open answers with the session id its panel keeps: the new panel's registry row is followed by its pid until its session id has held for 2 s, in place of answering with the first id seen (a panel can rewrite its row with another id soon after it registers, and the first id then names no session).
-- A lane's open waits up to 20 s for its panel, in place of 5 s. The mod's wait for `lane_open` is 30 s with this version (it was 8 s). While a lane's panel is being waited for the window handles no other request, as for a lead's panel.
+- A lane's open answers with the session id its panel keeps: the new panel's registry row is followed by its pid until its session id has held for 2 s, in place of answering with the first id seen (a panel can rewrite its row with another id soon after it registers, and the first id then names no session). An id that has not held when the wait ends is a `timeout`, and the panel stays tracked as late. The lead's tab gets focus back as soon as the panel registers.
+- A lane's open waits up to 20 s for its panel, in place of 5 s. The mod's wait for `lane_open` is 45 s with this version (it was 8 s), enough for one open queued behind another. While a lane's panel is being waited for the window handles no other request, as for a lead's panel.
 
 ## 1.3.2
 

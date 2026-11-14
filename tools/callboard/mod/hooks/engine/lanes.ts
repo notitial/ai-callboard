@@ -1161,17 +1161,18 @@ export async function leadVerbCall($: any, e: any, next: any, verb: (typeof c.LE
       }
       // No answer for a rename or a start is not yet a failure: the session's cue folder and its own log say whether it read the cue and did it.
       const target = to.sid
-      let fate: c.CueFate | undefined
+      const st: { fate?: c.CueFate } = {}
+      const cueSince = await $.clock.now()
       const noCue = !slow
         ? no
         : async (reason: string, why: string) => {
             if (reason !== 'no-answer') return no(reason, why)
-            fate = await cueFate($, target, verb)
-            if (fate === 'done') return { deny: '' }
-            return no(reason, fate === 'waiting' ? c.NO_ANSWER_WAITING : why)
+            st.fate = await cueFate($, target, verb, cueSince)
+            if (st.fate === 'done') return { deny: '' }
+            return no(reason, st.fate === 'waiting' ? c.NO_ANSWER_WAITING : why)
           }
       const sent = await cueExchange($, sid, prep.lane.name, target, verb, deadline, noCue)
-      if (sent && fate === 'done') {
+      if (sent && st.fate === 'done') {
         await log($, sid, 'acted-late', `${verb} ${prep.lane.name}`)
         return { result: c.lateDoneText(verb, prep.lane.name, target) }
       }
@@ -1181,8 +1182,9 @@ export async function leadVerbCall($: any, e: any, next: any, verb: (typeof c.LE
 }
 
 // What became of a rename or start cue that got no answer in time: 'waiting' while the cue file is still in the session's cue folder (unread), 'done' when the
-// session's own log holds the line it writes once it has carried the cue out (renamed, started; the answer goes first), otherwise 'taken'. Any failed check is 'taken'.
-async function cueFate($: any, toSid: string, verb: 'rename' | 'start'): Promise<c.CueFate> {
+// session's own log holds the line it writes once it has carried the cue out (renamed, started; the answer goes first) dated at or after `since`, the time the
+// cue was sent, otherwise 'taken'. Any failed check is 'taken'.
+async function cueFate($: any, toSid: string, verb: 'rename' | 'start', since: number): Promise<c.CueFate> {
   try {
     const p = await where($)
     if (!p) return 'taken'
@@ -1190,8 +1192,8 @@ async function cueFate($: any, toSid: string, verb: 'rename' | 'start'): Promise
     const file = `${p.root}/log/${toSid}.jsonl`
     const f = await facts($, file)
     if (!f || c.cueFileOk(f, p.uid)) return 'taken'
-    const r = await run($, [GREP, '-q', '-F', '--', verb === 'rename' ? '"event":"renamed"' : '"event":"started"', file])
-    return r.exitCode === 0 ? 'done' : 'taken'
+    const r = await run($, [GREP, '-F', '--', verb === 'rename' ? '"event":"renamed"' : '"event":"started"', file])
+    return r.exitCode === 0 && c.lateLogDone(r.stdout, verb, since) ? 'done' : 'taken'
   } catch {
     return 'taken'
   }
@@ -1316,7 +1318,7 @@ export async function laneOpenCall($: any, e: any, next: any) {
     if (prep.lane.adopted) return no('adopted-record', c.reasonWhy('adopted-record'))
     if (prep.lane.parked !== undefined) return no('parked', c.reasonWhy('parked'))
     if (prep.entries.some((x) => x.name === prep.lane.name)) return no('name-in-use', 'a live session already carries that lane name.')
-    const r = await openExchange($, sid, prep.lane.name, 'open', c.OPEN_TEXT, 'no window answered within 30 seconds. A VS Code window with the lane folder as its first workspace folder must run the callboard panels extension. A panel may still appear: check for an unnamed session in that folder first.', no)
+    const r = await openExchange($, sid, prep.lane.name, 'open', c.OPEN_TEXT, 'no window answered within 45 seconds. A VS Code window with the lane folder as its first workspace folder must run the callboard panels extension. A panel may still appear: check for an unnamed session in that folder first.', no)
     if ('deny' in r) return r
     await log($, sid, 'opened', prep.lane.name)
     return { result: `lane ${prep.lane.name}: panel opened as session ${r.sid}. Next: lane_rename with sid ${r.sid}, then lane_start.` }

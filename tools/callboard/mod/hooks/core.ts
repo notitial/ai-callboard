@@ -891,6 +891,7 @@ export type RegEntry = {
   sessionId: string
   name?: string
   nameSource?: string
+  entrypoint?: string
   cwd?: string
   pid?: number
   procStart?: string
@@ -918,7 +919,7 @@ export function leadLane(lanes: Lane[], g: Grant, name: unknown): { ok: true; la
 // never renames one by itself; the lead calls again with the id.
 export function renameNoSessionText(entries: RegEntry[], lane: Lane, selfSid: string, sid: string, now: number): string {
   const cands = entries.filter(
-    (x) => x.cwd === lane.folder && x.sessionId !== selfSid && SID_RE.test(x.sessionId) && x.nameSource !== 'user' && typeof x.startedAt === 'number' && x.startedAt <= now + SKEW_MS && now - x.startedAt <= BIRTH_WINDOW_MS,
+    (x) => x.cwd === lane.folder && x.sessionId !== selfSid && SID_RE.test(x.sessionId) && x.entrypoint === 'claude-vscode' && typeof x.nameSource === 'string' && x.nameSource !== 'user' && typeof x.startedAt === 'number' && x.startedAt <= now + SKEW_MS && now - x.startedAt <= BIRTH_WINDOW_MS,
   )
   const head = `no-live-session: no live session has id ${sid}.`
   if (cands.length === 0) return `${head} No unnamed session under 2 minutes old is in the lane folder either: a new panel can take 20 seconds or more to register. Retry lane_rename once in a few seconds; do not open another panel.`
@@ -1228,7 +1229,7 @@ export const GONE_CACHE_MAX = 512
 // The longest a mod waits on one engine call held inside a lane or lead mark (a rename, a state write, tool registration) before it gives up.
 export const ENGINE_CALL_TIMEOUT_MS = 30_000
 // The lane's /model step at start. The cue is claimed on a 2 s tick, then the start checks run, then this: together they must stay under the lead's
-// 6 s wait for the start answer (RESULT_DEADLINE_MS). A /model that has not returned by then is model-failed.
+// 20 s wait for the start answer (LANE_CUE_DEADLINE_MS). A /model that has not returned by then is model-failed.
 export const MODEL_TIMEOUT_MS = 2000
 export const TAKEN_SWEEP_MS = 600_000
 // A .taken name claim made for this session (<sid>.<claim ms>.<seq>.<random>.taken), and its claim time; undefined for any other name.
@@ -1292,8 +1293,9 @@ export function processRefusal(args: string | undefined, targetPid: unknown, sel
 // lane_rename and starts it with lane_start.
 export const OPEN_TEXT = 'open\n'
 export const OPEN_POLL_MS = 500
-// 30 s: the panels extension waits up to 20 s for a lane's panel and for its session id to settle, and the scan and a slower request ahead of it take a while more.
-export const OPEN_POLL_MAX = 60
+// 45 s: the panels extension waits up to 20 s for a lane's panel and for its session id to settle, and handles requests one at a time, so a request
+// queued behind another open can wait that long before its own wait starts.
+export const OPEN_POLL_MAX = 90
 // A lead's panel is waited for longer (50 s): the extension gives up at 45 s. An upper bound: a fast open answers at the next poll.
 export const LEAD_OPEN_POLL_MAX = 100
 // The longest answer to a lead request, `ok <session id> <nonce>\n` (73 bytes), as the mod reads it; a lane's answers keep RESULT_MAX.
@@ -1519,6 +1521,18 @@ export const NO_ANSWER = 'no-answer: the session did not answer in time; it may 
 // holds the line it writes once it has done the cue (the answer is written first, so a late or unreadable answer still leaves that line).
 export type CueFate = 'done' | 'waiting' | 'taken'
 export const NO_ANSWER_WAITING = 'no-answer: the session has not read the cue yet; it may be busy. The cue stays valid for 2 minutes and the session acts on it when it reads it, so do not repeat the call: check lane_list in a few seconds.'
+// A line of the target's own log (one JSON object per line) that says the cue was carried out: its event is the one the verb writes, and it was written
+// at or after `since`, the time the cue was sent, so an earlier session's or an earlier cue's line is not taken for this one.
+export function lateLogDone(text: string, verb: 'rename' | 'start', since: number): boolean {
+  const event = verb === 'rename' ? 'renamed' : 'started'
+  for (const line of text.split('\n')) {
+    try {
+      const j = JSON.parse(line) as { event?: unknown; t?: unknown }
+      if (j && j.event === event && typeof j.t === 'string' && Date.parse(j.t) >= since) return true
+    } catch {}
+  }
+  return false
+}
 export const lateDoneText = (verb: 'rename' | 'start', lane: string, sid: string): string =>
   verb === 'rename'
     ? `lane ${lane}: session ${sid} took the rename; its answer came after the wait, but its log shows it done. Next: lane_start.`

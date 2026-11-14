@@ -1104,7 +1104,10 @@ export function engine(on0: any, argvSeen: string[][], stdins: string[] = [], cl
     if (a[0] === '/usr/bin/stat' && statErr.has(last)) return ok('', 1, statErr.get(last)!)
     if (a[0] === '/usr/bin/stat' && storeFiles.has(a[a.length - 1])) return ok(h.storeStatOverride ?? `501 600 1 Regular File 77 ${storeFiles.get(a[a.length - 1])!.length} 1700000000\n`)
     if (a[0] === '/usr/bin/stat' && targetLogs.has(last)) return ok(`501 600 1 Regular File 77 ${targetLogs.get(last)!.length} ${T0 / 1000}\n`)
-    if (a[0] === '/usr/bin/grep' && a[1] === '-q' && targetLogs.has(last)) return ok('', targetLogs.get(last)!.includes(a[a.length - 2]) ? 0 : 1)
+    if (a[0] === '/usr/bin/grep' && a[1] === '-F' && targetLogs.has(last)) {
+      const hits = targetLogs.get(last)!.split('\n').filter((l) => l.includes(a[a.length - 2]))
+      return hits.length > 0 ? ok(`${hits.join('\n')}\n`) : ok('', 1)
+    }
     if (a[0] === '/usr/bin/stat' && extraStat.has(a[a.length - 1])) return ok(extraStat.get(a[a.length - 1])!)
     if (a[0] === '/usr/bin/head' && gitFiles.has(last)) return ok(gitFiles.get(last)!)
     // A `.git` folder (or a link to one: stat follows it below the link) set in extraStat holds a plain HEAD, unless the test says otherwise (gitNoHead) or sets the HEAD itself.

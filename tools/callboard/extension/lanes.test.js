@@ -109,9 +109,21 @@ test('an id that changes before settleMs has passed is followed to its new value
   assert.equal(await w.lanes.open(A, { timeoutMs: 200 }), 'second-id')
 })
 
-test('an id still moving when the time limit ends is answered as it stands', async () => {
+test('an id that has not held for settleMs when the time limit ends is a timeout, and the panel stays tracked as late', async () => {
   const w = world({ delays: [1], pids: true, settleMs: 1000, rewrites: [{ onOpen: 0, after: 3, sessionId: 'late-id' }] })
-  assert.equal(await w.lanes.open(A, { timeoutMs: 40 }), 'late-id')
+  await assert.rejects(w.lanes.open(A, { timeoutMs: 40, refuseUnnamed: true }), /timeout: the panel session id did not settle/)
+  await assert.rejects(w.lanes.open(A, { timeoutMs: 40, refuseUnnamed: true }), /unnamed-panel/)
+})
+
+test('the lead tab gets focus back once the panel registers, once, not after the wait for its id to settle', async () => {
+  const w = world({ delays: [1], pids: true, settleMs: 30, tabs: { column: 1 } })
+  const got = w.lanes.open(A, { timeoutMs: 100 })
+  let done = false
+  got.then(() => { done = true })
+  for (let i = 0; i < 20 && w.focusCalls.length === 0; i++) await Promise.resolve()
+  await got
+  assert.equal(w.focusCalls.length, 1)
+  assert.ok(done)
 })
 
 test('a row that is gone when the limit ends is a timeout', async () => {

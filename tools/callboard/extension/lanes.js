@@ -78,8 +78,8 @@ function createLanes({ vscode, registry, sleep, now, workspaceFolders = () => un
 
   // A new panel's process writes its registry row, and the row can be rewritten with another session id once the panel's session is up (seen: about a
   // second after the first write on a fast open, and the first id never appears in the registry again). The row is followed by its pid until its session
-  // id and start time have held for settleMs, and that id is the answer. An id still moving when `end` passes is returned as it stands; a row that is gone
-  // by then is a timeout.
+  // id and start time have held for settleMs, and that id is the answer. An id still moving when `end` passes is a timeout, as is a row that is gone by then:
+  // the panel stays tracked as late (trackLate), and the mod names it from the registry.
   async function settled(first, cwd, end) {
     const same = (a, b) => (a.pid !== undefined ? a.pid === b.pid : a.sessionId === b.sessionId)
     let cur = first
@@ -87,10 +87,7 @@ function createLanes({ vscode, registry, sleep, now, workspaceFolders = () => un
     let missing = false
     for (;;) {
       if (!missing && now() - since >= settleMs) return cur.sessionId
-      if (now() >= end) {
-        if (missing) throw new Error('timeout: the new panel left the registry')
-        return cur.sessionId
-      }
+      if (now() >= end) throw new Error(missing ? 'timeout: the new panel left the registry' : 'timeout: the panel session id did not settle')
       await sleep(pollMs)
       const row = panels(await registry.list()).find((e) => e.cwd === cwd && same(cur, e))
       missing = row === undefined
@@ -115,11 +112,15 @@ function createLanes({ vscode, registry, sleep, now, workspaceFolders = () => un
       const before = await fullList()
       if (refuseUnnamed && unnamedOurs(before, folder)) throw new Error('unnamed-panel: an unnamed panel already sits in that folder')
       const prev = activeTab()
+      let refocused = false
       try {
         // The fifth argument opens it as a full editor, like a panel opened by hand: no panel header, the editor's background.
         // One time limit covers the registry read, the command and the wait, so the spool still answers before the lead stops waiting.
         await bounded(vscode.commands.executeCommand('claude-vscode.editor.open', undefined, undefined, undefined, undefined, true), left(start, limitMs), 'the open command')
         const row = await waitNew(before, folder, left(start, limitMs))
+        // The panel took focus when it opened: the lead's tab gets it back now, not after the wait for the id to settle.
+        await refocus(prev)
+        refocused = true
         const sid = await settled(row, folder, start + limitMs)
         opened.set(sid, now())
         return sid
@@ -127,7 +128,7 @@ function createLanes({ vscode, registry, sleep, now, workspaceFolders = () => un
         if (/^(timeout|ambiguous)/.test(String(err && err.message))) trackLate(folder, before)
         throw err
       } finally {
-        await refocus(prev)
+        if (!refocused) await refocus(prev)
       }
     })
   }

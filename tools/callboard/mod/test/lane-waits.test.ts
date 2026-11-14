@@ -11,9 +11,9 @@ const advance = async (ms: number) => {
 }
 const renameCall = (sid: string) => leadCall('rename', { sid, lane: 'LABLANE' })
 // An unnamed panel session of the lane folder that started `ago` ms before now.
-const panel = (id: string, ago = 20_000, extra: Record<string, unknown> = {}) => cueSession(id, 'auto-name', LAB, { nameSource: 'derived', startedAt: T0 - ago, ...extra })
+const panel = (id: string, ago = 20_000, extra: Record<string, unknown> = {}) => cueSession(id, 'auto-name', LAB, { nameSource: 'derived', entrypoint: 'claude-vscode', startedAt: T0 - ago, ...extra })
 
-longTest('lane_open waits for a panel that answers after 8 s, up to 30 s', async ($, on) => {
+longTest('lane_open waits for a panel that answers after 8 s, up to 45 s', async ($, on) => {
   const stdins: string[] = []
   await lead($, on, stdins, { sess: {}, clock: true })
   let done = false
@@ -29,7 +29,7 @@ longTest('lane_open waits for a panel that answers after 8 s, up to 30 s', async
   expect(events(stdins).map((e) => `${e.event}:${e.reason}`)).toEqual(expect.arrayContaining(['open-requested:LABLANE', 'opened:LABLANE']))
 })
 
-longTest('lane_open with no answer gives up after 30 s, not 8 s, and says so', async ($, on) => {
+longTest('lane_open with no answer gives up after 45 s, not 8 s, and says so', async ($, on) => {
   await lead($, on, [], { sess: {}, clock: true })
   let done = false
   const p = $.tool.call(leadCall('open')).then((r: any) => {
@@ -38,8 +38,8 @@ longTest('lane_open with no answer gives up after 30 s, not 8 s, and says so', a
   })
   await advance(9000)
   expect(done).toBe(false)
-  await advance(22_000)
-  expect(JSON.stringify(await p)).toContain('no window answered within 30 seconds')
+  await advance(38_000)
+  expect(JSON.stringify(await p)).toContain('no window answered within 45 seconds')
 })
 
 longTest('lane_rename with an id no session carries names the unnamed session in the lane folder, and renames nothing', async ($, on) => {
@@ -63,11 +63,12 @@ longTest('lane_rename with an id no session carries and no unnamed session in th
   expect(text).toContain('20 seconds or more')
 })
 
-test('lane_rename offers no session a rename would refuse: a named one, one in another folder, one that is too old', async ($, on) => {
+test('lane_rename offers no session a rename would refuse: a named one, one in another folder, one that is too old, a terminal session', async ($, on) => {
   const sess = {
-    ...cueSession(OTHER, 'named-by-user', LAB, { nameSource: 'user', startedAt: T0 - 20_000 }),
-    ...cueSession('8a1b2c3d-0000-4000-8000-123456789abc', 'auto-2', '/data/x/work/other', { nameSource: 'derived', startedAt: T0 - 20_000, pid: 4243 }),
-    ...cueSession('9a1b2c3d-0000-4000-8000-123456789abc', 'auto-3', LAB, { nameSource: 'derived', startedAt: T0 - 600_000, pid: 4244 }),
+    ...cueSession(OTHER, 'named-by-user', LAB, { nameSource: 'user', entrypoint: 'claude-vscode', startedAt: T0 - 20_000 }),
+    ...cueSession('8a1b2c3d-0000-4000-8000-123456789abc', 'auto-2', '/data/x/work/other', { nameSource: 'derived', entrypoint: 'claude-vscode', startedAt: T0 - 20_000, pid: 4243 }),
+    ...cueSession('9a1b2c3d-0000-4000-8000-123456789abc', 'auto-3', LAB, { nameSource: 'derived', entrypoint: 'claude-vscode', startedAt: T0 - 600_000, pid: 4244 }),
+    ...cueSession('aa1b2c3d-0000-4000-8000-123456789abc', 'cli', LAB, { nameSource: 'derived', entrypoint: 'cli', startedAt: T0 - 20_000, pid: 4245 }),
   }
   await lead($, on, [], { sess, clock: true })
   const p = $.tool.call(renameCall(WANTED))
@@ -111,7 +112,8 @@ longTest('lane_rename takes an answer that comes after 6 s', async ($, on) => {
 
 // No answer in 20 s: the session's own log and cue folder say what became of the cue.
 const LOG = `${ROOT}/log/${OTHER}.jsonl`
-const logLine = (event: string) => `{"t":"2026-11-14T18:00:00.000Z","event":"${event}","reason":""}\n`
+// A log line dated `at` ms after the start of the test's clock; the cue goes out a few ms into the call, so +5000 is after it and -60000 before.
+const logLine = (event: string, at = 5000) => `${JSON.stringify({ t: new Date(h.nowMs + at).toISOString(), event, reason: '' })}\n`
 
 longTest('lane_start with no answer is done when the session log shows it started', async ($, on) => {
   const stdins: string[] = []
@@ -135,6 +137,15 @@ longTest('lane_rename with no answer is done when the session log shows the rena
   const r = await p
   expect(r.result).toContain(`session ${OTHER} took the rename`)
   expect(r.result).toContain('lane_start')
+})
+
+longTest('a log line dated before the cue is an earlier cue\'s: no answer stays no-answer', async ($, on) => {
+  await lead($, on, [], { clock: true })
+  h.autoAnswer = undefined
+  targetLogs.set(LOG, logLine('started', -60_000))
+  const p = $.tool.call(leadCall('start'))
+  await advance(21_000)
+  expect(JSON.stringify(await p)).toContain('no-answer: the session did not answer in time')
 })
 
 longTest('a log line of the other verb is not taken for this one: no answer stays no-answer', async ($, on) => {
