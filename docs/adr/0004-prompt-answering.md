@@ -62,25 +62,31 @@ For letting agents answer merges and force pushes, which ai-toolkit's rules and 
 ### The ladder
 
 Lead, then conductor, then manager, then the person. A tier denies only when certain the request is wrong, and **its
-deny is final**: the dialog closes and the lane gets the message. If it isn't sure, it passes. A tier that knows at
-once it can't answer passes at once, and the next tier opens immediately. A missing tier is skipped. No live tier
+deny is final**: the dialog closes and the lane gets the message. If it isn't sure, it passes. A tier that knows it
+can't answer passes as soon as its own window is open, and the next tier opens immediately. A missing tier is skipped. No live tier
 means the dialog stays, with no automatic deny. A tier's own prompt is never its to answer, and the highest live tier in
 reach, the top tier, is the one that asks the person (the relay, below).
 
 | From | Who may decide |
 |---|---|
 | 0 s | The person's click only |
-| 30 s | Lead (a decision written earlier is held until then) |
+| 30 s | Lead |
 | 5 min | Conductor |
 | 10 min | Manager |
 | 20 min | Deny with a message, unless the top tier has put it to the person or no tier was live. A question is never denied: its wait ends at 21 minutes and the card stays |
 
-These count awake time. A window is counted from the request and opens for each live tier in turn (30 s, 5 min,
+The windows are counted in wall-clock time from the request; the hook's hold on a decision that lands and the 20-minute deny count awake time. A window is counted from the request and opens for each live tier in turn (30 s, 5 min,
 10 min); a tier above one that is missing takes the earlier window, and a pass-up opens the next tier at once. A prompt
 put to the person stays open with the agents for 2 hours; after that the dialog is the only way to answer it.
 
 Windows open and do not close; the first decision wins. A lead never answers its own prompt. A conductor's or
 manager's own prompt is the person's.
+
+*Amended 2026-11-14: the person's head start.* No tier is told of a request, sees it in `prompt_list` (which only
+counts it), or may answer, relay or pass it up until it has been open 30 seconds. Before, the first tier was told at once and only its
+answer was held, so a fast tier could decide before the person had looked. A tier's answer lands about one turn
+later than before. The head start is counted in wall-clock time from the request; the 30-second hold on what lands
+stays in awake time.
 
 ### The relay
 
