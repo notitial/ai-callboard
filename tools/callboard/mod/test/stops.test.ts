@@ -160,7 +160,7 @@ test('lane_terminate: a refused click toasts the code; Cancel and a good click t
   expect(toasts.some((t) => t.includes('not sent'))).toBe(false)
 })
 
-test('a stop that sent the signal asks the VS Code window to close the dead tab: one .close request with session id, pid and lane name', async ($, on) => {
+test('a stop that sent the signal asks the VS Code window to close the dead tab: one .close request with session id, pid, lane name and folder', async ($, on) => {
   const argv: string[][] = []
   const stdins: string[] = []
   await lead($, on, stdins, { argv })
@@ -170,7 +170,7 @@ test('a stop that sent the signal asks the VS Code window to close the dead tab:
   let w = closeWrites(argv)
   expect(w.length).toBe(1)
   expect(w[0][w[0].length - 1]).toBe(`${ROOT}/open/LABLANE.close`)
-  expect(teeTexts.get(w[0][3])).toBe(`${OTHER}\n4242\nLABLANE\n`)
+  expect(teeTexts.get(w[0][3])).toBe(`${OTHER}\n4242\nLABLANE\n/data/x/work/lab\n`)
   expect(logged(stdins)).toContain('close-requested:LABLANE')
   // The retire removed the lane's record: seed it again for the stop that follows.
   laneSeed.text = LEAD_LANES('/data/x/work')
@@ -178,7 +178,7 @@ test('a stop that sent the signal asks the VS Code window to close the dead tab:
   expect((await $.tool.call(leadCall('terminate'))).result).toContain('SIGTERM sent')
   w = closeWrites(argv)
   expect(w.length).toBe(2)
-  expect(teeTexts.get(w[1][3])).toBe(`${OTHER}\n4242\nLABLANE\n`)
+  expect(teeTexts.get(w[1][3])).toBe(`${OTHER}\n4242\nLABLANE\n/data/x/work/lab\n`)
 })
 
 test('a stop whose kill exits non-zero writes no close request', async ($, on) => {

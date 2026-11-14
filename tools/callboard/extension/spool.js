@@ -21,6 +21,10 @@ const REQUEST_TEXT = 'open\n'
 // <NAME>.lead: `lead <nonce, 32 hex> <repo real path>`, one line.
 const LEAD_MAX = 1024
 const LEAD_RE = /^lead ([0-9a-f]{32}) (\/[\x21-\x7e]{1,500})\n$/
+// <NAME>.close: session id, pid, lane name and the lane's folder (the older form stops after the name).
+const CLOSE_MAX = 1200
+const CLOSE_RE = /^([0-9a-f-]{36})\n([0-9]{1,10})\n([A-Za-z0-9_-]{1,40})\n(\/[\x21-\x7e]{1,500})\n$/
+const CLOSE3_RE = /^([0-9a-f-]{36})\n([0-9]{1,10})\n([A-Za-z0-9_-]{1,40})\n$/
 const OPEN_BUDGET = 6
 const OPEN_BUDGET_MS = 60_000
 const LIVE_PER_REPO = 8
@@ -298,14 +302,35 @@ function createSpool({ dir, uid = process.getuid(), home = os.homedir(), loadLan
     return openPanel(name, repo, f.t, adm.prev, { open: openLead, nonce })
   }
 
-  // A close request: <LANE>.close, three lines (session id, pid, lane name), written by the mod after a stop signal. The lane must be in the lane list and
-  // its folder the first workspace folder of this window; nothing is answered. The panel then goes to the extension's sweep, which closes the tab only once
-  // that pid is dead and no live session carries the name.
+  // A close request: <LANE>.close, written by the mod after a stop signal: session id, pid, lane name and the lane's folder, one per line. The folder in the
+  // body is compared to this window's folders, so the request stands without the lane record (a retire removes it within a second, before the 1 s scan). A
+  // request from an older mod has three lines and no folder: it goes through the lane list, so the lane must be listed. Nothing is answered. The panel then goes to
+  // the extension's sweep, which closes the tab only once that pid is dead and no live session carries the name.
   async function handleClose(name) {
-    const got = await claim(name, 'close', 128, false)
-    if (got.code) return got.code
-    const { body } = got
-    const m = typeof body === 'string' ? /^([0-9a-f-]{36})\n([0-9]{1,10})\n([A-Za-z0-9_-]{1,40})\n$/.exec(body) : null
+    const f = await look(name, 'close', CLOSE_MAX)
+    if (f.code) return f.code
+    const text = await readOwned(f.file, uid, { modeBad: (mode) => (mode & 0o777) !== 0o600, max: CLOSE_MAX })
+    const four = typeof text === 'string' ? CLOSE_RE.exec(text) : null
+    if (typeof text === 'string' && !four && !CLOSE3_RE.test(text)) {
+      await drop(f.file)
+      return 'bad-request'
+    }
+    let body
+    if (four) {
+      if (!clean(four[4])) {
+        await drop(f.file)
+        return 'bad-request'
+      }
+      if (!(workspaceFolders() || []).includes(four[4])) return 'not-mine'
+      const got = await take(name, f.file, f.st, CLOSE_MAX)
+      if (got.code) return got.code
+      body = got.body === text ? text : undefined
+    } else {
+      const got = await claim(name, 'close', CLOSE_MAX, false)
+      if (got.code) return got.code
+      body = got.body
+    }
+    const m = typeof body === 'string' ? CLOSE_RE.exec(body) || CLOSE3_RE.exec(body) : null
     if (!m || !SID_RE.test(m[1]) || m[3] !== name || reservedHit(name) || !closeLane) return 'bad-request'
     const pid = Number(m[2])
     if (!Number.isInteger(pid) || pid < 2 || pid > 2 ** 22) return 'bad-request'
