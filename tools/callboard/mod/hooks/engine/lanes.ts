@@ -1516,8 +1516,8 @@ export async function stopVerbCall($: any, e: any, next: any, verb: (typeof c.ST
       signalledCalls.set(callKey, { name: prep.lane.name, pid: victim.pid as number })
       // From here the session has its signal, so a failure is answered as what it is: signalled, record unknown (code in the log), never "failed closed".
       const afterSignal = async () => {
-        // Ask the VS Code window to close the dead tab: the extension's sweep acts only once that pid is dead and no live session carries the name. Best effort.
-        const closeReq = await writeIn($, 'open', `${prep.lane.name}.close`, `${victim.sessionId}\n${victim.pid}\n${prep.lane.name}\n`).catch(() => ({ err: 'throw' }))
+        // Ask the VS Code window to close the dead tab (the body carries the folder, so the request needs no lane record, which is gone within a second): the extension's sweep acts only once that pid is dead and no live session carries the name. Best effort.
+        const closeReq = await writeIn($, 'open', `${prep.lane.name}.close`, `${victim.sessionId}\n${victim.pid}\n${prep.lane.name}\n${prep.lane.folder}\n`).catch(() => ({ err: 'throw' }))
         await log($, sid, 'err' in closeReq ? 'error' : 'close-requested', 'err' in closeReq ? 'close-request' : prep.lane.name)
         if (verb === 'retire') toast($, `Lane ${prep.lane.name} retired (idle, report signed)`)
         if (verb === 'park') {

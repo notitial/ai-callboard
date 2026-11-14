@@ -478,7 +478,7 @@ test('a close request that is not a plain 0600 file of ours, too long, stale or 
   const w = world()
   w.putClose('LAB', undefined, 0o644)
   assert.equal(await w.spool.handleClose('LAB'), 'bad-file')
-  w.putClose('LAB', `${SID}\n4242\nLAB\n${'x'.repeat(200)}`)
+  w.putClose('LAB', `${SID}\n4242\nLAB\n${'x'.repeat(1300)}`)
   assert.equal(await w.spool.handleClose('LAB'), 'bad-file')
   w.putClose('LAB')
   w.tick(200_000)
@@ -654,6 +654,40 @@ test('readStores carries sid and refuses a store with a bad sid or parked withou
     w.put({ ...w.good, lanes: [{ ...w.good.lanes[0], ...patch }] })
     assert.deepEqual(await readStores(w.dir), [], why)
   }
+})
+
+test('a four-line close request stands without the lane record: this window\'s folder is handed to the sweep, another window\'s is left, a bad folder is dropped', async () => {
+  const w = world({ lanes: [] })
+  const f = w.putClose('GONE', `${SID}\n4242\nGONE\n${FOLDER}\n`)
+  assert.equal(await w.spool.handleClose('GONE'), 'closing')
+  assert.deepEqual(w.closed, [{ sid: SID, pid: 4242, name: 'GONE' }])
+  assert.equal(fs.existsSync(f), false)
+  assert.equal(w.result('GONE'), undefined)
+  assert.deepEqual(fs.readdirSync(w.dir), [])
+  const o = world({ lanes: [], ws: ['/other'] })
+  const g = o.putClose('GONE', `${SID}\n4242\nGONE\n${FOLDER}\n`)
+  assert.equal(await o.spool.handleClose('GONE'), 'not-mine')
+  assert.equal(fs.existsSync(g), true)
+  assert.deepEqual(o.closed, [])
+  const x = world({ lanes: [] })
+  for (const folder of ['relative/dir', `/${'a'.repeat(600)}`, '/a/../b', '/a b']) {
+    const h = x.putClose('GONE', `${SID}\n4242\nGONE\n${folder}\n`)
+    assert.equal(await x.spool.handleClose('GONE'), 'bad-request', folder.slice(0, 20))
+    assert.equal(fs.existsSync(h), false)
+  }
+  const n = x.putClose('GONE', `${SID}\n4242\nGONE\n/work\nrepo\n`)
+  assert.equal(await x.spool.handleClose('GONE'), 'bad-request')
+  assert.equal(fs.existsSync(n), false)
+  assert.deepEqual(x.closed, [])
+})
+
+test('a four-line close request for a reserved name or with another name line is dropped', async () => {
+  const w = world({ lanes: [] })
+  w.putClose('manager', `${SID}\n4242\nmanager\n${FOLDER}\n`)
+  assert.equal(await w.spool.handleClose('manager'), 'bad-request')
+  w.putClose('LAB', `${SID}\n4242\nOTHER\n${FOLDER}\n`)
+  assert.equal(await w.spool.handleClose('LAB'), 'bad-request')
+  assert.deepEqual(w.closed, [])
 })
 
 // The claim: the request file is moved to a private name before it is read. A competing window may take it first, and a file swapped in after the first look has another inode.
