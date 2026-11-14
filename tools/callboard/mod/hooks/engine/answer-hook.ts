@@ -3,7 +3,7 @@
 import * as c from '../core.ts'
 import * as pr from '../prompts.ts'
 import { grants, checks, openReqs, doneIds, unclosed, askingSids, relayAskedTurn, mem } from '../mem.ts'
-import { run, MKDIR, dirOk, INSTALL, TEE, MV, rmF, where, facts, sha, statR, readSmallR, pause, RMDIR } from './base.ts'
+import { run, MKDIR, dirOk, INSTALL, TEE, MV, rmF, where, facts, sha, statR, readSmallR, pause, RMDIR, realR, toast, withTimeout } from './base.ts'
 import { registryEntries, registryOf } from './store.ts'
 import { leadsFor, homeOf, presenceCheck } from './grants.ts'
 import { reportLaneOf, sessionRoot } from './lanes.ts'
@@ -133,9 +133,123 @@ export async function promptsOff($: any): Promise<boolean> {
   return (await statR($, `${p.root}/prompts/OFF`)) !== 'absent'
 }
 
+// ---- the switch: stored value, the person's off, or the default behind the guard ----
+export const DEFAULT_REC_KEY = 'answering-default'
+export const DEFAULT_NOTICE_KEY = 'answering-notice'
+const GUARD_TTL_MS = 60_000
+
+// The first thing missing of what the default stands on, or undefined when all of it is there: the hook wired in settings.json (read as a plain file of ours,
+// bounded), the toolkit found from the hook's real path, and the three markers as plain files of ours. Any read that fails counts as missing.
+async function guardRun($: any): Promise<pr.GuardMissing | undefined> {
+  const p = await where($)
+  if (!p) return 'hook'
+  const claude = p.root.slice(0, -'/callboard'.length)
+  const s = await readSmallR($, `${claude}/settings.json`, p.uid, pr.GUARD_SETTINGS_MAX, true)
+  if (s.state !== 'ok' || !pr.settingsWireGuard(s.text, `${claude}/hooks/${pr.GUARD_HOOK_NAME}`, claude.slice(0, -'/.claude'.length))) return 'hook'
+  const hook = await realR($, `${claude}/hooks/${pr.GUARD_HOOK_NAME}`)
+  const toolkit = typeof hook === 'string' ? undefined : pr.toolkitOfHook(hook.path)
+  if (!toolkit) return 'hook'
+  let root: unknown
+  try {
+    root = $.plugin.root
+  } catch {}
+  const checkout = c.liveCheckout(root)
+  const marked = async (dir: string | undefined): Promise<boolean> => {
+    if (!dir) return false
+    const f = await statR($, `${dir}/.protected-checkout`)
+    return f !== 'absent' && f !== 'error' && f.kind === 'file' && f.uid === p.uid
+  }
+  if (!(await marked(p.root))) return 'marker-callboard'
+  if (!(await marked(toolkit))) return 'marker-toolkit'
+  if (!(await marked(checkout))) return 'marker-checkout'
+  return undefined
+}
+
+async function guardCheck($: any): Promise<pr.GuardMissing | undefined> {
+  const now = await $.clock.now()
+  const g = mem.guard
+  if (g && now >= g.at && now - g.at < GUARD_TTL_MS) return g.missing
+  const missing = await guardRun($).catch(() => 'hook' as pr.GuardMissing)
+  mem.guard = { at: now, ...(missing !== undefined ? { missing } : {}) }
+  return missing
+}
+
+// The default's rows: the ledger must end on rows that agree with the state before a request is raised under it (the audit reads a request against the
+// latest row). On: the plain row and the asks row, as `/callboard escalation` writes them. Off: `answering-off` with code guard. Written on a change only. The
+// state last written is kept in the store (read each time, so another process or a restart agrees): `on` once both rows landed, `pending` while they are
+// being written or after a restart of the story (defaultForget), `off` once the off row landed. Nothing ever written and a guard that fails writes nothing.
+// One write at a time inside this process. true: the ledger holds the rows for `want`.
+async function defaultSyncOnce($: any, want: 'on' | 'off'): Promise<boolean> {
+  let rec: { state?: unknown } | undefined
+  try {
+    rec = await $.store.get(DEFAULT_REC_KEY)
+  } catch {
+    return false
+  }
+  if (rec?.state === want) return true
+  if (want === 'off' && (rec === undefined || rec === null)) return true
+  try {
+    if (want === 'on') {
+      await $.store.set(DEFAULT_REC_KEY, { state: 'pending', savedAt: await $.clock.now() })
+      const hash = await sha($, pr.canonical(pr.DEFAULT_ANSWERING)).catch(() => undefined)
+      if (!(await ledgerAdd($, { kind: 'answering-on', code: 'default', hash })) || !(await ledgerAdd($, { kind: 'answering-on', code: 'asks', hash }))) return false
+    } else if (!(await ledgerAdd($, { kind: 'answering-off', code: 'guard' }))) return false
+    await $.store.set(DEFAULT_REC_KEY, { state: want, savedAt: await $.clock.now() })
+  } catch {
+    return false
+  }
+  // Once per machine, when the default first holds.
+  if (want === 'on' && (await $.store.get(DEFAULT_NOTICE_KEY).catch(() => 'unknown')) === undefined) {
+    toast($, pr.ESCALATION_DEFAULT_TOAST)
+    await $.store.set(DEFAULT_NOTICE_KEY, { savedAt: await $.clock.now() }).catch(() => undefined)
+  }
+  return true
+}
+async function defaultSync($: any, want: 'on' | 'off'): Promise<boolean> {
+  while (mem.defaultSyncing) await mem.defaultSyncing.catch(() => false)
+  const job = defaultSyncOnce($, want).finally(() => {
+    if (mem.defaultSyncing === job) mem.defaultSyncing = undefined
+  })
+  mem.defaultSyncing = job
+  return job
+}
+
+// Marks the default's rows as not matching (after `/callboard escalation` ended on a ledger failure), so the next read writes rows for the state then: on rows,
+// or an off row that closes any plain row the dialog left.
+export async function defaultForget($: any): Promise<void> {
+  while (mem.defaultSyncing) await mem.defaultSyncing.catch(() => false)
+  await $.store.set(DEFAULT_REC_KEY, { state: 'pending', savedAt: await $.clock.now() }).catch(() => undefined)
+}
+
+export type Escalation = { a: pr.Answering | undefined; source: pr.EscalationSource; why?: string }
+
+// Whether escalation is on, and from where. A stored valid value wins as it always did (a narrower old one too). The person's off, or a value that is not
+// valid, is off. With nothing stored, it is on for everyone while the guard holds and its rows are in the ledger; else off, with what is missing. The OFF file is
+// judged by the callers (promptsOff). A store that does not answer is off.
+export async function escalationNow($: any): Promise<Escalation> {
+  let raw: unknown
+  try {
+    raw = await withTimeout($, (async () => $.store.get(ANSWERING_KEY))(), c.ENGINE_CALL_TIMEOUT_MS)
+  } catch {
+    return { a: undefined, source: 'off' }
+  }
+  if (raw === 'timeout') return { a: undefined, source: 'off' }
+  const stored = pr.parseAnswering(raw)
+  if (stored) return { a: stored, source: 'stored' }
+  if (raw !== undefined && raw !== null) return { a: undefined, source: 'off' }
+  const missing = await guardCheck($)
+  const landed = await defaultSync($, missing === undefined ? 'on' : 'off')
+  if (missing !== undefined) return { a: undefined, source: 'guard', why: pr.GUARD_WHY[missing] }
+  if (!landed) return { a: undefined, source: 'guard', why: 'the ledger did not answer' }
+  return { a: pr.DEFAULT_ANSWERING, source: 'default' }
+}
+export async function answeringNow($: any): Promise<pr.Answering | undefined> {
+  return (await escalationNow($)).a
+}
+
 // Whether the switch is on and this session is a lane or a lead: the cheap first test. The scope (a lane's or a lead's name) is judged once the lead is known.
 async function promptCoverage($: any, sid: string): Promise<{ a: pr.Answering; level: 'lane' | 'lead'; lane?: string; self?: string; lead?: string } | undefined> {
-  const a = pr.parseAnswering(await $.store.get(ANSWERING_KEY))
+  const a = await answeringNow($)
   if (!a) return undefined
   const b = (await getLane($)).value as Bound | null | undefined
   if (b && typeof b.name === 'string') return { a, level: 'lane', lane: b.name, ...(typeof b.lead === 'string' ? { lead: b.lead } : {}) }

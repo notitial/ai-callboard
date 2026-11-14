@@ -145,13 +145,14 @@ under umask 002). Run this once:
 chmod go-w <conductor repo>/.claude
 ```
 
-### Before escalation: the protected-paths hook
+### Escalation is on by default once the protected-paths hook is in place
 
-Escalation, the switch for prompt answering ([ADR 0004](adr/0004-prompt-answering.md)), is off by default after any
-install. Callboard holds no rule of its own about what an agent may write: no tier is asked to judge an edit of the
+Escalation, the switch for prompt answering ([ADR 0004](adr/0004-prompt-answering.md)), is on by default, but only
+while the hook below is wired and all three markers exist: callboard checks them at run time (at most once a minute) and
+stays off while one is missing; `/callboard status` names what is missing. Callboard holds no rule of its own about what an agent may write: no tier is asked to judge an edit of the
 live checkouts, of `~/.claude/settings*.json` or of callboard's state folder, because ai-toolkit's
 `hooks/protected-paths-guard.sh` denies those before any prompt exists. It never asks, so no prompt is left for an
-agent to answer. Before you turn escalation on for any lane on a machine, have the hook in place:
+agent to answer. Until the hook is in place, escalation stays off on that machine:
 
 1. ai-toolkit carries the hook and your toolkit checkout is up to date. Run `/setup-claude` yourself: it links the
    hook into `~/.claude/hooks/` and wires it in `~/.claude/settings.json`. An agent never edits settings.
@@ -171,8 +172,9 @@ The hook stops the file tools, the git server's tools and a shell line that name
 write verb. It does not read a script, an interpreter's program, `eval` or `bash -c`, a path built at run time, a `cd` to a
 variable or a hard link; its header lists the limits. Without it, or without a marker, nothing in callboard stops
 those edits: the rubric and auto mode's classifier are the only other layers, so install it first.
-Escalation turns on only when you type `/callboard escalation` yourself, and `touch ~/.claude/callboard/prompts/OFF`
-stops it at once (`/callboard escalation off` does too).
+Once the hook and the markers are in place it turns on by itself, and the first time it does you get one toast. `/callboard escalation off`
+turns it off and keeps it off; `touch ~/.claude/callboard/prompts/OFF` stops it at once. Typing `/callboard escalation` yourself
+pins it on, with no guard. Do the probe (step 3) before you rely on it.
 
 ```
 touch ~/.claude/callboard/prompts/OFF
@@ -299,7 +301,7 @@ lane or a live lead carries cannot be reserved. Details: callboard README, The m
 | Mod loaded | type `/callboard status` in a session | it answers a status table with a `Lane` row (`NONE`) and a `Lead` row (`OFF`) or similar |
 | Reserved names | type `/callboard reserve` | the manager's name, when it is not `MANAGER`, is listed |
 | Deny lines | read `permissions.deny` in `~/.claude/settings.json` | the two store and list-file lines and the six live-checkout lines are there |
-| Protected-paths hook | `jq -e '[.hooks.PreToolUse[]?.hooks[]?.command] \| any(endswith("/protected-paths-guard.sh"))' ~/.claude/settings.json`, and `ls <checkout>/.protected-checkout <toolkit>/.protected-checkout ~/.claude/callboard/.protected-checkout` | `true`, and all three markers exist, before any `/callboard escalation` |
+| Protected-paths hook | `jq -e '[.hooks.PreToolUse[]?.hooks[]?.command] \| any(endswith("/protected-paths-guard.sh"))' ~/.claude/settings.json`, and `ls <checkout>/.protected-checkout <toolkit>/.protected-checkout ~/.claude/callboard/.protected-checkout` | `true`, and all three markers exist; escalation is on by default only while this holds (`/callboard status` names what is missing) |
 | Usage watcher | `bash tools/usage-watcher/install.sh --status --ref <commit>` | exit 0, the job loaded |
 | Summary | `ls -l ~/.local/state/usage-watcher/usage-summary.json` | written in the last 5 minutes |
 | Retired hook | read `hooks.SessionStart` in `~/.claude/settings.json` | no `account-stamp.sh` entry |

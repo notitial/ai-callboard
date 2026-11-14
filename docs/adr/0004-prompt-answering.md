@@ -323,7 +323,7 @@ in the other.
 
 ### Rollout, off switch and audit
 
-Live, with no shadow mode, and off by default after any install. A person-only command widens it, one lane first. A
+Live, with no shadow mode, and (until the 2026-11-14 amendment below) off by default after any install. A person-only command widens it, one lane first. A
 proof the person reads comes before each stage. Before the first stage on each machine, the person adds, by hand, a
 deny on the file tools for callboard's folder and an ask rule on a shell command naming it.
 
@@ -363,6 +363,18 @@ With questions (amended 2026-11-11) the audit also reports an answer that is not
 label hash matches no label of the question, a `returned` answer that differs from the decision, and a question answered
 while no asks scope was on. Ledger rows carry the answer's index and a hash of the request id and the label, not the label;
 the label is in the questions file for 90 days. It prints the lane's question beside each relayed question.
+
+*Amended 2026-11-14: on by default, behind a guard.* With no stored switch, escalation is on for all lanes and leads, permission prompts
+and questions alike (scope `all`, asks scope `all`), but only while the hook and the markers that docs/setup.md asks for are
+in place: ai-toolkit's protected-paths hook wired in `~/.claude/settings.json` (the linked hook itself, on a matcher that covers Edit, Write and Bash, hooks not disabled), and `.protected-checkout` in the callboard folder,
+the toolkit and the checkout the mod loads from. The mod checks this at run time, at most once a minute; any read that fails
+counts as missing, and then escalation is off, a waiting request ends as `off` and goes back to the person, and `/callboard status`
+says what is missing. The OFF file and `/callboard escalation off` win at once: `off` now stores `{ off: true }` in place of
+deleting the value, because nothing stored means the default. A value the person's dialog or an earlier version stored rules
+as stored and is not subject to the guard (the person chose it). The default writes the rows the audit reads: `answering-on`
+code `default` and `answering-on` code `asks` when it turns on, `answering-off` code `guard` when the guard turns it off after
+it was on, only on a change, and it stays off if the ledger cannot take them. The audit needs no change (rule e reads the latest
+row). Existing Macs get one toast the first time the default holds, and no dialog.
 
 ### Limits
 

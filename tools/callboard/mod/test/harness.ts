@@ -93,7 +93,9 @@ export const pdirs = new Set<string>()
 // The usage folder (usage.ts) is kept in the same file fake.
 export const USAGE_DIR = '/Users/x/.claude/callboard/usage'
 export const OFFERS_DIR = '/Users/x/.claude/callboard/offers'
-const isPromptPath = (p: unknown) => typeof p === 'string' && (p === PROMPTS_DIR || p.startsWith(`${PROMPTS_DIR}/`) || p === USAGE_DIR || p.startsWith(`${USAGE_DIR}/`) || p === OFFERS_DIR || p.startsWith(`${OFFERS_DIR}/`))
+// The person's settings file and the protected-checkout markers are private files of the test machine too (the escalation default's guard reads them).
+export const SETTINGS_FILE = '/Users/x/.claude/settings.json'
+const isPromptPath = (p: unknown) => typeof p === 'string' && (p === PROMPTS_DIR || p.startsWith(`${PROMPTS_DIR}/`) || p === USAGE_DIR || p.startsWith(`${USAGE_DIR}/`) || p === OFFERS_DIR || p.startsWith(`${OFFERS_DIR}/`) || p === SETTINGS_FILE || p.endsWith('/.protected-checkout'))
 function promptList(path: string) {
   const pre = path.endsWith('/') ? path : `${path}/`
   const names = new Map<string, { kind: string; size: number; mtimeMs: number }>()

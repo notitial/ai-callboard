@@ -183,6 +183,57 @@ export function parseAnswering(raw: unknown): Answering | undefined {
   if (typeof o.scope !== 'string' || !SCOPE_RE.test(o.scope) || typeof o.asks !== 'boolean' || typeof o.savedAt !== 'number') return undefined
   return { scope: o.scope, asks: o.asks, savedAt: o.savedAt, ...(typeof o.asksScope === 'string' && SCOPE_RE.test(o.asksScope) ? { asksScope: o.asksScope } : {}) }
 }
+// An explicit off is stored as `{ off: true, savedAt }` (`/callboard escalation off`): any stored value that is not a valid switch reads as off, so nothing stored is the one
+// state that means the default.
+// With no stored value escalation is on for all lanes and leads, permission prompts and questions alike, while the guard holds (engine/answer-hook.ts).
+export const DEFAULT_ANSWERING: Answering = { scope: 'all', asks: false, asksScope: 'all', savedAt: 0 }
+// What the default stands on: ai-toolkit's protected-paths hook wired in the person's settings, and the three `.protected-checkout` markers (docs/setup.md).
+export const GUARD_HOOK_NAME = 'protected-paths-guard.sh'
+export const GUARD_SETTINGS_MAX = 262_144
+export type GuardMissing = 'hook' | 'marker-callboard' | 'marker-toolkit' | 'marker-checkout'
+export const GUARD_WHY: Record<GuardMissing, string> = {
+  hook: 'the protected-paths hook is not wired in ~/.claude/settings.json',
+  'marker-callboard': 'the .protected-checkout marker is missing in callboard\'s folder',
+  'marker-toolkit': 'the .protected-checkout marker is missing in the ai-toolkit checkout',
+  'marker-checkout': 'the .protected-checkout marker is missing in the ai-manager checkout',
+}
+// Whether a settings file wires the hook: some PreToolUse entry whose matcher covers the file, shell and git tools (absent, empty, `*`, or naming Edit, Write and Bash)
+// has a command that is the linked hook itself (`hookLink`, with a leading `~`, `$HOME` or `${HOME}` taken as `home`), and `disableAllHooks` is not true. Anything that
+// does not parse, or has another shape, is no.
+export function settingsWireGuard(text: unknown, hookLink: string, home: string): boolean {
+  if (typeof text !== 'string') return false
+  let j: unknown
+  try {
+    j = JSON.parse(text)
+  } catch {
+    return false
+  }
+  if (obj(j).disableAllHooks === true) return false
+  const pre = obj(obj(j).hooks).PreToolUse
+  if (!Array.isArray(pre)) return false
+  const expand = (s: string): string => s.replace(/^(?:~|\$HOME|\$\{HOME\})(?=\/)/, home)
+  return pre.some((m) => {
+    const mt = obj(m).matcher
+    const covers = mt === undefined || mt === '' || mt === '*' || (typeof mt === 'string' && ['Edit', 'Write', 'Bash'].every((t) => mt.split('|').includes(t)))
+    const hs = obj(m).hooks
+    return covers && Array.isArray(hs) && hs.some((h) => typeof obj(h).command === 'string' && expand(obj(h).command as string) === hookLink)
+  })
+}
+// The ai-toolkit checkout from the real path of the linked hook: <toolkit>/hooks/protected-paths-guard.sh. Anything else has no toolkit.
+export function toolkitOfHook(real: unknown): string | undefined {
+  const suffix = `/hooks/${GUARD_HOOK_NAME}`
+  if (typeof real !== 'string' || !real.startsWith('/') || !real.endsWith(suffix) || /[\u0000-\u001f\u007f]/.test(real)) return undefined
+  const base = real.slice(0, -suffix.length)
+  return base.length > 1 ? base : undefined
+}
+// The status row's value: on or off, and from where; a default the guard blocks says what is missing.
+export function escalationStatus(e: { a: Answering | undefined; source: EscalationSource; why?: string }, offFile: boolean): string {
+  if (offFile) return 'OFF (the OFF file exists)'
+  if (e.source === 'guard') return `OFF (default blocked: ${e.why ?? 'the guard fails'})`
+  if (!e.a) return 'OFF'
+  return e.source === 'default' ? 'ON (default)' : 'ON'
+}
+export const ESCALATION_DEFAULT_TOAST = 'Callboard escalation is now on by default: a lead, conductor or manager may answer routine prompts and questions. /callboard escalation off turns it off.'
 // /callboard escalation: no argument asks the person (the dialog); `off` turns it off. Anything else is the usage line.
 // The one command writes scope `all` for both permission prompts and questions. The parser still reads a narrower stored value (a lane's or a lead's name, an asks scope, the old `asks: true`) that an earlier version wrote.
 export type EscalationOp = 'on' | 'off' | 'bad'
@@ -485,9 +536,12 @@ const OFF_FILE_NOTE = 'The OFF file exists, so it is off whatever is stored; del
 // The switch and, when it is on, what the questions get.
 const escalationParts = (a: Answering | undefined): { on: string; questions?: string } =>
   a ? { on: `on for ${a.scope === 'all' ? 'all lanes and leads' : a.scope}`, questions: a.asksScope === undefined ? 'yours' : `answered for ${a.asksScope === 'all' ? 'all lanes' : a.asksScope}` } : { on: 'off' }
-export function escalationState(a: Answering | undefined, offFile: boolean): string {
+export type EscalationSource = 'stored' | 'default' | 'off' | 'guard'
+// source: where the switch comes from. `default`: nothing stored and the guard holds. `off`: the person turned it off. `guard`: nothing stored and the guard fails (why says what).
+export function escalationState(a: Answering | undefined, offFile: boolean, source: EscalationSource = 'stored', why?: string): string {
   const { on, questions } = escalationParts(a)
-  return `Escalation: ${on}${questions === undefined ? '' : `; questions: ${questions}`}.${offFile ? ` ${OFF_FILE_NOTE}` : ''}`
+  const by = source === 'default' ? ' (the default)' : source === 'guard' ? ` (the default, but ${why ?? 'the guard fails'})` : ''
+  return `Escalation: ${on}${by}${questions === undefined ? '' : `; questions: ${questions}`}.${offFile ? ` ${OFF_FILE_NOTE}` : ''}`
 }
 // ---- the conductor and manager tiers, and the person relay at the top tier (ADR 0004, amended) ----
 export type TierLevel = 'lead' | 'conductor' | 'manager'
