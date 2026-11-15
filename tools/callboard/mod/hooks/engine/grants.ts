@@ -34,6 +34,7 @@ import {
   managerCwd,
   laneBinding,
   ownWriting,
+  ownGen,
   laneNotices,
   turnKind,
   managerDeclared,
@@ -102,7 +103,7 @@ import { ownOwner } from './lead-records.ts'
 import { sessionRoot, leadToolsOnce, promptToolsRegister, leadCore, readReport } from './lanes.ts'
 import type { Bound } from './lanes.ts'
 import { interactive, busyAgents, personRow, backgroundShells } from './compaction.ts'
-import { loadLeadRecords, boundTo } from './lead-records.ts'
+import { loadLeadRecords, boundState } from './lead-records.ts'
 import { managerCommand } from './commands.ts'
 import { ownerLeave, ownerRename, leadNameHeld } from './lead-records.ts'
 import { epochOf, heldNo, levelBrief, levelSave } from './levels.ts'
@@ -774,29 +775,37 @@ export async function watchInit($: any, sid: string) {
 }
 // A conductor's look at the leads it owns: the hash of c.leadWatchText over the records of its reach. The first look is the baseline (no notice for what was already
 // there). A look that could not be made (the records folder unreadable, no reach left) keeps the last good hash and is logged once: a passing read error is not news.
-export async function leadWatchLook($: any, sid: string) {
+export async function leadWatchLook($: any, sid: string, own = false) {
   const g = grants.get(sid)
   if (g?.level !== 'conductor') return
   const ep = epochOf(sid)
+  // A look that overlaps one of the conductor's own writes (ownWrite) does not set the hash: the write's own look, at its end, takes the new state as known.
+  const gen = ownGen.get(sid) ?? 0
   const stores = g.pins.length > 0 ? await loadLeadRecords($) : 'no-reach'
   if (typeof stores === 'string') return logq($, sid, 'error', `lead-watch-${stores}`)
-  // The leads it owns as the check-in counts them: bound to their record, and with a session.
+  // The leads it owns as the check-in counts them: bound to their record, and with a session. A binding that could not be read is no look at all.
   const owned: typeof stores = []
   for (const s of stores) {
     if (!g.pins.includes(s.store.repo)) continue
     const leads: c.LeadRec[] = []
-    for (const rec of s.store.leads) if (rec.conductorSid === sid && rec.sid !== undefined && (await boundTo($, { key: s.key, repo: s.store.repo, rec }))) leads.push(rec)
+    for (const rec of s.store.leads) {
+      if (rec.conductorSid !== sid || rec.sid === undefined) continue
+      const state = await boundState($, { key: s.key, repo: s.store.repo, rec })
+      if (state === 'error') return logq($, sid, 'error', 'lead-watch-binding')
+      if (state === 'bound') leads.push(rec)
+    }
     owned.push({ key: s.key, store: { repo: s.store.repo, leads } })
   }
   const cur = await sha($, c.leadWatchText(owned, sid, g.pins))
   if (epochOf(sid) !== ep || grants.get(sid)?.level !== 'conductor') return
   const w = watch.get(sid)
   if (!w) return void watch.set(sid, { kind: 'leads', cur, told: cur, seen: cur })
+  if (!own && (ownWriting.has(sid) || (ownGen.get(sid) ?? 0) !== gen)) return
   w.cur = cur
 }
 // A lead's own call and write look at what moves for it: the store file for a lead, the owned leads for a conductor.
-export async function watchLook($: any, sid: string) {
-  if (grants.get(sid)?.level === 'conductor') await leadWatchLook($, sid)
+export async function watchLook($: any, sid: string, own = false) {
+  if (grants.get(sid)?.level === 'conductor') await leadWatchLook($, sid, own)
   else await watchPoll($, sid)
 }
 // The lead's own write is not news to it, unless something else changed before it.
@@ -805,17 +814,20 @@ async function watchOwn($: any, sid: string) {
   if (!w) return
   // Taken before the poll: a name fill in it rebases told and seen, and the rebased values no longer equal what was there before this write.
   const { cur: was, told, seen } = w
-  await watchLook($, sid)
+  await watchLook($, sid, true)
   if (was === told) w.told = w.cur
   if (was === seen) w.seen = w.cur
 }
 
 export async function ownWrite<T>($: any, sid: string, fn: () => Promise<T>): Promise<T> {
   ownWriting.set(sid, (ownWriting.get(sid) ?? 0) + 1)
+  ownGen.set(sid, (ownGen.get(sid) ?? 0) + 1)
   try {
     return await fn()
   } finally {
     await watchOwn($, sid).catch(() => undefined)
+    // A look that began meanwhile and ends after this write read the state before it: it is dropped (leadWatchLook).
+    ownGen.set(sid, (ownGen.get(sid) ?? 0) + 1)
     countDown(ownWriting, sid)
   }
 }
@@ -1134,7 +1146,15 @@ async function conductorCheckin($: any, sid: string, submitsAtStart: number) {
     if (!base.g.pins.includes(s.store.repo)) continue
     for (const rec of s.store.leads) {
       if (rec.conductorSid !== sid || rec.sid === undefined || rec.parked !== undefined) continue
-      if (!(await boundTo($, { key: s.key, repo: s.store.repo, rec }))) continue
+      const state = await boundState($, { key: s.key, repo: s.store.repo, rec })
+      if (state === 'unbound') continue
+      // A binding that could not be read is no observation of this lead: what was seen of it last stands, so its clocks and told marks are kept.
+      const last = prev.get(rec.name)
+      if (state === 'error') {
+        if (last) obs.set(rec.name, last)
+        repos.set(rec.name, { repo: s.store.repo, sid: rec.sid })
+        continue
+      }
       const liveLane = base.lanes.some((l) => l.repo === s.store.repo && c.laneLead(l, { name: rec.name, sid: rec.sid ?? '' }) === 'me' && c.laneSession(entries, l, sid).ok)
       obs.set(rec.name, c.observeLead(prev.get(rec.name), rec, entries, now, liveLane))
       repos.set(rec.name, { repo: s.store.repo, sid: rec.sid })

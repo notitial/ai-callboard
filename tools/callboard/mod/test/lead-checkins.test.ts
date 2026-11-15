@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 import { LEADS_CHANGED_NOTE, LEADS_CHANGED_TEXT, SUBMITTED_NOTE_NEVER_RECORD } from '../hooks/core'
-import { LEADRECDIR, PS_TABLE, SID, T0, extraStat, h, longTest, submitted } from './harness'
-import { APISID, CSESS, LEADSID, MIN, OTHERLEAD, PIN, TURN, bindOwner, ckLane, condOn, idleFor, lane, leadReg, listed, ownedBy, putLeadRecs, putStore, ticks, leadRecsJson } from './fixtures'
+import { LEADRECDIR, PS_TABLE, SID, T0, extraStat, h, leadFiles, longTest, submitted } from './harness'
+import { APISID, CSESS, LEADPATH, LEADSID, MIN, OTHERLEAD, PIN, TURN, bindOwner, ckLane, condOn, idleFor, lane, leadFileText, leadReg, listed, ownedBy, putLeadRecs, putStore, ticks, leadRecsJson, waitFor } from './fixtures'
 
 // An owning conductor's check-ins on its leads and the leads-changed notice (the lead's own: checkins.test.ts, lead.test.ts).
 const THEIRS = '7a1b2c3d-0000-4000-8000-123456789abc'
@@ -205,6 +205,44 @@ longTest("leads-changed: the conductor's own lead_retire of a record no session 
   const r = (await $.tool.call({ tool: 'mcp__callboard__lead_retire', lead: 'LEAD' })) as { result?: string; deny?: string }
   expect(r.result).toContain('LEAD')
   expect(leadRecsJson().leads).toEqual([])
+  await ticks(14)
+  expect(leadsChanged()).toBe(0)
+})
+
+longTest('lead check-in: a binding that cannot be read for a moment is no look at all: the lead\'s quiet clock and its told marks stand', async ($, on) => {
+  await ckOwn($, on)
+  await idleFor(20 * MIN)
+  h.storeThrowSync = 'get'
+  await ticks(35)
+  h.storeThrowSync = undefined
+  await idleFor(11 * MIN)
+  expect(leadCheckins()).toEqual([leadCk(LEAD_QUIET)])
+})
+
+longTest("lead check-in: a lead tool names the record in any letter case, and what the check-in saw of that lead starts over", async ($, on) => {
+  await ckOwn($, on)
+  leadFiles.set(LEADPATH, { text: leadFileText() })
+  await idleFor(24 * MIN)
+  expect(((await $.tool.call({ tool: 'mcp__callboard__lead_resume', lead: 'lead' } as any)) as { result?: string }).result).toContain('LEAD')
+  await idleFor(10 * MIN)
+  expect(leadCheckins()).toEqual([])
+  await idleFor(28 * MIN)
+  expect(leadCheckins()).toEqual([leadCk(LEAD_QUIET)])
+})
+
+longTest("leads-changed: a look that began before the conductor's own lead_retire and ends after it does not make the retire news", async ($, on) => {
+  await ckOwn($, on, { lead: null })
+  h.store.set(`lead:${LEADSID}`, { pin: PIN, savedAt: T0 })
+  await ticks(7)
+  let release!: () => void
+  h.ownerGetHang = new Promise<void>((r) => (release = r))
+  const ticking = ticks(6)
+  await waitFor(() => h.ownerGetHit > 0)
+  const r = (await $.tool.call({ tool: 'mcp__callboard__lead_retire', lead: 'LEAD' })) as { result?: string }
+  expect(r.result).toContain('LEAD')
+  expect(leadRecsJson().leads).toEqual([])
+  release()
+  await ticking
   await ticks(14)
   expect(leadsChanged()).toBe(0)
 })

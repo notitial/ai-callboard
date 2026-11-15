@@ -147,6 +147,12 @@ export async function briefLane($: any, sid: string) {
   await briefOnce($, sid, laneBriefed, kept.name, () => note, 'lane-briefing')
 }
 
+// The lead tools name a record in any letter case; the observations are kept under the record's own name.
+function clearLeadObs(sid: string, name: string) {
+  const m = leadObs.get(sid)
+  const key = name.toUpperCase()
+  for (const k of [...(m?.keys() ?? [])]) if (k.toUpperCase() === key) m?.delete(k)
+}
 // Every lead tool call (it runs the tool's body through this) refreshes the presence file first and, once, tells the lead the lane list changed since its last lane tool call.
 export async function leadRun($: any, e: unknown, body: () => Promise<any>) {
   const sid = await $.session.id()
@@ -162,7 +168,7 @@ export async function leadRun($: any, e: unknown, body: () => Promise<any>) {
   // The lead acted on that lane itself (a served call that succeeded), so what the check-in saw of it starts over.
   if (served && typeof out?.result === 'string' && OBS_CLEAR_TOOLS.includes(String((e as { tool?: unknown }).tool))) laneObs.get(sid)?.delete(String((e as { lane?: unknown }).lane))
   // A conductor acted on that lead itself, so what its check-in saw of the lead starts over.
-  if (served && typeof out?.result === 'string' && LEAD_OBS_CLEAR_TOOLS.includes(String((e as { tool?: unknown }).tool))) leadObs.get(sid)?.delete(String((e as { lead?: unknown }).lead))
+  if (served && typeof out?.result === 'string' && LEAD_OBS_CLEAR_TOOLS.includes(String((e as { tool?: unknown }).tool))) clearLeadObs(sid, String((e as { lead?: unknown }).lead))
   if (!moved || !out) return out
   // A lane_list text ends in a table, so the note goes after a blank line, never on a table row.
   const note = w?.kind === 'leads' ? c.LEADS_CHANGED_NOTE : c.LANES_CHANGED_NOTE

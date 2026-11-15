@@ -413,6 +413,9 @@ export const h = {
   leadDeleteHang: undefined,
   // Hangs the next read of a saved lead grant, once.
   leadGetHang: undefined,
+  // Hangs the next read of an owner binding, once; ownerGetHit counts the reads that reached the hang.
+  ownerGetHang: undefined,
+  ownerGetHit: 0,
   draftNow: '',
   lockOwnerWritten: undefined,
   lockOwnerFails: false,
@@ -570,6 +573,8 @@ function resetPluginState() {
   h.storeDeleteFails = false
   h.leadDeleteHang = undefined
   h.leadGetHang = undefined
+  h.ownerGetHang = undefined
+  h.ownerGetHit = 0
   h.leadMvDelayMs = 0
   h.store = new Map()
 }
@@ -804,6 +809,14 @@ export function engine(on0: any, argvSeen: string[][], stdins: string[] = [], cl
       const gate = h.leadGetHang
       h.leadGetHang = undefined
       return gate.then(() => ({ value: over() ? undefined : h.store.get(e.key) }))
+    }
+    if (h.ownerGetHang && String(e.key).startsWith('owner:')) {
+      const gate = h.ownerGetHang
+      h.ownerGetHang = undefined
+      h.ownerGetHit++
+      // The value is the one there was when the read began: a write that lands during the hang does not change what it returns.
+      const before = over() ? undefined : h.store.get(e.key)
+      return gate.then(() => ({ value: before }))
     }
     return { value: over() ? undefined : h.store.get(e.key) }
   })

@@ -129,6 +129,8 @@ export const usageWriting = new Map<string, Promise<boolean>>()
 
 // A store write of the lead's own (lane_create, a retire or terminate that removes a lane) is in flight: the tick leaves the list alone until watchOwn has taken the new state as known.
 export const ownWriting = new Map<string, number>()
+// Bumped at the start and the end of each such write by a conductor: a look of its owned leads that began before a bump read the state from before the write.
+export const ownGen = new Map<string, number>()
 
 // One registration at a time per session: a /callboard lead after a timed-out one waits for the same registration instead of starting a second.
 export const leadToolsInFlight = new Map<string, Promise<void>>()
