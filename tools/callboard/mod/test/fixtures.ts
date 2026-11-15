@@ -614,4 +614,6 @@ export function ownedBy(conductorSid: string, o: { name?: string; leadSid?: stri
   const had = storeFiles.has(leadRecFile(repo)) ? leadRecsJson(repo).leads.filter((l) => l.name !== name) : []
   putLeadRecs([...had, { name, conductorSid, sid: leadSid }], repo)
   bindOwner(leadSid, conductorSid, name, repo)
+  // A lead other than this session keeps its saved lead grant: the start sweep drops the binding of a session that has none.
+  if (leadSid !== SID) h.store.set(`lead:${leadSid}`, { pin: repo, savedAt: T0 })
 }
