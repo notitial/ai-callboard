@@ -17,6 +17,9 @@ export const register: Register = (on) => {
 
   on('command.run', { command: 'callboard' }, ($, e) => commandRun($, e)).catch(() => ({ text: 'Callboard hit an error. Run /callboard status.' }))
 
+  // /rest is /callboard rest: the same handler, with its arguments dropped.
+  on('command.run', { command: 'rest' }, ($, e) => commandRun($, { ...e, args: 'rest' })).catch(() => ({ text: 'Callboard hit an error. Run /callboard status.' }))
+
   on('tool.call', { tool: `mcp__callboard__${TOOL}` }, requestCompactCall).catch(() => ({ deny: 'callboard: request_compact failed closed.' }))
 
   for (const verb of c.LEAD_VERBS) {

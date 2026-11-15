@@ -300,6 +300,11 @@ export async function sessionStart($: any, e: any, next: any) {
     await log($, me, 'error', 'command-register')
   }
   try {
+    await $.command.register({ name: 'rest', description: 'Same as /callboard rest: stop keepalive pings in this idle gap' })
+  } catch {
+    await log($, me, 'error', 'command-register')
+  }
+  try {
     await pruneHints($, me)
     if (c.parseHint(await $.store.get(`${c.HINT_PREFIX}${me}`), now)) await log($, me, 'hint-found')
   } catch {

@@ -759,7 +759,7 @@ const HELP_ROWS: [string, string][] = [
   ['config [SETTING VALUE]', 'Show the settings, or change one (reset restores the defaults).'],
   ['reserve [remove] [NAME]', 'Show the names reserved on this Mac, or add or remove one.'],
   ['checkin pause Nm|h', 'Pause check-ins for N minutes or hours; checkin on resumes them.'],
-  ['rest', 'Stop keepalive pings in this idle gap.'],
+  ['rest', 'Stop keepalive pings in this idle gap. /rest does the same.'],
   ['off', 'Turn lead, conductor, manager and lane off for this session.'],
   ['help', 'Show this table.'],
 ]
