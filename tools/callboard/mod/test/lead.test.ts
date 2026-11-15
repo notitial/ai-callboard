@@ -69,7 +69,7 @@ test('off from the prompt or phone needs no dialog; off from anything else asks 
   for (const a of ['Deny', 'Cancel', '']) {
     h.askAnswer = a
     expect((await $.command.run(lane('off', { kind: 'plugin', name: 'x' }))).text).toContain('Cancelled. Nothing changed.')
-    expect((await $.command.run(lane('status'))).text).toBe(statusTable(['Lane', 'NONE'], ['Lead', 'ON'], ['Check-ins', 'ON']))
+    expect((await $.command.run(lane('status'))).text).toBe(statusTable(['Lane', 'NONE'], ['Lead', 'ON'], ['Conductor', 'none: /callboard lead join'], ['Check-ins', 'ON']))
   }
   h.askAnswer = YES
   expect((await $.command.run(lane('off', { kind: 'peer' }))).text).toBe('Lead is now off.')

@@ -581,6 +581,18 @@ test('a lead\'s lane_compact never cues a session that holds a live lead presenc
   expect((await $.tool.call(mgrCall('compact', 'API'))).result).toBe('cue compact acted for lane API.')
 })
 
+test('the manager\'s lane_compact never cues a lane\'s session that holds a live lead presence file (lane-or-lead), and asks nothing', async ($, on) => {
+  await mgrAt($, on)
+  const asked = h.askCount
+  // The session carrying lane API (APISID, pid 4500) is a live lead too.
+  const apiLead = `${ROOT}/leads/${APISID}.json`
+  leadFiles.set(apiLead, { text: JSON.stringify({ sid: APISID, pid: 4500, procStart: LEADPS, repo: PIN }) })
+  expect(JSON.stringify(await $.tool.call(mgrCall('compact', 'API')))).toContain('lane_compact refused: lane-or-lead: ')
+  expect(h.askCount).toBe(asked)
+  leadFiles.delete(apiLead)
+  expect((await $.tool.call(mgrCall('compact', 'API'))).result).toBe('cue compact acted for lane API.')
+})
+
 test('a fresh manager file whose ps check fails counts as a manager (manager-exists); one whose process is gone does not', async ($, on) => {
   const stdins: string[] = []
   // psFail is reset by the engine set-up: set it in the seed.

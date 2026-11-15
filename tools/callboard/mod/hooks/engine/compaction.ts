@@ -149,6 +149,18 @@ export async function pruneHints($: any, me: string) {
       }
     }
   }
+  // A lead's owner binding with no saved lead grant of that session any more (the session ended without its off) is a tie nothing refers to: it goes, under the
+  // same cap. The record it named stays until its lead leaves; a record with no binding routes nothing.
+  let ownDels = 0
+  for (const k of all.filter((x) => x.startsWith(c.OWNER_PREFIX) && x !== `${c.OWNER_PREFIX}${me}`).slice(0, c.HINT_SCAN_MAX)) {
+    if (ownDels >= HINT_DELETE_MAX) break
+    const s = k.slice(c.OWNER_PREFIX.length)
+    if (c.SID_RE.test(s) && all.includes(`${c.LEAD_HINT_PREFIX}${s}`)) continue
+    ownDels++
+    await Promise.resolve()
+      .then(() => $.store.delete(k))
+      .catch(() => undefined)
+  }
 }
 
 export function cmpClear($: any, sid: string) {

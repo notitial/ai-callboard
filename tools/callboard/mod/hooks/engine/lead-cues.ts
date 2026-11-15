@@ -7,7 +7,7 @@ import * as c from '../core.ts'
 import { log, submitOwn } from './base.ts'
 import { idleCheck, loadLanes } from './store.ts'
 import type { Reg, Answer, RegRow } from './store.ts'
-import { managerTrusted, conductorsTrusted, pinOf, LEAD } from './grants.ts'
+import { managerTrusted, pinOf, LEAD } from './grants.ts'
 import { counts, bump, leadNudge, busyAgents, backgroundShells } from './compaction.ts'
 import { getRequest } from '../state.ts'
 import { ownOwner } from './lead-records.ts'
@@ -30,12 +30,11 @@ export async function leadCue($: any, sid: string, cue: c.Cue, x: LeadCueCtx) {
   const live = await reg()
   if (!live) return refuse('registry-unreadable')
   // The owner: the conductor of the lead's own binding, its record still matching it, live and passing the lead's conductor checks for the record's repo.
-  const own = await ownOwner($, sid, live)
+  const own = await ownOwner($, sid, live).catch(() => undefined)
   const owner = typeof own === 'object'
   const manager = owner ? false : await managerTrusted($, live, sid)
-  // Any other trusted conductor of the lead's repo counts for compact only, the rule from before lead records.
-  const conductor = cue.verb === 'compact' && !owner && !manager && (await conductorsTrusted($, live, sid, pinOf(sid))).length > 0
-  const no = c.leadCueNo(cue.verb, { owner, manager, conductor })
+  // Any other conductor, even one that lists the lead's repo, is not-eligible.
+  const no = c.leadCueNo(cue.verb, { owner, manager })
   // A record that no longer matches the binding, or records that cannot be read, say so when nobody else may send the cue.
   if (no) return refuse(own === 'record-changed' || own === 'store-unreadable' ? own : no)
   const req = (await getRequest($)).value as Request | null | undefined

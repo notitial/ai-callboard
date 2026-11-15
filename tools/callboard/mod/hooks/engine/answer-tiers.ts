@@ -17,7 +17,9 @@ import {
 import { sha, dirOk, readSmallR, statR, where, run, INSTALL, TEE, rmF, log, submitOwn, logq } from './base.ts'
 import { registryEntries, idleCheck } from './store.ts'
 import type { RegRow } from './store.ts'
-import { leadsFor, conductorsReaching, managersLive, grantOf } from './grants.ts'
+import { leadsFor, managersLive, grantOf } from './grants.ts'
+import { loadLeadRecords, ownerLive } from './lead-records.ts'
+import type { LeadRecs } from './lead-records.ts'
 import { leadBase, leadRun } from './lanes.ts'
 import { ensureTimer } from './tick.ts'
 import {
@@ -78,12 +80,14 @@ async function promptRequests($: any, p: { uid: number; root: string }, accept?:
   return out
 }
 
-// The tiers a request reaches, lead first, then the conductors, then the manager: the asker must be a live row under the pid and start the request
-// names; a lead is a live lead of the repo (narrowed to the lead the request names), a conductor one whose approved pins hold the request's folder, the manager a
-// trusted one. The switch's scope applies to each. Nobody is the asker. noLead: the lane's own lead could not be resolved (its record names another, or none is
-// found), so no lead is asked, whichever leads are live. Empty: nobody can be asked, and the prompt stays the person's.
+// The tiers a request reaches, lead first, then the conductor, then the manager: the asker must be a live row under the pid and start the request
+// names; a lead is a live lead of the repo (narrowed to the lead the request names), the conductor the one live owner of the request's lead (ADR 0007: its record
+// names a conductor that is trusted and still bound to it; a lead's own request is looked up by its session id), the manager a trusted one. `recs`: the lead
+// records, loaded once by a caller that resolves several requests (a refusal code gives no conductor tier). The switch's scope applies to each. Nobody is the
+// asker. noLead: the lane's own lead could not be resolved (its record names another, or none is found), so no lead is asked, whichever leads are live. Empty:
+// nobody can be asked, and the prompt stays the person's.
 type ReachQ = Pick<pr.Request, 'sid' | 'pid' | 'procStart' | 'level' | 'lane' | 'leadName' | 'leadSid' | 'repo' | 'tool'>
-export async function promptReachTiers($: any, live: RegRow[], a: pr.Answering, q: ReachQ, noLead = false): Promise<pr.Tier[]> {
+export async function promptReachTiers($: any, live: RegRow[], a: pr.Answering, q: ReachQ, noLead = false, recs?: LeadRecs | string): Promise<pr.Tier[]> {
   if (!live.some((r) => r.j.sessionId === q.sid && String(r.j.pid) === r.pid && r.pid === String(q.pid) && r.j.procStart === q.procStart)) return []
   const rows = live.map((r) => r.j)
   const tiers: pr.Tier[] = []
@@ -96,7 +100,8 @@ export async function promptReachTiers($: any, live: RegRow[], a: pr.Answering, 
     }
   }
   if (pr.requestCovered(a, q, { lane: q.level === 'lane' ? q.lane : undefined, lead: q.leadName, self: q.level === 'lead' ? q.lane : undefined })) {
-    for (const x of await conductorsReaching($, live, q.sid, (r) => r === q.repo || c.within(r, q.repo)).catch(() => [])) tiers.push({ level: 'conductor', sid: x.sid, name: x.name ?? '' })
+    const o = typeof recs === 'string' ? undefined : await ownerLive($, live, q.sid, q.repo, pr.tierLead(q), recs, q.level === 'lead' ? q.sid : undefined).catch(() => undefined)
+    if (o) tiers.push({ level: 'conductor', sid: o.sid, name: o.name ?? '' })
     for (const m of await managersLive($, live, q.sid).catch(() => [])) if (m.unverified !== true && m.name !== undefined) tiers.push({ level: 'manager', sid: m.sid, name: m.name })
   }
   return tiers
@@ -106,8 +111,8 @@ export async function promptReachTiers($: any, live: RegRow[], a: pr.Answering, 
 // person, which of the reached tiers can act now (not passed, and not asking: a tier whose own relay question is open is blocked in that turn, unless it is this
 // request's relay), the top one of those, and when each one's window opens.
 type Stand = { tiers: pr.Tier[]; active: pr.Tier[]; top?: pr.Tier; passed: Partial<Record<pr.TierLevel, number>>; relay?: pr.Relay; windows: Record<string, number> }
-export async function promptStand($: any, p: { uid: number; root: string }, live: RegRow[], a: pr.Answering, dir: string, names: Set<string>, q: pr.Request): Promise<Stand> {
-  const tiers = await promptReachTiers($, live, a, q, q.noLead === true)
+export async function promptStand($: any, p: { uid: number; root: string }, live: RegRow[], a: pr.Answering, dir: string, names: Set<string>, q: pr.Request, recs?: LeadRecs | string): Promise<Stand> {
+  const tiers = await promptReachTiers($, live, a, q, q.noLead === true, recs)
   const passed: Partial<Record<pr.TierLevel, number>> = {}
   for (const l of pr.TIER_LEVELS) {
     const n = `escalate-${l}.json`
@@ -230,12 +235,13 @@ async function promptListTool($: any, e: unknown): Promise<{ result: string } | 
   const now = await $.clock.now()
   const items: pr.ListItem[] = []
   const stands = new Map<string, { stand: Stand; self: pr.Tier }>()
+  const recs = await loadLeadRecords($)
   // Requests in this tier's reach that are still in the person's first 30 seconds: counted, not shown.
   let young = 0
   const open = (
     await promptRequests($, t.p, async (q, names, dir) => {
       if (names.has(`${q.id}.done`) || names.has(`${q.id}.decision.json`) || q.sid === sid) return false
-      const stand = await promptStand($, t.p, t.live, t.answering!, dir, names, q)
+      const stand = await promptStand($, t.p, t.live, t.answering!, dir, names, q, recs)
       const self = stand.tiers.find((x) => x.sid === sid)
       // Not in reach, passed up, or blocked in its own question: not this tier's to see.
       if (!self || stand.passed[self.level] !== undefined || !stand.active.some((x) => x.sid === sid)) return false
@@ -421,6 +427,7 @@ export async function promptNoticeTick($: any, sid: string, submitsAtStart: numb
     // Each new request is read once: whose it is decides whether it is owed a notice.
     const live = await registryEntries($)
     if (!live || !(await dirOk($, base, p.uid))) return
+    const recs = await loadLeadRecords($)
     for (const id of fresh.slice(0, PROMPT_REQUESTS_MAX)) {
       const o = open.get(id)!
       const r = await readSmallR($, `${o.dir}/${id}.request.json`, p.uid, pr.REQUEST_MAX)
@@ -430,7 +437,7 @@ export async function promptNoticeTick($: any, sid: string, submitsAtStart: numb
         told.set(id, at + PROMPT_RECHECK_MS)
         continue
       }
-      const stand = await promptStand($, p, live, answering, o.dir, o.names, q)
+      const stand = await promptStand($, p, live, answering, o.dir, o.names, q, recs)
       const self = stand.tiers.find((x) => x.sid === sid)
       if (!self || stand.passed[self.level] !== undefined || !stand.active.some((x) => x.sid === sid)) told.set(id, at + PROMPT_RECHECK_MS)
       // Every tier is told when its window opens, the first one at 30 s too (looked at again sooner, a pass-up opens the next at once).

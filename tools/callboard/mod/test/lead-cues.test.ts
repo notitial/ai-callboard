@@ -113,11 +113,14 @@ test('the owner\'s compact with no request is an order: the conductor-worded nud
   expect(logged(stdins)).toContain('requested:on-cue-ordered')
 })
 
-test('a compact with no request and no owner is no-request, though a trusted conductor is live', async ($, on) => {
+test('a trusted conductor that does not own the lead may not compact it, with or without a request of the lead\'s own', async ($, on) => {
   await lead($, on, [], { owned: false })
-  expect(await cue(100, 'compact\n')).toBe('compact refused no-request 100\n')
+  expect(await cue(100, 'compact\n')).toBe('compact refused not-eligible 100\n')
   expect(nudges()).toEqual([])
   expect(h.store.has(`ord:${SID}`)).toBe(false)
+  await arm($)
+  expect(await cue(101, 'compact\n')).toBe('compact refused not-eligible 101\n')
+  expect(seen.compacted).toBe(false)
 })
 
 // ---- park and retire: the lead's own checks before it answers ok (ADR 0007). Its caller signals only on that ok ----

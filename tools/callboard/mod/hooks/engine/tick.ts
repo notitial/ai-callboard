@@ -63,6 +63,7 @@ import { promptCloseTick, promptSweep } from './answer-hook.ts'
 import { promptNoticeTick } from './answer-tiers.ts'
 import { usageFlush } from './usage.ts'
 import { leadStartTick, offerSweep, conductorGrantCheck } from './lead-start.ts'
+import { ownerTick } from './lead-records.ts'
 import { getRequest, getSeen, setInteractive, setRequest, setSeen } from '../state.ts'
 
 const RESUME_TTL_MS = 120_000
@@ -206,6 +207,8 @@ async function tick($: any) {
       await presenceTouch($, sid).catch(logFail($, sid, 'presence'))
       await presencePrune($).catch(logFail($, sid, 'presence-prune'))
       await leadRenameTick($, sid).catch(logFail($, sid, 'lead-rename'))
+      // The block runs for every level: only a lead has an owner binding to look at.
+      if (grants.get(sid)?.level === 'lead') await ownerTick($, sid).catch(logFail($, sid, 'owner'))
       // The start turn of a lead that a conductor opened, before the other notices (a tick submits at most once).
       await leadStartTick($, sid, submitsAtStart).catch(logFail($, sid, 'lead-start'))
       await watchTick($, sid).catch(logFail($, sid, 'lane-watch'))
@@ -292,7 +295,12 @@ export async function sessionStart($: any, e: any, next: any) {
   })
   const me = await $.session.id()
   try {
-    await $.command.register({ name: 'callboard', description: 'Give lead, make this session a lane, list the lanes, show status, show or change the settings, or turn lead and lane off for this session', argumentHint: 'help|lanes|status|lead|lane [NAME]|escalation [off]|off' })
+    await $.command.register({ name: 'callboard', description: 'Give lead, make this session a lane, list the lanes, show status, show or change the settings, or turn lead and lane off for this session', argumentHint: 'help|lanes|status|lead|lead join [CONDUCTOR]|lead leave|lane [NAME]|escalation [off]|off' })
+  } catch {
+    await log($, me, 'error', 'command-register')
+  }
+  try {
+    await $.command.register({ name: 'rest', description: 'Same as /callboard rest: stop keepalive pings in this idle gap' })
   } catch {
     await log($, me, 'error', 'command-register')
   }

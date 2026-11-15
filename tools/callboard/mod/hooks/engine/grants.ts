@@ -51,6 +51,7 @@ import {
   midDelivered,
   promptMidSent,
   promptMidRetold,
+  renameRefused,
   mem,
 } from '../mem.ts'
 import type { Watch, MgrPending, CondPending } from '../mem.ts'
@@ -96,10 +97,12 @@ import {
   lockStore,
 } from './store.ts'
 import type { RegRow, Reg } from './store.ts'
+import { ownOwner } from './lead-records.ts'
 import { sessionRoot, leadToolsOnce, promptToolsRegister, leadCore, readReport } from './lanes.ts'
 import type { Bound } from './lanes.ts'
 import { interactive, busyAgents, personRow, backgroundShells } from './compaction.ts'
 import { managerCommand } from './commands.ts'
+import { ownerLeave, ownerRename, leadNameHeld } from './lead-records.ts'
 import { epochOf, heldNo, levelBrief, levelSave } from './levels.ts'
 import { usageDrop, usageSweep } from './usage.ts'
 import type { LevelDesc, GrantDialog } from './levels.ts'
@@ -329,6 +332,7 @@ export function leadDrop($: any, sid: string): Promise<boolean> {
   leadlessSeen.delete(sid)
   leadSavedAt.delete(sid)
   leadRestorePending.delete(sid)
+  renameRefused.delete(sid)
   // A conductor's repo, approved list and pending restore go too, and its saved grant below.
   conductorHome.delete(sid)
   conductorApproved.delete(sid)
@@ -343,6 +347,8 @@ export function leadDrop($: any, sid: string): Promise<boolean> {
   const unsave = Promise.resolve()
     .then(() => $.store.delete(`${c.LEAD_HINT_PREFIX}${sid}`))
     .then(() => $.store.delete(`${c.CONDUCTOR_HINT_PREFIX}${sid}`))
+    // A lead's owner binding goes with its grant, so nothing is obeyed for a session that is no lead (ownerLeave, called before this, also removes the record).
+    .then(() => $.store.delete(`${c.OWNER_PREFIX}${sid}`))
     .then(
       () => true,
       async () => {
@@ -367,6 +373,8 @@ export async function grantDialog($: any, sid: string, d: LevelDesc, g: GrantDia
     const wasOn = g.on()
     const was = wasOn && (r !== 'timed-out' || d.notYes === 'person-or-no')
     const drops = d.notYes === 'person-no' ? r === 'no' && g.person : d.notYes === 'person-or-no' ? r === 'no' || g.person : false
+    // A lead grant that ends here takes its conductor tie with it (the binding and the record), so no orphan record keeps the lead's name.
+    if (drops && wasOn && d.level === 'lead') await ownerLeave($, sid, 'off').catch(() => undefined)
     const kept = drops && !(await leadDrop($, sid)) ? d.kept : ''
     let why = ''
     if (r === 'timed-out') {
@@ -592,25 +600,17 @@ export async function managersLive($: any, live: RegRow[], except: string): Prom
 export async function managerTrusted($: any, live: RegRow[], except: string): Promise<boolean> {
   return (await managersLive($, live, except)).some((m) => m.unverified !== true && m.name !== undefined)
 }
-// The live conductors a lead (pin) takes a compact cue from: another session's fresh conductor file that passes presenceCheck and lists the pin, whose
-// home is its own real path, not too broad and a git root; that session's saved grant (conductor:<sid>) parses, names the same home and approves the pin; and the
-// list file at that home, resolved, lists the pin. Any read that fails: not trusted. Names by c.laneLeadOf. A filter, not proof (as the manager's).
-// A search over every conductor stops at the first CONDUCTORS_SEEN_MAX (4) that pass, in session-id order; a search for one named conductor
-// (conductorTrustedSid) runs the same checks on it alone, so the cap of 4 does not apply to it.
-const CONDUCTORS_SEEN_MAX = 4
-export async function conductorsTrusted($: any, live: RegRow[], except: string, pin: string | undefined): Promise<{ sid: string; name?: string }[]> {
-  if (pin === undefined) return []
-  return conductorsReaching($, live, except, (r) => r === pin)
-}
-// Whether the one conductor `sid` passes the checks of conductorsTrusted for the pin, whatever other conductors are live (the cap of 4 does not apply).
+// Whether the one conductor `sid` is trusted for the pin: its fresh conductor file passes presenceCheck and lists the pin, its home is its own real path, not too
+// broad and a git root, its saved grant (conductor:<sid>) parses, names the same home and approves the pin, and the list file at that home, resolved, lists the
+// pin. Any read that fails: not trusted. A filter, not proof (as the manager's). Who may route to it is the lead's record (ownerLive), not this.
 export async function conductorTrustedSid($: any, live: RegRow[], except: string, pin: string | undefined, sid: string): Promise<boolean> {
   if (pin === undefined) return false
   return (await conductorsReaching($, live, except, (r) => r === pin, sid)).length > 0
 }
 // The same checks for the conductors whose approved list holds a repo that `match` accepts (a request's folder is in a conductor's reach when a pin holds it,
-// the same within-folder match a lead's pin gets), every one of them judged against the pins that matched. With `only`, no other session is examined and
-// the cap of 4 does not apply; nor does it with `opt.cap` false (the candidates of a Join, which the person picks from). Each row carries the conductor's home.
-export async function conductorsReaching($: any, live: RegRow[], except: string, match: (repo: string) => boolean, only?: string, opt: { cap?: boolean } = {}): Promise<{ sid: string; name?: string; home: string }[]> {
+// the same within-folder match a lead's pin gets), every one of them judged against the pins that matched. With `only`, no other session is examined. Each row
+// carries the conductor's home.
+export async function conductorsReaching($: any, live: RegRow[], except: string, match: (repo: string) => boolean, only?: string): Promise<{ sid: string; name?: string; home: string }[]> {
   const d = await presenceNames($)
   if (typeof d === 'string') return []
   const p = d.p
@@ -618,7 +618,7 @@ export async function conductorsReaching($: any, live: RegRow[], except: string,
   const now = await $.clock.now()
   const out: { sid: string; name?: string; home: string }[] = []
   for (const s of d.names) {
-    if (s === except || (only !== undefined ? s !== only : opt.cap !== false && out.length >= CONDUCTORS_SEEN_MAX)) continue
+    if (s === except || (only !== undefined && s !== only)) continue
     const f = await presenceCheck($, p, live, s, (x) => x.level === 'conductor' && x.repos.some(match))
     if (typeof f === 'string' || f.level !== 'conductor') continue
     const home = f.home
@@ -701,7 +701,14 @@ export async function secondLeadNo($: any, sid: string, pin: string): Promise<st
   const live = await registryEntries($)
   if (!live) return 'registry-unreadable'
   const others = (await leadsFor($, live, pin, pin)).filter((x) => x.sid !== sid)
-  return c.secondLeadRefusal(live.map((r) => r.j), sid, others.map((x) => x.sid))
+  const refused = c.secondLeadRefusal(live.map((r) => r.j), sid, others.map((x) => x.sid))
+  if (refused !== undefined) return refused
+  // A name a lead record holds is not free for another session, in any repo, with or without a session of its own (a record kept for its lanes keeps its
+  // name). A read that failed refuses.
+  const name = c.leadNameOf(live.map((r) => r.j), sid)
+  if (name === undefined) return undefined
+  const held = await leadNameHeld($, sid, name, false)
+  return held === true ? 'name-in-use' : held === false ? undefined : 'store-unreadable'
 }
 
 // An attached lane works with whichever lead holds a valid grant for its repo (consent given under one lead carries to the next one the person allows there);
@@ -823,7 +830,8 @@ async function managerSeenTick($: any, sid: string, stamp: { at: number; live: b
   try {
     const rows = await registryEntries($)
     live = rows !== undefined && (await managerTrusted($, rows, sid))
-    conductors = rows === undefined ? [] : (await conductorsTrusted($, rows, sid, pinOf(sid))).map((x) => x.name ?? '')
+    const o = rows === undefined ? undefined : await ownOwner($, sid, rows)
+    conductors = typeof o === 'object' ? [o.name ?? ''] : []
   } catch {
     await logq($, sid, 'error', 'manager-seen')
   }
@@ -942,7 +950,7 @@ export async function conductorsLive($: any, live: RegRow[], except: string): Pr
   return out
 }
 
-// Display only: the live leads a conductor (the repos it lists) or the manager (every repo) reaches, each with its registry name, so a lead with no lanes is listed.
+// Display only: the live leads a conductor (the leads it owns, in the repos it lists) or the manager (every repo) reaches, each with its registry name, so a lead with no lanes is listed.
 // Each presence file passes leadFileOk, the checks every lead lookup uses (fresh, registry row, start time, claude process, repo a git root); a lead without a
 // usable name is left out (no lane can name it either). A lead's own list never asks. Any read that fails leaves the leads out, as for a lead that is gone.
 export async function leadsInReach($: any, live: RegRow[], g: c.Grant): Promise<c.LiveLead[]> {
@@ -952,7 +960,8 @@ export async function leadsInReach($: any, live: RegRow[], g: c.Grant): Promise<
   for (const lf of await leadsFor($, live, undefined, undefined, undefined, g.level === 'manager' ? undefined : (r) => g.pins.includes(r))) {
     const name = c.leadNameOf(rows, lf.sid)
     const row = live.find((r) => r.j.sessionId === lf.sid)
-    if (name !== undefined) out.push({ name, repo: lf.repo, sid: lf.sid, ...(row ? c.leadStateOf(regEntry(row)) : {}) })
+    if (name === undefined || (g.level === 'conductor' && !(g.owns ?? []).some((o) => o.repo === lf.repo && o.sid === lf.sid))) continue
+    out.push({ name, repo: lf.repo, sid: lf.sid, ...(row ? c.leadStateOf(regEntry(row)) : {}) })
   }
   return out
 }
@@ -1201,6 +1210,18 @@ export async function leadRenameTick($: any, sid: string) {
     return
   }
   const old = g.name
+  // A bound lead's record takes the new name first, in one write; the lanes follow only once it has moved. A name that is taken carries nothing: the lead stays
+  // bound under the old name and the person is told once per pair. Any other failure is tried again at the next look.
+  const moved = await ownerRename($, sid, cur)
+  if (typeof moved === 'object') {
+    await logq($, sid, 'error', `lead-rename-owner ${c.hasText(moved.no) ? moved.no : 'other'}`)
+    if (moved.no === 'name-in-use' && renameRefused.get(sid) !== `${old}\n${cur}`) {
+      renameRefused.set(sid, `${old}\n${cur}`)
+      toast($, c.renameTakenToast(old, cur))
+    }
+    return
+  }
+  if (grantOf(sid)?.level !== 'lead' || epochOf(sid) !== epoch) return
   const lanes = await loadLanes($)
   if (typeof lanes === 'string') return
   const mine = lanes.filter((l) => l.src !== undefined && l.repo === g.pins[0] && c.leadOwns(l, sid) && l.leadName === old)
@@ -1536,9 +1557,9 @@ async function conductorTools($: any, sid: string) {
   const lane = { type: 'object', properties: { lane: { type: 'string' } }, required: ['lane'] }
   const lead = { type: 'object', properties: { lead: { type: 'string' } }, required: ['lead'] }
   const tools: [string, string, unknown][] = [
-    ['lane_list', "List the lanes of this conductor's repos, as one table under a Conductor header line (one row per lane with its lead, repo folder name, session and waiting columns; a lead no live session carries is marked not live): each lane, its folder when it is outside the repo root, whether a live session carries its name or it is parked, and how many minutes it has waited on a prompt. A live lead of its repos with no lanes is one row with – in the lane cells.", { type: 'object', properties: {} }],
-    ['lane_compact', "Ask a session to compact. lane: a lane name (at once if it asked on-cue, otherwise it is ordered to compact), or the name of a lead you own (then it works as lead_compact).", lane],
-    ['lane_terminate', "Stop a lane's session with SIGTERM, whatever it is doing. Every stop asks the person: they confirm in a dialog that names the lane, its repo, the session and the pid. Once the session has stopped, the lane's record is deleted too (the .archive/<LANE> folder and report stay). A lane with no live session is removed directly. lane: the lane name. To stop a lead you own, use lead_terminate.", lane],
+    ['lane_list', "List your leads and their lanes, as one table under a Conductor header line (one row per lane with its lead, repo folder name, session and waiting columns; a lead no live session carries is marked not live): each lane of a lead you own, its folder when it is outside the repo root, whether a live session carries its name or it is parked, and how many minutes it has waited on a prompt. A lead you own with no lanes is one row with – in the lane cells.", { type: 'object', properties: {} }],
+    ['lane_compact', "Ask a session to compact. lane: a lane of one of your leads (at once if it asked on-cue, otherwise it is ordered to compact), or the session name of a live lead you own (then it works as lead_compact).", lane],
+    ['lane_terminate', "Stop a lane of a lead you own with SIGTERM, whatever it is doing. Every stop asks the person: they confirm in a dialog that names the lane, its repo, the session and the pid. Once the session has stopped, the lane's record is deleted too (the .archive/<LANE> folder and report stay). A lane with no live session is removed directly. lane: the lane name. To stop a lead you own, use lead_terminate.", lane],
     ['lead_open', "Open a panel for a new lead in one of your repos, write the task to its brief (<repo>/.archive/<NAME>/BRIEF.md) and make it the lead without asking the person. The repo must be one of yours with no live lead, and no open may be running, one succeeded in the last hour, or three been tried in the last hour. The person sees a toast. repo: the repo's absolute path. name: the new lead's name. task: the brief text, as for lane_create. model: opus, sonnet, haiku or fable (default as lane_create); the new lead is set to it. job: true for a small task the new lead does itself, with no lanes; it signs its report and stops, and you end it with lead_retire.", { type: 'object', properties: { repo: { type: 'string' }, name: { type: 'string' }, task: { type: 'string' }, model: { type: 'string' }, job: { type: 'boolean' } }, required: ['repo', 'name', 'task'] }],
     ['lead_resume', `Cue a lead you own to resume from its own notes: it gets one fixed turn and continues only work already authorised. It must be idle with an empty prompt box, and takes at most ${c.RESUME_PER_HOUR} resumes an hour. lead: the lead's name.`, lead],
     ['lead_compact', `Ask a lead you own to compact: at once if it asked for that with request_compact on-cue, otherwise it is ordered to compact (it asks on-cue, whatever its context size, and compacts at the end of its turn). If it has not asked within ${c.ORDER_MS / 60_000} minutes, you are told. lead: the lead's name.`, lead],

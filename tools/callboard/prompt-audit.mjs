@@ -20,11 +20,11 @@
 //   deny-unclear   a deny whose reason the cleaner-command rule found too vague to judge
 //   lead-offer hash, repo, lane, nonce, by   a conductor's lead_open wrote an offer (hash: the repo's sha-256); lead-offer-void hash, nonce, code   it ended with no grant
 //   lead-grant hash, repo, lane, nonce, by, target   the new panel (target) made itself a lead from that offer; written before the grant, so a failure after it is followed by a lead-offer-void of the nonce
+//   lead-owner code (made | joined | left | off), hash, repo, lane (the lead's name then, for reading only), target (the lead's session id), by (the conductor's session id; made, joined), was (the conductor it left; left, off), nonce (made)   a lead's conductor changed (ADR 0007); written before the record changes
 //   lead-resume hash, repo, lane (the lead's name), by, target (the lead's session id), tier (conductor | manager), dialog (yes | none)   a lead tool sent a
 //              resume cue; written before the cue, so a row with no cue after it is a refused or failed send
 //   lead-stop  the lead-resume fields (target absent for a record no session carried) and code (park | unpark | retire | terminate | remove)   a lead tool parked,
 //              reopened, retired, force-stopped or removed a lead; written before the action
-//   lead-owner code (made | joined | migrated | left | off), hash, repo, lane, target (the lead's session id), by (the conductor's session id)   a lead's conductor changed
 // The lead records (--records, default the lead-records folder beside the prompts folder; read only, each file whole) are checked against the lead-owner rows (rule i).
 //   answered / returned rows of a question's answer carry code: "answer", opt (the chosen option's index, as a string) and lh (the first 16 hex of SHA-256(id + "\n" + label), the label redacted
 //              and trimmed); the labels themselves are in prompts/questions-YYYY-MM.jsonl, { t, id, lane, repo, tier, by, header, question, options, label, via? }
@@ -70,8 +70,8 @@ const QUESTION_DAYS = 90
 const LABEL_MAX = 256
 
 const ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
-const KINDS = new Set(['requested', 'answered', 'escalated', 'dropped', 'returned', 'superseded', 'expired-denied', 'off', 'abandoned', 'dialog', 'not-judgeable', 'no-tier', 'answering-on', 'answering-off', 'relayed', 'relay-lost', 'relay-left', 'relay-late', 'deny-unclear', 'lead-offer', 'lead-offer-void', 'lead-grant', 'lead-resume', 'lead-owner', 'lead-stop'])
-const FIELDS = ['code', 'id', 'lane', 'repo', 'tool', 'pattern', 'hash', 'tier', 'why', 'nonce', 'tuid', 'by', 'via', 'short', 'opt', 'lh', 'dialog', 'target', 'was']
+const KINDS = new Set(['requested', 'answered', 'escalated', 'dropped', 'returned', 'superseded', 'expired-denied', 'off', 'abandoned', 'dialog', 'not-judgeable', 'no-tier', 'answering-on', 'answering-off', 'relayed', 'relay-lost', 'relay-left', 'relay-late', 'deny-unclear', 'lead-offer', 'lead-offer-void', 'lead-grant', 'lead-owner', 'lead-resume', 'lead-stop'])
+const FIELDS = ['code', 'id', 'lane', 'repo', 'tool', 'pattern', 'hash', 'tier', 'why', 'nonce', 'tuid', 'by', 'via', 'short', 'opt', 'lh', 'target', 'was', 'dialog']
 const ENDS = new Set(['returned', 'superseded', 'expired-denied', 'off', 'abandoned'])
 // A `dropped` row with one of these codes is a decision the hook refused as forged or wrong: an anomaly. The others are ordinary.
 const DROP_ANOMALY = new Set(['no-answered-row', 'id', 'hash', 'nonce', 'by-sid', 'kind', 'answer'])
@@ -681,6 +681,23 @@ function ruleLeadGrants({ rows, flag, inRange }) {
   }
 }
 
+// h. lead owners (ADR 0007): a `made` lead-owner row needs a lead-grant row of the same repo hash, nonce, conductor (`by`) and lead (`target`); and a lead (`target`) of a repo (`hash`) is given
+// a conductor (a `made` or `joined` row) only when it has none: an earlier made or joined row with no `left` or `off` row of that lead and repo after it is an owner changed
+// without a leave, which assign-only forbids. A lead is told by its session id, never its name, so a rename (which writes no row) raises no flag.
+function ruleLeadOwners({ rows, flag, inRange }) {
+  const owners = rows.filter((r) => r.kind === 'lead-owner' && inRange(r.ms)).sort((a, b) => a.ms - b.ms)
+  for (const o of owners) {
+    if (o.code === 'made' && !rows.some((r) => r.kind === 'lead-grant' && r.nonce === o.nonce && r.hash === o.hash && r.by === o.by && r.target === o.target && r.ms <= o.ms)) flag('h', 'lead-owner-made-without-grant', `the lead-owner made row of ${o.lane ?? '?'} (${o.t}) has no earlier lead-grant row of the same repo, nonce, conductor and lead ${o.by ?? '?'}`, { t: o.t })
+  }
+  const all = rows.filter((r) => r.kind === 'lead-owner').sort((a, b) => a.ms - b.ms)
+  for (const o of owners) {
+    if (o.code !== 'made' && o.code !== 'joined') continue
+    const mine = all.filter((x) => x.hash === o.hash && x.target === o.target && x.ms < o.ms)
+    const last = mine.reverse().find((x) => x.code === 'made' || x.code === 'joined' || x.code === 'left' || x.code === 'off')
+    if (last && (last.code === 'made' || last.code === 'joined')) flag('h', 'lead-owner-twice', `lead ${o.lane ?? '?'} (${o.t}) was given a conductor again with no leave since ${last.t}`, { t: o.t })
+  }
+}
+
 // e. a request must be raised while answering is on: the latest answering-on or answering-off row at its time says on (not the first answering-on row ever written, which a later off outlives).
 // An answering-off with code asks only turned the questions off (an earlier mod wrote it); permission answering stayed on.
 // The hook reads the switch once at its start and writes the requested row after slower steps, so an off typed in between reads on, off, requested, and the waiting hook then
@@ -938,11 +955,11 @@ function buildRelay({ rows, groups, inRange, qById }, tx) {
 }
 
 // i. lead tools and lead stops (ADR 0007). A conductor's lead-resume or lead-stop row needs that conductor to own the lead then: the newest lead-owner row of the
-// same repo hash and lead (target) at or before it is a made, joined or migrated row by that conductor. A lead-stop row with no target (a record no session
+// same repo hash and lead (target) at or before it is a made or joined row by that conductor. A lead-stop row with no target (a record no session
 // carried) is not judged for its owner. A force stop always asks the person, and so does every call of the manager: such a row whose dialog is not yes is
-// flagged. Each lead record that names a session must have, as the newest lead-owner row of its repo hash and that session, a made, joined or migrated row by
+// flagged. Each lead record that names a session must have, as the newest lead-owner row of its repo hash and that session, a made or joined row by
 // its conductor; the name is not compared, so a rename (which writes no row) raises no flag, and a record with no session is skipped.
-const OWNER_CODES = new Set(['made', 'joined', 'migrated'])
+const OWNER_CODES = new Set(['made', 'joined'])
 function ownerRowAt(rows, hash, target, ms) {
   let last
   for (const r of rows) if (r.kind === 'lead-owner' && r.hash === hash && r.target === target && r.ms <= ms && (!last || r.ms >= last.ms)) last = r
@@ -1072,6 +1089,7 @@ export function audit({ root, projects, since, now = Date.now(), projectsExplici
 
   ruleDialog(ctx)
   ruleLeadGrants(ctx)
+  ruleLeadOwners(ctx)
   ruleAnsweringOn(ctx)
   const files = ruleStaleRequestFiles(ctx, rootReal, entries)
   ruleClosedWithoutRow(ctx, files)

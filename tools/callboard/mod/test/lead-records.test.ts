@@ -6,8 +6,8 @@ import { registryEntries, unlockRetry } from '../hooks/engine/store'
 import { h, LANESDIR, LEADRECDIR, SID, T0, extraStat, fakeSha, lockLog, lockOwnerReads, psDead, recLocks, statErr, storeFiles } from './harness'
 import { APP2, COND, KEY, LEADPS, LOCK_CYCLE, OTHER, OTHERLEAD, PIN, STOREFILE, bindOwner, callCreate, condPresenceOf, dirStat, leadAt, leadRecFile, leadRecsJson, leadSelfReg, logged, ownedBy, ownerText, putCond, putLeadRecs, regAs, storeLaneNames } from './fixtures'
 
-// Nothing calls the lead-record functions through a command or a tool yet, so these tests call them with a handle built over the harness's own mocks: each
-// call goes to the handler the harness registered for it, as a call from the mod's hooks does.
+// These tests call the lead-record functions directly, with a handle built over the harness's own mocks: each call goes to the handler the harness registered
+// for it, as a call from the mod's hooks does.
 function direct(on0: any) {
   const handlers = new Map<string, any>()
   const on = (name: string, handler: any) => {
