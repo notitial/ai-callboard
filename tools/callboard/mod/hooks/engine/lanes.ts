@@ -593,7 +593,7 @@ export async function handle($: any, sid: string, cue: c.Cue, answer: Answer, cu
       if (!(byManager && (await managerTrusted($, live, sid))) && !(byConductor && (await ownerLive($, live, sid, rec.repo, c.laneLeadKey(rec)).catch(() => undefined)) !== undefined)) return refuse('no-lead')
     }
   }
-  // A session holding a lead grant: its own rules (engine/lead-cues.ts), from its owner, a trusted manager or a trusted conductor of its repo.
+  // A session holding a lead grant: its own rules (engine/lead-cues.ts), from its owner or a trusted manager only.
   if (!bound && grants.get(sid)?.level === 'lead') return leadCue($, sid, cue, { now, reg, refuse, hold, answer, compactOwn })
   if (!(await isEligible($))) return refuse('not-eligible')
   if (cue.verb === 'compact') {

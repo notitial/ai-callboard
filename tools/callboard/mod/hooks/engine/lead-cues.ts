@@ -27,7 +27,7 @@ export async function leadCue($: any, sid: string, cue: c.Cue, x: LeadCueCtx) {
   const live = await reg()
   if (!live) return refuse('registry-unreadable')
   // The owner: the conductor of the lead's own binding, its record still matching it, live and passing the lead's conductor checks for the record's repo.
-  const own = await ownOwner($, sid, live)
+  const own = await ownOwner($, sid, live).catch(() => undefined)
   const owner = typeof own === 'object'
   const manager = owner ? false : await managerTrusted($, live, sid)
   // Any other conductor, even one that lists the lead's repo, is not-eligible.
