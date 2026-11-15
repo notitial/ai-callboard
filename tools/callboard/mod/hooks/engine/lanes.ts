@@ -105,6 +105,7 @@ import { ensureTimer } from './tick.ts'
 import { getLane, getLastTurn, getRequest, getSeen, setLane } from '../state.ts'
 import { usageReadings } from './usage.ts'
 import { leadAccept } from './lead-accept.ts'
+import { leadCue } from './lead-cues.ts'
 
 const stopCallKey = (sid: string, verb: string, lane: unknown) => `${sid}\n${verb}\n${String(lane)}`
 
@@ -442,6 +443,17 @@ export async function reportLaneOf($: any, sid: string): Promise<c.Lane | undefi
   return l
 }
 
+// Whose report a session signs: a bound lane's, else for a lead grant with a usable name its own `<pin>/.archive/<NAME>/REPORT.md` (the name the rename tick
+// keeps in the grant; reportStat and readReport read only the name and the repo).
+export async function reportTargetOf($: any, sid: string): Promise<c.Lane | undefined> {
+  const l = await reportLaneOf($, sid)
+  if (l) return l
+  const g = grants.get(sid)
+  const pin = pinOf(sid)
+  if (g?.level !== 'lead' || pin === undefined || !c.NAME_RE.test(g.name)) return undefined
+  return { name: g.name, repo: pin, folder: pin, brief: '' }
+}
+
 // A cue `rename <name>` from a session that is no lane yet: the session is renamed to the record's name and bound to it, with every check before the rename.
 async function birthRename(
   $: any,
@@ -579,19 +591,8 @@ export async function handle($: any, sid: string, cue: c.Cue, answer: Answer, cu
       if (!(byManager && (await managerTrusted($, live, sid))) && !(byConductor && (await conductorsTrusted($, live, sid, rec.repo)).length > 0)) return refuse('no-lead')
     }
   }
-  // A session holding a lead grant takes one verb, compact, and only while a live manager file of another session passes every presence
-  // check and the registry names that session with a reserved name (c.managerNameOf); it acts only on an on-cue request of its own, and is never nudged. A
-  // filter, not proof: any writer of the cue folder can send the cue while a manager is live; the request is the lead's own.
-  if (!bound && grants.get(sid)?.level === 'lead') {
-    if (cue.verb !== 'compact') return refuse('not-eligible')
-    const live = await reg()
-    if (!live) return refuse('registry-unreadable')
-    // A trusted conductor that lists the lead's repo also qualifies (conductorsTrusted).
-    if (!(await managerTrusted($, live, sid)) && (await conductorsTrusted($, live, sid, pinOf(sid))).length === 0) return refuse('not-eligible')
-    const req = (await getRequest($)).value as Request | null | undefined
-    if (!req || req.viaLead !== true || req.mode !== 'on-cue' || req.phase !== 'armed') return refuse('no-request')
-    return compactOwn(req)
-  }
+  // A session holding a lead grant: its own rules (engine/lead-cues.ts), from its owner, a trusted manager or a trusted conductor of its repo.
+  if (!bound && grants.get(sid)?.level === 'lead') return leadCue($, sid, cue, { now, reg, refuse, hold, answer, compactOwn })
   if (!(await isEligible($))) return refuse('not-eligible')
   if (cue.verb === 'compact') {
     const req = (await getRequest($)).value as Request | null | undefined

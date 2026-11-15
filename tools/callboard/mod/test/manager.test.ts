@@ -430,7 +430,7 @@ test('a lead with no manager grant cannot compact another lead by name', async (
   expect(JSON.stringify(await $.tool.call(mgrCall('compact', 'OTHERLEAD')))).toContain('unknown-lane')
 })
 
-test('a lead takes a compact cue only while a live manager with a reserved name runs, only for its own on-cue request; any other verb is refused', async ($, on) => {
+test('a lead takes a compact cue only while a live manager with a reserved name runs, only for its own on-cue request; any verb but resume is refused', async ($, on) => {
   const stdins: string[] = []
   await leadAt($, on, stdins, { clock: true, sess: { ...leadSelfReg(), ...mgrRow() }, seed: () => mgrFile() })
   expect(await cue(90, 'compact\n')).toBe('compact refused no-request 90\n')
@@ -439,7 +439,8 @@ test('a lead takes a compact cue only while a live manager with a reserved name 
   expect(logged(stdins)).toContain('requested:on-cue-lead')
   await $.turn.complete(TURN as any)
   expect(logged(stdins)).toContain('armed:on-cue')
-  for (const [ino, verb] of [[91, 'resume'], [92, 'retire'], [93, 'park'], [94, 'start']] as const) expect(await cue(ino, `${verb}\n`)).toBe(`${verb} refused not-eligible ${ino}\n`)
+  // The manager's resume is taken (test/lead-cues.test.ts); the lane verbs are not.
+  for (const [ino, verb] of [[92, 'retire'], [93, 'park'], [94, 'start']] as const) expect(await cue(ino, `${verb}\n`)).toBe(`${verb} refused not-eligible ${ino}\n`)
   expect(seen.compacted).toBe(false)
   // No manager, or one whose registry name is not reserved: refused.
   h.sessions = { ...leadSelfReg(), ...mgrRow('LEAD2') }

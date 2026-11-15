@@ -132,7 +132,7 @@ export const LEAD: LevelDesc = {
   offText: 'Lead is now off.',
   kept: c.LEAD_KEPT,
   noteKey: (pin) => pin,
-  note: (_sid, pin) => c.leadBriefingNote(pin),
+  note: (sid, pin) => c.leadBriefingNote(pin, sid),
   noteErr: 'lead-briefing',
   notYes: 'person-or-no',
   presenceFirst: false,
@@ -1843,7 +1843,7 @@ export async function promptCompose($: any, e: any, next: any) {
   const setSection = (id: string, text: string | undefined) => {
     sections = [...sections.filter((x) => x.id !== id), ...(text !== undefined ? [{ id, text, scope: 'session' as const }] : [])]
   }
-  if (gated) setSection(c.LEAD_BRIEFING_ID, c.leadBriefing(pin))
+  if (gated) setSection(c.LEAD_BRIEFING_ID, c.leadBriefing(pin, sid))
   if (gated) setSection(c.LEAD_MANAGER_ID, leadManager ? c.LEAD_MANAGER_TEXT : undefined)
   // ADR 0004: the lead's prompt section, beside the briefing (whose approved text is left alone).
   if (gated) setSection(pr.LEAD_PROMPTS_ID, grants.get(sid)?.level === 'lead' ? pr.LEAD_PROMPT_BRIEFING : undefined)
