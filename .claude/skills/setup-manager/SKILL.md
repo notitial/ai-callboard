@@ -46,12 +46,12 @@ first; it is the source for every step here, and wins where the two differ.
      `sudo rm -rf /usr/local/libexec/callboard`, to run in a terminal, and say step 3 replaces its `env` value.
    - The extension link: first tell them to quit VS Code (Cmd+Q) and run the link step from a plain Terminal, because
      the script also registers the link in VS Code's `extensions.json` and refuses to change anything while VS Code
-     runs. Run the dry run `bash <checkout>/tools/callboard/link-extension.sh` and show it. If it
+     runs. Run the dry run `/usr/bin/python3 -I <checkout>/tools/callboard/link-extension.py` and show it. If it
      refuses an entry it names, show it. Only when the entry is `~/.vscode/extensions/<name>` with `<name>` matching
      `^(notitial|local)\.callboard-panels-[A-Za-z0-9._-]+$` (any letter case; `local.` is the extension's earlier id), give the person `rm -rf '<that path>'`;
      anything else: build no command, and stop.
      Then run the dry run again.
-   - Give the person `bash <checkout>/tools/callboard/link-extension.sh --apply`. After they paste the output, run
+   - Give the person `/usr/bin/python3 -I <checkout>/tools/callboard/link-extension.py --apply`. After they paste the output, run
      `ls -l ~/.vscode/extensions | grep callboard-panels`: one link, to `<checkout>/tools/callboard/extension`. Then
      run the dry run once more: it should print `already linked` and no `DRY:` line (the entry is in place).
    - Tell them to start VS Code again.
