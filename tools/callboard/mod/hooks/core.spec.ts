@@ -2259,8 +2259,8 @@ test('v14 the manager texts: the question, the buttons and header, the stop ques
   assert.ok(c.managerBriefing('a`b').includes('(`MANAGER`)'), 'a name that is not a reserved one never enters the text')
   assert.equal(c.managerBriefingNote('MANAGER'), `${c.LEAD_BRIEFING_NOTE}\n\n${c.managerBriefing('MANAGER')}\n\n${c.NOTE_END}`)
   // v15.3 (2026-11-06): lane_remove is gone again: five lane tools; PR 3 adds the three prompt tools to the manager's and the conductor's lists.
-  assert.deepEqual(c.MANAGER_TOOLS, ['lane_list', 'lane_resume', 'lane_compact', 'lane_terminate', 'lane_retire', 'prompt_list', 'prompt_answer', 'prompt_escalate'].map((t) => `mcp__callboard__${t}`))
-  assert.deepEqual(c.CONDUCTOR_TOOLS, ['lane_list', 'lane_compact', 'lane_terminate', 'lead_open', 'prompt_list', 'prompt_answer', 'prompt_escalate'].map((t) => `mcp__callboard__${t}`))
+  assert.deepEqual(c.MANAGER_TOOLS, ['lane_list', 'lane_resume', 'lane_compact', 'lane_terminate', 'lane_retire', 'lead_resume', 'lead_compact', 'prompt_list', 'prompt_answer', 'prompt_escalate'].map((t) => `mcp__callboard__${t}`))
+  assert.deepEqual(c.CONDUCTOR_TOOLS, ['lane_list', 'lane_compact', 'lane_terminate', 'lead_open', 'lead_resume', 'lead_compact', 'prompt_list', 'prompt_answer', 'prompt_escalate'].map((t) => `mcp__callboard__${t}`))
   for (const code of ['busy', 'grant-changed', 'manager-tool', 'lane-or-lead', 'manager-holder']) {
     assert.ok(c.hasText(code), code)
     assert.match(code, /^[a-z-]{1,24}$/)
@@ -3270,6 +3270,7 @@ test('leadRec: a bad name, a name a lane or two lead records carry, no record; a
   assert.deepEqual(c.leadRec(LT_STORES, [], LT_COND_G, LT_COND, 'NOBODY'), { ok: false, reason: 'unknown-lead' })
   const lane = { name: 'app-lead', folder: LT_REPO, brief: `${LT_REPO}/B.md`, repo: LT_REPO }
   assert.deepEqual(c.leadRec(LT_STORES, [lane], LT_COND_G, LT_COND, 'APP-LEAD'), { ok: false, reason: 'lane-or-lead' }, 'a lane of the name in another letter case')
+  assert.deepEqual(c.leadRec(LT_STORES, [{ ...lane, name: 'NOBODY' }], LT_COND_G, LT_COND, 'NOBODY'), { ok: false, reason: 'unknown-lead' }, 'a name only a lane carries is no lead')
   const twice = [...LT_STORES, { key: 'b'.repeat(64), store: { repo: '/Users/x/code/app2', leads: [{ ...LT_REC, name: 'App-Lead', sid: undefined }] } }]
   assert.deepEqual(c.leadRec(twice, [], LT_MGR_G, 'm', 'APP-LEAD'), { ok: false, reason: 'lane-or-lead' }, 'two records of one name in two repos, the manager too')
   assert.deepEqual(c.leadRec(LT_STORES, [], { ...LT_COND_G, pins: ['/Users/x/code/app2'] }, LT_COND, 'APP-LEAD'), { ok: false, reason: 'other-repo' })

@@ -165,7 +165,7 @@ test('manager tools: lane_list and lane_resume reach lanes in every repo; every 
   expect((await $.tool.call(mgrCall('resume', 'LABLANE'))).result).toBe('cue resume acted for lane LABLANE.')
   expect((await $.tool.call(mgrCall('resume', 'API'))).result).toBe('cue resume acted for lane API.')
   for (const verb of ['create', 'open', 'rename', 'start', 'park', 'unpark'])
-    expect(JSON.stringify(await $.tool.call(mgrCall(verb, 'API'))), verb).toContain('the manager may only list, resume, compact, force stop and retire lanes.')
+    expect(JSON.stringify(await $.tool.call(mgrCall(verb, 'API'))), verb).toContain('the manager may only list, resume, compact, force stop and retire lanes, and resume and compact leads.')
   expect(argv.filter((a) => a[0] === '/bin/mv' && a[a.length - 1].startsWith(`${ROOT}/cue/`)).length).toBe(2)
 })
 
@@ -414,14 +414,16 @@ test('manager lane_terminate and lane_retire of a live lane remove its record to
   expect(noArchiveRm(argv)).toBe(true)
 })
 
-test('the manager\'s lane_compact names a live lead by its session name, in any repo; a lane of the same name refuses lane-or-lead; other verbs never reach a lead', async ($, on) => {
+test('the manager\'s lane_compact names a live lead by its session name, in any repo, after the person\'s dialog; a lane of the same name refuses lane-or-lead; other verbs never reach a lead', async ($, on) => {
   const argv: string[][] = []
   await mgrAt($, on, [], { argv, sess: { ...MGR_SESS({ name: 'MANAGER' }), ...leadReg() }, seed: () => leadFiles.set(LEADPATH, { text: leadFileText() }) })
+  const asked = h.askCount
   expect((await $.tool.call(mgrCall('compact', 'LEAD'))).result).toBe('cue compact acted for lead LEAD.')
+  expect(h.askCount).toBe(asked + 1)
   expect(argv.filter((a) => a[0] === '/bin/mv' && a[a.length - 1] === `${ROOT}/cue/${LEADSID}.cue`).length).toBe(1)
   for (const verb of ['resume', 'terminate', 'retire']) expect(JSON.stringify(await $.tool.call(mgrCall(verb, 'LEAD'))), verb).toContain('unknown-lane')
   putStore([ckLane({ sid: APISID }), madeLane('LEAD')])
-  expect(JSON.stringify(await $.tool.call(mgrCall('compact', 'LEAD')))).toContain('lane_compact refused: lane-or-lead: a lane and a live lead both carry that name')
+  expect(JSON.stringify(await $.tool.call(mgrCall('compact', 'LEAD')))).toContain('lane_compact refused: lane-or-lead: a lane and a lead, or two leads, carry that name')
   expect(argv.filter((a) => a[0] === '/bin/mv' && a[a.length - 1] === `${ROOT}/cue/${LEADSID}.cue`).length).toBe(1)
 })
 

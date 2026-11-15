@@ -528,17 +528,18 @@ export async function sendCue($: any, sid: string, label: string, toSid: string,
   }
 }
 
-// One cue to a lane (lane_start, lane_retire and the other cue tools). undefined: the target answered ok; otherwise the deny to return.
-export async function cueExchange($: any, sid: string, laneName: string, toSid: string, verb: c.Verb, deadline: number, no: (reason: string, why: string) => Promise<{ deny: string }>, retire = false): Promise<{ deny: string } | undefined> {
+// One cue to a lane (lane_start, lane_retire and the other cue tools), or to a lead (kind 'lead', the lead tools). undefined: the target answered ok;
+// otherwise the deny to return.
+export async function cueExchange($: any, sid: string, laneName: string, toSid: string, verb: c.Verb, deadline: number, no: (reason: string, why: string) => Promise<{ deny: string }>, retire = false, kind?: 'lead'): Promise<{ deny: string } | undefined> {
   const text = c.cueLine(verb, laneName, verb === 'rename' ? sid : undefined)
   if (!text) return no('grammar', 'bad cue.')
   const r = await sendCue($, sid, laneName, toSid, verb, text, deadline, no, { retire })
   if ('deny' in r) return r
-  // An order the lane took (held nudged): kept in memory, from its first cue, for the deadline notice (orderTick).
+  // An order the target took (held nudged): kept in memory, from its first cue, for the deadline notice (orderTick).
   if (verb === 'compact' && r.outcome === 'held' && r.reason === 'nudged') {
-    const mine = orders.get(sid) ?? new Map<string, { lane: string; at: number }>()
+    const mine = orders.get(sid) ?? new Map<string, { lane: string; at: number; kind?: 'lead' }>()
     orders.set(sid, mine)
-    if (!mine.has(toSid)) mine.set(toSid, { lane: laneName, at: await $.clock.now() })
+    if (!mine.has(toSid)) mine.set(toSid, { lane: laneName, at: await $.clock.now(), ...(kind ? { kind } : {}) })
   }
   if (r.outcome !== 'ok') return no(`${r.outcome}-${r.reason}`, c.cueRefusalText(verb, r.outcome, r.reason))
   await log($, sid, 'acted', `${verb} ${laneName}`)
