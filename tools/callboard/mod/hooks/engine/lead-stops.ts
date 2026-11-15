@@ -242,6 +242,9 @@ async function parkCall($: any, x: Ctx) {
     }
     await log($, sid, 'parked', t.name)
     return { result: c.parkedLeadText(t.name, fresh.entry.pid as number) }
+  } catch {
+    await logq($, sid, 'error', 'after-signal-lead_park')
+    return { result: c.afterSignalFailedLeadText('park', t.name, fresh.entry.pid as number) }
   } finally {
     signalledCalls.delete(stopKey(sid, tool, e.lead))
   }
@@ -359,9 +362,10 @@ async function retireCall($: any, x: Ctx) {
     const gone = await recordEdit($, t, t.sid, 'remove')
     if (gone) return fail(no, gone)
     if (t.sid === undefined) await dropProof($, sid, t)
-    const keys = t.sid === undefined || !(await staleKeys($, sid, t, t.sid)) ? true : await dropKeys($, sid, t.sid)
+    // A refusal by staleKeys leaves the session's keys in place, and the answer says so; it never reads as deleted.
+    const keys = t.sid === undefined ? 'gone' : !(await staleKeys($, sid, t, t.sid)) ? 'left' : (await dropKeys($, sid, t.sid)) ? 'gone' : 'kept'
     await log($, sid, 'lead-removed', t.name)
-    return { result: c.removedLeadNoSessionText(t.name, !keys) }
+    return { result: c.removedLeadNoSessionText(t.name, keys) }
   }
   const first = await fullCheck($, sid, t, start)
   if (typeof first === 'string') return fail(no, first)

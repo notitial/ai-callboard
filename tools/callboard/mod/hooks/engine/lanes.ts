@@ -98,7 +98,7 @@ import {
   reservedGet,
   findLead,
 } from './grants.ts'
-import { loadLeadRecords, boundTo, ownerLive, ownOwner } from './lead-records.ts'
+import { loadLeadRecords, boundTo, ownerLive, ownOwner, leadNameHeld } from './lead-records.ts'
 import { briefOnce, epochOf } from './levels.ts'
 import { dropRequest, doCompact, isEligible, leadNudge, busyAgents, backgroundShells, counts, bump, interactive, saveHint } from './compaction.ts'
 import { ensureTimer } from './tick.ts'
@@ -1264,6 +1264,10 @@ export async function laneCreateCall($: any, e: any, next: any) {
         if (!reg) return { no: 'registry-unreadable', why: c.REASON_TEXT['registry-unreadable'] }
         // Any letter case: a lane `alpha` beside lead `Alpha` would make c.leadNameOf void the lead's name and strand its lanes.
         if (reg.some((x) => typeof x.j.name === 'string' && x.j.name.toLowerCase() === r.lane.name.toLowerCase())) return { no: 'name-in-use', why: 'name-in-use: a live session already carries that name.' }
+        // A lead record keeps its name while its lead is parked or kept with no session: a lane of that name would block both reopens.
+        const held = await leadNameHeld($, sid, r.lane.name, false)
+        if (held === true) return { no: 'name-in-use', why: 'name-in-use: a lead record holds that name.' }
+        if (held !== false) return { no: held, why: c.reasonWhy(held) }
         // The record names this lead by its registry name now, so only it reaches the lane. A lead that had a name at its grant (the cached one) and has
         // none now is refused, so its lane is not made legacy by a passing clash; so is one with no name beside another live lead of the repo, whose
         // legacy lane that lead would reach too. A lone lead that never had a name makes a legacy lane, reachable by any lead of the repo.

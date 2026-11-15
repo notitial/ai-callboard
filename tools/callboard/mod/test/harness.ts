@@ -340,6 +340,8 @@ export const h = {
   killFails: false,
   survivesKill: false,
   psFailsAfterKill: false,
+  // A process.run that throws, as a spawn failure or a timeout does, when this says so for its argv and stdin.
+  runThrows: undefined as ((argv: string[], stdin: string | undefined) => boolean) | undefined,
   // `ps -A -o pid=,lstart=`, the registry filter's table: built from the registry files (each file's pid, at its own procStart) plus launchd, unless a test says otherwise.
   psStartsOut: undefined,
   psStartsFails: undefined,
@@ -508,6 +510,7 @@ function resetRegistry() {
   killedPids.clear()
   h.survivesKill = false
   h.psFailsAfterKill = false
+  h.runThrows = undefined
   psCalls.length = 0
   h.psStartsOut = undefined
   h.psStartsFails = undefined
@@ -867,6 +870,7 @@ export function engine(on0: any, argvSeen: string[][], stdins: string[] = [], cl
     argvSeen.push([...e.argv])
     if (typeof e.init?.stdin === 'string') stdins.push(e.init.stdin)
     const a = [...e.argv]
+    if (h.runThrows?.(a, typeof e.init?.stdin === 'string' ? e.init.stdin : undefined)) throw new Error('spawn')
     if (a[0] === '/bin/mv' && h.mvHook) h.mvHook(a[a.length - 1])
     const ok = (stdout: string, exitCode = 0, stderr = '') => ({ value: { exitCode, stdout, stderr: exitCode !== 0 && a[0] === '/usr/bin/stat' && stderr === '' ? `stat: ${a[a.length - 1]}: No such file or directory` : stderr, isStdoutTruncated: false, isStderrTruncated: false } })
     if (a[0] === '/usr/bin/id') return ok(a[1] === '-u' ? '501\n' : 'x\n')

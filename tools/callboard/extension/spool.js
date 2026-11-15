@@ -250,8 +250,8 @@ function createSpool({ dir, uid = process.getuid(), home = os.homedir(), loadLan
 
   // The three lane request kinds in this order: look, the lane list, the lane, the window's folder, take. It returns { code } for the refusal to give back, or
   // { lane, body, t }. answers: a refusal for the lane list or an unknown lane is also answered on <LANE>.result; a close request answers nothing.
-  // leads (a reopen only): a name no lane carries may be a lead's, from the lead records, with its repo as the folder. A name a lane and a lead both carry,
-  // in any letter case, is unknown-lane: the mod never asks for it.
+  // leads (a reopen only): a name no lane carries, in any letter case, may be a lead's, from the lead records, with its repo as the folder. A lane of exactly
+  // that name comes first, so a lead record never blocks a lane's reopen; the request's session id must still match what was found.
   async function claim(name, ext, maxBytes, answers, { leads = false } = {}) {
     const f = await look(name, ext, maxBytes)
     if (f.code) return f
@@ -265,8 +265,8 @@ function createSpool({ dir, uid = process.getuid(), home = os.homedir(), loadLan
       if (answers) await writeResult(name, 'error lanes-file\n')
       return { code: 'lanes-file' }
     }
-    const both = leadList.some((l) => l.name.toUpperCase() === name.toUpperCase()) && lanes.some((l) => l.name.toUpperCase() === name.toUpperCase())
-    const lane = both ? undefined : lanes.find((l) => l.name === name) ?? leadList.find((l) => l.name === name)
+    const laneNamed = lanes.some((l) => l.name.toUpperCase() === name.toUpperCase())
+    const lane = lanes.find((l) => l.name === name) ?? (laneNamed ? undefined : leadList.find((l) => l.name === name))
     if (!lane) {
       await drop(f.file)
       if (answers) await writeResult(name, 'error unknown-lane\n')

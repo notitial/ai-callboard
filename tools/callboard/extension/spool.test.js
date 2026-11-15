@@ -935,15 +935,21 @@ test('a lead reopen needs a parked mark at most 28 days old, as the mod does', a
   }
 })
 
-test('a name a lane and a lead both carry, in any letter case, is unknown-lane for a reopen, and a lead is never opened by an open request', async () => {
+test('a lane of exactly that name comes before a lead record; a lane of the name in another letter case makes it unknown-lane; a lead is never opened by an open request', async () => {
   const both = world({ lanes: [{ name: 'lead-a', folder: `${LREPO}/x`, repo: LREPO, sid: SID }], leads: [LEAD], ws: [LREPO, `${LREPO}/x`] })
   both.putReopen('LEAD-A')
   assert.deepEqual(await both.spool.scan(), [['LEAD-A', 'unknown-lane']])
   assert.equal(both.result('LEAD-A'), 'error unknown-lane\n')
   assert.deepEqual(both.reopened, [])
-  const lane = world({ lanes: [{ name: 'LEAD-A', folder: LREPO, repo: LREPO, sid: SID }], leads: [LEAD], ws: [LREPO] })
-  lane.putReopen('LEAD-A')
-  assert.deepEqual(await lane.spool.scan(), [['LEAD-A', 'unknown-lane']])
+  const LANESID = '4a1b2c3d-0000-4000-8000-123456789abc'
+  const lane = world({ lanes: [{ name: 'LEAD-A', folder: LREPO, repo: LREPO, sid: LANESID }], leads: [LEAD], ws: [LREPO] })
+  lane.putReopen('LEAD-A', `${LANESID}\n`)
+  assert.deepEqual(await lane.spool.scan(), [['LEAD-A', 'reopened']], 'the lane reopens, whatever the lead record says')
+  assert.deepEqual(lane.reopened, [LANESID])
+  const leadAsk = world({ lanes: [{ name: 'LEAD-A', folder: LREPO, repo: LREPO, sid: LANESID }], leads: [LEAD], ws: [LREPO] })
+  leadAsk.putReopen('LEAD-A')
+  assert.deepEqual(await leadAsk.spool.scan(), [['LEAD-A', 'sid-mismatch']], "the lead's session id does not match the lane")
+  assert.deepEqual(leadAsk.reopened, [])
   const open = world({ lanes: [], leads: [LEAD], ws: [LREPO] })
   open.put('LEAD-A')
   assert.deepEqual(await open.spool.scan(), [['LEAD-A', 'unknown-lane']])

@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { HEADER, keptKey, leadRecordText, PARK_YES, REMOVE_YES, REOPEN_YES, REASON_TEXT, RETIRE_YES, TERMINATE_YES, parkLeadQuestion, parkedLeadText, removeLeadQuestion, retireLeadQuestion, reopenedLeadText, stoppedLeadText, terminateLeadQuestion } from '../hooks/core'
+import { HEADER, keptKey, leadRecordText, PARK_YES, REMOVE_YES, REOPEN_YES, REASON_TEXT, RETIRE_YES, TERMINATE_YES, afterSignalFailedLeadText, parkLeadQuestion, parkedLeadText, removedLeadNoSessionText, removeLeadQuestion, retireLeadQuestion, reopenedLeadText, stoppedLeadText, terminateLeadQuestion } from '../hooks/core'
 import { h, NO, PS_TABLE, ROOT, SID, T0, fakeSha, leadFiles, longTest, teeTexts, toasts } from './harness'
 import { ledgerRows } from './answer-fixtures'
 import { APISID, CSESS, HOME, LEADPATH, LEADSID, MGR_SESS, OTHERLEAD, PIN, condOn, drive, killed, lane, leadAt, leadFileText, leadRecsJson, leadReg, mgrAt, ownedBy, putLeadRecs, putStore } from './fixtures'
@@ -218,7 +218,7 @@ test('a record whose session is gone for good and whose binding went with it: th
   expect(reopenWrites(argv).length).toBe(0)
   putLeadRecs([{ name: 'LEAD', conductorSid: SID, sid: LEADSID }])
   const asked = h.askCount
-  expect((await result($, call('lead_retire'))).result).toContain('LEAD')
+  expect((await result($, call('lead_retire'))).result).toBe(removedLeadNoSessionText('LEAD'))
   expect(h.askCount).toBe(asked)
   expect(recOf()).toBeUndefined()
   expect(h.store.has(LEADKEY)).toBe(false)
@@ -236,7 +236,8 @@ test('removing a record whose session another record\'s binding names leaves tha
   const other = { repo: '/Users/x/code/other', rec: 'b'.repeat(64), conductorSid: OTHERLEAD, at: T0 }
   h.store.set(OWNKEY, other)
   putLeadRecs([{ name: 'LEAD', conductorSid: SID, sid: LEADSID }])
-  expect((await result($, call('lead_retire'))).result).toContain('LEAD')
+  // The keys stay, and the answer says so rather than calling them gone.
+  expect((await result($, call('lead_retire'))).result).toBe(removedLeadNoSessionText('LEAD', 'left'))
   expect(recOf()).toBeUndefined()
   expect(h.store.get(OWNKEY)).toEqual(other)
   expect(h.store.has(LEADKEY)).toBe(true)
@@ -271,6 +272,15 @@ test('lead_park by the conductor: the park cue, the signal on the lead\'s ok, th
   expect(recOf()?.sid).toBe(LEADSID)
   expect(h.store.has(LEADKEY)).toBe(true)
   expect(stopRows()).toEqual([expect.objectContaining({ code: 'park', dialog: 'none' })])
+})
+
+test('lead_park that fails after its signal answers that the lead was signalled, never failed closed', async ($, on) => {
+  const argv: string[][] = []
+  await conductor($, on, argv)
+  // The log line written after the parked mark fails as a spawn failure would.
+  h.runThrows = (a, stdin) => a[0] === '/usr/bin/tee' && (stdin ?? '').includes('"event":"parked"')
+  expect((await result($, call('lead_park'))).result).toBe(afterSignalFailedLeadText('park', 'LEAD', 4242))
+  expect(killed(argv)).toEqual([['/bin/kill', '-TERM', '4242']])
 })
 
 test('lead_park refuses a lead with a live lane before any cue', async ($, on) => {

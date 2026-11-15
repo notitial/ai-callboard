@@ -3522,6 +3522,15 @@ test('the lead stop powers are named in the lead, conductor and manager texts', 
   }
 })
 
+test('removedLeadNoSessionText says the keys are gone only when they went: kept for a failed delete, left when they were not touched', () => {
+  assert.ok(c.removedLeadNoSessionText('L').includes('Its record and saved lead grant are gone'))
+  const kept = c.removedLeadNoSessionText('L', 'kept')
+  assert.ok(kept.includes('lead-key-kept') && !kept.includes('grant are gone'))
+  const left = c.removedLeadNoSessionText('L', 'left')
+  assert.ok(left.includes('lead-keys-left') && !left.includes('grant are gone'))
+  for (const t of [kept, left]) assert.ok(t.endsWith('its .archive/L/ folder stays.'))
+})
+
 test('leadOpenArgs takes job as a boolean; leadJobBriefText puts the fixed job paragraph before the task', () => {
   const ok = { repo: '/Users/x/app', name: 'LEAD-A', task: 'Do the work.' }
   assert.deepEqual(c.leadOpenArgs({ ...ok, job: true }), { ok: true, ...ok, model: 'sonnet', job: true })

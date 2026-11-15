@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 import { LANE_NO_LEAD } from '../hooks/core'
 import { h, SID, T0, YES, briefFiles, extraStat, longTest, realMap, storeFiles, toasts, toolDefs } from './harness'
-import { OTHER, PIN, STOREFILE, callCreate, created, creator, cueSession, dirStat, grantAt, lane, leadCall, storeLaneNames } from './fixtures'
+import { OTHER, PIN, STOREFILE, callCreate, created, creator, cueSession, dirStat, grantAt, lane, leadCall, putLeadRecs, storeLaneNames } from './fixtures'
 
 longTest('lane_create writes a store lane in the user folder, and the lead can then cue it', async ($, on) => {
   await creator($, on)
@@ -264,6 +264,13 @@ test('lane_create refuses a name a live session already carries', async ($, on) 
   await creator($, on)
   h.sessions = cueSession(OTHER, 'API', '/somewhere')
   expect(JSON.stringify(await callCreate($))).toContain('name-in-use')
+  expect(storeLaneNames()).toEqual([])
+})
+
+test('lane_create refuses a name a lead record holds, in any letter case, even with no live session: the lead\'s reopen needs that name', async ($, on) => {
+  await creator($, on)
+  putLeadRecs([{ name: 'api' }])
+  expect(JSON.stringify(await callCreate($))).toContain('name-in-use: a lead record holds that name.')
   expect(storeLaneNames()).toEqual([])
 })
 

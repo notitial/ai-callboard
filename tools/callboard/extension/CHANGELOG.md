@@ -2,7 +2,7 @@
 
 ## 1.4.0
 
-- A `<NAME>.reopen` request may name a lead, for a conductor's `lead_unpark`: when no lane carries the name, the lead records in `~/.claude/callboard/lead-records/` are read (with the rules the mod reads them by; one bad record refuses its whole file), the record must name the session id the request carries (`error sid-mismatch` otherwise) and be parked at most 28 days ago (`error not-parked` otherwise), and the lead's repo must be the window's first workspace folder. A name a lane and a lead both carry, in any letter case, is answered `error unknown-lane`. The same limits as a lane's reopen apply.
+- A `<NAME>.reopen` request may name a lead, for a conductor's `lead_unpark`: when no lane carries the name, the lead records in `~/.claude/callboard/lead-records/` are read (with the rules the mod reads them by; one bad record refuses its whole file), the record must name the session id the request carries (`error sid-mismatch` otherwise) and be parked at most 28 days ago (`error not-parked` otherwise), and the lead's repo must be the window's first workspace folder. A lane of exactly that name comes first, so a lead record never blocks a lane's reopen; a lane of the name in another letter case makes it `error unknown-lane`. The same limits as a lane's reopen apply.
 - An older extension answers a lead's reopen `error unknown-lane` at once; the mod then says this version is needed. Park, retire and force stop of a lead work with older versions.
 
 ## 1.3.3

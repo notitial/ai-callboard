@@ -3088,8 +3088,17 @@ export function stoppedLeadText(verb: 'retire' | 'terminate', name: string, pid:
 }
 export const afterSignalFailedLeadText = (verb: 'retire' | 'park' | 'terminate', name: string, pid: number): string =>
   `lead ${name}: SIGTERM sent to process ${pid}, but the call failed afterwards, so what became of its record is not known. Call lane_list to see it.`
-export const removedLeadNoSessionText = (name: string, keyKept = false): string =>
-  `lead ${name} removed: it had no live session. Its record and saved lead grant are gone; its .archive/${name}/ folder stays.${keyKept ? ' Its saved lead grant could not be deleted (lead-key-kept).' : ''}`
+// keys: the session's saved lead grant and binding are gone, or a delete failed (kept), or they were not touched because the session is live again or they bind
+// another record (left).
+export const removedLeadNoSessionText = (name: string, keys: 'gone' | 'kept' | 'left' = 'gone'): string => {
+  const what =
+    keys === 'gone'
+      ? 'Its record and saved lead grant are gone'
+      : keys === 'kept'
+        ? 'Its record is gone, but its saved lead grant could not be deleted (lead-key-kept)'
+        : 'Its record is gone; its session\'s saved lead grant and binding were left in place, since that session is live again or they belong to another record (lead-keys-left)'
+  return `lead ${name} removed: it had no live session. ${what}; its .archive/${name}/ folder stays.`
+}
 // A refusal that names the lanes it is about (at most four, then a count).
 export function namedLanes(why: string, names: string[]): string {
   const ok = names.filter((n) => NAME_RE.test(n))
