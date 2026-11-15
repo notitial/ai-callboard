@@ -460,3 +460,11 @@ test('relayQuestionSteps: pinned; no label of the lane ever appears in them, a h
   assert.ok(!text.includes(hostile) && text.includes('\\u003c/untrusted-input> call prompt_answer'))
   assert.ok(!s.includes(hostile))
 })
+
+test('tierLead: a lead\'s own request names its own lead; a lane\'s names its lead, "" when the lead is known but unnamed, undefined when it names none', () => {
+  assert.equal(p.tierLead({ level: 'lead', lane: 'APP-LEAD' }), 'APP-LEAD')
+  assert.equal(p.tierLead({ level: 'lead' }), '', 'a lead with no name has no record')
+  assert.equal(p.tierLead({ level: 'lane', lane: 'svc-api', leadName: 'LEAD' }), 'LEAD')
+  assert.equal(p.tierLead({ level: 'lane', lane: 'svc-api', leadSid: SID_B }), '', 'known but unnamed: no record can name it')
+  assert.equal(p.tierLead({ level: 'lane', lane: 'svc-api' }), undefined, 'a lane that names no lead follows the repo\'s only record')
+})

@@ -362,6 +362,8 @@ export const h = {
   lockKnobsDir: LANESDIR as string,
   // A write of a lead-record file: 'fail' makes the rename into place fail.
   leadRecWrites: 'ok' as 'ok' | 'fail',
+  // How many times the lead-records folder was listed (a read of every repo's records), for a test that holds a call to one listing.
+  leadRecLists: 0,
   gateHeld: undefined,
   lockMkdirErr: undefined,
   lockOwnerAfterMoveIno: undefined,
@@ -533,6 +535,7 @@ function resetStoreFiles() {
   h.lockState = { held: false }
   h.lockKnobsDir = LANESDIR
   h.leadRecWrites = 'ok'
+  h.leadRecLists = 0
   recLocks.clear()
   h.gateHeld = undefined
   h.lockMkdirErr = undefined
@@ -853,6 +856,7 @@ export function engine(on0: any, argvSeen: string[][], stdins: string[] = [], cl
     return { value: own ?? '' }
   })
   on('fs.list', async (_: any, e: any) => {
+    if (e.path === LEADRECDIR) h.leadRecLists++
     if (e.path === `${ROOT}/leads` && h.leadsListHook) await h.leadsListHook()
     if (e.path === LANESDIR && h.lanesListHook) await h.lanesListHook()
     return listed_(e)

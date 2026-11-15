@@ -551,13 +551,16 @@ export const putCond = (repos: string[]) => {
 }
 // The conductor (SID in COND) with lane API in PIN's store (session APISID) and LABLANE of /data/x/work (session OTHER), granted over ../app and ../app2.
 export const CSESS = (over: Record<string, unknown> = {}) => ({ ...condSelf(over), ...cueSession(APISID, 'API', `${PIN}/api`, { pid: 4500 }), ...cueSession(OTHER, 'LABLANE', '/data/x/work/lab', { pid: 4600 }) })
-export async function condOn($: any, on: any, stdins: string[] = [], opts: { clock?: boolean; sess?: Record<string, string>; seed?: () => void; argv?: string[][]; trace?: Trace; repos?: string[] } = {}) {
+// owns: the leads of PIN this conductor (SID) owns, each with its record and its lead's binding (ownedBy); by default LEAD (session LEADSID), the lead the legacy lane
+// API of PIN follows. `[]` is a conductor that lists the repos and owns nothing.
+export async function condOn($: any, on: any, stdins: string[] = [], opts: { clock?: boolean; sess?: Record<string, string>; seed?: () => void; argv?: string[][]; trace?: Trace; repos?: string[]; owns?: { name?: string; leadSid?: string; repo?: string }[] } = {}) {
   await condAt($, on, stdins, {
     clock: opts.clock,
     argv: opts.argv,
     trace: opts.trace,
     sess: opts.sess ?? CSESS(),
     seed: () => {
+      for (const o of opts.owns ?? [{}]) ownedBy(SID, { name: 'LEAD', leadSid: LEADSID, ...o })
       putStore([ckLane({ sid: APISID })])
       extraStat.set(`${PIN}/api`, dirStat)
       extraStat.set(`${PIN}/api/BRIEF.md`, fileStat)
