@@ -223,7 +223,7 @@ export const leadReason = (verb: string, why: string) => `${verb.startsWith('lea
 export const homeOf = (p: { root: string }) => p.root.slice(0, -'/.claude/callboard'.length)
 
 // ---- the lead's presence file: <root>/leads/<lead sid>.json, a filter that says a lead runs for a repo; nothing is ever sent to the sid in it ----
-// Written at the grant (only for a pin lane_create would accept), rewritten by the tick every PRESENCE_TOUCH_MS and at the start of every lead tool call so its mtime stays fresh,
+// Written at the grant (only for a pin lane_create would accept), rewritten by the tick (a lead's every PRESENCE_TOUCH_MS, the others' every tick) and at the start of every lead tool call so its mtime stays fresh,
 // removed on off, on a Deny, at session start and at session end. Its writes and its removal go one at a time, so a removal is not undone by a write in flight.
 const queued = <T>(fn: () => Promise<T>): Promise<T> => {
   const r = mem.presenceQ.then(fn, fn)
@@ -275,7 +275,6 @@ export function presenceTouch($: any, sid: string): Promise<boolean | void> {
       if (text === '') return false
       const w = await writeIn($, 'leads', `${sid}.json`, text)
       if ('err' in w) await log($, sid, 'error', d.err)
-      else presenceTouchedAt.set(sid, await $.clock.now())
       return !('err' in w)
     }
     if (pin === undefined || !p) return
@@ -308,13 +307,10 @@ export function presenceTouch($: any, sid: string): Promise<boolean | void> {
     else presenceTouchedAt.set(sid, await $.clock.now())
   })
 }
-// The tick's test for a presence write: PRESENCE_TOUCH_MS passed since the last one, or a conductor's name or reach changed since its text was written
-// (presenceTouch then rewrites the text, as the tick always did).
+// The tick's test for a presence write. A lead's file is rewritten once PRESENCE_TOUCH_MS has passed since its last write; a conductor's and the manager's
+// are rewritten on every tick, as they are few and other sessions' tier checks lean on them.
 export function presenceDue(sid: string, now: number): boolean {
-  if (c.dueEvery(presenceTouchedAt.get(sid), now, c.PRESENCE_TOUCH_MS)) return true
-  const g = grants.get(sid)
-  if (g?.level !== 'conductor') return false
-  return CONDUCTOR.presence!.key!(g, conductorHome.get(sid)) !== conductorPresenceKey.get(sid)
+  return grants.get(sid)?.level !== 'lead' || c.dueEvery(presenceTouchedAt.get(sid), now, c.PRESENCE_TOUCH_MS)
 }
 export function presenceDrop($: any, sid: string) {
   presenceText.delete(sid)

@@ -369,14 +369,16 @@ test('restore: the lead comes back with a toast and no question', async ($, on) 
 // ---- 4. presence file ----
 for (const level of LEVELS) {
   const L = LV[level]
-  test(`presence: the ${level} file has the fields of its level, is rewritten when its text changes and every PRESENCE_TOUCH_MS, and goes at off and at session end`, async ($, on) => {
+  test(`presence: the ${level} file has the fields of its level, is rewritten at each tick (a lead's every PRESENCE_TOUCH_MS), and goes at off and at session end`, async ($, on) => {
     await world($, on, [])
     await grant($, level)
     expect(JSON.parse(leadFiles.get(SELFPATH)!.text)).toEqual(L.atGrant)
     const m0 = leadFiles.get(SELFPATH)!.mtimeSec!
     await h.clock!.advance(2000)
     expect(JSON.parse(leadFiles.get(SELFPATH)!.text)).toEqual(L.presence)
-    expect(leadFiles.get(SELFPATH)!.mtimeSec!).toBe(level === 'conductor' ? m0 + 2 : m0)
+    expect(leadFiles.get(SELFPATH)!.mtimeSec!).toBe(level === 'lead' ? m0 : m0 + 2)
+    await h.clock!.advance(2000)
+    expect(leadFiles.get(SELFPATH)!.mtimeSec!).toBe(level === 'lead' ? m0 : m0 + 4)
     await h.clock!.advance(PRESENCE_TOUCH_MS)
     expect(leadFiles.get(SELFPATH)!.mtimeSec!).toBeGreaterThanOrEqual(m0 + PRESENCE_TOUCH_MS / 1000)
     await off($)

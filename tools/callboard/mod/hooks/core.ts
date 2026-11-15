@@ -2089,7 +2089,7 @@ export function noticeReach(g: Grant, l: Lane, mySid: string, ownLeadLive: boole
 export const LEAD_FILE_MAX = 4096
 export const LEAD_FILES_MAX = 64
 const LEAD_FRESH_MS = 30_000
-// How often a running session rewrites its presence file (well inside LEAD_FRESH_MS, so a tick or two of delay never reads as stale) and how often it
+// How often a running lead rewrites its presence file (well inside LEAD_FRESH_MS, so a tick or two of delay never reads as stale) and how often a session
 // sweeps the folder for files nobody has written for LEAD_PRUNE_MS.
 export const PRESENCE_TOUCH_MS = 10_000
 export const PRESENCE_PRUNE_MS = 60_000

@@ -207,8 +207,7 @@ async function tick($: any) {
       // A lead's pin only: a later non-lead grant must never save a lead hint without a pin.
       const pin = pinOf(sid)
       if (pin !== undefined && c.leadRefreshDue(savedAt, await $.clock.now(), LEAD.refreshMs)) await levelSave($, sid, LEAD, pin)
-      // The presence file is fresh for 30 s and pruned after ten minutes, so neither needs a write or a scan on every tick. Every write of the file (the
-      // grant, a lead tool call, this step) sets presenceTouchedAt (presenceDue).
+      // A lead's presence file is fresh for 30 s, and the folder is pruned after ten minutes, so neither needs a write or a scan on every tick (presenceDue).
       const at = await $.clock.now()
       if (presenceDue(sid as string, at)) await presenceTouch($, sid).catch(logFail($, sid, 'presence'))
       if (c.dueEvery(mem.presencePrunedAt, at, c.PRESENCE_PRUNE_MS)) {
