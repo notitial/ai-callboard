@@ -470,7 +470,8 @@ async function leadRestoreTry($: any, me: string, hint: c.LeadHint): Promise<str
     const named = await withTimeout($, secondLeadNo($, me, hint.pin), c.ENGINE_CALL_TIMEOUT_MS)
     if (dropped()) return
     if (named === 'timeout') return 'lead-check-slow'
-    if (named === 'registry-unreadable') return named
+    // A reopened panel's name can land in the registry a few ticks after session.start: a lead with no name yet beside another lead is tried again.
+    if (named === 'registry-unreadable' || named === 'lead-needs-name') return named
     if (named !== undefined) {
       await reject(named)
       return void toast($, c.leadNotRestoredToast(named))
@@ -502,8 +503,8 @@ export async function leadRestore($: any, me: string, hint: c.LeadHint, tries: n
   if (tries >= LEAD_RESTORE_TRIES) {
     leadRestorePending.delete(me)
     await log($, me, 'lead-restore-rejected', again)
-    // The second-lead check never got an answer: the key is kept, and the person is told why the lead did not come back.
-    if (again === 'registry-unreadable' || again === 'lead-check-slow') toast($, c.leadNotRestoredToast(again))
+    // The second-lead check never got an answer, or the name never landed: the key is kept, and the person is told why the lead did not come back.
+    if (again === 'registry-unreadable' || again === 'lead-check-slow' || again === 'lead-needs-name') toast($, c.leadNotRestoredToast(again))
     return
   }
   leadRestorePending.set(me, { hint, tries })
