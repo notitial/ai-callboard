@@ -1195,7 +1195,8 @@ test('helpText is a header and a two-column table with one row per subcommand, m
   assert.deepEqual(lines.slice(0, 4), ['**Callboard commands**', '', '| Command | What it does |', '|---|---|'])
   const rows = lines.slice(4)
   const words = rows.map((l) => /^\| ([^ \\|]+)/.exec(l)![1])
-  assert.deepEqual(words, ['lanes', 'status', 'lead', 'lane', 'escalation', 'conductor', 'manager', 'config', 'reserve', 'checkin', 'rest', 'off', 'help'])
+  assert.deepEqual(words, ['lanes', 'status', 'lead', 'lead', 'lead', 'lane', 'escalation', 'conductor', 'manager', 'config', 'reserve', 'checkin', 'rest', 'off', 'help'])
+  assert.ok(lines.some((l) => l.startsWith('| lead join \\[CONDUCTOR\\] |')) && lines.some((l) => l.startsWith('| lead leave |')))
   assert.ok(lines.includes('| lane \\[NAME\\] | Make this session a lane, named NAME if given; lane off takes it out of its lane. |'))
   for (const l of rows) assert.equal(l.replace(/\\\|/g, '').split('|').length, 4, l)
   assert.ok(!c.helpText().includes('Floor'))
@@ -2409,25 +2410,29 @@ test('v15 S6c (49): a live conductor adds a Conductor column to the manager tabl
     '**Manager M** · live',
     '',
     ...headRows(['Conductor', 'Lane', 'Folder', 'Session', 'Context', '5h', '7d', 'Cost', 'Read', 'Waiting']),
-    tr('C\\*1', '**app · Any lead**', '', '', ...NU, ''),
+    tr('C\\*1', ...Array(9).fill('–')),
+    tr('No conductor', '**app · Any lead**', '', '', ...NU, ''),
     tr('', '↳ A', 'a', 'none', ...NU, '–'),
-    tr('–', '**x · Any lead**', '', '', ...NU, ''),
+    tr('', '**x · Any lead**', '', '', ...NU, ''),
     tr('', '↳ B', 'b', 'none', ...NU, '–'),
   ].join('\n'))
   assert.ok(!nested.includes('>'))
   assert.equal(c.laneListText([a, b], [], 0, { level: 'manager', name: 'M', conductors: [] }), flat)
-  assert.ok(c.laneListText([a], [], 0, { level: 'manager', name: 'M', conductors: [{ repos: ['/w/app'] }] }).includes(tr('a conductor', '**app · Any lead**', '', '', ...NU, '')))
+  assert.ok(c.laneListText([a], [], 0, { level: 'manager', name: 'M', conductors: [{ repos: ['/w/app'] }] }).includes(tr('a conductor', ...Array(9).fill('–'))))
   assert.ok(c.laneListText([a], [], 0, { level: 'manager', name: 'M', conductors: 'error' }).endsWith('|\n\n(conductors could not be read)'))
   assert.ok(!c.laneListText([a], [], 0, { level: 'manager', name: 'M', conductors: 'error' }).includes('Conductor'))
   assert.ok(!c.laneListText([a], [], 0, { level: 'lead', conductors: 'error' }).includes('conductors'))
-  // A conductor's name sits on its first row only; a conductor whose repos have no rows is one row with dashes; a repo two conductors list shows once, under the first.
-  const two = c.laneListText([a, { ...a, name: 'A2', folder: '/w/app', leadName: 'L' }], [], 0, { level: 'manager', name: 'M', conductors: [{ name: 'C1', repos: ['/w/app'] }, { name: 'C2', repos: ['/w/app', '/w/none'] }, { name: 'C3', repos: [] }] })
+  // A conductor's name sits on its first row only; a conductor with no rows is one row with dashes; a lead sits under the conductor its bound record names, and a lane naming no
+  // lead follows the repo's only record, whatever the other conductors list.
+  const LO_C2 = '00000000-0000-4000-8000-0000000000c2'
+  const rec = { name: 'L', createdAt: 1, how: 'made' as const, conductorSid: LO_C2 }
+  const two = c.laneListText([a, { ...a, name: 'A2', folder: '/w/app', leadName: 'L' }], [], 0, { level: 'manager', name: 'M', conductors: [{ name: 'C1', repos: ['/w/app'], sid: 'x1' }, { name: 'C2', repos: ['/w/app', '/w/none'], sid: LO_C2 }, { name: 'C3', repos: [] }], records: [{ repo: '/w/app', rec, bound: true }] })
   assert.deepEqual(two.split('\n').slice(4), [
-    tr('C1', '**app (also C2) · Any lead**', '', '', ...NU, ''),
+    tr('C1', ...Array(9).fill('–')),
+    tr('C2', '**app · Any lead**', '', '', ...NU, ''),
     tr('', '↳ A', 'a', 'none', ...NU, '–'),
-    tr('', '**app (also C2) · L (not live)**', '', '', ...NU, ''),
+    tr('', '**app · L (not live)**', '', '', ...NU, ''),
     tr('', '↳ A2', '.', 'none', ...NU, '–'),
-    tr('C2', ...Array(9).fill('–')),
     tr('C3', ...Array(9).fill('–')),
   ])
 })
@@ -2485,7 +2490,7 @@ test('laneListText: with no lanes at all, live leads are still listed; a conduct
     tr('**one · LEAD-A**', 'lead', '?', '?', '?', '?', '–', ''),
   ].join('\n'))
   const nested = c.laneListText([], [], 0, { level: 'manager', name: 'M', leads, conductors: [{ name: 'C', repos: ['/w/one'] }] })
-  assert.deepEqual(nested.split('\n').slice(4), [tr('C', '**one · LEAD-A**', 'lead', '?', '?', '?', '?', '–', ''), tr('–', '**two · LEAD-B**', 'lead', '?', '?', '?', '?', '–', '')])
+  assert.deepEqual(nested.split('\n').slice(4), [tr('C', ...Array(8).fill('–')), tr('No conductor', '**two · LEAD-B**', 'lead', '?', '?', '?', '?', '–', ''), tr('', '**one · LEAD-A**', 'lead', '?', '?', '?', '?', '–', '')])
   assert.equal(c.laneListText([], [], 0, { level: 'manager', name: 'M', leads: [] }), '| Lanes |\n|---|\n| no lanes in this repo |')
   assert.equal(c.laneListText([], [], 0, { level: 'conductor', name: 'C' }), '| Lanes |\n|---|\n| no lanes in its repos |')
 })
@@ -2865,6 +2870,7 @@ test('laneListText: the figure columns in each view; the footnote only when two 
   const S_B = 'bb1b2c3d-0000-4000-8000-123456789abc'
   const S_L = 'cc1b2c3d-0000-4000-8000-123456789abc'
   const S_Y = 'dd1b2c3d-0000-4000-8000-123456789abc'
+  const S_C = 'ee1b2c3d-0000-4000-8000-123456789abc'
   const usage = new Map([[S_A, read({})], [S_B, read({ windows: [], tokens: 90_000, cost: 0.4 })], [S_L, read({ windows: [{ kind: 'five_hour', pct: 34, resetsAt: null }], tokens: null, cost: null })], [LEAD, read({ tokens: 210_000, cost: 4.1 })]])
   const a = { name: 'LANE-A', folder: '/w/app', brief: '/w/app/B.md', repo: '/w/app', leadName: 'LEAD-A' }
   const b = { name: 'LANE-B', folder: '/w/app', brief: '/w/app/B.md', repo: '/w/app', leadName: 'LEAD-A' }
@@ -2896,11 +2902,11 @@ test('laneListText: the figure columns in each view; the footnote only when two 
     '',
     c.USAGE_FOOTNOTE,
   ].join('\n'))
-  const manager = c.laneListText([a], entries, U_NOW, { level: 'manager', name: 'M', usage, leads: [{ name: 'LEAD-A', repo: '/w/app', sid: LEAD }, { name: 'LEAD-Z', repo: '/w/two', sid: S_L }], conductors: [{ name: 'C', repos: ['/w/two'] }] })
+  const manager = c.laneListText([a], entries, U_NOW, { level: 'manager', name: 'M', usage, leads: [{ name: 'LEAD-A', repo: '/w/app', sid: LEAD }, { name: 'LEAD-Z', repo: '/w/two', sid: S_L }], conductors: [{ name: 'C', repos: ['/w/two'], sid: S_C }], records: [{ repo: '/w/two', rec: { name: 'LEAD-Z', createdAt: 1, how: 'made', conductorSid: S_C }, bound: true }] })
   assert.deepEqual(manager.split('\n').slice(2), [
     ...headRows(['Conductor', ...LANE_HEAD]),
     tr('C', '**two · LEAD-Z**', 'lead', '–', '34%', '–', '–', '2m', ''),
-    tr('–', '**app · LEAD-A**', 'lead', '210k', '34%', '61%', '$4.10', '2m', ''),
+    tr('No conductor', '**app · LEAD-A**', 'lead', '210k', '34%', '61%', '$4.10', '2m', ''),
     tr('', '↳ LANE-A', 'live', '142k', '34%', '61%', '$3.10', '2m', '–'),
     '',
     c.USAGE_FOOTNOTE,
@@ -3128,4 +3134,224 @@ test('the lead cue is built in lead-open only and handled at one dispatch line',
   assert.equal(handlers.length, 1)
   assert.match(handlers[0], /^lanes\.ts: if \(cue\.verb === 'lead'\) return leadAccept\(/)
   assert.deepEqual(files.filter((f) => /leadAccept\(/.test(text(f)) && f !== 'lead-accept.ts'), ['lanes.ts'])
+})
+
+// ---- lead records (ADR 0007) ----
+const LO_REPO = '/Users/x/code/app'
+const LO_COND = '5a1b2c3d-0000-4000-8000-123456789abc'
+const LO_COND2 = '6a1b2c3d-0000-4000-8000-123456789abc'
+const LO_LEAD = '0a1b2c3d-0000-4000-8000-123456789abc'
+const LO_LEAD2 = '1a1b2c3d-0000-4000-8000-123456789abc'
+const LO_NONCE = 'ab'.repeat(16)
+const LO_MADE: c.LeadRec = { name: 'APP-LEAD', createdAt: 1700000000000, how: 'made', conductorSid: LO_COND, conductorName: 'COND', nonce: LO_NONCE, sid: LO_LEAD, parked: 1700000100000 }
+const LO_JOINED: c.LeadRec = { name: 'SECOND', createdAt: 2, how: 'joined', conductorSid: LO_COND2 }
+const LO_FILE = (leads: unknown[], repo: unknown = LO_REPO, extra: Record<string, unknown> = {}) => JSON.stringify({ repo, leads, ...extra })
+
+test('parseLeadStore reads a clean store whole and keeps each optional field only when it is there', () => {
+  assert.deepEqual(c.parseLeadStore(LO_FILE([LO_MADE, LO_JOINED])), { ok: true, store: { repo: LO_REPO, leads: [LO_MADE, LO_JOINED] } })
+  assert.deepEqual(c.parseLeadStore(LO_FILE([])), { ok: true, store: { repo: LO_REPO, leads: [] } })
+  // The lead's session id without a parked time, and a made record whose nonce is not kept.
+  assert.equal(c.parseLeadStore(LO_FILE([{ ...LO_JOINED, sid: LO_LEAD2 }, { name: 'M', createdAt: 1, how: 'made', conductorSid: LO_COND }])).ok, true)
+})
+
+test('parseLeadStore refuses a store all or nothing, each bad field with its reason', () => {
+  const no = (text: string) => {
+    const r = c.parseLeadStore(text)
+    return r.ok ? 'ok' : r.reason
+  }
+  const one = (over: Record<string, unknown>) => no(LO_FILE([LO_JOINED, { ...LO_MADE, ...over }]))
+  assert.equal(no('{'), 'store-json')
+  assert.equal(no('null'), 'store-shape')
+  assert.equal(no('[]'), 'store-shape')
+  assert.equal(no(LO_FILE([], 'code/app')), 'store-repo')
+  assert.equal(no(LO_FILE([], '/Users/x/../app')), 'store-repo')
+  assert.equal(no(LO_FILE([], 7)), 'store-repo')
+  assert.equal(no(JSON.stringify({ repo: LO_REPO })), 'store-shape')
+  assert.equal(no(JSON.stringify({ repo: LO_REPO, leads: {} })), 'store-shape')
+  assert.equal(no(LO_FILE([], LO_REPO, { creates: [] })), 'store-shape', 'an unknown key of the file')
+  assert.equal(no(LO_FILE([null])), 'store-shape')
+  assert.equal(one({ lane: 'X' }), 'store-shape', 'an unknown key of a record')
+  for (const name of ['', 'a b', 'x'.repeat(41), 7, 'MANAGER', 'MANAG3R']) assert.equal(one({ name }), 'store-name', String(name))
+  assert.equal(one({ createdAt: 'now' }), 'store-shape')
+  for (const how of ['moved', 'migrated', undefined, 1]) assert.equal(one({ how }), 'store-owner', String(how))
+  for (const conductorSid of [undefined, 'COND', LO_COND.toUpperCase(), LO_COND.slice(1)]) assert.equal(one({ conductorSid }), 'store-owner', String(conductorSid))
+  for (const conductorName of ['', 'a b', 7]) assert.equal(one({ conductorName }), 'store-owner', String(conductorName))
+  for (const nonce of ['ab', LO_NONCE.toUpperCase(), `${LO_NONCE}0`, 7]) assert.equal(one({ nonce }), 'store-owner', String(nonce))
+  assert.equal(one({ how: 'joined' }), 'store-owner', 'a nonce only with made')
+  assert.equal(one({ sid: 'LEAD' }), 'store-shape')
+  assert.equal(one({ sid: undefined }), 'store-shape', 'parked only with a session id')
+  assert.equal(one({ parked: 'yes' }), 'store-shape')
+  assert.equal(one({ name: 'second', sid: LO_LEAD2 }), 'store-dup', 'names differ only by case')
+  assert.equal(no(LO_FILE([{ ...LO_JOINED, sid: LO_LEAD }, LO_MADE])), 'store-dup', 'two records of one lead session')
+  const many = (n: number) => Array.from({ length: n }, (_, i) => ({ ...LO_JOINED, name: `L${i}` }))
+  assert.equal(no(LO_FILE(many(c.LEAD_STORE_MAX))), 'ok')
+  assert.equal(no(LO_FILE(many(c.LEAD_STORE_MAX + 1))), 'store-shape')
+  assert.equal(no(`${LO_FILE([LO_JOINED])}${' '.repeat(c.STORE_MAX_BYTES)}`), 'store-size')
+})
+
+test('storeLeadJson and leadStoreText write a record in one key order, round trip through the parser, and refuse a file every reader would', () => {
+  assert.deepEqual(Object.keys(c.storeLeadJson({ parked: 5, sid: LO_LEAD, nonce: LO_NONCE, conductorName: 'COND', conductorSid: LO_COND, how: 'made', createdAt: 1, name: 'A' })), ['name', 'createdAt', 'how', 'conductorSid', 'conductorName', 'nonce', 'sid', 'parked'])
+  assert.deepEqual(Object.keys(c.storeLeadJson(LO_JOINED)), ['name', 'createdAt', 'how', 'conductorSid'])
+  assert.deepEqual(Object.keys(c.storeLeadJson({ ...LO_JOINED, extra: 1 } as c.LeadRec)), ['name', 'createdAt', 'how', 'conductorSid'], 'a field the record type lacks is not written')
+  const t = c.leadStoreText(LO_REPO, [LO_MADE, LO_JOINED])
+  assert.ok('text' in t)
+  assert.equal(t.text, LO_FILE([LO_MADE, LO_JOINED]))
+  assert.deepEqual(c.parseLeadStore(t.text), { ok: true, store: { repo: LO_REPO, leads: [LO_MADE, LO_JOINED] } })
+  assert.deepEqual(c.leadStoreText(`/${'r'.repeat(400)}`, Array.from({ length: 200 }, (_, i) => ({ ...LO_MADE, name: `L${i}` }))), { no: 'store-size' })
+})
+
+test('leadRecordText covers the repo, how, the conductor session and the nonce, and nothing that changes without changing the owner', () => {
+  const base = c.leadRecordText(LO_REPO, LO_MADE)
+  for (const same of [{ name: 'RENAMED' }, { sid: LO_LEAD2 }, { sid: undefined, parked: undefined }, { parked: 9 }, { conductorName: 'OTHER' }, { conductorName: undefined }, { createdAt: 5 }]) assert.equal(c.leadRecordText(LO_REPO, { ...LO_MADE, ...same }), base, JSON.stringify(same))
+  for (const moved of [{ conductorSid: LO_COND2 }, { how: 'joined' as const }, { nonce: 'cd'.repeat(16) }, { nonce: undefined }]) assert.notEqual(c.leadRecordText(LO_REPO, { ...LO_MADE, ...moved }), base, JSON.stringify(moved))
+  assert.notEqual(c.leadRecordText('/Users/x/code/app2', LO_MADE), base)
+  assert.ok(base.startsWith('lead-record\n'))
+  // Not a lane record's text: the first line sets it apart.
+  assert.notEqual(base.split('\n')[0], c.recordText({ name: 'lead-record', folder: LO_REPO, brief: `${LO_REPO}/B.md` }).split('\n')[1])
+})
+
+test('parseOwnerBinding takes only a clean repo, a 64-hex hash, a session id and a time', () => {
+  const good = { repo: LO_REPO, rec: 'f'.repeat(64), conductorSid: LO_COND, at: 5 }
+  assert.deepEqual(c.parseOwnerBinding({ ...good, name: 'X' }), good)
+  for (const bad of [undefined, null, 'x', [good], { ...good, repo: 'app' }, { ...good, repo: '/a/../b' }, { ...good, rec: 'f'.repeat(63) }, { ...good, rec: 'F'.repeat(64) }, { ...good, conductorSid: 'COND' }, { ...good, at: 'now' }, { ...good, at: undefined }]) assert.equal(c.parseOwnerBinding(bad), undefined, JSON.stringify(bad))
+  assert.equal(c.OWNER_PREFIX, 'owner:')
+  assert.equal(c.LEAD_RECORDS_DIR, 'lead-records')
+})
+
+test('ownerOf finds a lead record by name, by session, or as the only record for a lane that names no lead', () => {
+  const app = { key: 'a'.repeat(64), store: { repo: LO_REPO, leads: [LO_MADE, LO_JOINED] } }
+  const one = { key: 'b'.repeat(64), store: { repo: '/Users/x/code/app2', leads: [LO_JOINED] } }
+  const none = { key: 'c'.repeat(64), store: { repo: '/Users/x/code/cond', leads: [] } }
+  const all = [app, one, none]
+  assert.deepEqual(c.ownerOf(all, LO_REPO, 'APP-LEAD'), { key: app.key, repo: LO_REPO, rec: LO_MADE })
+  assert.deepEqual(c.ownerOf(all, `${LO_REPO}/api/deep`, 'SECOND'), { key: app.key, repo: LO_REPO, rec: LO_JOINED }, 'a lane in a subfolder')
+  assert.equal(c.ownerOf(all, LO_REPO, 'NOBODY'), undefined)
+  assert.equal(c.ownerOf(all, LO_REPO, 'app-lead'), undefined, 'the name as the registry writes it')
+  assert.equal(c.ownerOf(all, '/Users/x/code/app2', 'APP-LEAD'), undefined, "a name in another repo's store")
+  assert.equal(c.ownerOf(all, '/Users/x/code/application', 'APP-LEAD'), undefined, 'a folder that only starts like the repo')
+  assert.equal(c.ownerOf(all, '/Users/x/code', 'APP-LEAD'), undefined, 'a folder above the repo')
+  // A lane that names no lead follows its repo's only record.
+  assert.deepEqual(c.ownerOf(all, '/Users/x/code/app2/svc', undefined), { key: one.key, repo: '/Users/x/code/app2', rec: LO_JOINED })
+  assert.equal(c.ownerOf(all, LO_REPO, undefined), undefined, 'two records')
+  assert.equal(c.ownerOf(all, '/Users/x/code/cond', undefined), undefined, 'no record')
+  assert.equal(c.ownerOf([], LO_REPO, undefined), undefined)
+  // A lead that is known but has no name never gets the only record.
+  assert.equal(c.ownerOf(all, '/Users/x/code/app2', ''), undefined)
+  // By session: whatever the record is called, and nothing else is tried.
+  assert.deepEqual(c.ownerOf(all, LO_REPO, 'SOME-NEW-NAME', LO_LEAD), { key: app.key, repo: LO_REPO, rec: LO_MADE })
+  assert.deepEqual(c.ownerOf(all, LO_REPO, undefined, LO_LEAD), { key: app.key, repo: LO_REPO, rec: LO_MADE })
+  assert.equal(c.ownerOf(all, LO_REPO, 'SECOND', LO_LEAD2), undefined, 'no record of that session, so the name is not tried')
+  assert.equal(c.ownerOf(all, '/Users/x/code/app2', undefined, LO_LEAD), undefined, "a session of another repo's record")
+})
+
+test('ownerOf with nested repos: a named lead is found from the deepest store outward, a lane that names no lead only in the deepest', () => {
+  const inner: c.LeadRec = { ...LO_JOINED, name: 'INNER', sid: LO_LEAD2 }
+  const outer = { key: 'a'.repeat(64), store: { repo: LO_REPO, leads: [LO_MADE] } }
+  const nested = { key: 'b'.repeat(64), store: { repo: `${LO_REPO}/vendor/lib`, leads: [inner] } }
+  for (const stores of [[outer, nested], [nested, outer]]) {
+    assert.deepEqual(c.ownerOf(stores, `${LO_REPO}/vendor/lib/src`, 'INNER'), { key: nested.key, repo: nested.store.repo, rec: inner })
+    assert.deepEqual(c.ownerOf(stores, `${LO_REPO}/vendor/lib/src`, 'APP-LEAD'), { key: outer.key, repo: LO_REPO, rec: LO_MADE }, "an outer lead's lane working inside the nested repo")
+    assert.deepEqual(c.ownerOf(stores, `${LO_REPO}/vendor/lib`, undefined), { key: nested.key, repo: nested.store.repo, rec: inner }, 'the deeper store wins')
+    assert.deepEqual(c.ownerOf(stores, `${LO_REPO}/api`, undefined), { key: outer.key, repo: LO_REPO, rec: LO_MADE })
+    assert.deepEqual(c.ownerOf(stores, `${LO_REPO}/vendor/lib`, undefined, LO_LEAD), { key: outer.key, repo: LO_REPO, rec: LO_MADE }, 'by session, in any store that holds the folder')
+  }
+  const two = { key: 'b'.repeat(64), store: { repo: `${LO_REPO}/vendor/lib`, leads: [inner, { ...LO_JOINED, name: 'INNER2' }] } }
+  assert.equal(c.ownerOf([outer, two], `${LO_REPO}/vendor/lib`, undefined), undefined, 'the deepest store has two records: the outer one is not a fallback')
+})
+
+const LO_CANDS = [
+  { sid: '2a1b2c3d-0000-4000-8000-123456789abc', name: 'ZED', home: '/Users/x/code/zed' },
+  { sid: '3a1b2c3d-0000-4000-8000-123456789abc', name: 'ABE', home: '/Users/x/code/abe' },
+]
+const LO_PLAN = { leadName: 'APP-LEAD', want: undefined, pick: undefined, cands: LO_CANDS, owned: false, nameClash: false, recordCount: 0 }
+
+test('joinPlan refuses in order, an owned lead first, and keeps only candidates with a name no other candidate carries', () => {
+  assert.deepEqual(c.joinPlan({ ...LO_PLAN, owned: true, leadName: undefined, nameClash: true, cands: [] }), { no: 'already-owned' })
+  assert.deepEqual(c.joinPlan({ ...LO_PLAN, leadName: undefined, nameClash: true }), { no: 'lead-needs-name' })
+  assert.deepEqual(c.joinPlan({ ...LO_PLAN, nameClash: true, cands: [] }), { no: 'name-in-use' })
+  assert.deepEqual(c.joinPlan({ ...LO_PLAN, cands: [] }), { no: 'no-conductor' })
+  assert.deepEqual(c.joinPlan({ ...LO_PLAN, cands: [{ sid: LO_COND, home: '/Users/x/code/c' }, { sid: LO_COND2, name: 'MANAGER', home: '/Users/x/code/c' }] }), { no: 'no-conductor' }, 'no usable name, or a reserved one')
+  assert.deepEqual(c.joinPlan({ ...LO_PLAN, cands: [{ ...LO_CANDS[0], name: 'Abe' }, LO_CANDS[1]] }), { no: 'no-conductor' }, 'two of one name in any letter case are both dropped')
+  assert.deepEqual(c.joinPlan({ ...LO_PLAN, want: 'nobody' }), { no: 'conductor-unknown' })
+  assert.deepEqual(c.joinPlan({ ...LO_PLAN, recordCount: c.LEAD_STORE_MAX }), { no: 'lead-record-cap' })
+  assert.deepEqual(c.joinPlan({ ...LO_PLAN, pick: LO_COND }), { no: 'changed' })
+})
+
+test('joinPlan offers one candidate as the target, several sorted by name as choices, and lets a pick win over the argument', () => {
+  assert.deepEqual(c.joinPlan({ ...LO_PLAN, cands: [LO_CANDS[0]] }), { cand: LO_CANDS[0] })
+  assert.deepEqual(c.joinPlan(LO_PLAN), { choices: [LO_CANDS[1], LO_CANDS[0]] })
+  assert.deepEqual(c.joinPlan({ ...LO_PLAN, want: 'zed' }), { cand: LO_CANDS[0] })
+  assert.deepEqual(c.joinPlan({ ...LO_PLAN, want: 'ZED', pick: LO_CANDS[1].sid }), { cand: LO_CANDS[1] })
+})
+
+test('the join texts: a label names the conductor, its folder as ~ and its short id; the question says a lead is assigned once', () => {
+  assert.equal(c.joinLabel(LO_CANDS[1], '/Users/x'), 'ABE · ~/code/abe · 3a1b2c3d')
+  const q = c.joinQuestion('APP-LEAD', '/Users/x/code/app', LO_CANDS[1], '/Users/x')
+  assert.match(q, /Make conductor ABE \(~\/code\/abe, 3a1b2c3d\) the conductor of lead APP-LEAD in app\?/)
+  assert.match(q, /assigned once/)
+  assert.ok(c.HEADER.join.length <= 12)
+  assert.equal(c.ownerStatus(undefined), 'none: /callboard lead join')
+  assert.equal(c.ownerStatus({ name: 'COND', sid: LO_COND, gone: false }), `COND (${LO_COND.slice(0, 8)})`)
+  assert.equal(c.ownerStatus({ sid: LO_COND, gone: true }), 'a conductor (gone)')
+  assert.match(c.joinRefusalText('already-owned'), /^Conductor not changed: this lead already has a conductor/)
+  assert.equal(c.joinRefusalText('join-origin'), c.REASON_TEXT['join-origin'])
+  for (const code of ['join-origin', 'not-lead', 'no-conductor', 'conductor-unknown', 'already-owned', 'lead-record-cap', 'no-owner', 'owner-unset', 'owner-model-unset', 'store-owner']) assert.ok(c.REASON_TEXT[code].length > 10, code)
+})
+
+test('pickOptions: without an extra it is the lead picker; with one it keeps up to 3 labels and the extra, then pages of 2 with More… and the extra on every page', () => {
+  const l = (n: number) => Array.from({ length: n }, (_, i) => `L${i}`)
+  assert.deepEqual(c.pickOptions(l(5), 0), c.leadPickOptions(l(5), 0))
+  assert.deepEqual(c.pickOptions(l(1), 0, c.JOIN_NONE), ['L0', c.JOIN_NONE])
+  assert.deepEqual(c.pickOptions(l(3), 0, c.JOIN_NONE), ['L0', 'L1', 'L2', c.JOIN_NONE])
+  assert.deepEqual(c.pickOptions(l(5), 0, c.JOIN_NONE), ['L0', 'L1', c.LEAD_MORE, c.JOIN_NONE])
+  assert.deepEqual(c.pickOptions(l(5), 2, c.JOIN_NONE), ['L4', c.LEAD_MORE, c.JOIN_NONE])
+  assert.deepEqual(c.pickOptions(l(5), 3, c.JOIN_NONE), ['L0', 'L1', c.LEAD_MORE, c.JOIN_NONE], 'the last page wraps to the first')
+  for (const n of [1, 3, 4, 5, 9]) for (let p = 0; p < 6; p++) assert.ok(c.pickOptions(l(n), p, c.JOIN_NONE).length <= 4)
+})
+
+test('parseCommandArgs: lead join [CONDUCTOR] and lead leave are commands; any other word after lead is not', () => {
+  assert.deepEqual(c.parseCommandArgs('lead join'), { leadJoin: undefined })
+  assert.deepEqual(c.parseCommandArgs('lead join COND-1'), { leadJoin: 'COND-1' })
+  assert.equal(c.parseCommandArgs('lead leave'), 'lead-leave')
+  assert.equal(c.parseCommandArgs('lead'), 'lead')
+  for (const bad of ['lead joinX', 'lead join a b', 'lead on', 'lead off', 'lead leave now', 'lead join bad name', 'lead join ' + 'a'.repeat(41)]) assert.equal(c.parseCommandArgs(bad), undefined, bad)
+})
+
+test('the accept answer rides an owner note: owner-unset and owner-model-unset round trip for a lead, no other verb carries one, and leadOkNote picks the code', () => {
+  for (const note of [c.LEAD_OWNER_UNSET, c.LEAD_BOTH_UNSET, c.LEAD_MODEL_UNSET]) {
+    assert.deepEqual(c.parseResult(c.resultLine('lead', 'ok', note, 7), 'lead', 7), { outcome: 'ok', reason: note }, note)
+    assert.equal(c.resultLine('start', 'ok', note, 7), 'start ok - 7\n', 'only a lead answer holds a note')
+  }
+  assert.equal(c.LEAD_BOTH_UNSET.length <= 24, true)
+  assert.equal(c.leadOkNote(false, false), '-')
+  assert.equal(c.leadOkNote(true, false), c.LEAD_MODEL_UNSET)
+  assert.equal(c.leadOkNote(false, true), c.LEAD_OWNER_UNSET)
+  assert.equal(c.leadOkNote(true, true), c.LEAD_BOTH_UNSET)
+  assert.match(c.leadOpenedText('APP-LEAD', LO_LEAD, false, true), /conductor could not be recorded: ask the person to type \/callboard lead join/)
+  assert.doesNotMatch(c.leadOpenedText('APP-LEAD', LO_LEAD, false), /conductor/)
+})
+
+test("the manager's table groups leads by the conductor their bound record names; gone owners, no reach, no record, unbound and record-only leads each have their place", () => {
+  const live = { sid: LO_COND, name: 'COND', repos: [LO_REPO] }
+  const rec = (name: string, extra: Partial<c.LeadRec> = {}, conductorSid = LO_COND): c.RecordView['rec'] => ({ name, createdAt: 1, how: 'joined', conductorSid, ...extra })
+  const lanes = [{ name: 'LANE-A', folder: LO_REPO, brief: `${LO_REPO}/B.md`, repo: LO_REPO, leadName: 'APP-LEAD' }]
+  const rows = (view: Parameters<typeof c.laneListText>[3]) => c.laneListText(lanes, [], 0, { level: 'manager', name: 'M', ...view }).split('\n').slice(4).map((l) => l.split('|').slice(1, 3).map((x) => x.trim()).join('|'))
+  const bound = [{ repo: LO_REPO, rec: rec('APP-LEAD'), bound: true }]
+  assert.deepEqual(rows({ conductors: [live], records: bound }), ['COND|**app · APP-LEAD (not live)**', '|↳ LANE-A'])
+  assert.deepEqual(rows({ conductors: [{ ...live, repos: [] }], records: bound }), ['COND|**app · APP-LEAD (not live)** (no reach)', '|↳ LANE-A'])
+  assert.deepEqual(rows({ conductors: [live], records: [{ repo: LO_REPO, rec: rec('APP-LEAD', {}, LO_COND2), bound: true }] }), ['COND|–', 'a conductor (gone)|**app · APP-LEAD (not live)**', '|↳ LANE-A'])
+  assert.deepEqual(rows({ conductors: [live], records: [{ repo: LO_REPO, rec: rec('APP-LEAD', { conductorName: 'OLD' }, LO_COND2), bound: true }] }).slice(1, 2), ['OLD (gone)|**app · APP-LEAD (not live)**'])
+  assert.deepEqual(rows({ conductors: [live], records: [{ ...bound[0], bound: false }] }), ['COND|–', 'No conductor|**app · APP-LEAD (not live)**', '|↳ LANE-A'], 'an unbound record is no owner')
+  assert.deepEqual(rows({ conductors: [live], records: [] }), ['COND|–', 'No conductor|**app · APP-LEAD (not live)**', '|↳ LANE-A'], 'a lead with no record')
+  // A lane naming no lead follows the repo's only record; with two records it has no owner. A record with no live session and no lanes is drawn alone.
+  const legacy = [{ name: 'LANE-B', folder: LO_REPO, brief: `${LO_REPO}/B.md`, repo: LO_REPO }]
+  const two = [{ repo: LO_REPO, rec: rec('ONE'), bound: true }, { repo: LO_REPO, rec: rec('TWO', { parked: 5 }), bound: true }]
+  const text = (ls: typeof legacy, rs: c.RecordView[]) => c.laneListText(ls, [], 0, { level: 'manager', name: 'M', conductors: [live], records: rs }).split('\n').slice(4)
+  assert.ok(text(legacy, [two[0]]).some((l) => l.startsWith('| COND | **app · Any lead**')), 'the only record owns the legacy lane')
+  assert.ok(text(legacy, two).some((l) => l.startsWith('| No conductor | **app · Any lead**')), 'two records: no owner for it')
+  assert.ok(text([], [two[0]]).some((l) => l.startsWith('| COND | **app · ONE** | no session')))
+  assert.ok(text([], [two[1]]).some((l) => l.includes('**app · TWO**') && l.includes('| parked |')))
+  assert.equal(c.laneListText([], [], 0, { level: 'manager', name: 'M', conductors: [live], records: [] }), '| Lanes |\n|---|\n| no lanes in this repo |')
+  assert.ok(!c.laneListText(lanes, [], 0, { level: 'manager', name: 'M', conductors: 'error', records: bound }).includes('Conductor'))
+  assert.ok(!c.laneListText(lanes, [], 0, { level: 'lead', name: 'APP-LEAD', records: bound }).includes('Conductor'), "a lead's own view draws no boxes")
 })

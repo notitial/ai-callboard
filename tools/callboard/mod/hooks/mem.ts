@@ -54,7 +54,7 @@ export const storeLocks = new Map<string, Promise<void>>()
 
 // A release that could not be confirmed (twice) is owed: the tick tries again, up to 30 times, and stops when the folder is gone or names another holder.
 // Nothing here lets a lock that names our own pid be removed by another take of the lock.
-export const unlockOwed = new Map<string, { key: string; nonce: string; tries: number }>()
+export const unlockOwed = new Map<string, { key: string; nonce: string; tries: number; dir: string }>()
 
 // Rows ps -p confirmed gone, as pid and start time: that process has ended for good, so a later read need not ask again. A pid reused later has another start
 // time, so its row is stale anyway. Cleared whole when full, and at session start.
@@ -291,3 +291,10 @@ export const offerSweptAt = new Map<string, number>()
 // conductorGrantCheck: when a conductor last read the ledger for grants in its name, and the grants (by nonce) it has already told the person about.
 export const grantCheckedAt = new Map<string, number>()
 export const grantTold = new Map<string, Set<string>>()
+
+// ---- a lead's conductor (engine/lead-records.ts) ----
+// When a bound lead last looked at its own record, and the leads whose changed record is already logged (once, until it matches again or the lead leaves).
+export const ownerLooked = new Map<string, number>()
+export const ownerFlagged = new Set<string>()
+// A lead's rename whose new name is taken: the `old\ncur` pair the person was already told about, so the toast comes once per pair.
+export const renameRefused = new Map<string, string>()

@@ -193,6 +193,101 @@ export function storeText(s: Store): { text: string } | { no: 'store-size' } {
   return text.length > STORE_MAX_BYTES ? { no: 'store-size' } : { text }
 }
 
+// ---- lead records (ADR 0007): who a lead's conductor is ----
+// One file per repo beside the lane stores, in its own folder: ~/.claude/callboard/lead-records/<sha256 of the repo's real path>.json, read and written with the
+// lane store's file rules and parsed all or nothing. A record names its lead's conductor by session id.
+export const LEAD_RECORDS_DIR = 'lead-records'
+export const LEAD_STORE_MAX = 16
+// how: `made` for a lead a conductor opened (nonce: the offer's), `joined` for one the person assigned. conductorName is the conductor's name when the record was
+// written, for display only. sid is the lead's session id, written with the record; a record keeps none only when its lead was force stopped while lanes still
+// name it. parked: when the lead was parked (ms).
+export type LeadRec = { name: string; createdAt: number; how: 'made' | 'joined'; conductorSid: string; conductorName?: string; nonce?: string; sid?: string; parked?: number }
+export type LeadStore = { repo: string; leads: LeadRec[] }
+const LEAD_REC_KEYS = ['name', 'createdAt', 'how', 'conductorSid', 'conductorName', 'nonce', 'sid', 'parked']
+const HEX32_RE = /^[0-9a-f]{32}$/
+export function parseLeadStore(text: string): { ok: true; store: LeadStore } | { ok: false; reason: string } {
+  if (text.length > STORE_MAX_BYTES) return { ok: false, reason: 'store-size' }
+  let data: unknown
+  try {
+    data = JSON.parse(text)
+  } catch {
+    return { ok: false, reason: 'store-json' }
+  }
+  if (data === null || typeof data !== 'object' || Array.isArray(data)) return { ok: false, reason: 'store-shape' }
+  const { repo, leads } = data as Record<string, unknown>
+  if (typeof repo !== 'string' || repo.length < 2 || !isCleanAbs(repo)) return { ok: false, reason: 'store-repo' }
+  if (Object.keys(data).some((k) => k !== 'repo' && k !== 'leads')) return { ok: false, reason: 'store-shape' }
+  if (!Array.isArray(leads) || leads.length > LEAD_STORE_MAX) return { ok: false, reason: 'store-shape' }
+  const out: LeadRec[] = []
+  for (const l of leads) {
+    if (l === null || typeof l !== 'object' || Array.isArray(l) || Object.keys(l).some((k) => !LEAD_REC_KEYS.includes(k))) return { ok: false, reason: 'store-shape' }
+    const { name, createdAt, how, conductorSid, conductorName, nonce, sid, parked } = l as Record<string, unknown>
+    if (typeof name !== 'string' || !NAME_RE.test(name) || reservedHit(name, [])) return { ok: false, reason: 'store-name' }
+    if (!Number.isFinite(createdAt)) return { ok: false, reason: 'store-shape' }
+    if (how !== 'made' && how !== 'joined') return { ok: false, reason: 'store-owner' }
+    if (typeof conductorSid !== 'string' || !SID_RE.test(conductorSid)) return { ok: false, reason: 'store-owner' }
+    if (conductorName !== undefined && (typeof conductorName !== 'string' || !NAME_RE.test(conductorName))) return { ok: false, reason: 'store-owner' }
+    if (nonce !== undefined && (how !== 'made' || typeof nonce !== 'string' || !HEX32_RE.test(nonce))) return { ok: false, reason: 'store-owner' }
+    if (!sidFieldsOk(sid, parked)) return { ok: false, reason: 'store-shape' }
+    // One name space in any letter case, and one record per lead session: a record is found by either.
+    if (out.some((x) => x.name.toUpperCase() === name.toUpperCase() || (sid !== undefined && x.sid === sid))) return { ok: false, reason: 'store-dup' }
+    out.push({ name, createdAt: createdAt as number, how, conductorSid, ...(conductorName !== undefined ? { conductorName: conductorName as string } : {}), ...(nonce !== undefined ? { nonce: nonce as string } : {}), ...(sid !== undefined ? { sid: sid as string } : {}), ...(parked !== undefined ? { parked: parked as number } : {}) })
+  }
+  return { ok: true, store: { repo, leads: out } }
+}
+// The JSON a lead-record file keeps for a record: a fixed key order, an optional field only when present. Every writer uses it.
+export const storeLeadJson = (r: LeadRec) => ({ name: r.name, createdAt: r.createdAt, how: r.how, conductorSid: r.conductorSid, ...(r.conductorName !== undefined ? { conductorName: r.conductorName } : {}), ...(r.nonce !== undefined ? { nonce: r.nonce } : {}), ...(r.sid !== undefined ? { sid: r.sid } : {}), ...(r.parked !== undefined ? { parked: r.parked } : {}) })
+// A whole lead-record file as one writer writes it, or store-size when every reader would refuse it.
+export function leadStoreText(repo: string, leads: LeadRec[]): { text: string } | { no: 'store-size' } {
+  const text = JSON.stringify({ repo, leads: leads.map(storeLeadJson) })
+  return text.length > STORE_MAX_BYTES ? { no: 'store-size' } : { text }
+}
+// What a lead's binding hashes of its record: the repo, how it got its conductor, the conductor's session id and the nonce. Not the lead's name, its session id,
+// the parked time or the conductor's name, which change without changing who owns the lead: a rename or a park never makes a bound lead refuse its owner.
+// The first line keeps this text apart from every other text the mod hashes.
+export const leadRecordText = (repo: string, r: LeadRec): string => `lead-record\n${repo}\n${r.how}\n${r.conductorSid}\n${r.nonce ?? ''}`
+
+// The binding a lead keeps in $.store under `owner:<its session id>`: its record's repo and hash (of leadRecordText) and its conductor's session id, and no name.
+// Its record is the one in that repo's file whose sid is its own, under whatever name. at: when it was written (ms).
+export const OWNER_PREFIX = 'owner:'
+export type OwnerBinding = { repo: string; rec: string; conductorSid: string; at: number }
+export function parseOwnerBinding(raw: unknown): OwnerBinding | undefined {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return undefined
+  const { repo, rec, conductorSid, at } = raw as Record<string, unknown>
+  if (typeof repo !== 'string' || repo.length < 2 || !isCleanAbs(repo)) return undefined
+  if (typeof rec !== 'string' || !/^[0-9a-f]{64}$/.test(rec)) return undefined
+  if (typeof conductorSid !== 'string' || !SID_RE.test(conductorSid)) return undefined
+  if (!Number.isFinite(at)) return undefined
+  return { repo, rec, conductorSid, at: at as number }
+}
+
+// The lead record that answers for a folder (a session's folder, or a lane record's repo). The candidates are the stores whose repo is the folder or holds it.
+// - leadSid given: the record whose sid is that session, in any candidate, under whatever name (a lead's own lookups: its registry name may be ahead of its
+//   record's). Nothing else is tried.
+// - leadName a name: the candidates from the longest repo to the shortest, the first that holds a record of that name (a lane of an outer repo's lead working
+//   inside a nested repo is still found).
+// - leadName undefined (a lane that names no lead): the only record of the longest candidate, when it holds exactly one.
+// - leadName '': the lead is known but has no name. Never a record, so the rule above cannot pick another lead's.
+export type OwnerRec = { key: string; repo: string; rec: LeadRec }
+export function ownerOf(stores: { key: string; store: LeadStore }[], folder: string, leadName: string | undefined, leadSid?: string): OwnerRec | undefined {
+  const cands = stores.filter((s) => s.store.repo === folder || within(s.store.repo, folder)).sort((a, b) => b.store.repo.length - a.store.repo.length)
+  const hit = (s: { key: string; store: LeadStore }, rec: LeadRec): OwnerRec => ({ key: s.key, repo: s.store.repo, rec })
+  if (leadSid !== undefined) {
+    for (const s of cands) {
+      const rec = s.store.leads.find((l) => l.sid === leadSid)
+      if (rec) return hit(s, rec)
+    }
+    return undefined
+  }
+  if (leadName === '') return undefined
+  if (leadName === undefined) return cands.length > 0 && cands[0].store.leads.length === 1 ? hit(cands[0], cands[0].store.leads[0]) : undefined
+  for (const s of cands) {
+    const rec = s.store.leads.find((l) => l.name === leadName)
+    if (rec) return hit(s, rec)
+  }
+  return undefined
+}
+
 // What a lead's watch on its lane list hashes: the lanes that name this lead or no lead, without each lane's sid and parked, so a lane's own sid write, a park or
 // an unpark is not news to it (the lead reads those in lane_list). Another lead's lanes and the repo's create times are not its news, even when that lead is gone
 // (the check-in tells of such a lane). A store that does not parse is hashed as it is.
@@ -641,7 +736,8 @@ export const HINT_REFRESH_MS = 24 * HOUR_MS
 // `manager` with an optional NAME, one word; managerNameRefusal judges the name, so a bad one gets its own fixed refusal, not the usage line.
 // `conductor` and anything after it is the conductor command (parseConductorArgs); a form it does not know is its own usage text.
 // `reserve` and anything after it is this machine's reserved-names command (parseReserveArgs); a form it does not know is its own usage text.
-export type CommandArg = 'off' | 'status' | 'lead' | 'lanes' | 'lane-off' | { lane: string | undefined } | { config: ConfigOp } | { checkin: CheckinOp } | { manager: string | undefined } | { conductor: ConductorOp } | { reserve: ReserveOp }
+// `lead join` with an optional conductor NAME, and `lead leave`, change who the lead's conductor is; `lead` followed by any other word is unknown.
+export type CommandArg = 'off' | 'status' | 'lead' | 'lanes' | 'lane-off' | 'lead-leave' | { leadJoin: string | undefined } | { lane: string | undefined } | { config: ConfigOp } | { checkin: CheckinOp } | { manager: string | undefined } | { conductor: ConductorOp } | { reserve: ReserveOp }
 
 // The one table every /callboard print and lane_list uses: a bold header line, a blank line, a header row, a separator row, one row per row, then each note as its own
 // paragraph. A cell is written as given: the caller escapes what it did not write itself (mdEscape).
@@ -654,6 +750,8 @@ const HELP_ROWS: [string, string][] = [
   ['lanes', 'List the lanes in reach and their sessions.'],
   ['status', 'Show what callboard does in this session.'],
   ['lead', 'Make this session a lead, after you confirm.'],
+  ['lead join [CONDUCTOR]', 'Give this lead its conductor, after you confirm. A lead that has one is not moved.'],
+  ['lead leave', 'Take this lead away from its conductor.'],
   ['lane [NAME]', 'Make this session a lane, named NAME if given; lane off takes it out of its lane.'],
   ['escalation [off]', 'Let the lead tier answer the prompts its lanes raise, or stop that.'],
   ['conductor [add|remove NAME]', 'Make this session a conductor, or change the repos it reaches.'],
@@ -669,7 +767,7 @@ const HELP_ROWS: [string, string][] = [
 export const DIALOG_LINE = 'Never answered by an agent: a dialog of another kind (the plan-mode exit). Writes to the checkouts, the settings and callboard\'s state are stopped by a hook before any prompt exists, not here. Merges, force pushes, pushes to main, master or production and destructive deletes are not on it: the rubric passes them up.'
 export const helpText = (): string => mdPage('**Callboard commands**', ['Command', 'What it does'], HELP_ROWS.map((r) => r.map(mdEscape)))
 // A word the handler does not know: the short list, then the way to the full one.
-export const HELP_USAGE = 'Use /callboard help, lanes, status, lead, lane [NAME], escalation [off], manager or off. Run /callboard help for the full list.'
+export const HELP_USAGE = 'Use /callboard help, lanes, status, lead, lead join, lane [NAME], escalation [off], manager or off. Run /callboard help for the full list.'
 // /callboard lanes where there is no list to show: a lane is told who lists, any other session what it lacks.
 export const LANES_IS_LANE = 'This session is a lane: its lead lists the lanes.'
 export const LANES_NO_LEVEL = 'Lanes need a lead, conductor or manager here: run /callboard lead to make this session a lead.'
@@ -687,8 +785,11 @@ export function parseCommandArgs(args: unknown): CommandArg | undefined {
   if (a === 'checkin' || a.startsWith('checkin ')) return { checkin: parseCheckinArgs(a.slice(8)) }
   if (a === 'conductor' || a.startsWith('conductor ')) return { conductor: parseConductorArgs(a.slice(10)) }
   if (a === 'reserve' || a.startsWith('reserve ')) return { reserve: parseReserveArgs(a.slice(8)) }
+  if (a === 'lead leave') return 'lead-leave'
+  const lj = /^lead join(?: ([A-Za-z0-9_-]{1,40}))?$/.exec(a)
+  if (lj) return { leadJoin: lj[1] }
   if (a === 'lane off') return 'lane-off'
-  const m = /^lane(?: ([A-Za-z0-9_-]{1,40}))?$/.exec(a)
+  const m =/^lane(?: ([A-Za-z0-9_-]{1,40}))?$/.exec(a)
   return m ? { lane: m[1] } : undefined
 }
 
@@ -841,7 +942,7 @@ export const OFF_YES = 'Turn off'
 export const OFF_NO = 'Cancel'
 
 // The chip above each dialog (the engine allows 12 characters), so the person sees which feature is asking.
-export const HEADER = { enable: 'Callboard', lead: 'Enable Lead', restore: 'Restore Lane', stop: 'Stop Lane', attach: 'Join Lane', manager: 'Manager', conductor: 'Conductor' } as const
+export const HEADER = { enable: 'Callboard', lead: 'Enable Lead', restore: 'Restore Lane', stop: 'Stop Lane', attach: 'Join Lane', manager: 'Manager', conductor: 'Conductor', join: 'Lead Owner' } as const
 
 // Where a /callboard command came from, as fixed codes and words; never a plugin's own name or text.
 export type OriginCode = 'prompt' | 'phone' | 'plugin' | 'session' | 'other'
@@ -1229,6 +1330,8 @@ export const goneKey = (r: { pid: string; j: any }): string | undefined => {
 export const GONE_CACHE_MAX = 512
 // The longest a mod waits on one engine call held inside a lane or lead mark (a rename, a state write, tool registration) before it gives up.
 export const ENGINE_CALL_TIMEOUT_MS = 30_000
+// The accept's write of a lead's record and binding: the conductor waits for the answer, so it is given less than LEAD_CUE_WAIT_MS.
+export const OWNER_WRITE_TIMEOUT_MS = 5_000
 // The lane's /model step at start. The cue is claimed on a 2 s tick, then the start checks run, then this: together they must stay under the lead's
 // 20 s wait for the start answer (LANE_CUE_DEADLINE_MS). A /model that has not returned by then is model-failed.
 export const MODEL_TIMEOUT_MS = 2000
@@ -1462,6 +1565,16 @@ export const REASON_TEXT: Record<string, string> = {
   'off-meanwhile': 'callboard was turned off in the panel meanwhile.',
   'grant-failed': 'the panel could not be made a lead. It stays a named, plain panel.',
   'model-unset': 'the lead is on, but the model you asked for could not be set: it runs on the window\'s default.',
+  'owner-unset': 'the lead is on, but its conductor could not be recorded: ask the person to type /callboard lead join in it.',
+  'owner-model-unset': 'the lead is on, but its conductor could not be recorded and the model you asked for could not be set: ask the person to type /callboard lead join in it.',
+  'join-origin': 'Only you can change a lead\'s conductor: type /callboard lead join or /callboard lead leave yourself.',
+  'not-lead': 'this session is not a lead.',
+  'no-conductor': 'no live conductor with a name of its own lists this repo.',
+  'conductor-unknown': 'no live conductor of that name lists this repo.',
+  'already-owned': 'this lead already has a conductor. A lead is assigned once and is not moved.',
+  'lead-record-cap': `the repo already has ${LEAD_STORE_MAX} lead records.`,
+  'no-owner': 'this lead has no conductor.',
+  'store-owner': 'a lead record of this repo has a bad conductor field.',
   other: 'the session refused for a reason not shown here. Check it before sending another cue.',
 }
 // Whether a table has its own entry for a code (a code such as `constructor` is not one).
@@ -1495,8 +1608,8 @@ export const RETIRE_WAIT_MS = 10_000
 export const RETIRE_POLL_MS = 200
 const RESULT_RE = /^(rename|lead|start|resume|compact|retire|park|-) (ok|refused|held) ([a-z-]{1,24}) (\d{1,20})\n$/
 
-// An ok answer carries no reason, except a lead's, which may say its model was not set (the one note an ok answer holds).
-const okNote = (verb: Verb | '-', reason: string): string => (verb === 'lead' && reason === LEAD_MODEL_UNSET ? reason : '-')
+// An ok answer carries no reason, except a lead's, which may say its model was not set, its conductor was not recorded, or both (LEAD_OK_NOTES).
+const okNote = (verb: Verb | '-', reason: string): string => (verb === 'lead' && LEAD_OK_NOTES.includes(reason) ? reason : '-')
 export function resultLine(verb: Verb | '-', outcome: Outcome, reason: string, ino: number): string {
   const code = outcome === 'ok' ? okNote(verb, reason) : hasText(reason) ? reason : 'other'
   return `${verb} ${outcome} ${code} ${Number.isInteger(ino) && ino >= 0 ? ino : 0}\n`
@@ -1654,6 +1767,11 @@ export const LEAD_CUE_WAIT_MS = 35_000
 // A start turn that finds the box busy is dropped after this long, with a toast.
 export const LEAD_START_GIVE_UP_MS = 10 * 60_000
 export const LEAD_MODEL_UNSET = 'model-unset'
+// The lead is on, but its record or its binding could not be written, so it has no conductor (ADR 0007); the last one says the model was not set either.
+export const LEAD_OWNER_UNSET = 'owner-unset'
+export const LEAD_BOTH_UNSET = 'owner-model-unset'
+export const LEAD_OK_NOTES: readonly string[] = [LEAD_MODEL_UNSET, LEAD_OWNER_UNSET, LEAD_BOTH_UNSET]
+export const leadOkNote = (modelUnset: boolean, ownerUnset: boolean): string => (ownerUnset ? (modelUnset ? LEAD_BOTH_UNSET : LEAD_OWNER_UNSET) : modelUnset ? LEAD_MODEL_UNSET : '-')
 // Answers that say "try the same cue again": the panel's own row was not there yet, or a draft sits in its box, or it is not idle.
 export const LEAD_HELD_CODES: readonly string[] = ['registry-pending', 'registry-unreadable', 'draft-in-box', 'not-idle']
 const SKEW_MS = 5_000
@@ -1753,8 +1871,9 @@ export const leadUnaskedToast = (name: string, repo: string, conductorSid: strin
   `A lead grant for ${name} in ${folderName(repo)} names conductor ${conductorSid.slice(0, 8)}, but that session has no record of asking for it (it may have been asked before a reload). Check the ledger if you did not expect it.`
 export const leadNotStartedToast = (name: string, repo: string): string => `Lead ${name} is on in ${folderName(repo)} but has not started: type anything in its panel to begin.`
 // What lead_open tells the conductor's model when the panel took the offer (ADR 0006). The panel is a lead and its start turn is held until it is idle; the person was not asked.
-export const leadOpenedText = (name: string, sid: string, modelUnset: boolean): string =>
-  `lead ${name} is on as session ${sid.slice(0, 8)}: the person was not asked. Its brief is written and it is told to read it once its panel is idle; work with it by message.${modelUnset ? ' The model you asked for was not changed: it runs on the window\'s own model.' : ''} At most one lead per repo and one open an hour per repo.`
+// ownerUnset: the lead is on, but its record could not be written, so it has no conductor until the person assigns one.
+export const leadOpenedText = (name: string, sid: string, modelUnset: boolean, ownerUnset = false): string =>
+  `lead ${name} is on as session ${sid.slice(0, 8)}: the person was not asked. Its brief is written and it is told to read it once its panel is idle; work with it by message.${modelUnset ? ' The model you asked for was not changed: it runs on the window\'s own model.' : ''}${ownerUnset ? ` ${REASON_TEXT['owner-unset']}` : ''} At most one lead per repo and one open an hour per repo.`
 // The panel opened and the brief is written, but the lead cue was refused or never sent. The panel now carries the name.
 export const leadNotGrantedText = (name: string, sid: string, why: string): string =>
   `lead panel opened for ${name} as session ${sid.slice(0, 8)} and the panel now carries that name, but it did not become a lead: ${why} It is an ordinary panel: tell the person if it matters. Opens are limited to three tries an hour per repo.`
@@ -1809,6 +1928,86 @@ export const STOPPABLE_BY_NAME = (name: string): string => ` A lead can still st
 // Added to the off and lane off replies of a lane, only when its record may still name this session (the person approved the text, 2026-11-01).
 export const SID_KEPT = (name: string): string => ` It may become lane ${name} again after a restart. If it does, run /callboard off again.`
 export const DETACH_INCOMPLETE = 'Could not remove the lane record. Run /rename so the lead cannot reach this session by name.'
+
+// ---- a lead's conductor: /callboard lead join and leave (ADR 0007) ----
+// A Join only assigns: a lead that has a conductor is refused, whether that conductor is live or gone, and nothing moves a lead to another one.
+// A candidate is a live conductor that lists the lead's repo and carries a usable name no other candidate carries in any letter case.
+export type JoinCand = { sid: string; name: string; home: string }
+export type JoinPlan = { no: string } | { choices: JoinCand[] } | { cand: JoinCand }
+// leadName: the lead's usable registry name. want: the CONDUCTOR argument. pick: the session id picked in the picker (it wins over want; one that is no
+// longer a candidate is `changed`). owned: the lead has a binding, or a record names its session. nameClash: a lane record, or a lead record that does not
+// name this session, holds leadName. recordCount: the records in this repo's store.
+export function joinPlan(a: { leadName: string | undefined; want: string | undefined; pick: string | undefined; cands: { sid: string; name?: string; home: string }[]; owned: boolean; nameClash: boolean; recordCount: number }): JoinPlan {
+  if (a.owned) return { no: 'already-owned' }
+  if (a.leadName === undefined) return { no: 'lead-needs-name' }
+  if (a.nameClash) return { no: 'name-in-use' }
+  const named = a.cands.flatMap((x) => (typeof x.name === 'string' && NAME_RE.test(x.name) && !reservedHit(x.name) ? [{ sid: x.sid, name: x.name, home: x.home }] : []))
+  const cands = named.filter((x) => named.filter((y) => y.name.toLowerCase() === x.name.toLowerCase()).length === 1)
+  if (cands.length === 0) return { no: 'no-conductor' }
+  let cand: JoinCand | undefined
+  if (a.pick !== undefined) {
+    cand = cands.find((x) => x.sid === a.pick)
+    if (!cand) return { no: 'changed' }
+  } else if (a.want !== undefined) {
+    const want = a.want.toLowerCase()
+    cand = cands.find((x) => x.name.toLowerCase() === want)
+    if (!cand) return { no: 'conductor-unknown' }
+  }
+  if (a.recordCount >= LEAD_STORE_MAX) return { no: 'lead-record-cap' }
+  if (cand) return { cand }
+  return cands.length === 1 ? { cand: cands[0] } : { choices: [...cands].sort((x, y) => (x.name < y.name ? -1 : x.name > y.name ? 1 : 0)) }
+}
+// A candidate in the picker: its name, its home folder (home as ~) and its short session id, so two conductors are told apart.
+export const joinLabel = (x: JoinCand, home?: string): string => `${x.name} · ${homePath(x.home, home)} · ${x.sid.slice(0, 8)}`
+export const JOIN_PICK_QUESTION = 'Which conductor runs this lead?'
+export const JOIN_NONE = 'None for now'
+export const JOIN_YES = 'Join'
+export const JOIN_NO = 'Cancel'
+export const joinQuestion = (lead: string, repo: string, to: JoinCand, home?: string): string =>
+  `Make conductor ${to.name} (${homePath(to.home, home)}, ${to.sid.slice(0, 8)}) the conductor of lead ${lead} in ${folderName(repo)}?\nA lead is assigned once: it cannot be moved to another conductor later.`
+export const joinedText = (lead: string, to: JoinCand): string => `Lead ${lead} now has conductor ${to.name} (${to.sid.slice(0, 8)}).`
+export const joinedToast = (lead: string, to: JoinCand): string => `Lead ${lead} joined conductor ${to.name}`
+// recordKept: the lead's record could not be removed (a code); it routes nothing with the binding gone.
+export const BINDING_KEPT = 'binding-kept'
+// A record that names this session with no binding to it: a join is refused, a leave removes it.
+export const OWNER_LEFTOVER = 'a leftover record, no binding: /callboard lead leave'
+export const leftText = (recordKept?: string): string =>
+  recordKept === BINDING_KEPT
+    ? 'The conductor tie could not be removed from this session: it may still be bound. Run /callboard lead leave again.'
+    : `This lead has no conductor now. /callboard lead join assigns one.${recordKept === undefined ? '' : ` Its record could not be removed (${hasText(recordKept) ? recordKept : 'other'}): it names no session's binding and routes nothing. Run /callboard lead leave again to remove it.`}`
+// The reply of a lead grant the person made: the question after a Lead click is asked only after this text.
+export const LEAD_ON_TEXT = 'Lead is on from your next prompt.\nOnly a force stop asks you.'
+export const LEFT_TOAST = 'Lead left its conductor'
+export const OFF_OWNER_REMOVED = '\nIts conductor tie is removed.'
+export const offOwnerKept = (code: string): string => code === BINDING_KEPT ? '\nIts conductor tie could not be removed: run /callboard lead leave in this session again.' : `\nIts conductor tie is removed, but its lead record could not be (${hasText(code) ? code : 'other'}); it routes nothing.`
+export const JOIN_NOT_ASKED_NAME = '\nNo conductor yet: name this session with /rename, then type /callboard lead join.'
+export const JOIN_NOT_PICKED = '\nNo conductor yet: /callboard lead join assigns one.'
+export const OWNER_UNSET_TOAST = 'Lead on, but its conductor was not recorded: type /callboard lead join'
+export const renameTakenToast = (old: string, cur: string): string => `The lead's new name ${cur} is taken by a lane or another lead, so its record and lanes stay under ${old}. /rename it to a free name.`
+// The Conductor row of /callboard status in a lead. o undefined: no conductor. gone: its conductor's session is not live (or no longer reaches the repo).
+export const ownerStatus = (o: { name?: string; sid: string; gone: boolean } | 'record-changed' | 'store-unreadable' | undefined): string =>
+  o === undefined ? 'none: /callboard lead join' : o === 'record-changed' ? 'its record changed: /callboard lead leave, then lead join' : o === 'store-unreadable' ? 'the lead records cannot be read' : `${o.name ? mdEscape(o.name) : 'a conductor'} (${o.gone ? 'gone' : o.sid.slice(0, 8)})`
+// The words the person reads for a refused Join or leave: its own text where REASON_TEXT speaks of lanes.
+const JOIN_TEXT: Record<string, string> = {
+  'lead-needs-name': 'a lead needs a name of its own to have a conductor. /rename this session first.',
+  'name-in-use': 'a lane or another lead already has this lead\'s name. /rename this session first.',
+  'store-busy': 'another callboard process is writing this repo\'s lead records. Try again in a few seconds.',
+  'store-unreadable': 'the lead records cannot be read safely.',
+  'store-size': 'this repo\'s lead records are too big.',
+  'store-repo': 'this repo\'s lead records belong to another repo.',
+  'store-write': 'the lead record could not be saved.',
+  'binding-kept': 'the conductor tie could not be removed from this session. Run /callboard lead leave again.',
+}
+export const joinRefusalText = (code: string): string =>
+  code === 'join-origin' ? REASON_TEXT[code] : `Conductor not changed: ${hasCode(JOIN_TEXT, code) ? JOIN_TEXT[code] : hasText(code) ? REASON_TEXT[code] : code}`
+// A picker's options. $.ui.ask takes at most 4. Without extra: as leadPickOptions (a lone label gets Cancel; past 4, pages of 3 and More…). With extra (an
+// option on every page, such as JOIN_NONE): up to 3 labels and extra; past 3, pages of 2, More… and extra. The last page wraps to the first.
+export function pickOptions(labels: string[], page: number, extra?: string): string[] {
+  if (extra === undefined) return leadPickOptions(labels, page)
+  if (labels.length <= 3) return [...labels, extra]
+  const at = (page % Math.ceil(labels.length / 2)) * 2
+  return [...labels.slice(at, at + 2), LEAD_MORE, extra]
+}
 export const renameFailedToast = (name: string): string => `Rename failed. Run /rename ${name}.`
 export const RENAME_PENDING_MS = 60_000
 
@@ -2009,12 +2208,16 @@ export const USAGE_FOOTNOTE = "5h/7d are the account's limits: sessions on one a
 // live row went waiting on a prompt (its statusUpdatedAt; `?` when that is missing or ahead), `–` when it waits on nothing. One text for lane_list and /callboard lanes.
 // With no lanes and no live lead the text is a one-column table (`Lanes`) with one row saying there are none (`no lanes in this repo`, `no lanes in its repos` for a conductor).
 // The repo is named by its folder name only (folderName), as a path made the row long; a lane's own Folder column is relative.
-// A conductor's view has its own header. The manager's view, when a live conductor lists repos, gains a leading Conductor column (conductors
-// sorted by name, then the repos no conductor lists, with `–`; the name is on the first row of its block); a repo two conductors list goes under the first, its group row saying `(also NAME2)`. conductors
-// 'error': the conductors could not be read, so the table is drawn without that column and a note follows it.
+// A conductor's view has its own header. The manager's view, when a live conductor lists repos or a lead record exists, gains a leading Conductor column: a box for each live
+// conductor sorted by name (a dash row when it has none), a box `NAME (gone)` for each conductor a record names that is not live, then `No conductor`; the name is on the
+// first row of its block. A lead sits under the conductor its bound record names (`records`); a lead with no record or an unbound one is under `No conductor`, and a lead whose
+// conductor no longer lists its repo is marked `(no reach)`. conductors 'error': the conductors could not be read, so the table is drawn without that column and a note follows it.
 // A live lead in reach (its presence file passed every check; the registry gives its name), with the repo it leads. The manager's and a conductor's view draw
 // one for each lead that no lane group already names, so a lead with no lanes is seen. A lead's own view ignores them, and `self` (its own session) gives its group row its figures.
-export type ConductorView = { name?: string; repos: string[] }
+// sid: the conductor's session id, which a lead record names its conductor by.
+export type ConductorView = { name?: string; repos: string[]; sid?: string }
+// A lead record as a view draws it, with whether its lead is bound to it (boundTo in engine/lead-records.ts).
+export type RecordView = { repo: string; rec: LeadRec; bound: boolean }
 // state: the registry's word for the lead (display only; the registry is a filter, never proof). since: for waiting, when the registry last moved its status.
 export type LeadState = 'busy' | 'idle' | 'waiting' | 'unknown'
 export type LiveLead = { name: string; repo: string; sid?: string; state?: LeadState; since?: number }
@@ -2037,9 +2240,9 @@ export function aboveText(above: LayerAbove): string {
   ]
   return parts.length > 0 ? parts.join(' · ') : 'none'
 }
-export function laneListText(lanes: Lane[], entries: RegEntry[], now: number, view: { level?: 'lead' | 'manager' | 'conductor'; name?: string; self?: string; conductors?: ConductorView[] | 'error'; leads?: LiveLead[]; usage?: Map<string, UsageReading>; above?: LayerAbove } = {}): string {
+export function laneListText(lanes: Lane[], entries: RegEntry[], now: number, view: { level?: 'lead' | 'manager' | 'conductor'; name?: string; self?: string; conductors?: ConductorView[] | 'error'; leads?: LiveLead[]; usage?: Map<string, UsageReading>; above?: LayerAbove; records?: RecordView[] } = {}): string {
   const liveLeads = view.level === 'manager' || view.level === 'conductor' ? (view.leads ?? []) : []
-  if (lanes.length === 0 && liveLeads.length === 0) return mdTable(['Lanes'], [[view.level === 'conductor' ? 'no lanes in its repos' : 'no lanes in this repo']]).join('\n')
+  if (lanes.length === 0 && liveLeads.length === 0 && !(view.level === 'manager' && (view.records?.length ?? 0) > 0)) return mdTable(['Lanes'], [[view.level === 'conductor' ? 'no lanes in its repos' : 'no lanes in this repo']]).join('\n')
   const names = entries.flatMap((e) => (typeof e.name === 'string' ? [e.name] : []))
   const waiting = (l: Lane): string => {
     const one = laneSession(entries, l, '')
@@ -2059,7 +2262,7 @@ export function laneListText(lanes: Lane[], entries: RegEntry[], now: number, vi
   }
   const withFolder = lanes.some((l) => l.folder !== (l.repo ?? ''))
   // One group per repo and lead the lanes name (no lanes: a live lead that none names).
-  type Group = { repo: string; lead: string; lanes: Lane[]; sid?: string }
+  type Group = { repo: string; lead: string; lanes: Lane[]; sid?: string; recOnly?: true }
   const groups: Group[] = []
   for (const repo of new Set([...lanes.map((l) => l.repo ?? ''), ...liveLeads.map((x) => x.repo)])) {
     const here = lanes.filter((l) => (l.repo ?? '') === repo)
@@ -2070,9 +2273,43 @@ export function laneListText(lanes: Lane[], entries: RegEntry[], now: number, vi
   const conds = view.level === 'manager' && Array.isArray(view.conductors) && view.conductors.length > 0
     ? [...view.conductors].sort((a, b) => ((a.name ?? '') < (b.name ?? '') ? -1 : (a.name ?? '') > (b.name ?? '') ? 1 : 0))
     : []
-  const owner = new Map<string, number>()
-  conds.forEach((cd, i) => cd.repos.forEach((r) => (owner.has(r) ? undefined : owner.set(r, i))))
   const label = (cd: ConductorView) => (cd.name ? mdEscape(cd.name) : 'a conductor')
+  // The manager's boxes, by lead record (ADR 0007): a lead sits under the conductor its bound record names. A record whose lead is not bound to it, or no record at all,
+  // puts the lead under `No conductor`; a record whose conductor is not live gives a box `NAME (gone)`. A lane group follows its lead's record, and a lane that names no
+  // lead follows the repo's only record. A record no group names (no live session, no lanes) is drawn as a lead row of its own.
+  const recs = view.level === 'manager' && Array.isArray(view.conductors) ? (view.records ?? []) : []
+  const sameName = (a: string, b: string) => a.toLowerCase() === b.toLowerCase()
+  for (const r of recs) if (!groups.some((g) => g.repo === r.repo && sameName(g.lead, r.rec.name))) groups.push({ repo: r.repo, lead: r.rec.name, lanes: [], recOnly: true })
+  const recOf = (g: Group): RecordView | undefined => {
+    if (g.lead === '') {
+      const here = recs.filter((r) => r.repo === g.repo)
+      return here.length === 1 ? here[0] : undefined
+    }
+    return recs.find((r) => r.repo === g.repo && sameName(r.rec.name, g.lead))
+  }
+  const boxed = conds.length > 0 || recs.length > 0
+  type Box = { label: string; groups: { g: Group; mark: string }[] }
+  const live: Box[] = conds.map((cd) => ({ label: label(cd), groups: [] }))
+  const goneBox = new Map<string, Box>()
+  const none: Box = { label: 'No conductor', groups: [] }
+  if (boxed) {
+    for (const g of groups) {
+      const r = recOf(g)
+      const to = r?.bound ? r.rec.conductorSid : undefined
+      if (to === undefined) {
+        none.groups.push({ g, mark: '' })
+        continue
+      }
+      const i = conds.findIndex((cd) => cd.sid === to)
+      if (i >= 0) {
+        live[i].groups.push({ g, mark: conds[i].repos.includes(g.repo) ? '' : ' (no reach)' })
+        continue
+      }
+      const b = goneBox.get(to) ?? { label: `${r?.rec.conductorName ? mdEscape(r.rec.conductorName) : 'a conductor'} (gone)`, groups: [] }
+      goneBox.set(to, b)
+      b.groups.push({ g, mark: '' })
+    }
+  }
   // The figure cells of a live session; the footnote needs two readings with windows.
   let withWindows = 0
   const figures = (sid: string | undefined): string[] => {
@@ -2088,11 +2325,14 @@ export function laneListText(lanes: Lane[], entries: RegEntry[], now: number, vi
     return typeof x.since === 'number' && x.since <= now ? ` (waiting ${Math.floor((now - x.since) / 60_000)}m)` : ' (waiting)'
   }
   // The rows of one group, with `also`: the other conductors that list its repo. The lead's own session is the one its live-lead entry names, or this one in a lead's own view.
-  const groupRows = (g: Group, also: string): string[][] => {
-    const lead = g.lead === '' ? 'Any lead' : `${mdEscape(g.lead)}${g.lanes.length === 0 || names.includes(g.lead) ? '' : ' (not live)'}`
-    const leadLive = g.lead !== '' && (g.lanes.length === 0 || names.includes(g.lead))
+  const groupRows = (g: Group, mark: string): string[][] => {
+    const lead = g.lead === '' ? 'Any lead' : `${mdEscape(g.lead)}${g.recOnly || g.lanes.length === 0 || names.includes(g.lead) ? '' : ' (not live)'}`
+    const leadLive = g.lead !== '' && !g.recOnly && (g.lanes.length === 0 || names.includes(g.lead))
     const leadSid = g.sid ?? liveLeads.find((x) => x.repo === g.repo && x.name === g.lead)?.sid ?? (view.level === 'lead' && g.lead === view.name ? view.self : undefined)
-    const head = [`**${mdEscape(folderName(g.repo))}${also} · ${lead}**${leadStateText(g)}`, ...(withFolder ? [''] : []), leadLive ? 'lead' : '', ...(leadLive ? figures(leadSid) : NO_USAGE), '']
+    // A record with no live session and no lanes: its session cell says so (parked when its lead was parked).
+    const rec = g.recOnly ? recOf(g) : undefined
+    const session = leadLive ? 'lead' : rec ? (rec.rec.parked !== undefined ? 'parked' : 'no session') : ''
+    const head = [`**${mdEscape(folderName(g.repo))} · ${lead}**${mark}${leadStateText(g)}`, ...(withFolder ? [''] : []), session, ...(leadLive ? figures(leadSid) : NO_USAGE), '']
     return [
       head,
       ...g.lanes.map((l) => [
@@ -2106,17 +2346,18 @@ export function laneListText(lanes: Lane[], entries: RegEntry[], now: number, vi
   }
   const rows: string[][] = []
   const withCond = (rs: string[][], cond: string): string[][] => rs.map((r, i) => [i === 0 ? cond : '', ...r])
-  if (conds.length > 0) {
-    conds.forEach((cd, i) => {
-      const mine = groups.filter((g) => owner.get(g.repo) === i).flatMap((g) => groupRows(g, conds.some((o, j) => j !== i && o.repos.includes(g.repo)) ? ` (also ${conds.filter((o, j) => j !== i && o.repos.includes(g.repo)).map(label).join(', ')})` : ''))
-      rows.push(...withCond(mine.length === 0 ? [Array.from({ length: withFolder ? 9 : 8 }, () => '–')] : mine, label(cd)))
-    })
-    const rest = groups.filter((g) => !owner.has(g.repo)).flatMap((g) => groupRows(g, ''))
-    if (rest.length > 0) rows.push(...withCond(rest, '–'))
+  if (boxed) {
+    // Live conductors first (an empty one is a row of dashes), then the gone ones, then the leads with no conductor.
+    for (const b of live) {
+      const mine = b.groups.flatMap((x) => groupRows(x.g, x.mark))
+      rows.push(...withCond(mine.length === 0 ? [Array.from({ length: withFolder ? 9 : 8 }, () => '–')] : mine, b.label))
+    }
+    for (const b of [...goneBox.values()].sort((x, y) => (x.label < y.label ? -1 : x.label > y.label ? 1 : 0))) rows.push(...withCond(b.groups.flatMap((x) => groupRows(x.g, x.mark)), b.label))
+    if (none.groups.length > 0) rows.push(...withCond(none.groups.flatMap((x) => groupRows(x.g, x.mark)), none.label))
   } else {
     rows.push(...groups.flatMap((g) => groupRows(g, '')))
   }
-  const head = [...(conds.length > 0 ? ['Conductor'] : []), 'Lane', ...(withFolder ? ['Folder'] : []), 'Session', ...USAGE_HEAD, 'Waiting']
+  const head = [...(boxed ? ['Conductor'] : []), 'Lane', ...(withFolder ? ['Folder'] : []), 'Session', ...USAGE_HEAD, 'Waiting']
   const level = view.level === 'manager' ? 'Manager' : view.level === 'conductor' ? 'Conductor' : 'Lead'
   return mdPage(`**${level}${view.name ? ` ${mdEscape(view.name)}` : ''}** · live${view.above !== undefined && view.level !== 'manager' ? ` · ${aboveText(view.above)}` : ''}`, head, rows, [...(view.level === 'manager' && view.conductors === 'error' ? ['(conductors could not be read)'] : []), ...(withWindows >= 2 ? [USAGE_FOOTNOTE] : [])])
 }

@@ -20,6 +20,7 @@
 //   deny-unclear   a deny whose reason the cleaner-command rule found too vague to judge
 //   lead-offer hash, repo, lane, nonce, by   a conductor's lead_open wrote an offer (hash: the repo's sha-256); lead-offer-void hash, nonce, code   it ended with no grant
 //   lead-grant hash, repo, lane, nonce, by, target   the new panel (target) made itself a lead from that offer; written before the grant, so a failure after it is followed by a lead-offer-void of the nonce
+//   lead-owner code (made | joined | left | off), hash, repo, lane (the lead's name then, for reading only), target (the lead's session id), by (the conductor's session id; made, joined), was (the conductor it left; left, off), nonce (made)   a lead's conductor changed (ADR 0007); written before the record changes
 //   answered / returned rows of a question's answer carry code: "answer", opt (the chosen option's index, as a string) and lh (the first 16 hex of SHA-256(id + "\n" + label), the label redacted
 //              and trimmed); the labels themselves are in prompts/questions-YYYY-MM.jsonl, { t, id, lane, repo, tier, by, header, question, options, label, via? }
 //   answered / returned rows of the person's own answer carry via: "person", short and by = the relaying tier's session id (no prompt_answer call exists for them)
@@ -64,8 +65,8 @@ const QUESTION_DAYS = 90
 const LABEL_MAX = 256
 
 const ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
-const KINDS = new Set(['requested', 'answered', 'escalated', 'dropped', 'returned', 'superseded', 'expired-denied', 'off', 'abandoned', 'dialog', 'not-judgeable', 'no-tier', 'answering-on', 'answering-off', 'relayed', 'relay-lost', 'relay-left', 'relay-late', 'deny-unclear', 'lead-offer', 'lead-offer-void', 'lead-grant'])
-const FIELDS = ['code', 'id', 'lane', 'repo', 'tool', 'pattern', 'hash', 'tier', 'why', 'nonce', 'tuid', 'by', 'via', 'short', 'opt', 'lh']
+const KINDS = new Set(['requested', 'answered', 'escalated', 'dropped', 'returned', 'superseded', 'expired-denied', 'off', 'abandoned', 'dialog', 'not-judgeable', 'no-tier', 'answering-on', 'answering-off', 'relayed', 'relay-lost', 'relay-left', 'relay-late', 'deny-unclear', 'lead-offer', 'lead-offer-void', 'lead-grant', 'lead-owner'])
+const FIELDS = ['code', 'id', 'lane', 'repo', 'tool', 'pattern', 'hash', 'tier', 'why', 'nonce', 'tuid', 'by', 'via', 'short', 'opt', 'lh', 'target', 'was']
 const ENDS = new Set(['returned', 'superseded', 'expired-denied', 'off', 'abandoned'])
 // A `dropped` row with one of these codes is a decision the hook refused as forged or wrong: an anomaly. The others are ordinary.
 const DROP_ANOMALY = new Set(['no-answered-row', 'id', 'hash', 'nonce', 'by-sid', 'kind', 'answer'])
@@ -675,6 +676,23 @@ function ruleLeadGrants({ rows, flag, inRange }) {
   }
 }
 
+// h. lead owners (ADR 0007): a `made` lead-owner row needs a lead-grant row of the same repo hash, nonce, conductor (`by`) and lead (`target`); and a lead (`target`) of a repo (`hash`) is given
+// a conductor (a `made` or `joined` row) only when it has none: an earlier made or joined row with no `left` or `off` row of that lead and repo after it is an owner changed
+// without a leave, which assign-only forbids. A lead is told by its session id, never its name, so a rename (which writes no row) raises no flag.
+function ruleLeadOwners({ rows, flag, inRange }) {
+  const owners = rows.filter((r) => r.kind === 'lead-owner' && inRange(r.ms)).sort((a, b) => a.ms - b.ms)
+  for (const o of owners) {
+    if (o.code === 'made' && !rows.some((r) => r.kind === 'lead-grant' && r.nonce === o.nonce && r.hash === o.hash && r.by === o.by && r.target === o.target && r.ms <= o.ms)) flag('h', 'lead-owner-made-without-grant', `the lead-owner made row of ${o.lane ?? '?'} (${o.t}) has no earlier lead-grant row of the same repo, nonce, conductor and lead ${o.by ?? '?'}`, { t: o.t })
+  }
+  const all = rows.filter((r) => r.kind === 'lead-owner').sort((a, b) => a.ms - b.ms)
+  for (const o of owners) {
+    if (o.code !== 'made' && o.code !== 'joined') continue
+    const mine = all.filter((x) => x.hash === o.hash && x.target === o.target && x.ms < o.ms)
+    const last = mine.reverse().find((x) => x.code === 'made' || x.code === 'joined' || x.code === 'left' || x.code === 'off')
+    if (last && (last.code === 'made' || last.code === 'joined')) flag('h', 'lead-owner-twice', `lead ${o.lane ?? '?'} (${o.t}) was given a conductor again with no leave since ${last.t}`, { t: o.t })
+  }
+}
+
 // e. a request must be raised while answering is on: the latest answering-on or answering-off row at its time says on (not the first answering-on row ever written, which a later off outlives).
 // An answering-off with code asks only turned the questions off (an earlier mod wrote it); permission answering stayed on.
 // The hook reads the switch once at its start and writes the requested row after slower steps, so an off typed in between reads on, off, requested, and the waiting hook then
@@ -993,6 +1011,7 @@ export function audit({ root, projects, since, now = Date.now(), projectsExplici
 
   ruleDialog(ctx)
   ruleLeadGrants(ctx)
+  ruleLeadOwners(ctx)
   ruleAnsweringOn(ctx)
   const files = ruleStaleRequestFiles(ctx, rootReal, entries)
   ruleClosedWithoutRow(ctx, files)
