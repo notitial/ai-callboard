@@ -52,12 +52,20 @@ For waking a lead:
 
 - **The tool.** `lead_open { repo, name, task, model? }`, declared for the conductor level. The repo must be in
   the conductor's reach at the call: its approved list intersected with its list file, read then.
-- **Limits on the act.** No live lead in the repo already (whoever made it), and no open offer for it; at most
+- **Limits on the act.** No open offer for the repo; at most
   one open in flight per conductor; at most one successful open per repo per hour, counted from the ledger, so the
   hourly total is bounded by the size of the approved list (at most 16). The name is a valid lane-style name, not
   reserved, carried by no live session, no lane record and no open request on the machine. The repo is not the
   conductor's own. `/callboard config conductor-leads off`, the person's own command, makes the tool refuse and
   makes every new session refuse an offer.
+  *2026-11-15: the rule that the repo has no live lead already (whoever made it) is dropped, at the person's
+  choice. An open is no longer refused because the repo holds a live lead, another conductor's, one made by hand
+  or the conductor's own; the refusal often named a lead the conductor could not see (ADR 0007: a conductor sees
+  only its own leads) and gave it nothing to act on. `lead-exists` and `leads-unreadable` are gone, on the open
+  side and at the new panel's accept. Nothing replaces the cap: the hourly rate per repo, one successful open and
+  three offers, is the bound on a conductor that loops. The offer and claim stay per repo, so two opens of one repo
+  still take turns. A repo may hold several live leads; a lane or a cue is routed among them as with two leads
+  made by hand (ADR 0002, several leads in a repo).*
 - **Two files.** The conductor's mod writes the task to `<repo>/.archive/<NAME>/BRIEF.md` under a lead brief
   header, an **offer** in callboard's offer folder (one file per repo, created exclusively: name, repo, model, the
   conductor's session id, pid and process start time, a time and a single-use nonce), and a small **open
@@ -81,8 +89,8 @@ For waking a lead:
      it.
   4. The person's switch is on; the offer's conductor is a live session whose pid and start time match the
      process table, and one this session trusts for the repo by the same presence, saved-grant and list-file
-     checks a lead uses before taking a conductor's compact cue; no other live lead is in the repo, read with
-     every unreadable file counted as a failure.
+     checks a lead uses before taking a conductor's compact cue. (No check on the other leads of the repo: see the
+     2026-11-15 note under "Limits on the act".)
   5. A claim file only one session can create (the offer stays in place, so the repo stays taken), then the idle
      check, then the rename to NAME, and every check above again.
   6. The ledger row `lead-grant`, **written first: no row, no grant.** Then the grant through the shared lead
@@ -177,6 +185,7 @@ fires for a grant it offered before a restart, which is the safe side).
 - **Accepted residual: two opens at once.** The repo-keyed offer makes two conductors' opens for one repo
   exclusive, and the claim makes one offer serve one session. A lead the person makes by hand in the same seconds
   can still pass beside it, as two person-made leads can (ADR 0002, several leads in a repo).
+  *2026-11-15: a lead beside it is no longer a residual; a repo may hold any number of live leads.*
 - **Accepted residual: accounts.** The new lead runs on whatever account its window is signed in to, and spends
   that account's limits.
 - Nothing here changes the rubric, the person-only commands, or what a conductor may do to lanes; a

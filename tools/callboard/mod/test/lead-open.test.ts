@@ -3,7 +3,7 @@ import { REASON_TEXT } from '../hooks/core'
 import * as c from '../hooks/core'
 import { toasts, h, SID, pdirs, teeTexts, OFFERS_DIR, longTest, PROMPTS_DIR, ROOT, T0, extraStat, leadFiles, pfs } from './harness'
 import { ledgerRows } from './answer-fixtures'
-import { ticks, CSESS, LEADPS, OTHERLEAD, PIN, condOn, leadAt, regAs } from './fixtures'
+import { ticks, CSESS, LEADPS, LEADSID, OTHERLEAD, PIN, condOn, leadAt, leadFileText, leadReg, putLeadRecs, regAs } from './fixtures'
 
 const call = (over: Record<string, unknown> = {}) => ({ tool: 'mcp__callboard__lead_open', repo: PIN, name: 'LEAD-N', task: 'Do the work.', ...over }) as any
 const NEWSID = '12345678-aaaa-4bbb-8ccc-dddddddddddd'
@@ -124,15 +124,9 @@ longTest('lead_open refuses a name a lane or a live session carries, in any lett
   expect(await open($, `ok ${NEWSID}\n`)).toContain('is on as session')
 })
 
-longTest('lead_open refuses when the repo has a live lead (whoever made it), an offer or a claim is in place, or the hour is spent; each writes nothing', async ($, on) => {
+longTest('lead_open refuses when an offer or a claim is in place, or the hour is spent; each writes nothing', async ($, on) => {
   const argv: string[][] = []
-  await conductor($, on, argv, {
-    sess: { ...CSESS(), ...regAs(OTHERLEAD, 4243, 'LEAD-A') },
-    seed: () => leadFiles.set(`${ROOT}/leads/${OTHERLEAD}.json`, { text: JSON.stringify({ sid: OTHERLEAD, pid: 4243, procStart: LEADPS, repo: PIN }) }),
-  })
-  expect(await open($)).toContain(REASON_TEXT['lead-exists'])
-  wroteNothing(argv)
-  leadFiles.clear()
+  await conductor($, on, argv)
   pfs.set(`${OFFERS_DIR}/${KEY}.json`, { text: '{}', mtimeSec: T0 / 1000 })
   expect(await open($)).toContain(REASON_TEXT['offer-open'])
   pfs.delete(`${OFFERS_DIR}/${KEY}.json`)
@@ -144,6 +138,31 @@ longTest('lead_open refuses when the repo has a live lead (whoever made it), an 
   seedRows({ kind: 'lead-grant', t: iso(10 * 60_000) })
   expect(await open($)).toContain(REASON_TEXT['open-rate'])
   expect(mvs(argv, '.lead')).toEqual([])
+  expect(offers()).toEqual([])
+})
+
+// A live lead is no bar to an open: the conductor's own, one another conductor owns and one made by hand (no owner), all live in the repo. The hourly rate still holds.
+longTest('lead_open opens beside live leads of the repo (its own, another conductor\'s, one made by hand), and the hourly rate still refuses a second open', async ($, on) => {
+  const argv: string[][] = []
+  const OTHERCOND = '8a1b2c3d-0000-4000-8000-123456789abc'
+  const HANDSID = '7a1b2c3d-0000-4000-8000-123456789abc'
+  await conductor($, on, argv, {
+    sess: { ...CSESS(), ...leadReg(), ...regAs(OTHERLEAD, 4243, 'LEAD-A'), ...regAs(HANDSID, 4244, 'LEAD-B') },
+    seed: () => {
+      leadFiles.set(`${ROOT}/leads/${LEADSID}.json`, { text: leadFileText() })
+      leadFiles.set(`${ROOT}/leads/${OTHERLEAD}.json`, { text: JSON.stringify({ sid: OTHERLEAD, pid: 4243, procStart: LEADPS, repo: PIN }) })
+      leadFiles.set(`${ROOT}/leads/${HANDSID}.json`, { text: JSON.stringify({ sid: HANDSID, pid: 4244, procStart: LEADPS, repo: PIN }) })
+      putLeadRecs([{ name: 'LEAD', conductorSid: SID, sid: LEADSID }, { name: 'LEAD-A', conductorSid: OTHERCOND, sid: OTHERLEAD }, { name: 'LEAD-B', conductorSid: undefined, sid: HANDSID }])
+    },
+  })
+  expect(await open($, `ok ${NEWSID}\n`)).toContain('lead LEAD-N is on as session 12345678')
+  expect(ledgerRows().map((x) => x.kind)).toEqual(['lead-offer'])
+  expect(mvs(argv, '.lead').length).toBe(1)
+  // The new panel's grant row (the accept side) uses the hour of the repo, whatever leads it holds.
+  seedRows({ kind: 'lead-grant', t: iso(10 * 60_000) })
+  h.openResult = undefined
+  expect(await open($, undefined, { name: 'LEAD-M' })).toContain(REASON_TEXT['open-rate'])
+  expect(mvs(argv, '.lead').length).toBe(1)
   expect(offers()).toEqual([])
 })
 

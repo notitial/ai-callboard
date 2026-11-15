@@ -1,6 +1,6 @@
 // The new panel's side of a conductor's lead offer (ADR 0006): the cue `lead <nonce>` only makes this session look at the offer for its own repo. Every check runs
 // here, in this session, and nothing a conductor, a lane or a file says makes it a lead by itself. The order: the session's own state (cheap reads, nothing written),
-// the offer file, the ledger, the person's switch, the conductor, other leads, the exclusive claim, the idle check, the rename, the same checks once more, the
+// the offer file, the ledger, the person's switch, the conductor, the exclusive claim, the idle check, the rename, the same checks once more, the
 // ledger row (no row, no grant), the grant through the lead command's own steps, then the offer and claim go, the model is set, the start turn is held, and the
 // conductor is answered. A read that fails or times out is a refusal: nothing defaults to yes. The panel acts within LEAD_ACCEPT_LATE_MS of the cue file's time.
 import * as c from '../core.ts'
@@ -9,7 +9,7 @@ import { log, logq, sha, where, real, statR, readSmallR, gitRoot, rmF, withTimeo
 import { registryEntries, idleCheck } from './store.ts'
 import type { Reg, Answer } from './store.ts'
 import { sessionRoot, modelSet } from './lanes.ts'
-import { leadBusy, conductorTrustedSid, leadsFor, cfgReadStrict } from './grants.ts'
+import { leadBusy, conductorTrustedSid, cfgReadStrict } from './grants.ts'
 import { heldNo } from './levels.ts'
 import { ledgerAdd, ledgerRowsFor } from './answer-hook.ts'
 import { promptLinkOnce } from './answer-tiers.ts'
@@ -91,7 +91,7 @@ export async function leadAccept(
   const offerNo = c.leadOfferNo(offer, { now, cueNonce: nonce, repo, liveNames: names })
   if (offerNo) return refuse(offerNo)
 
-  // The ledger, then the switch, the conductor and the other leads, read afresh each time they are asked.
+  // The ledger, then the switch and the conductor, read afresh each time they are asked.
   const ledgerNo = async () => {
     const l = await ledgerRowsFor($, p, `"hash":"${key}"`)
     return l === 'unreadable' ? 'ledger-unreadable' : c.leadLedgerNo(l, offer, key)
@@ -104,14 +104,10 @@ export async function leadAccept(
     if (!live) return 'registry-unreadable'
     const cond = live.find((r) => r.j.sessionId === offer.conductor.sid && String(r.j.pid) === r.pid && r.pid === String(offer.conductor.pid) && c.sameStart(r.j.procStart, offer.conductor.start))
     const trusted = cond !== undefined && (await bounded(conductorTrustedSid($, live, sid, repo, offer.conductor.sid))) === true
-    const errs = { error: false }
-    const leads = await bounded(leadsFor($, live, undefined, repo, errs))
     return c.leadTrustNo({
       switchOn: cfg === undefined ? undefined : cfg.conductorLeads === true,
       conductorLive: cond !== undefined,
       conductorTrusted: trusted,
-      leadsError: errs.error || leads === undefined,
-      otherLeads: leads?.filter((l) => l.sid !== sid).length ?? 0,
     })
   }
   const trustRefusal = await trustNo()
