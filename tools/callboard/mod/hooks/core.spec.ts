@@ -2242,7 +2242,7 @@ test('v14 the manager texts: the question, the buttons and header, the stop ques
   assert.deepEqual([c.REMOVE_YES, c.REMOVE_NO], ['Remove', 'Cancel'])
   assert.ok(c.managerBriefing('MANAGER').includes('Both stops also delete the lane\'s record once its session has stopped'))
   assert.ok(!c.managerBriefing('MANAGER').includes('lane_remove'))
-  assert.equal(c.MANAGER_H2, 'H2 Never dispatch, cancel, `kill_all` or restart anything. One exception: a callboard `lane_terminate` or `lane_retire` at manager reach, only through its own dialog, which the person answers themselves every time; never unattended.')
+  assert.equal(c.MANAGER_H2, 'H2 Never dispatch, cancel, `kill_all` or restart anything. One exception: a callboard `lane_terminate` or `lane_retire` at manager reach, or a callboard `lead_park`, `lead_unpark`, `lead_retire` or `lead_terminate`, only through its own dialog, which the person answers themselves every time; never unattended.')
   assert.ok(c.managerBriefing('HARBOR').includes('(`MANAGER`)'), 'a name not reserved here never names the manager')
   c.setLocalReserved(['HARBOR'])
   let b: string
@@ -3336,4 +3336,24 @@ test('the manager lead questions name the effect, the lead, its repo folder and 
   assert.ok(!c.leadCueWhy('compact', 'held-nudged', 'x').includes('lane_terminate'))
   assert.equal(c.leadCueWhy('compact', 'refused-rate-limit', 'kept'), 'kept')
   assert.equal(c.leadCueWhy('resume', 'acted', 'kept'), 'kept')
+})
+
+const LT2_SID = '1a1b2c3d-0000-4000-8000-123456789abc'
+test('the lead stop powers are named in the lead, conductor and manager texts', () => {
+  const lead = c.leadBriefing('/w/repo-a', LT2_SID)
+  assert.ok(lead.includes('The conductor that owns you can park and retire you, and force stop you with the person\'s click'))
+  assert.ok(lead.includes('Your own mod confirms a park or retire, not you'))
+  const owner = c.leadConductorText(['COND'])
+  assert.ok(!owner.includes('It cannot stop you'))
+  assert.ok(owner.includes('The conductor that owns you can also park and retire you, and force stop you with the person\'s click; your own mod confirms a park or retire, not you.'))
+  assert.ok(c.conductorQuestion('/w/cond', ['/w/repo-a']).includes('It can also park and retire the leads it owns, and force stop them with your click.'))
+  const cond = c.conductorBriefing('C', '/w/repo-a', ['/w/repo-b'])
+  assert.ok(!cond.includes('You cannot stop a lead'))
+  for (const t of c.LEAD_STOP_TOOLS) assert.ok(cond.includes(`\`${t}\``), t)
+  assert.ok(cond.includes('within 28 days'))
+  const mgr = c.managerBriefing('MANAGER')
+  for (const t of c.LEAD_STOP_TOOLS) {
+    assert.ok(mgr.includes(`\`${t}\``), t)
+    assert.ok(c.MANAGER_H2.includes(`\`${t}\``), t)
+  }
 })
