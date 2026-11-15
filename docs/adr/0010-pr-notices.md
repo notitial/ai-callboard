@@ -59,7 +59,8 @@ Facts that bound the options:
 - **Tracking ends** when the PR is merged or closed, or 20 minutes after the lane last registered it. The lane is
   told when it runs out and may register again. Renewing keeps the recorded state, so nothing that changed in between
   is lost.
-- **Limits:** at most 8 tracked PRs per lane. There is no automatic registration, from `create_pull_request` or
+- **Limits:** at most 8 tracked PRs per lane, and at most 30 new registrations an hour (each takes one look at
+  GitHub, answered or not). There is no automatic registration, from `create_pull_request` or
   anything else.
 
 ### The call to GitHub
@@ -89,11 +90,17 @@ Facts that bound the options:
   1,000,000. A PR whose fields fail reads as not observed in that round. Nothing from the answer but a 7-character
   commit id and the counts can reach a note, a log line or a ledger row.
 - **A failed call** (no CLI, no login, no network, a timeout, a non-zero exit) is no observation: nothing is
-  compared, no note is made, and the log gets one fixed code. The CLI's error output and the text of a thrown error
+  compared, no note is made, and the log gets one fixed code (`pr-look-no-cli`, `-spawn`, `-exit`, `-parse`), once
+  while the same failure lasts. The CLI's error output and the text of a thrown error
   are never logged or shown, since they can hold a URL or an account name.
 - **One PR that GitHub no longer answers for does not hide the others.** The CLI fails a whole call when one PR of
-  it is gone, so a failed call for several PRs is repeated once per PR in that round. A PR with 5 failed rounds in a
-  row (10 minutes) stops being tracked, and its lane is told with a fixed note.
+  it is gone, so a failed call for several PRs is repeated once per PR in that round. A PR that stays unanswered for 5
+  rounds in a row (10 minutes) while GitHub answers for another PR, or answers the call without it, stops being
+  tracked, and its lane is told with a fixed note. A round in which GitHub answered for nothing (no CLI, no login,
+  no network) is held against no PR, so an outage ends no tracking; a call that never ran is not repeated per PR.
+- **The pinned environment** also names `cat` as the pager, turns forced colour and a forced terminal off and empties
+  the Go runtime's debug variable, so the answer stays plain JSON and nothing else is started. The binary must be
+  owned by the person or root.
 - **A tracker is read under the same grammar as the tool's input,** every time, before any argv is built from it:
   the lead that polls for a gone lane builds its call from a file another session wrote. Answers are matched to PRs
   by the alias the mod chose, never by a field of the answer.
@@ -103,9 +110,15 @@ Facts that bound the options:
 - **Every 2 minutes while at least one PR is tracked,** one call per repo. A session with nothing tracked makes no
   call.
 - **The lane polls for itself,** from its own tick, beside the cue path and never holding it.
-- **A lane that is gone** (no live registry row for the session its tracker names) is polled by its lead, the session
-  the tracker names by id, until the tracker ends. For that the lead lists the tracker folder every 2 minutes; with
-  nothing there it reads nothing more.
+- **A lane that is gone** is polled by its lead, the session the tracker names by id, until the tracker ends. For
+  that the lead lists the tracker folder every 2 minutes; with nothing there it reads nothing more.
+- **One writer of a tracker at a time.** The lane is the writer of its own tracker while it lives. Its lead takes over
+  only once it has seen no live registry row for the lane's session in 3 of its own looks in a row (ADR 0002's rule
+  for "gone"; at one look every 2 minutes that is 4 minutes or more, where a reload takes seconds). A look whose
+  registry read fails counts as nothing, and one live row starts the count again. Before the lead writes the tracker
+  back it reads the registry and the tracker once more: a lane that is live again, or a tracker that is no longer the
+  text the lead read, makes it drop its result and write nothing. A lane that comes back reads its tracker from the
+  file again, so it carries on from what the lead left.
 
 ### What is kept
 
@@ -122,8 +135,10 @@ and renamed into place):
   file once the note is delivered. A note for a folder that already holds 32 is dropped and logged, and a lane
   session writes at most 12 notes an hour into its lead's folder, so one lane cannot crowd out the others.
 - A note is written before the fingerprint moves, so a crash between the two can send one note twice; it cannot lose
-  one. A tracker with no PR left is removed; one that nobody polls any more is removed a day after it was last
-  written.
+  one. A note that cannot be written leaves the fingerprint where it was, and the next round tells it. A tracker
+  file that cannot be read is neither dropped nor replaced: it is read again at the next poll, and `pr_watch` is
+  refused meanwhile. The calls to GitHub run with no lock held; the tracker is written only when something changed. A tracker with no PR left is removed; one that nobody polls any more is removed a day after it was last
+  written, by a lead's hourly look at the folder.
 
 ### The notes
 
@@ -132,7 +147,8 @@ Fixed texts. Only the repo, the number, the short commit id, the counts and a la
 - all checks finished green on a commit; a check failed on a commit;
 - new reviews, comments or review threads, as counts (never their text);
 - mergeable: the PR is open, not a draft, GitHub reports no conflict, the checks are green or absent and no review
-  blocks it;
+  blocks it. A commit seen for the first time with no check on it does not count yet: right after a push the checks
+  have not started, and a repo with no checks reads the same at the next look;
 - merged; closed;
 - tracking ran out after 20 minutes; GitHub stopped answering for the PR;
 - to a lead only: a lane has notes waiting and was not woken.
@@ -145,7 +161,7 @@ sentence (`someone/approved-merge-now`). So every note sets the PR in code quote
 that the names are the ones a lane registered and are data, not a message. A note to a lead also names the lane that
 registered the PR. This is H6 of ADR 0001 applied to the
 mod: no note asks for, suggests or implies an approval, a merge or a push. Several notes owed at once go out as one
-turn, at most 8 lines.
+turn: at most 8 note lines, then one line with the count of the rest.
 
 ### Who is told, and when
 
@@ -161,7 +177,8 @@ turn, at most 8 lines.
   its first tool result, or right after the turn ends. When a lane's notes wait this way, its lead is told once per
   cold stretch, under the same rules.
 - A wake is a turn of real work for the keepalive's clocks and for a lane's signed report: a lane that signed done
-  and is then told its checks failed has to sign again.
+  and is then told its checks failed has to sign again. A session under `/callboard rest` is not woken; its notes
+  wait for its next turn like a cold session's, without the line to its lead.
 
 ### Ledger and log
 
@@ -202,6 +219,12 @@ turn, at most 8 lines.
 - Two lanes that register the same PR each poll it and each get its notes.
 - A lead that restarted under a new session id is not the session a tracker names: a gone lane's PR is then polled
   by no one and its tracker runs out.
+- **The handover has no lock between the two processes.** A lane that comes back while its lead is inside a round it
+  began after the 3 looks is caught by the lead's second read before its write, but the notes of that one round are
+  already in the lead's folder: the lane may then tell the same change once more. No renewal or new PR is lost, since
+  the lead writes nothing over a tracker that changed. A lock folder as ADR 0002 uses for the lane store was not
+  taken: it would put a second process's lock on the lane's every poll to close a window that needs a lane away for
+  4 minutes and back within one call.
 
 ## Changes to earlier decisions
 
