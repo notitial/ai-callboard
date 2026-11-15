@@ -3,7 +3,7 @@ const vscode = require('vscode')
 const os = require('node:os')
 const path = require('node:path')
 const { createLanes } = require('./lanes.js')
-const { createSpool, allLanes } = require('./spool.js')
+const { createSpool, allLanes, allLeads } = require('./spool.js')
 const { createRegistry } = require('./registry.js')
 const { pidAlive } = require('./reserved.js')
 
@@ -32,6 +32,7 @@ function activate(context) {
   const spool = createSpool({
     dir: path.join(CLAUDE, 'callboard', 'open'),
     loadLanes: () => allLanes({ storeDir: path.join(CLAUDE, 'callboard', 'lanes') }),
+    loadLeads: () => allLeads({ recordDir: path.join(CLAUDE, 'callboard', 'lead-records') }),
     openLane: (folder) => lanes.open(folder, { timeoutMs: SPOOL_OPEN_MS, refuseUnnamed: true }),
     openLead: (folder) => lanes.open(folder, { timeoutMs: LEAD_OPEN_MS, refuseUnnamed: true }),
     closeLane: ({ sid, pid, name }) => lanes.adopt(sid, { name, pid }),

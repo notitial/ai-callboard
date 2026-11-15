@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.4.0
+
+- A `<NAME>.reopen` request may name a lead, for a conductor's `lead_unpark`: when no lane carries the name, the lead records in `~/.claude/callboard/lead-records/` are read (with the rules the mod reads them by; one bad record refuses its whole file), the record must name the session id the request carries (`error sid-mismatch` otherwise), and the lead's repo must be the window's first workspace folder. A name a lane and a lead both carry, in any letter case, is answered `error unknown-lane`. The same limits as a lane's reopen apply.
+- An older extension answers a lead's reopen `error unknown-lane` at once; the mod then says this version is needed. Park, retire and force stop of a lead work with older versions.
+
 ## 1.3.3
 
 - A lane's open answers with the session id its panel keeps: the new panel's registry row is followed by its pid until its session id has held for 2 s, in place of answering with the first id seen (a panel can rewrite its row with another id soon after it registers, and the first id then names no session). An id that has not held when the wait ends is a `timeout`, and the panel stays tracked as late. The lead's tab gets focus back as soon as the panel registers.
