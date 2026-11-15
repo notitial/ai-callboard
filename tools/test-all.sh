@@ -1,7 +1,7 @@
 #!/bin/bash
 # Runs every test suite under tools/ and prints one pass/fail row per suite.
 #   bash tools/test-all.sh                run all suites
-#   bash tools/test-all.sh --quick        skip the slow ones (callboard, about 3 min)
+#   bash tools/test-all.sh --quick        skip the slow ones (callboard)
 #   bash tools/test-all.sh NAME [NAME…]   run only the named suites (names are the first column)
 # A suite whose tool is missing (node, claude, python3, plutil) shows as skip, never as pass. Exit 1 if any suite fails,
 # 2 on an unknown option or suite name (checked before anything runs).
