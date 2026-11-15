@@ -346,6 +346,21 @@ export async function person($: any, on: any, stdins: string[] = [], trace?: Tra
   await started($, on, stdins, { clock: true, trace, bound })
   h.psTable = SELF_PS
 }
+// A person's session (a plain one, no lane, no lead), whose real turn has just ended (at T0).
+export async function warm($: any, on: any, stdins: string[] = [], trace?: Trace) {
+  await person($, on, stdins, trace)
+  h.sessions = OWN_ROW()
+  await realTurn($, 'work')
+}
+// A person's turn as the engine runs it: the prompt, its turn's start and end.
+export async function realTurn($: any, text: string) {
+  await $.prompt.submit({ text } as any)
+  await $.turn.start({ turnId: 'real', text } as any)
+  await $.turn.complete(TURN as any)
+}
+export const kaLog = (stdins: string[]) => logged(stdins).filter((x) => x.startsWith('keepalive'))
+export const sent = (stdins: string[]) => logged(stdins).filter((x) => x === 'keepalive:').length
+export const stv = (trace: Trace, key: string) => trace.st!.get(key)?.value
 
 // ---- the nudge in the middle of a turn: a PostToolUse (or failure) hook returns the text as additionalContext ----
 const MID_TOOL = { tool_name: 'Bash', tool_input: { command: 'ls' }, tool_use_id: 'tu-mid', tool_response: {} }

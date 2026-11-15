@@ -1,7 +1,7 @@
 // The lane store (read, edit, record writers), the registry rows and the store's lock folders, and the cue, result and brief files.
 // Trust rules held here: a store write is a locked read-modify-write; a lock is released only by its owner and a stale one is broken by one breaker at a time; spool files are written private and moved into place.
 import * as c from '../core.ts'
-import { storeLocks, unlockOwed, goneSeen, grants, cueInFlight, orders, lastAnswer, mem } from '../mem.ts'
+import { storeLocks, unlockOwed, goneSeen, grants, cueInFlight, orders, lastAnswer, mem, badStoreSeen } from '../mem.ts'
 import {
   realR,
   logq,
@@ -47,6 +47,15 @@ export async function keptLanes($: any, lanes: c.Store['lanes']): Promise<c.Stor
   return kept
 }
 
+// A store file that does not parse is skipped, and its lanes vanish from every list: one toast and one log line per file and change of its text, so a read on every
+// tick does not repeat it. A file that parses again forgets the mark, so a later break is told again.
+async function badStoreNote($: any, key: string, text: string) {
+  if (badStoreSeen.get(key) === text) return
+  badStoreSeen.set(key, text)
+  toast($, c.badStoreToast(key))
+  await logq($, await $.session.id().catch(() => ''), 'error', 'store-parse')
+}
+
 // The lanes a lead made: one file per repo in the user's own callboard folder, named by the hash of the repo's real path, never found by walking up
 // from a folder. Anything that fails a check is skipped whole; a lane whose folder is not its own real path is skipped.
 export async function loadStores($: any): Promise<{ key: string; store: c.Store }[]> {
@@ -62,7 +71,12 @@ export async function loadStores($: any): Promise<{ key: string; store: c.Store 
     if (cur.state !== 'ok') continue
     const parsed = c.parseStore(cur.text)
     const key = n.slice(0, -5)
-    if (!parsed.ok || c.pinRefusal(parsed.store.repo, home) !== undefined) continue
+    if (!parsed.ok) {
+      await badStoreNote($, key, cur.text)
+      continue
+    }
+    badStoreSeen.delete(key)
+    if (c.pinRefusal(parsed.store.repo, home) !== undefined) continue
     if ((await sha($, parsed.store.repo)) !== key || (await real($, parsed.store.repo)) !== parsed.store.repo) continue
     if ((await gitRoot($, parsed.store.repo)) !== 'yes') continue
     const lanes: c.Store['lanes'] = []

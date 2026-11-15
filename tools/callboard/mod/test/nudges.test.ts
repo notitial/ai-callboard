@@ -2,7 +2,7 @@ import { expect, test } from 'claude-code/testing'
 import { nudgeText, compactResumeText, OFF_NOTHING } from '../hooks/core'
 import { h, GOOD, PS_TABLE, YES, laneSeed, longTest, psCalls, resultFiles, seen, submitted, toolDefs } from './harness'
 import type { Trace } from './harness'
-import { LEAD_LANES, MIN, NOT_ENABLED, NOW, OWN_ROW, REG, REGFILE, RESULT, SELF_PS, TURN, cue, lane, lead, leadAt, leadCall, logged, midCtx, newTrace, nudges, person, postBeneath, renameThroughTick, retireTarget, tickTwice, ticks } from './fixtures'
+import { LEAD_LANES, MIN, NOT_ENABLED, NOW, OWN_ROW, REG, REGFILE, RESULT, SELF_PS, TURN, cue, lane, lead, leadAt, leadCall, logged, midCtx, newTrace, nudges, person, postBeneath, renameThroughTick, retireTarget, tickTwice, ticks, advanceQuiet } from './fixtures'
 
 test('a compact cue with no request nudges an idle lane: held nudged, and the tick sends one nudge after the cue is answered, in the same tick', async ($, on) => {
   const stdins: string[] = []
@@ -348,11 +348,11 @@ longTest('a declined nudge is not repeated within 30 minutes; after that the nex
   expect(nudges().length).toBe(1)
   await $.turn.complete(TURN as any)
   await ticks(2)
-  await h.clock!.advance(10 * 60_000)
+  await advanceQuiet(10 * 60_000)
   await $.turn.complete(TURN as any)
   await ticks(2)
   expect(nudges().length).toBe(1)
-  await h.clock!.advance(20 * 60_000)
+  await advanceQuiet(20 * 60_000)
   await $.turn.complete(TURN as any)
   await ticks(1)
   expect(nudges().length).toBe(2)
@@ -526,7 +526,7 @@ test('an unbound session is nudged; request_compact on-cue is refused, and a now
   await $.turn.complete(TURN as any)
   await ticks(1)
   expect(nudges()).toEqual([nudgeText('idle')])
-  await h.clock!.advance(14 * 60_000)
+  await advanceQuiet(14 * 60_000)
   expect((await $.tool.call(NOW as any)).result).toBe('queued')
   expect(logged(stdins)).toContain('requested:now-nudged')
 })
@@ -534,7 +534,7 @@ test('an unbound session is nudged; request_compact on-cue is refused, and a now
 test('the grant ends 15 minutes after the nudge: a now request then is the session\'s own (self), not the nudged one', async ($, on) => {
   const stdins: string[] = []
   await granted($, on, stdins)
-  await h.clock!.advance(15 * 60_000)
+  await advanceQuiet(15 * 60_000)
   expect((await $.tool.call(NOW as any)).result).toBe('queued')
   expect(logged(stdins)).toContain('requested:now-self')
   expect(logged(stdins)).not.toContain('requested:now-nudged')
@@ -605,7 +605,7 @@ longTest('a nudge submit that threw takes the grant back; one that outlasts the 
   expect(logged(stdins)).toContain('nudge-failed:idle')
   expect(trace.st!.get('nudgedAt')?.value).toBe(null)
   h.submitFails = false
-  await h.clock!.advance(30 * 60_000)
+  await advanceQuiet(30 * 60_000)
   h.submitHangs = true
   await $.turn.complete(TURN as any)
   await ticks(35)
@@ -619,13 +619,13 @@ longTest('a granted request runs the now path, and its resume is still sent afte
   const stdins: string[] = []
   on('classic.PostCompact', () => ({}))
   const trace = await granted($, on, stdins)
-  await h.clock!.advance(10 * 60_000)
+  await advanceQuiet(10 * 60_000)
   expect((await $.tool.call(NOW as any)).result).toBe('queued')
   await $.turn.complete(TURN as any)
   await ticks(1)
   expect(seen.compacted).toBe(true)
   expect((trace.st!.get('request')?.value as any).phase).toBe('compacting')
-  await h.clock!.advance(10 * 60_000)
+  await advanceQuiet(10 * 60_000)
   await ($ as any).classic.PostCompact({ hook_event_name: 'PostCompact', trigger: 'manual', compact_summary: 's' })
   expect((trace.st!.get('request')?.value as any).phase).toBe('compacted')
   await ticks(1)
@@ -857,7 +857,7 @@ longTest('nudge: a soft nudge may be followed by one hard one inside the 30-minu
   await $.turn.complete(TURN as any)
   await ticks(2)
   expect(nudges().length).toBe(2)
-  await h.clock!.advance(30 * MIN)
+  await advanceQuiet(30 * MIN)
   await $.turn.complete(TURN as any)
   await ticks(1)
   expect(nudges()).toEqual([nudgeText('idle'), nudgeText('working'), nudgeText('working')])
@@ -878,7 +878,7 @@ longTest('nudge: a hard nudge is not followed by a soft one inside the gap; the 
   await $.turn.complete(TURN as any)
   await ticks(2)
   expect(nudges().length).toBe(1)
-  await h.clock!.advance(26 * MIN)
+  await advanceQuiet(26 * MIN)
   h.tokensNow = 250_000
   await $.turn.complete(TURN as any)
   await ticks(1)

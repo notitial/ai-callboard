@@ -2,7 +2,7 @@ import { expect, test } from 'claude-code/testing'
 import * as prm from '../hooks/prompts'
 import { leadBriefing, nudgeText } from '../hooks/core'
 import { h, GOOD, PROMPTS_DIR, ROOT, SID, T0, leadFiles, longTest, pfs, submitted, toolDefs } from './harness'
-import { APISID, APP2, COMPOSE, LEADPATH, LEADPS, LEADSID, MGR_SESS, OTHER, PIN, SVC, TURN, condOn, leadFileText, leadReg, logged, mgrAt, midCtx, ownReg, ownTurn, postBeneath, putStore, storeJson, tickTwice, ticks } from './fixtures'
+import { APISID, APP2, COMPOSE, LEADPATH, LEADPS, LEADSID, MGR_SESS, OTHER, PIN, SVC, TURN, condOn, leadFileText, leadReg, logged, mgrAt, midCtx, ownReg, ownTurn, postBeneath, putStore, storeJson, tickTwice, ticks, advanceQuiet } from './fixtures'
 import { APIQ, CNDT, LANESID, LDIR, LEAD2, MGRT, OFF_FILE, PCOMMENT, PDIR, THASH, TID, TID2, addCondT, addMgrT, answerCall, answered, answerer, asConductor, askCheck, at, byCond, byMgr, decFile, decideBy, driveClock, handDecision, hookKinds, leadLive, ledgerRows, pcall, putFile, putFileAt, putLedger, putQ, putRelayT, readReq, refusal, reqFiles, retRow, rowKinds, runRequest, said, startReq, stop, tier, tierSessions, waitingRow } from './answer-fixtures'
 
 test('the lead is resolved record first: a record that names a lead is reached by the live lead of that name only, whatever lead the binding holds', async ($, on) => {
@@ -344,7 +344,7 @@ longTest('prompts: at most 30 notices an hour; a capped one stays owed, is logge
   }
   expect(promptNotices()).toBe(30)
   expect(logged(stdins).filter((e) => e === 'notice-capped:prompts').length).toBe(1)
-  await h.clock!.advance(3_600_000)
+  await advanceQuiet(3_600_000)
   expect(promptNotices()).toBe(31)
 })
 

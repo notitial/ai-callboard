@@ -2,7 +2,7 @@ import { expect, test } from 'claude-code/testing'
 import { folderName, briefingFolder, leadBriefing, NOTE_END, noteText, STOPPABLE_BY_NAME, LANES_CHANGED_TEXT, LANES_CHANGED_NOTE } from '../hooks/core'
 import { h, LANESDIR, NO, REPORT, ROOT, SID, T0, TOOL, YES, engine, extraStat, laneSeed, leadFiles, longTest, resultFiles, storeFiles, submitted } from './harness'
 import type { Trace } from './harness'
-import { ANY, ATTACHED, ATTLEAD, ATTSESS, ATT_REC, COMPOSE, LANES, LANE_COMPOSE, LEADPATH, LEADPS, LEADSID, LEAD_LANES, NO_LANES, OTHER, OTHERLEAD, PARK_API, PIN, REG, REGFILE, RESULT, STOREFILE, SVC, attRec, attacher, bornWithTwoLeads, briefings, callCreate, cue, cueSession, dirStat, doLane, fileStat, grantAt, lane, laneSections, leadAt, leadCall, leadFileText, leadReg, leadSelfReg, listCall, listed, logged, mdBox, newTrace, noNote, noteRows, notices, ownReg, putStore, renameThroughTick, sleepMs, started, statusTable, storeText, tickTwice, ticks, waitFor } from './fixtures'
+import { ANY, ATTACHED, ATTLEAD, ATTSESS, ATT_REC, COMPOSE, LANES, LANE_COMPOSE, LEADPATH, LEADPS, LEADSID, LEAD_LANES, NO_LANES, OTHER, OTHERLEAD, PARK_API, PIN, REG, REGFILE, RESULT, STOREFILE, SVC, attRec, attacher, bornWithTwoLeads, briefings, callCreate, cue, cueSession, dirStat, doLane, fileStat, grantAt, lane, laneSections, leadAt, leadCall, leadFileText, leadReg, leadSelfReg, listCall, listed, logged, mdBox, newTrace, noNote, noteRows, notices, ownReg, putStore, renameThroughTick, sleepMs, started, statusTable, storeText, tickTwice, ticks, waitFor, advanceQuiet } from './fixtures'
 
 test('lane_list gives one fixed line per lane of this repo: lanes the lead made, attached lanes, and whether a session carries the name', async ($, on) => {
   await leadAt($, on, [], { sess: { ...leadSelfReg(), ...cueSession(OTHER, 'API', `${PIN}/api`, { pid: 4500 }) } })
@@ -244,8 +244,7 @@ longTest('at most 12 notices an hour: a capped change stays owed and goes out on
   expect(logged(stdins).filter((e) => e === 'notice-capped:lanes-changed').length).toBe(1)
   await tickTwice()
   expect(notices()).toBe(12)
-  h.nowMs += 3_700_000
-  await h.clock!.advance(3_700_000)
+  await advanceQuiet(3_700_000)
   await h.clock!.advance(2000)
   expect(notices()).toBe(13)
   await h.clock!.advance(2000)
@@ -265,8 +264,7 @@ longTest('a capped change is logged once even when another line is logged in the
   const capped = () => logged(stdins).filter((e) => e === 'notice-capped:lanes-changed').length
   expect(logged(stdins)).toContain('error:presence')
   expect(capped()).toBe(1)
-  h.nowMs += 3_700_000
-  await h.clock!.advance(3_700_000)
+  await advanceQuiet(3_700_000)
   await h.clock!.advance(2000)
   expect(notices()).toBe(13)
   for (let i = 14; i <= 26; i++) {
@@ -287,8 +285,7 @@ longTest('a change capped at the hourly limit is sent once a slot frees, with no
   await h.clock!.advance(2000)
   expect(notices()).toBe(12)
   expect(logged(stdins)).toContain('notice-capped:lanes-changed')
-  h.nowMs += 3_700_000
-  await h.clock!.advance(3_700_000)
+  await advanceQuiet(3_700_000)
   await h.clock!.advance(2000)
   expect(notices()).toBe(13)
 })

@@ -2,7 +2,7 @@
 // text, log lines, toasts, tool declarations, refusal codes) and not as internals. Cells that look odd are pinned as they are and marked.
 // No text of an info print (status, config, lanes, help, escalation) is pinned here: those change on their own.
 import { expect, test } from 'claude-code/testing'
-import { CONDUCTOR_KEPT, CONDUCTOR_ON_TEXT, CONDUCTOR_TOOLS, HINT_MAX_AGE_MS, HINT_REFRESH_MS, LEAD_KEPT, MANAGER_KEPT, MANAGER_REFRESH_MS, MANAGER_ON_TEXT, MANAGER_RESTORED_TOAST, MANAGER_TOOLS, MANAGER_UNANSWERED_TOAST, REASON_TEXT, TIMED_OUT_LEAD_OFF_TOAST, TIMED_OUT_TOAST, conductorBriefingNote, conductorRestoredToast, conductorUnansweredToast, leadBriefingNote, leadRestoredToast, managerBriefingNote } from '../hooks/core'
+import { PRESENCE_TOUCH_MS, CONDUCTOR_KEPT, CONDUCTOR_ON_TEXT, CONDUCTOR_TOOLS, HINT_MAX_AGE_MS, HINT_REFRESH_MS, LEAD_KEPT, MANAGER_KEPT, MANAGER_REFRESH_MS, MANAGER_ON_TEXT, MANAGER_RESTORED_TOAST, MANAGER_TOOLS, MANAGER_UNANSWERED_TOAST, REASON_TEXT, TIMED_OUT_LEAD_OFF_TOAST, TIMED_OUT_TOAST, conductorBriefingNote, conductorRestoredToast, conductorUnansweredToast, leadBriefingNote, leadRestoredToast, managerBriefingNote } from '../hooks/core'
 import { h, NO, ROOT, SID, T0, YES, extraStat, laneSeed, leadFiles, statErr, toasts, toolDefs } from './harness'
 import { APP2, COND, FAR, LANE_HINT, LEADKEY, LEADPS, OTHERLEAD, PIN, SELFPATH, STORE_LANE, allEvents, condRun, condSelf, dirStat, lane, leadFileText, leadReg, listCall, logged, mgrFile, mgrRow, noteRows, putCond, putStore, sleepMs, started, ticks, unanswered, waitFor } from './fixtures'
 
@@ -369,16 +369,18 @@ test('restore: the lead comes back with a toast and no question', async ($, on) 
 // ---- 4. presence file ----
 for (const level of LEVELS) {
   const L = LV[level]
-  test(`presence: the ${level} file has the fields of its level, is rewritten at each tick, and goes at off and at session end`, async ($, on) => {
+  test(`presence: the ${level} file has the fields of its level, is rewritten at each tick (a lead's every PRESENCE_TOUCH_MS), and goes at off and at session end`, async ($, on) => {
     await world($, on, [])
     await grant($, level)
     expect(JSON.parse(leadFiles.get(SELFPATH)!.text)).toEqual(L.atGrant)
     const m0 = leadFiles.get(SELFPATH)!.mtimeSec!
     await h.clock!.advance(2000)
     expect(JSON.parse(leadFiles.get(SELFPATH)!.text)).toEqual(L.presence)
-    expect(leadFiles.get(SELFPATH)!.mtimeSec!).toBe(m0 + 2)
+    expect(leadFiles.get(SELFPATH)!.mtimeSec!).toBe(level === 'lead' ? m0 : m0 + 2)
     await h.clock!.advance(2000)
-    expect(leadFiles.get(SELFPATH)!.mtimeSec!).toBe(m0 + 4)
+    expect(leadFiles.get(SELFPATH)!.mtimeSec!).toBe(level === 'lead' ? m0 : m0 + 4)
+    await h.clock!.advance(PRESENCE_TOUCH_MS)
+    expect(leadFiles.get(SELFPATH)!.mtimeSec!).toBeGreaterThanOrEqual(m0 + PRESENCE_TOUCH_MS / 1000)
     await off($)
     expect(leadFiles.has(SELFPATH)).toBe(false)
     await h.clock!.advance(4000)
