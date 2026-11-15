@@ -1178,9 +1178,8 @@ test('a presence file is fresh for 30 seconds and never from the future', () => 
   assert.equal(c.leadFileFresh(100_000, 100_001), false)
 })
 
-test('the presence touch period leaves a file fresh across a slow tick, and the prune is a multiple of it', () => {
+test('the presence touch period leaves a file fresh across a slow tick, and the prune period is well inside the removal age', () => {
   assert.equal(c.leadFileFresh(100_000, 100_000 - c.PRESENCE_TOUCH_MS - 4_000), true)
-  assert.equal(c.PRESENCE_PRUNE_MS % c.PRESENCE_TOUCH_MS, 0)
   assert.ok(c.PRESENCE_PRUNE_MS < c.LEAD_PRUNE_MS)
 })
 

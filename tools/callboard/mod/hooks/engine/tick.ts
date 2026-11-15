@@ -18,6 +18,8 @@ import {
   managerRestoreOffered,
   managerRestorePending,
   mem,
+  presenceText,
+  presenceErrs,
 } from '../mem.ts'
 import { TICK_MS, withTimeout, ACTION_TIMEOUT_MS, log, logq, sha, submitOwn, logFail, where, liveCheckoutCheck } from './base.ts'
 import { unlockRetry, answerer, pruneResults, pruneLogs } from './store.ts'
@@ -322,8 +324,13 @@ export async function sessionStart($: any, e: any, next: any) {
   await reservedGet($, me, true)
   await pruneResults($).catch(logFail($, me, 'result-prune'))
   await pruneLogs($, me).catch(logFail($, me, 'log-prune'))
-  // A grant that survived a compaction keeps its file: the process is the same and the tick keeps it fresh.
+  // A grant that survived a compaction keeps its file: the process is the same and the tick keeps it fresh. A cached "no file for this pin" is forgotten, so
+  // the pin is checked again.
   if (!grants.has(me)) await presenceDrop($, me).catch(logFail($, me, 'presence-drop'))
+  else if (presenceText.get(me) === '') {
+    presenceText.delete(me)
+    presenceErrs.delete(me)
+  }
   // A saved lead grant for this session, then whether a store record names it, looked at from the tick.
   if (c.SID_RE.test(me)) {
     try {

@@ -342,6 +342,21 @@ test('a lead tick removes presence files older than ten minutes, of any session,
   expect(leadFiles.has(SELFPATH)).toBe(true)
 })
 
+test('a session start that finds the grant held forgets a cached "no file for this pin", so the pin is checked again', async ($, on) => {
+  await leadAt($, on, [], { clock: true })
+  leadFiles.clear()
+  extraStat.delete(`${PIN}/.git`)
+  await grantAt($, PIN)
+  await tickTwice()
+  expect(leadFiles.size).toBe(0)
+  extraStat.set(`${PIN}/.git`, dirStat)
+  await tickTwice()
+  expect(leadFiles.size).toBe(0)
+  await $.session.start({ cwd: '/data/x/work/lab', surface: 'vscode', isInteractive: true })
+  await tickTwice()
+  expect(leadFiles.has(SELFPATH)).toBe(true)
+})
+
 test('the presence prune runs once every PRESENCE_PRUNE_MS, not on every tick', async ($, on) => {
   await leadAt($, on, [], { clock: true })
   await tickTwice()

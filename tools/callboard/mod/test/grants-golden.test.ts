@@ -376,7 +376,7 @@ for (const level of LEVELS) {
     const m0 = leadFiles.get(SELFPATH)!.mtimeSec!
     await h.clock!.advance(2000)
     expect(JSON.parse(leadFiles.get(SELFPATH)!.text)).toEqual(L.presence)
-    expect(leadFiles.get(SELFPATH)!.mtimeSec!).toBeLessThanOrEqual(m0 + 2)
+    expect(leadFiles.get(SELFPATH)!.mtimeSec!).toBe(level === 'conductor' ? m0 + 2 : m0)
     await h.clock!.advance(PRESENCE_TOUCH_MS)
     expect(leadFiles.get(SELFPATH)!.mtimeSec!).toBeGreaterThanOrEqual(m0 + PRESENCE_TOUCH_MS / 1000)
     await off($)
