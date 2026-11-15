@@ -16,6 +16,8 @@ import { ledgerAdd, ledgerRowsFor, promptNewId, guardCheck } from './answer-hook
 import { promptLinkOnce } from './answer-tiers.ts'
 
 type Found = { go: g.Go; rows: pr.LedgerRow[] }
+// The live goes, and how many go files could not be read or hashed (after one more try): such a file is no go to a reader, and is told to whoever ends goes.
+type Live = Found[] & { missed: number }
 type Paths = { uid: number; root: string }
 const goDir = (p: Paths): string => `${p.root}/go`
 // A time for the person, in this machine's zone.
@@ -36,7 +38,7 @@ async function goNames($: any, p: Paths): Promise<{ name: string; mtimeMs?: numb
 // The live goes on this machine, each with the ledger rows that name it. A file that is not a go file of ours, that names another id than its own, or whose
 // row is missing or names another hash is no go. A go past its end gets its one `go-end` row here (the `<id>.ended` mark is taken first, so one reader writes
 // it). guard: false skips the guard check, for the calls that only end a go or show one to its giver. A ledger that cannot be read is 'unreadable', never "none".
-async function goesLive($: any, opts: { guard?: boolean } = {}): Promise<Found[] | { no: 'guard'; why: string } | { no: 'unreadable' }> {
+async function goesLive($: any, opts: { guard?: boolean } = {}): Promise<Live | { no: 'guard'; why: string } | { no: 'unreadable' }> {
   const p = await where($)
   if (!p) return { no: 'unreadable' }
   if (opts.guard !== false) {
@@ -44,14 +46,18 @@ async function goesLive($: any, opts: { guard?: boolean } = {}): Promise<Found[]
     if (missing !== undefined) return { no: 'guard', why: pr.GUARD_WHY[missing] }
   }
   const names = await goNames($, p)
-  if (names === 'absent') return []
+  const out: Live = Object.assign([] as Found[], { missed: 0 })
+  if (names === 'absent') return out
   if (names === 'unreadable') return { no: 'unreadable' }
   const all = new Set(names.map((n) => n.name))
-  const out: Found[] = []
   // A go whose end was marked is over: its file is not read again.
   for (const name of [...all].filter((n) => g.GO_NAME_RE.test(n) && !all.has(`${n.slice(0, -5)}.ended`)).sort().slice(0, g.GO_SCAN_MAX)) {
-    const r = await readSmallR($, `${goDir(p)}/${name}`, p.uid, g.GO_FILE_MAX)
-    if (r.state !== 'ok') continue
+    let r = await readSmallR($, `${goDir(p)}/${name}`, p.uid, g.GO_FILE_MAX)
+    if (r.state === 'changed' || r.state === 'failed') r = await readSmallR($, `${goDir(p)}/${name}`, p.uid, g.GO_FILE_MAX)
+    if (r.state !== 'ok') {
+      if (r.state !== 'bad') out.missed++
+      continue
+    }
     const go = g.parseGo(r.text)
     if (!go || `${go.id}.json` !== name) continue
     const now = await $.clock.now()
@@ -61,8 +67,10 @@ async function goesLive($: any, opts: { guard?: boolean } = {}): Promise<Found[]
     }
     const rows = await ledgerRowsFor($, p, `"id":"${go.id}"`)
     if (rows === 'unreadable') return { no: 'unreadable' }
-    const hash = await sha($, r.text).catch(() => '')
-    if (g.goState(go, hash, rows, now) === 'live') out.push({ go, rows: rows.filter((x) => x.id === go.id) })
+    const text = r.text
+    const hash = await sha($, text).catch(() => undefined)
+    if (hash === undefined) out.missed++
+    else if (g.goState(go, hash, rows, now) === 'live') out.push({ go, rows: rows.filter((x) => x.id === go.id) })
   }
   return out
 }
@@ -124,6 +132,8 @@ async function goGive($: any, sid: string, text: unknown, hours: number, author:
   // Old files go first, so the count is of the ones still kept; a folder that is not there yet holds none.
   const held = await goPrune($, p, opened)
   if (held !== undefined && held >= g.GO_SCAN_MAX) return { no: 'full' }
+  // Another dialog of this session is open: busy, and no slot of the hour is used.
+  if (dialogOpen.has(sid)) return { no: 'busy' }
   if (capped) {
     const times = goAsked.get(sid) ?? []
     if (!c.noticeAllowed(times, opened, g.GO_REQUESTS_PER_HOUR)) return { no: 'rate' }
@@ -230,12 +240,13 @@ export async function goTailFor($: any, sid: string, laneSid?: string): Promise<
   }
 }
 
-// A lead that stops being one (/callboard off, a grant taken back, a saved grant refused at a restart) ends the goes it gave: one `go-end` row each. Its panel closing, parking or crashing ends none.
+// A lead that stops being one (/callboard off, a grant taken back, a saved grant refused at a restart, a lead grant moved to another folder) ends the goes it
+// gave: one `go-end` row each. Its panel closing, parking or crashing ends none.
 // Rows that could not be written, or goes that could not be read, are told to the person, who can end them with /callboard go off.
 export async function goGrantorOff($: any, sid: string): Promise<void> {
   goWatch.delete(sid)
   const found = await goesLive($, { guard: false })
-  let failed = 'no' in found
+  let failed = 'no' in found || found.missed > 0
   if (!('no' in found)) {
     for (const f of found) {
       if (f.go.by.sid !== sid) continue
@@ -266,12 +277,13 @@ export async function goCommand($: any, sid: string, code: c.OriginCode, op: g.G
     const found = await goesLive($, { guard: false })
     if ('no' in found) return { text: 'The go records could not be read. Nothing changed.' }
     const hit = found.filter((f) => op.off === undefined || g.goShort(f.go.id) === op.off)
-    if (hit.length === 0) return { text: g.GO_OFF_NONE }
+    const missed = found.missed > 0 ? ` ${g.goMissedText(found.missed)}` : ''
+    if (hit.length === 0) return { text: `${g.GO_OFF_NONE}${missed}` }
     const ended: string[] = []
     for (const f of hit) if (await ledgerAdd($, { kind: 'go-end', id: f.go.id, code: 'off', by: sid })) ended.push(f.go.id)
     await logq($, sid, 'go-off', String(ended.length))
-    if (ended.length < hit.length) return { text: `${ended.length === 0 ? '' : `${g.goOffText(ended)} `}The ledger did not answer for ${hit.length - ended.length} go${hit.length - ended.length === 1 ? '' : 'es'}: still live. Run /callboard go off again.` }
-    return { text: g.goOffText(ended) }
+    if (ended.length < hit.length) return { text: `${ended.length === 0 ? '' : `${g.goOffText(ended)} `}The ledger did not answer for ${hit.length - ended.length} go${hit.length - ended.length === 1 ? '' : 'es'}: still live. Run /callboard go off again.${missed}` }
+    return { text: `${g.goOffText(ended)}${missed}` }
   }
   const r = await goGive($, sid, op.give, op.hours, 'person', false)
   if ('go' in r) return { text: g.goGivenText(r.go, r.ends) }

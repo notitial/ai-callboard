@@ -143,6 +143,7 @@ export function goQuestion(q: { name: string; covered: string[]; ends: string; t
 }
 
 export const GO_LATE_TOAST = 'Too late: no go was recorded. The go dialog had timed out.'
+export const goMissedText = (n: number): string => `${n} go file${n === 1 ? '' : 's'} could not be read, so a go may still be live: run /callboard go off again.`
 export const GO_END_FAILED_TOAST = 'Callboard could not end the goes this lead gave. Type /callboard go off to end them.'
 export const GO_TIMED_OUT_TOAST = 'The go dialog timed out. No go was recorded; a click on it now does nothing.'
 export const goReadToast = (lane: string | undefined, id: string): string => `${lane !== undefined && NAME_RE.test(lane) ? lane : 'A session'} now works under your go ${goShort(id)}.`

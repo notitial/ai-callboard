@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 import * as g from '../hooks/go'
 import { HOUR_MS } from '../hooks/core'
-import { h, GO_DIR, ROOT, SID, T0, extraStat, fakeSha, longTest, pdirs, pfs, toasts } from './harness'
+import { h, GO_DIR, ROOT, SID, T0, YES, extraStat, fakeSha, longTest, pdirs, pfs, targetLogs, toasts } from './harness'
 import { ledgerRows, putLedger, wireGuard } from './answer-fixtures'
 import { LEADSID, OTHER, OTHERLEAD, PERSON, PIN, SVC, ckLane, ckRow, callCreate, creator, cueSession, dirStat, lane, leadAt, leadCall, leadSelfReg, mgrAt, putStore, started, waitFor } from './fixtures'
 
@@ -414,4 +414,59 @@ test('a go folder that cannot be checked is no go', async ($, on) => {
   h.pfsFails = undefined
   expect(await status($)).toContain(WORK)
   expect(ROOT).toBe(GO_DIR.slice(0, -3))
+})
+
+longTest('a lane_start whose answer came after the wait still says whether a go covers the lane', async ($, on) => {
+  await giver($, on, [ckLane({ leadSid: SID })])
+  await goCmd($, WORK)
+  const go = g.parseGo(pfs.get(goFiles()[0])!.text)!
+  h.autoAnswer = undefined
+  const line = (event: string) => `${JSON.stringify({ t: new Date(h.nowMs + 5000).toISOString(), event, reason: '' })}\n`
+  targetLogs.set(`${ROOT}/log/${OTHER}.jsonl`, line('brief-sha256') + line('started'))
+  const p = $.tool.call(leadCall('start', { lane: 'API' }))
+  for (let i = 0; i < 42; i++) await h.clock!.advance(500)
+  const late = String((await p).result)
+  expect(late).toContain('the session started')
+  expect(late).toContain(g.goShort(go.id))
+})
+
+test('a lead grant moved to another folder ends the goes given for the old one', async ($, on) => {
+  await giver($, on)
+  await goCmd($, WORK)
+  const go = g.parseGo(pfs.get(goFiles()[0])!.text)!
+  h.callerCwd = '/elsewhere'
+  h.askAnswer = YES
+  await $.command.run(lane('lead', { kind: 'bridge' }))
+  expect(h.lastQuestion).toContain('lanes in elsewhere?')
+  await waitFor(() => goKinds().includes('go-end grantor-off'))
+  expect(goRows().filter((r) => r.kind === 'go-end')).toEqual([expect.objectContaining({ id: go.id, code: 'grantor-off', by: SID })])
+  expect(await status($)).toBe(g.goNoneText())
+})
+
+test('go_request while another dialog is open is busy and uses none of the hour', async ($, on) => {
+  await giver($, on)
+  let release: (a: string) => void = () => undefined
+  h.askHang = new Promise<string>((r) => (release = r))
+  const n = h.askCount
+  const open = goCmd($, WORK)
+  await waitFor(() => h.askCount !== n)
+  for (let i = 0; i < g.GO_REQUESTS_PER_HOUR + 1; i++) expect(String((await $.tool.call(tool('go_request', { text: WORK }))).deny)).toBe(`go_request refused: busy: ${g.GO_REFUSE.busy}`)
+  release(g.GO_NO)
+  await open
+  h.askHang = undefined
+  h.askAnswer = g.GO_NO as any
+  expect((await $.tool.call(tool('go_request', { text: WORK }))).result).toBe(`No go was given: ${g.GO_REFUSE.cancelled}`)
+  expect(h.askCount).toBe(n + 2)
+})
+
+test('a go file that cannot be read when goes are ended is told: the reply of go off, and a toast at /callboard off', async ($, on) => {
+  await giver($, on)
+  await goCmd($, WORK)
+  const file = goFiles()[0]
+  h.pfsFails = (a: string[]) => a[0] === '/usr/bin/head' && a[a.length - 1] === file
+  expect((await goCmd($, 'off')).text).toBe(`${g.GO_OFF_NONE} ${g.goMissedText(1)}`)
+  await $.command.run(lane('off'))
+  await waitFor(() => toasts.includes(g.GO_END_FAILED_TOAST))
+  expect(goKinds()).toEqual(['go-grant'])
+  h.pfsFails = undefined
 })

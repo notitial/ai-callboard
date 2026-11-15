@@ -76,7 +76,7 @@ import type { LevelDesc } from './levels.ts'
 import { ANSWERING_KEY, ledgerAdd, promptsOff, escalationNow, defaultForget } from './answer-hook.ts'
 import { ledgerRestore } from './answer-tiers.ts'
 import * as go from '../go.ts'
-import { goCommand } from './go.ts'
+import { goCommand, goGrantorOff } from './go.ts'
 import { getCheckinPause, getLane, getRequest, setCheckinPause, setLane, setNudgeDue, setNudgedAt, setRequest, setRest } from '../state.ts'
 
 // The refusal of a person-only command from another origin: logged as <command>-not-person:<origin>, answered with the command's fixed text.
@@ -905,6 +905,8 @@ export async function grantLead($: any, sid: string, code: c.OriginCode, busy: (
         leadEpoch.set(sid, epochOf(sid) + 1)
         laneObs.delete(sid)
         attnTold.delete(sid)
+        // The goes this lead gave were for the old folder's lanes: they end, beside the grant, which does not wait for the rows.
+        void goGrantorOff($, sid).catch(() => undefined)
       }
       grants.set(sid, c.leadGrant(pinned))
       const epoch = epochOf(sid)

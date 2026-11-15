@@ -1217,7 +1217,7 @@ export async function leadVerbCall($: any, e: any, next: any, verb: (typeof c.LE
       const sent = await cueExchange($, sid, prep.lane.name, target, verb, deadline, noCue)
       if (sent && st.fate === 'done') {
         await log($, sid, 'acted-late', `${verb} ${prep.lane.name}`)
-        return { result: c.lateDoneText(verb, prep.lane.name, target) }
+        return { result: `${c.lateDoneText(verb, prep.lane.name, target)}${verb === 'start' ? await goTailFor($, sid, target) : ''}` }
       }
       if (sent) return sent
       return { result: `cue ${verb} acted for lane ${prep.lane.name}.${verb === 'start' ? await goTailFor($, sid, target) : ''}` }
