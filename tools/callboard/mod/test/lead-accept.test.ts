@@ -81,6 +81,17 @@ longTest('the new panel takes the offer: rename, ledger row, grant, toast, model
   expect(leadFiles.has(`${ROOT}/leads/${SID}.json`)).toBe(true)
 })
 
+longTest('another live lead in the repo does not stop the new panel: it takes the offer and becomes a lead beside it', async ($, on) => {
+  await accepting($, on, { extra: leadReg(), seed: () => leadFiles.set(LEADPATH, { text: leadFileText() }) })
+  expect(await cue(71, CUE)).toBe('lead ok - 71\n')
+  expect(renames).toEqual(['LEAD-N'])
+  expect(grantRows().length).toBe(1)
+  expect(leadKey()).toMatchObject({ pin: PIN })
+  expect(leadFiles.has(LEADPATH)).toBe(true)
+  expect(leadFiles.has(`${ROOT}/leads/${SID}.json`)).toBe(true)
+  expect(offers()).toEqual([])
+})
+
 const REFUSALS: [string, Setup, string?][] = [
   ['already-bound', { bound: true }],
   ['not-repo-root', { seed: () => { h.callerRoot = `${PIN}/lab` } }],
@@ -109,7 +120,6 @@ const REFUSALS: [string, Setup, string?][] = [
   ['conductor-not-live', { offer: { conductor: { sid: OTHERLEAD, pid: 4243, start: 'Wed Oct 28 20:37:50 2026' } } }, 'another start time'],
   ['conductor-not-trusted', { seed: () => leadFiles.delete(`${ROOT}/leads/${OTHERLEAD}.json`) }, 'no presence file'],
   ['conductor-not-trusted', { seed: () => h.store.set(`conductor:${OTHERLEAD}`, { home: COND, repos: ['/Users/x/code/app2'], savedAt: T0 - 60_000 }) }, 'saved grant does not hold the repo'],
-  ['lead-exists', { extra: leadReg(), seed: () => leadFiles.set(LEADPATH, { text: leadFileText() }) }],
   ['lead-offer-taken', { seed: () => pfs.set(CLAIM_PATH, { text: '9a1b2c3d-0000-4000-8000-123456789abc', mtimeSec: T0 / 1000 }) }],
 ]
 REFUSALS.forEach(([code, setup, why], i) => {

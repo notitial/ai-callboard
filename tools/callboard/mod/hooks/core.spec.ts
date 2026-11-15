@@ -2964,7 +2964,7 @@ test('lead_open texts: the request line, the brief, the offer and the fixed reas
   const o: c.Offer = { v: 1, name: 'LEAD-A', repo: '/Users/x/app', model: 'sonnet', conductor: { sid: 's', pid: 7, start: 'Thu Nov 13 11:00:00 2026' }, at: 5, nonce }
   assert.deepEqual(JSON.parse(c.offerText(o)), o)
   assert.ok(c.offerText(o).length < c.OFFER_MAX)
-  for (const code of ['not-conductor', 'conductor-leads-off', 'bad-repo', 'not-in-reach', 'conductor-nested', 'name-in-open', 'leads-unreadable', 'lead-exists', 'offer-open', 'open-in-flight', 'open-rate', 'ledger-unreadable', 'offer-write', 'ledger-write', 'unsafe-offers-dir', 'config-unreadable'])
+  for (const code of ['not-conductor', 'conductor-leads-off', 'bad-repo', 'not-in-reach', 'conductor-nested', 'name-in-open', 'offer-open', 'open-in-flight', 'open-rate', 'ledger-unreadable', 'offer-write', 'ledger-write', 'unsafe-offers-dir', 'config-unreadable'])
     assert.ok(c.reasonWhy(code).startsWith(`${code}: `), code)
   const S = '12345678-aaaa-bbbb-cccc-dddddddddddd'
   assert.match(c.leadOpenedText('LEAD-A', S, false), /^lead LEAD-A is on as session 12345678: the person was not asked\./)
@@ -3059,16 +3059,14 @@ test('leadLedgerNo wants a lead-offer row of this conductor and nonce, and no gr
   assert.equal(c.leadLedgerNo([row('lead-offer'), row('lead-grant', { nonce: 'f'.repeat(32) })], o, H), undefined)
 })
 
-test('leadTrustNo refuses an unread switch, a switch off, a conductor not live or trusted, and any lead of the repo', () => {
-  const ok: c.LeadTrustFacts = { switchOn: true, conductorLive: true, conductorTrusted: true, leadsError: false, otherLeads: 0 }
+test('leadTrustNo refuses an unread switch, a switch off, and a conductor not live or not trusted; the leads of the repo are no fact', () => {
+  const ok: c.LeadTrustFacts = { switchOn: true, conductorLive: true, conductorTrusted: true }
   assert.equal(c.leadTrustNo(ok), undefined)
   assert.equal(c.leadTrustNo({ ...ok, switchOn: undefined }), 'config-unreadable')
   assert.equal(c.leadTrustNo({ ...ok, switchOn: false }), 'conductor-leads-off')
   assert.equal(c.leadTrustNo({ ...ok, conductorLive: false }), 'conductor-not-live')
   assert.equal(c.leadTrustNo({ ...ok, conductorTrusted: false }), 'conductor-not-trusted')
-  assert.equal(c.leadTrustNo({ ...ok, leadsError: true }), 'leads-unreadable')
-  assert.equal(c.leadTrustNo({ ...ok, otherLeads: 1 }), 'lead-exists')
-  assert.equal(c.leadTrustNo({ switchOn: false, conductorLive: false, conductorTrusted: false, leadsError: true, otherLeads: 2 }), 'conductor-leads-off')
+  assert.equal(c.leadTrustNo({ switchOn: false, conductorLive: false, conductorTrusted: false }), 'conductor-leads-off')
 })
 
 test('leadLate counts from the cue file and fails closed on a time that is not a number', () => {
@@ -3106,7 +3104,7 @@ test('a lead answer round-trips through resultLine and parseResult, with every n
   assert.equal(c.parseResult(`start ok model-unset ${ino}\n`, 'start', ino), undefined)
   assert.equal(c.parseResult(`lead ok late ${ino}\n`, 'lead', ino), undefined)
   assert.equal(c.parseResult(`lead ok - ${ino}\n`, 'rename', ino), undefined)
-  const codes = ['already-lead', 'not-repo-root', 'registry-pending', 'not-new-panel', 'offer-missing', 'offer-bad', 'offer-mismatch', 'offer-old', 'offer-unlogged', 'offer-used', 'conductor-not-live', 'conductor-not-trusted', 'lead-offer-taken', 'late', 'off-meanwhile', 'grant-failed', 'ledger-write', 'rename-failed', 'name-in-use', 'name-reserved', 'lead-exists', 'leads-unreadable', 'conductor-leads-off', 'config-unreadable', 'draft-in-box', 'not-idle', 'registry-unreadable', 'already-bound', 'brief-chars', 'bad-model']
+  const codes = ['already-lead', 'not-repo-root', 'registry-pending', 'not-new-panel', 'offer-missing', 'offer-bad', 'offer-mismatch', 'offer-old', 'offer-unlogged', 'offer-used', 'conductor-not-live', 'conductor-not-trusted', 'lead-offer-taken', 'late', 'off-meanwhile', 'grant-failed', 'ledger-write', 'rename-failed', 'name-in-use', 'name-reserved', 'conductor-leads-off', 'config-unreadable', 'draft-in-box', 'not-idle', 'registry-unreadable', 'already-bound', 'brief-chars', 'bad-model']
   for (const code of codes) {
     assert.ok(code.length <= 24, code)
     assert.ok(c.hasText(code), code)

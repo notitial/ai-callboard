@@ -1,12 +1,12 @@
 // lead_open: a conductor opens a panel for a new lead in one of its repos and cues it (ADR 0006). The new panel decides: it runs every check itself and makes itself the lead.
-// Trust rules held here: the repo is in the conductor's reach at the call; at most one live lead per repo and one open in flight per conductor; at most one successful
-// open and three offers per repo per hour, counted from the ledger; every check runs before the first write, and a write that fails takes back the offer and voids its row.
+// Trust rules held here: the repo is in the conductor's reach at the call; one open in flight per conductor; at most one successful
+// open and three offers per repo per hour, counted from the ledger (the bound on a conductor that loops); no cap on the live leads of a repo (the new panel's second-lead naming rule still applies at its grant); every check runs before the first write, and a write that fails takes back the offer and voids its row.
 import * as c from '../core.ts'
 import { conductorHome, condOffers } from '../mem.ts'
 import { sha, where, statR, real, logq, rmF, pause } from './base.ts'
 import { writeBrief, resultDirOk, sendCue, registryEntries, loadLanes } from './store.ts'
 import type { RegRow } from './store.ts'
-import { leadsFor, cfgReadStrict, reservedGet, ownWrite } from './grants.ts'
+import { cfgReadStrict, reservedGet, ownWrite } from './grants.ts'
 import { leadTool, leadBase, openExchange } from './lanes.ts'
 import { ledgerAdd, ledgerRowsFor, promptNewId } from './answer-hook.ts'
 import { promptLinkOnce } from './answer-tiers.ts'
@@ -84,13 +84,10 @@ async function openLead($: any, e: any, sid: string, base: { live: RegRow[]; lan
   const recs = await loadLeadRecords($)
   if (typeof recs === 'string') return no('store-unreadable', c.reasonWhy('store-unreadable'))
   if (recs.some((s) => s.store.leads.some((l) => l.name.toLowerCase() === lower))) return no('name-in-use', c.reasonWhy('name-in-use'))
+  // The repo's record file holds LEAD_STORE_MAX records at most: with it full the new lead would be on with no record and no conductor, so the open stops here.
+  if (recs.some((s) => s.store.repo === repo && s.store.leads.length >= c.LEAD_STORE_MAX)) return no('lead-record-cap', c.reasonWhy('lead-record-cap'))
   const waiting = ((await $.fs.list(`${p.root}/open`).catch(() => [])) as { name: string }[]).some((f) => f.name.toLowerCase().startsWith(`${lower}.`) && !f.name.toLowerCase().endsWith('.result'))
   if (waiting) return no('name-in-open', c.reasonWhy('name-in-open'))
-  // One live lead per repo, whoever made it; an unreadable file counts as a failure.
-  const errs = { error: false }
-  const leads = await leadsFor($, base.live, undefined, repo, errs)
-  if (errs.error) return no('leads-unreadable', c.reasonWhy('leads-unreadable'))
-  if (leads.length > 0) return no('lead-exists', c.reasonWhy('lead-exists'))
   // No offer or claim for the repo; an unreadable path counts as taken.
   const key = await sha($, repo)
   if (!(await resultDirOk($, p, 'offers'))) return no('unsafe-offers-dir', c.reasonWhy('unsafe-offers-dir'))
