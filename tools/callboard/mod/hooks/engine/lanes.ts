@@ -105,6 +105,7 @@ import { ensureTimer } from './tick.ts'
 import { getLane, getLastTurn, getRequest, getSeen, setLane } from '../state.ts'
 import { usageReadings } from './usage.ts'
 import { leadAccept } from './lead-accept.ts'
+import { recordViews } from './lead-records.ts'
 
 const stopCallKey = (sid: string, verb: string, lane: unknown) => `${sid}\n${verb}\n${String(lane)}`
 
@@ -1005,7 +1006,9 @@ export async function laneTable($: any, sid: string) {
   const usage = await usageReadings($, wanted.flatMap((sid) => entries.filter((e) => e.sessionId === sid)), now).catch(() => new Map<string, c.UsageReading>())
   // The layer above: a lead's owning conductor and its live manager, a conductor's live manager; the manager has none. The same lookups the cues use.
   const above = base.g.level === 'manager' ? undefined : await layerAbove($, base.live, sid, base.g.level === 'lead')
-  const text = c.laneListText(lanes, entries, now, { level: base.g.level, name: base.g.name, self: sid, conductors, leads, usage, above })
+  // The manager's list groups the leads by the conductor their record names.
+  const records = base.g.level === 'manager' ? await recordViews($).catch(() => undefined) : undefined
+  const text = c.laneListText(lanes, entries, now, { level: base.g.level, name: base.g.name, self: sid, conductors, leads, usage, above, ...(records ? { records } : {}) })
   return { text }
 }
 

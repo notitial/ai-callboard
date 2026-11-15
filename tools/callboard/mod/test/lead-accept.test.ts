@@ -1,8 +1,8 @@
 import { expect } from 'claude-code/testing'
 import * as c from '../hooks/core'
-import { h, longTest, pfs, pdirs, OFFERS_DIR, PROMPTS_DIR, ROOT, SID, T0, extraStat, briefFiles, laneSeed, leadFiles, modelRuns, renames, resultFiles, submitted, toasts } from './harness'
+import { h, longTest, pfs, storeFiles, fakeSha, pdirs, OFFERS_DIR, PROMPTS_DIR, ROOT, SID, T0, extraStat, briefFiles, laneSeed, leadFiles, modelRuns, renames, resultFiles, submitted, toasts } from './harness'
 import { ledgerRows } from './answer-fixtures'
-import { APP2, COND, KEY, LEADPS, OTHERLEAD, PIN, RESULT, cue, condPresenceOf, dirStat, grantAt, lane, leadFileText, leadReg, LEADPATH, logged, putCond, regAs, started, tickTwice, ticks, waitFor } from './fixtures'
+import { APP2, COND, KEY, LEADPS, OTHERLEAD, PIN, RESULT, leadRecFile, leadRecsJson, cue, condPresenceOf, dirStat, grantAt, lane, leadFileText, leadReg, LEADPATH, logged, putCond, regAs, started, tickTwice, ticks, waitFor } from './fixtures'
 
 // The new panel taking a conductor's lead offer (ADR 0006). The session under test is the new panel (SID) in PIN; the conductor (OTHERLEAD, CONDX) is a fixture
 // with its registry row, presence file, saved grant and list file, as the lead's compact-cue tests build it.
@@ -20,6 +20,11 @@ const offerRow = (over: Record<string, unknown> = {}) => ({ t: iso(5_000), kind:
 const offers = () => [...pfs.keys()].filter((k) => k.startsWith(`${OFFERS_DIR}/`))
 const grantRows = () => ledgerRows().filter((r) => r.kind === 'lead-grant')
 const leadKey = () => h.store.get(`lead:${SID}`)
+const ownerRows = () => ledgerRows().filter((r) => r.kind === 'lead-owner')
+const noOwner = () => {
+  expect(storeFiles.has(leadRecFile())).toBe(false)
+  expect(h.store.get(`owner:${SID}`)).toBeUndefined()
+}
 
 type Setup = {
   stdins?: string[]
@@ -61,8 +66,13 @@ longTest('the new panel takes the offer: rename, ledger row, grant, toast, model
   await accepting($, on, { stdins })
   expect(await cue(70, CUE)).toBe('lead ok - 70\n')
   expect(renames).toEqual(['LEAD-N'])
-  expect(ledgerRows().map((r) => r.kind)).toEqual(['lead-offer', 'lead-grant'])
+  expect(ledgerRows().map((r) => r.kind)).toEqual(['lead-offer', 'lead-grant', 'lead-owner'])
   expect(grantRows()[0]).toMatchObject({ hash: KEY, repo: PIN, lane: 'LEAD-N', nonce: NONCE, by: OTHERLEAD, target: SID })
+  expect(ownerRows()).toMatchObject([{ code: 'made', hash: KEY, repo: PIN, lane: 'LEAD-N', nonce: NONCE, by: OTHERLEAD, target: SID }])
+  // The record and the binding of ADR 0007, written after the grant: the lead's own session id is in the record from its first write.
+  const madeAt = leadRecsJson().leads[0].createdAt
+  expect(leadRecsJson().leads).toEqual([{ name: 'LEAD-N', createdAt: madeAt, how: 'made', conductorSid: OTHERLEAD, conductorName: 'CONDX', nonce: NONCE, sid: SID }])
+  expect(h.store.get(`owner:${SID}`)).toEqual({ repo: PIN, rec: fakeSha(c.leadRecordText(PIN, leadRecsJson().leads[0])), conductorSid: OTHERLEAD, at: madeAt })
   expect(leadKey()).toMatchObject({ pin: PIN })
   expect(offers()).toEqual([])
   expect(toasts).toContain(c.leadOnToast('LEAD-N', OTHERLEAD, PIN))
@@ -108,6 +118,7 @@ REFUSALS.forEach(([code, setup, why], i) => {
     const ino = 100 + i
     expect(await cue(ino, CUE)).toBe(`lead refused ${code} ${ino}\n`)
     plain(setup.rows?.filter((r) => r.kind === 'lead-grant').length ?? 0)
+    noOwner()
     // Before the claim nothing is renamed; the claim taken by another session stays theirs.
     expect(renames).toEqual([])
     expect(offers().includes(CLAIM_PATH)).toBe(code === 'lead-offer-taken')
@@ -376,4 +387,34 @@ longTest('a model that cannot be read back still counts its /model turn: the sta
   expect(await cue(147, CUE)).toBe('lead ok model-unset 147\n')
   await ticks(6)
   expect(startTurns()).toBe(1)
+})
+
+longTest('a record write that fails leaves the lead on with no conductor: answer owner-unset, a toast, a log line, no record and no binding, the grant kept', async ($, on) => {
+  const stdins: string[] = []
+  await accepting($, on, { stdins })
+  h.leadRecWrites = 'fail'
+  expect(await cue(140, CUE)).toBe('lead ok owner-unset 140\n')
+  expect(leadKey()).toMatchObject({ pin: PIN })
+  expect(toasts).toContain(c.OWNER_UNSET_TOAST)
+  expect(logged(stdins).some((l) => l.startsWith('error:owner-unset'))).toBe(true)
+  noOwner()
+  // The row was written before the record, so a closing `left` row says the lead has no conductor.
+  expect(ownerRows().map((r) => r.code)).toEqual(['made', 'left'])
+})
+
+longTest('a model that cannot be set as well as the record: the answer is owner-model-unset', async ($, on) => {
+  await accepting($, on)
+  h.leadRecWrites = 'fail'
+  h.modelMode = 'stay'
+  expect(await cue(141, CUE)).toBe('lead ok owner-model-unset 141\n')
+  noOwner()
+})
+
+longTest('a ledger that takes the grant row but not the owner row leaves the lead on with no conductor: owner-unset, no record', async ($, on) => {
+  await accepting($, on)
+  let writes = 0
+  h.pfsFails = (a) => a[0] === '/usr/bin/tee' && a.includes(LEDGER) && ++writes > 1
+  expect(await cue(142, CUE)).toBe('lead ok owner-unset 142\n')
+  expect(leadKey()).toMatchObject({ pin: PIN })
+  noOwner()
 })

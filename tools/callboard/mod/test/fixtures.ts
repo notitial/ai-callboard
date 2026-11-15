@@ -1,5 +1,5 @@
 import { expect } from 'claude-code/testing'
-import { conductorFileText, folderName, leadRecordText, LANES_CHANGED_TEXT, LANES_CHANGED_NOTE, reboundToast, KEEPALIVE_TEXT } from '../hooks/core'
+import { conductorFileText, folderName, leadRecordText, JOIN_NONE, LANES_CHANGED_TEXT, LANES_CHANGED_NOTE, reboundToast, KEEPALIVE_TEXT } from '../hooks/core'
 import type { LeadRec } from '../hooks/core'
 import { h, AUTO_OWN, GOOD, LANESDIR, LEADRECDIR, NO, PS_TABLE, ROOT, SID, T0, TOOL, YES, condFiles, engine, extraStat, fakeSha, laneSeed, leadFiles, quiet, repoKey, resultFiles, storeFiles, submitted } from './harness'
 import type { Trace } from './harness'
@@ -10,7 +10,7 @@ export const events = (stdins: string[]) => allEvents(stdins).filter((e) => e.ev
 
 export const PERSON = { kind: 'composer' } as const
 // The usage line, which /callboard on gets too.
-export const USAGE = 'Use /callboard help, lanes, status, lead, lane [NAME], escalation [off], manager or off. Run /callboard help for the full list.'
+export const USAGE = 'Use /callboard help, lanes, status, lead, lead join, lane [NAME], escalation [off], manager or off. Run /callboard help for the full list.'
 export const lane = (args: string, origin: unknown = PERSON) => ({ command: 'callboard', args, origin }) as any
 export const statusText = async ($: any) => (await $.command.run(lane('status'))).text as string
 
@@ -117,7 +117,14 @@ export async function lead($: any, on: any, stdins: string[], opts: { repo?: str
 export async function grantAt($: any, cwd: string) {
   h.callerCwd = cwd === '/data/x/work/lab' ? '/data/x/work' : cwd
   h.askAnswer = YES
-  await $.command.run(lane('lead'))
+  // A live conductor makes the grant ask which one runs the lead (ADR 0007); a grant that is not about that picks None for now.
+  const prev = h.askScript
+  h.askScript = async (q: string, opts: string[]) => (opts.includes(JOIN_NONE) ? JOIN_NONE : prev ? prev(q, opts) : opts[0])
+  try {
+    await $.command.run(lane('lead'))
+  } finally {
+    h.askScript = prev
+  }
   h.callerCwd = cwd
 }
 

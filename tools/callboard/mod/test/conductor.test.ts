@@ -2,7 +2,7 @@ import { expect, test } from 'claude-code/testing'
 import { HINT_PREFIX, usageFileText, conductorFileText, conductorAddQuestion, conductorRefusalText, conductorAddedText, CONDUCTOR_NOT_PERSON, CONDUCTOR_USAGE, conductorQuestion, conductorRestoreQuestion, conductorBriefing, conductorBriefingNote, conductorRestoredToast, conductorUnansweredToast, conductorFileBadToast, conductorNoReposToast, CONDUCTOR_ON_TEXT, CONDUCTOR_OFF_QUESTION, conductorStatus, leadBriefing, LANES_CHANGED_TEXT, reboundToast, REASON_TEXT, managerRefusalText, terminateQuestion, leadConductorText } from '../hooks/core'
 import { h, GOOD, LANESDIR, NO, PS_TABLE, ROOT, SID, T0, USAGE_DIR, YES, condFiles, condStat, extraStat, laneSeed, leadFiles, longTest, pdirs, pfs, psDead, realFails, realMap, seen, storeFiles, submitted, toasts, toolDefs } from './harness'
 import type { Trace } from './harness'
-import { APISID, APP2, COMPOSE, COND, CONDFILE, CSESS, FAR, LANE_HINT, LEADKEY, LEADPATH, LEADPS, LEADSID, MGR_SESS, MIN, NO_LANES, NO_LANES_COND, OTHER, OTHERLEAD, OTHERPATH, PIN, SELFPATH, STATUS_NONE, TURN, allEvents, attacher, briefings, ckLane, ckRow, condAt, condOn, condPresenceOf, condRun, condSelf, cue, dirStat, doLane, grantAt, idleFor, killed, lane, leadAt, leadFileText, leadReg, leadSelfReg, listCall, listed, logged, madeLane, mgrAt, mgrCall, mgrFile, mgrRow, newTrace, noteRows, nudges, ownReg, putCond, putStore, regAs, renameThroughTick, selfAs, started, statusTable, statusText, ticks, unanswered, waitFor, ownedBy, putLeadRecs } from './fixtures'
+import { APISID, APP2, COMPOSE, COND, CONDFILE, CSESS, FAR, LANE_HINT, LEADKEY, LEADPATH, LEADPS, LEADSID, MGR_SESS, MIN, NO_LANES, NO_LANES_COND, OTHER, OTHERLEAD, OTHERPATH, PIN, SELFPATH, STATUS_NONE, TURN, allEvents, attacher, briefings, ckLane, ckRow, condAt, condOn, condPresenceOf, condRun, condSelf, cue, dirStat, doLane, grantAt, idleFor, killed, lane, leadAt, leadFileText, leadReg, leadSelfReg, listCall, listed, logged, madeLane, mgrAt, mgrCall, mgrFile, mgrRow, newTrace, noteRows, nudges, ownReg, bindOwner, putCond, putLeadRecs, putStore, regAs, renameThroughTick, selfAs, started, statusTable, statusText, ticks, unanswered, waitFor, ownedBy } from './fixtures'
 
 const CONDSTORE = `${LANESDIR}/${'c'.repeat(64)}.json`
 const condEntries = () => JSON.parse(condFiles.get(CONDFILE) ?? '{"repos":[]}').repos as string[]
@@ -801,30 +801,39 @@ test('the off question asked from another origin in a conductor session names th
 // ---- the Conductor box in the manager's list ----
 const COND2 = '7a1b2c3d-0000-4000-8000-123456789abc'
 
-test('the manager\'s list nests a live conductor\'s repos in a Conductor box inside the Manager box and keeps other repos at the Manager level', async ($, on) => {
-  await mgrAt($, on, [], { sess: { ...MGR_SESS(), ...regAs(OTHERLEAD, 4243, 'CONDX') }, seed: () => condPresenceOf(OTHERLEAD, 4243, 'CONDX', [PIN]) })
+test('the manager\'s list boxes the repos of a lead record under its live conductor and keeps the other repos under No conductor', async ($, on) => {
+  await mgrAt($, on, [], {
+    sess: { ...MGR_SESS(), ...regAs(OTHERLEAD, 4243, 'CONDX') },
+    seed: () => {
+      condPresenceOf(OTHERLEAD, 4243, 'CONDX', [PIN])
+      putLeadRecs([{ name: 'LEAD-A', conductorSid: OTHERLEAD, conductorName: 'CONDX' }])
+    },
+  })
   const t = (await $.tool.call(listCall())).result as string
   const lines = t.split('\n')
   expect(lines[0]).toBe('**Manager MANAGER** · live')
   expect(lines[2].startsWith('| Conductor | Lane |')).toBe(true)
   const condRow = lines.findIndex((l) => l.startsWith('| CONDX | **app · Any lead** | '))
-  const workRow = lines.findIndex((l) => l.startsWith('| – | **work · Any lead** | '))
+  const workRow = lines.findIndex((l) => l.startsWith('| No conductor | **work · Any lead** | '))
   expect(condRow).toBeGreaterThan(3)
   expect(lines.some((l) => l.includes('| ↳ API | '))).toBe(true)
   expect(workRow).toBeGreaterThan(condRow)
 })
 
-test('a repo listed by two conductors appears once, under the first, with an also note; the other conductor shows no lanes in its repos', async ($, on) => {
+test('two live conductors: one with a record gets the repo, the other shows one dash row; a conductor listing a repo with no record gets nothing', async ($, on) => {
   await mgrAt($, on, [], {
     sess: { ...MGR_SESS(), ...regAs(OTHERLEAD, 4243, 'CONDX'), ...regAs(COND2, 4244, 'CONDY') },
     seed: () => {
       condPresenceOf(OTHERLEAD, 4243, 'CONDX', [PIN])
       condPresenceOf(COND2, 4244, 'CONDY', [PIN, APP2])
+      putLeadRecs([{ name: 'LEAD-A', conductorSid: OTHERLEAD, conductorName: 'CONDX' }])
     },
   })
   const t = (await $.tool.call(listCall())).result as string
-  expect(t.split('**app (also CONDY) · Any lead**').length).toBe(2)
-  expect(t).toContain('| CONDX | **app (also CONDY) · Any lead** | ')
+  expect(t.split('**app · LEAD-A**').length).toBe(2)
+  expect(t).not.toContain('(also')
+  expect(t).toMatch(/^\| CONDX \| \*\*app · Any lead\*\* /m)
+  expect(t).toMatch(/^\|  \| \*\*app · LEAD-A\*\* \|.*\| no session \|/m)
   expect(t).toMatch(/^\| CONDY \| –( \| –)+ \|$/m)
   expect(t.indexOf('| CONDX | ')).toBeLessThan(t.indexOf('| CONDY | '))
 })
@@ -881,16 +890,18 @@ test('laneless leads (manager): the lead row shows the lead\'s own reading in it
   expect((await $.command.run(lane('lanes'))).text).toBe(t)
 })
 
-test('laneless leads (manager): inside a live conductor\'s Conductor box when the conductor lists the lead\'s repo', async ($, on) => {
+test('laneless leads (manager): inside the Conductor box of the conductor its record names', async ($, on) => {
   await mgrAt($, on, [], {
     sess: { ...MGR_SESS(), ...regAs(OTHERLEAD, 4243, 'LEAD-A'), ...regAs(COND2, 4244, 'CONDX') },
     seed: () => {
       leadPresenceOf(OTHERLEAD, 4243, PIN)
       condPresenceOf(COND2, 4244, 'CONDX', [PIN])
+      putLeadRecs([{ name: 'LEAD-A', sid: OTHERLEAD, conductorSid: COND2, conductorName: 'CONDX' }])
     },
   })
+  bindOwner(OTHERLEAD, COND2, 'LEAD-A')
   const t = (await $.tool.call(listCall())).result as string
-  // The conductor's name is on its first row only; the laneless lead's row sits under it.
+  // The lead's record and binding name the conductor, so the repo and the lead's row sit under CONDX.
   expect(t).toMatch(/^\| CONDX \| \*\*app · Any lead\*\* \| /m)
   expect(t).toMatch(/^\|  \| \*\*app · LEAD-A\*\* \(idle\) \|.*\| lead \| \? \| \? \| \? \| \? \| – \|  \|$/m)
 })

@@ -126,6 +126,34 @@ test('g: two grants of one repo within an hour are an anomaly; another repo, or 
   assert.deepEqual(rules(run(f3)), [])
 })
 
+const LEADSID = 'a1b2c3d4-0000-4000-8000-123456789abc'
+const OWNER = (code, at, o = {}) => R('lead-owner', BASE + at, { hash: H('c'), repo: '/Users/x/api', lane: 'LEAD-A', target: LEADSID, by: SID, ...o, code })
+
+test('h: a made row after its own lead-grant, a joined row, and a leave then a join are no anomaly; the rows are counted', () => {
+  const fx = fixture()
+  ledger(fx, [ON(), ...clean(), OFFER(N1, 1000), GRANT(N1, 2000), OWNER('made', 2500, { nonce: N1 }), OWNER('left', 3000, { was: SID }), OWNER('joined', 4000), OWNER('off', 5000, { was: SID }), OWNER('joined', 6000)])
+  const rep = run(fx)
+  assert.deepEqual(rules(rep), [])
+  assert.equal(rep.counts.rowsByKind['lead-owner'], 5)
+})
+
+test('h: a made row with no earlier lead-grant of its repo, nonce and conductor is an anomaly', () => {
+  for (const rows of [[OWNER('made', 2500, { nonce: N1 })], [OFFER(N1, 1000), GRANT(N1, 2000), OWNER('made', 2500, { nonce: N2 })], [OFFER(N1, 1000), GRANT(N1, 2000), OWNER('made', 2500, { nonce: N1, by: 'b1b2c3d4-0000-4000-8000-123456789abc' })], [OFFER(N1, 1000), GRANT(N1, 3000), OWNER('made', 2500, { nonce: N1 })], [OFFER(N1, 1000), GRANT(N1, 2000), OWNER('made', 2500, { nonce: N1, target: 'd1b2c3d4-0000-4000-8000-123456789abc' })]]) {
+    const fx = fixture()
+    ledger(fx, [ON(), ...clean(), ...rows])
+    assert.ok(rules(run(fx)).includes('lead-owner-made-without-grant'), JSON.stringify(rules(run(fx))))
+  }
+})
+
+test('h: a lead given a conductor twice with no leave between is an anomaly; another lead or another repo is not', () => {
+  const fx = fixture()
+  ledger(fx, [ON(), ...clean(), OWNER('joined', 1000), OWNER('joined', 2000)])
+  assert.deepEqual(rules(run(fx)), ['lead-owner-twice'])
+  const f2 = fixture()
+  ledger(f2, [ON(), ...clean(), OWNER('joined', 1000), OWNER('joined', 2000, { target: 'd1b2c3d4-0000-4000-8000-123456789abc' }), OWNER('joined', 3000, { hash: H('d') })])
+  assert.deepEqual(rules(run(f2)), [])
+})
+
 test('a: a returned row with no answered row is an anomaly', () => {
   const fx = fixture()
   const rows = clean().filter((r) => r.kind !== 'answered')

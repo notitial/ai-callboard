@@ -291,3 +291,10 @@ export const offerSweptAt = new Map<string, number>()
 // conductorGrantCheck: when a conductor last read the ledger for grants in its name, and the grants (by nonce) it has already told the person about.
 export const grantCheckedAt = new Map<string, number>()
 export const grantTold = new Map<string, Set<string>>()
+
+// ---- a lead's conductor (engine/lead-records.ts) ----
+// When a bound lead last looked at its own record, and the leads whose changed record is already logged (once, until it matches again or the lead leaves).
+export const ownerLooked = new Map<string, number>()
+export const ownerFlagged = new Set<string>()
+// A lead's rename whose new name is taken: the `old\ncur` pair the person was already told about, so the toast comes once per pair.
+export const renameRefused = new Map<string, string>()
