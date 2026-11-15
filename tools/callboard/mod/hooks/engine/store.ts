@@ -83,8 +83,9 @@ export async function loadLanes($: any): Promise<c.Lane[] | string> {
 }
 
 // Lanes a lead makes live in ~/.claude/callboard/lanes/<sha256 of the repo's real path>.json; the grant's folder is the repo.
-export async function storePath($: any, key: string): Promise<string> {
-  return `${(await where($))!.root}/lanes/${key}.json`
+// `dir` names another store folder under the callboard root (the lead records), with the same file name rule.
+export async function storePath($: any, key: string, dir = 'lanes'): Promise<string> {
+  return `${(await where($))!.root}/${dir}/${key}.json`
 }
 // absent: no file. bad: something is there that the loader would not trust or could not read. ok: a plain private file of ours, read with a bound.
 export async function readStoreFile($: any, path: string, uid: number, max = c.STORE_MAX_BYTES): Promise<{ state: 'absent' | 'bad' | 'ok'; text: string }> {
@@ -107,31 +108,36 @@ export async function lockStore(key: string): Promise<() => void> {
 
 // One store write, from any of the four writers: the in-process queue, then the mkdir lock between processes, then read, compute and write only,
 // then a re-read: a writer whose change is not in the file after its own write says so (wrote: the file was replaced, so that writer may have to undo it). `pre` runs after the queue and before the lock (it may be slow).
-export type Edit = { no: string; why?: string } | { skip: true } | { text: string; landed: (s: c.Store | undefined) => boolean }
-export async function editStore($: any, key: string, fn: (cur: { state: 'absent' | 'bad' | 'ok'; text: string }, ctx: any) => Promise<Edit>, pre?: () => Promise<any>): Promise<{ no: string; why?: string; wrote?: true } | { text: string }> {
+// `dir` is the store folder (the lane stores unless given). Each folder has its own queue key, lock folder and files, so a lane store and a lead record of one
+// repo never wait on each other; for that to stay true, no callback of an edit in one folder may start an edit in the other.
+// An edit of a folder that does not hold lane stores gives `landedText` (it gets the file's text after the write, undefined when it cannot be read) in place
+// of `landed`, so nothing here parses another folder's file as a lane store.
+export type Edit = { no: string; why?: string } | { skip: true } | { text: string; landed: (s: c.Store | undefined) => boolean } | { text: string; landedText: (t: string | undefined) => boolean }
+export async function editStore($: any, key: string, fn: (cur: { state: 'absent' | 'bad' | 'ok'; text: string }, ctx: any) => Promise<Edit>, pre?: () => Promise<any>, dir = 'lanes'): Promise<{ no: string; why?: string; wrote?: true } | { text: string }> {
   const p = await where($)
   if (!p) return { no: 'no-paths' }
-  const release = await lockStore(key)
+  const release = await lockStore(dir === 'lanes' ? key : `${dir}:${key}`)
   try {
     const ctx = pre ? await pre() : undefined
     if (ctx && typeof ctx === 'object' && 'no' in ctx) return ctx
-    const held = await lockDir($, p, key)
+    const held = await lockDir($, p, key, dir)
     if ('no' in held) return held
     try {
-      const path = await storePath($, key)
+      const path = await storePath($, key, dir)
       const cur = await readStoreFile($, path, p.uid)
       const e = await fn(cur, ctx)
       if ('no' in e) return e
       if ('skip' in e) return { text: '' }
       const again = await readStoreFile($, path, p.uid)
       if (again.state !== cur.state || again.text !== cur.text) return { no: 'store-changed' }
-      const w = await writeIn($, 'lanes', `${key}.json`, e.text)
+      const w = await writeIn($, dir, `${key}.json`, e.text)
       if ('err' in w) return { no: w.err }
       const after = await readStoreFile($, path, p.uid)
+      if ('landedText' in e) return e.landedText(after.state === 'ok' ? after.text : undefined) ? { text: e.text } : { no: 'store-changed', wrote: true }
       const parsed = after.state === 'ok' ? c.parseStore(after.text) : undefined
       return e.landed(parsed?.ok ? parsed.store : undefined) ? { text: e.text } : { no: 'store-changed', wrote: true }
     } finally {
-      await unlockDir($, p, key, held.owner)
+      await unlockDir($, p, key, held.owner, dir)
     }
   } finally {
     release()
@@ -151,11 +157,11 @@ export function editLanes($: any, key: string, fn: (store: c.Store) => Promise<E
 // The lock is a folder made with mkdir (atomic) holding an owner file {pid, procStart, nonce} of the process that made it; the nonce tells one holding from
 // the next one of the same process. It is advisory: it keeps honest callboard processes from losing each other's updates. Only a lock whose owner is gone
 // (or, with no owner file at all, older than 10 s) is broken, and only by one breaker at a time (a second mkdir lock, itself broken by age alone).
-const lockPath = (p: { root: string }, key: string) => `${p.root}/lanes/.${key}.lock`
-async function lockDir($: any, p: { uid: number; root: string }, key: string): Promise<{ owner: string } | { no: string }> {
-  const lock = lockPath(p, key)
-  await run($, [MKDIR, '-p', '-m', '700', p.root, `${p.root}/lanes`])
-  if (!(await dirOk($, p.root, p.uid)) || !(await dirOk($, `${p.root}/lanes`, p.uid))) return { no: 'unsafe-dir' }
+const lockPath = (p: { root: string }, key: string, dir = 'lanes') => `${p.root}/${dir}/.${key}.lock`
+async function lockDir($: any, p: { uid: number; root: string }, key: string, dir = 'lanes'): Promise<{ owner: string } | { no: string }> {
+  const lock = lockPath(p, key, dir)
+  await run($, [MKDIR, '-p', '-m', '700', p.root, `${p.root}/${dir}`])
+  if (!(await dirOk($, p.root, p.uid)) || !(await dirOk($, `${p.root}/${dir}`, p.uid))) return { no: 'unsafe-dir' }
   const sid = await $.session.id()
   const rows = await registryEntries($)
   if (!rows) return { no: 'registry-unreadable' }
@@ -239,8 +245,8 @@ async function breakStale($: any, p: { uid: number; root: string }, lock: string
 
 // Released only while the owner file still carries our nonce. Our own folder is emptied and removed; never rm -rf. 'lost': the folder is gone or names another
 // holder; 'unknown': the owner file could not be read to a verdict.
-async function releaseIfOurs($: any, p: { uid: number; root: string }, key: string, nonce: string | undefined): Promise<'done' | 'lost' | 'unknown'> {
-  const lock = lockPath(p, key)
+async function releaseIfOurs($: any, p: { uid: number; root: string }, key: string, nonce: string | undefined, dir = 'lanes'): Promise<'done' | 'lost' | 'unknown'> {
+  const lock = lockPath(p, key, dir)
   const o = await readSmall($, `${lock}/owner`, p.uid, 256)
   const seenOwner = o ? c.parseOwner(o.text) : undefined
   if (nonce !== undefined && seenOwner?.nonce === nonce) {
@@ -252,15 +258,16 @@ async function releaseIfOurs($: any, p: { uid: number; root: string }, key: stri
   return 'unknown'
 }
 
-async function unlockDir($: any, p: { uid: number; root: string }, key: string, owner: string) {
+// An owed release keeps its folder, so the retry looks at the lock it owes and not at the lane store's lock of the same repo.
+async function unlockDir($: any, p: { uid: number; root: string }, key: string, owner: string, dir = 'lanes') {
   const sid = await $.session.id().catch(() => '')
   try {
     const nonce = c.parseOwner(owner)?.nonce
     let st: 'done' | 'lost' | 'unknown' = 'unknown'
-    for (let i = 0; i < 2 && st !== 'done'; i++) st = await releaseIfOurs($, p, key, nonce)
+    for (let i = 0; i < 2 && st !== 'done'; i++) st = await releaseIfOurs($, p, key, nonce, dir)
     if (st === 'done') return
     await log($, sid, 'error', st === 'lost' ? 'lock-lost' : 'lock-unconfirmed')
-    if (st === 'unknown' && nonce) unlockOwed.set(`${key}:${nonce}`, { key, nonce, tries: 0 })
+    if (st === 'unknown' && nonce) unlockOwed.set(`${dir === 'lanes' ? '' : `${dir}:`}${key}:${nonce}`, { key, nonce, tries: 0, dir })
   } catch {
     await logq($, sid, 'error', 'unlock')
   }
@@ -270,7 +277,7 @@ export async function unlockRetry($: any, sid: string) {
   const p = await where($)
   if (!p) return
   for (const [k, o] of [...unlockOwed]) {
-    const st = await releaseIfOurs($, p, o.key, o.nonce).catch(() => 'unknown' as const)
+    const st = await releaseIfOurs($, p, o.key, o.nonce, o.dir).catch(() => 'unknown' as const)
     if (st === 'unknown' && ++o.tries < 30) continue
     unlockOwed.delete(k)
     if (st === 'unknown') await log($, sid, 'error', 'unlock-gave-up')

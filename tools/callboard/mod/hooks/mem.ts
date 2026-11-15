@@ -54,7 +54,7 @@ export const storeLocks = new Map<string, Promise<void>>()
 
 // A release that could not be confirmed (twice) is owed: the tick tries again, up to 30 times, and stops when the folder is gone or names another holder.
 // Nothing here lets a lock that names our own pid be removed by another take of the lock.
-export const unlockOwed = new Map<string, { key: string; nonce: string; tries: number }>()
+export const unlockOwed = new Map<string, { key: string; nonce: string; tries: number; dir: string }>()
 
 // Rows ps -p confirmed gone, as pid and start time: that process has ended for good, so a later read need not ask again. A pid reused later has another start
 // time, so its row is stale anyway. Cleared whole when full, and at session start.

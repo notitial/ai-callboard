@@ -3129,3 +3129,126 @@ test('the lead cue is built in lead-open only and handled at one dispatch line',
   assert.match(handlers[0], /^lanes\.ts: if \(cue\.verb === 'lead'\) return leadAccept\(/)
   assert.deepEqual(files.filter((f) => /leadAccept\(/.test(text(f)) && f !== 'lead-accept.ts'), ['lanes.ts'])
 })
+
+// ---- lead records (ADR 0007) ----
+const LO_REPO = '/Users/x/code/app'
+const LO_COND = '5a1b2c3d-0000-4000-8000-123456789abc'
+const LO_COND2 = '6a1b2c3d-0000-4000-8000-123456789abc'
+const LO_LEAD = '0a1b2c3d-0000-4000-8000-123456789abc'
+const LO_LEAD2 = '1a1b2c3d-0000-4000-8000-123456789abc'
+const LO_NONCE = 'ab'.repeat(16)
+const LO_MADE: c.LeadRec = { name: 'APP-LEAD', createdAt: 1700000000000, how: 'made', conductorSid: LO_COND, conductorName: 'COND', nonce: LO_NONCE, sid: LO_LEAD, parked: 1700000100000 }
+const LO_JOINED: c.LeadRec = { name: 'SECOND', createdAt: 2, how: 'joined', conductorSid: LO_COND2 }
+const LO_FILE = (leads: unknown[], repo: unknown = LO_REPO, extra: Record<string, unknown> = {}) => JSON.stringify({ repo, leads, ...extra })
+
+test('parseLeadStore reads a clean store whole and keeps each optional field only when it is there', () => {
+  assert.deepEqual(c.parseLeadStore(LO_FILE([LO_MADE, LO_JOINED])), { ok: true, store: { repo: LO_REPO, leads: [LO_MADE, LO_JOINED] } })
+  assert.deepEqual(c.parseLeadStore(LO_FILE([])), { ok: true, store: { repo: LO_REPO, leads: [] } })
+  // The lead's session id without a parked time, and a made record whose nonce is not kept.
+  assert.equal(c.parseLeadStore(LO_FILE([{ ...LO_JOINED, sid: LO_LEAD2 }, { name: 'M', createdAt: 1, how: 'made', conductorSid: LO_COND }])).ok, true)
+})
+
+test('parseLeadStore refuses a store all or nothing, each bad field with its reason', () => {
+  const no = (text: string) => {
+    const r = c.parseLeadStore(text)
+    return r.ok ? 'ok' : r.reason
+  }
+  const one = (over: Record<string, unknown>) => no(LO_FILE([LO_JOINED, { ...LO_MADE, ...over }]))
+  assert.equal(no('{'), 'store-json')
+  assert.equal(no('null'), 'store-shape')
+  assert.equal(no('[]'), 'store-shape')
+  assert.equal(no(LO_FILE([], 'code/app')), 'store-repo')
+  assert.equal(no(LO_FILE([], '/Users/x/../app')), 'store-repo')
+  assert.equal(no(LO_FILE([], 7)), 'store-repo')
+  assert.equal(no(JSON.stringify({ repo: LO_REPO })), 'store-shape')
+  assert.equal(no(JSON.stringify({ repo: LO_REPO, leads: {} })), 'store-shape')
+  assert.equal(no(LO_FILE([], LO_REPO, { creates: [] })), 'store-shape', 'an unknown key of the file')
+  assert.equal(no(LO_FILE([null])), 'store-shape')
+  assert.equal(one({ lane: 'X' }), 'store-shape', 'an unknown key of a record')
+  for (const name of ['', 'a b', 'x'.repeat(41), 7, 'MANAGER', 'MANAG3R']) assert.equal(one({ name }), 'store-name', String(name))
+  assert.equal(one({ createdAt: 'now' }), 'store-shape')
+  for (const how of ['moved', 'migrated', undefined, 1]) assert.equal(one({ how }), 'store-owner', String(how))
+  for (const conductorSid of [undefined, 'COND', LO_COND.toUpperCase(), LO_COND.slice(1)]) assert.equal(one({ conductorSid }), 'store-owner', String(conductorSid))
+  for (const conductorName of ['', 'a b', 7]) assert.equal(one({ conductorName }), 'store-owner', String(conductorName))
+  for (const nonce of ['ab', LO_NONCE.toUpperCase(), `${LO_NONCE}0`, 7]) assert.equal(one({ nonce }), 'store-owner', String(nonce))
+  assert.equal(one({ how: 'joined' }), 'store-owner', 'a nonce only with made')
+  assert.equal(one({ sid: 'LEAD' }), 'store-shape')
+  assert.equal(one({ sid: undefined }), 'store-shape', 'parked only with a session id')
+  assert.equal(one({ parked: 'yes' }), 'store-shape')
+  assert.equal(one({ name: 'second', sid: LO_LEAD2 }), 'store-dup', 'names differ only by case')
+  assert.equal(no(LO_FILE([{ ...LO_JOINED, sid: LO_LEAD }, LO_MADE])), 'store-dup', 'two records of one lead session')
+  const many = (n: number) => Array.from({ length: n }, (_, i) => ({ ...LO_JOINED, name: `L${i}` }))
+  assert.equal(no(LO_FILE(many(c.LEAD_STORE_MAX))), 'ok')
+  assert.equal(no(LO_FILE(many(c.LEAD_STORE_MAX + 1))), 'store-shape')
+  assert.equal(no(`${LO_FILE([LO_JOINED])}${' '.repeat(c.STORE_MAX_BYTES)}`), 'store-size')
+})
+
+test('storeLeadJson and leadStoreText write a record in one key order, round trip through the parser, and refuse a file every reader would', () => {
+  assert.deepEqual(Object.keys(c.storeLeadJson({ parked: 5, sid: LO_LEAD, nonce: LO_NONCE, conductorName: 'COND', conductorSid: LO_COND, how: 'made', createdAt: 1, name: 'A' })), ['name', 'createdAt', 'how', 'conductorSid', 'conductorName', 'nonce', 'sid', 'parked'])
+  assert.deepEqual(Object.keys(c.storeLeadJson(LO_JOINED)), ['name', 'createdAt', 'how', 'conductorSid'])
+  assert.deepEqual(Object.keys(c.storeLeadJson({ ...LO_JOINED, extra: 1 } as c.LeadRec)), ['name', 'createdAt', 'how', 'conductorSid'], 'a field the record type lacks is not written')
+  const t = c.leadStoreText(LO_REPO, [LO_MADE, LO_JOINED])
+  assert.ok('text' in t)
+  assert.equal(t.text, LO_FILE([LO_MADE, LO_JOINED]))
+  assert.deepEqual(c.parseLeadStore(t.text), { ok: true, store: { repo: LO_REPO, leads: [LO_MADE, LO_JOINED] } })
+  assert.deepEqual(c.leadStoreText(`/${'r'.repeat(400)}`, Array.from({ length: 200 }, (_, i) => ({ ...LO_MADE, name: `L${i}` }))), { no: 'store-size' })
+})
+
+test('leadRecordText covers the repo, how, the conductor session and the nonce, and nothing that changes without changing the owner', () => {
+  const base = c.leadRecordText(LO_REPO, LO_MADE)
+  for (const same of [{ name: 'RENAMED' }, { sid: LO_LEAD2 }, { sid: undefined, parked: undefined }, { parked: 9 }, { conductorName: 'OTHER' }, { conductorName: undefined }, { createdAt: 5 }]) assert.equal(c.leadRecordText(LO_REPO, { ...LO_MADE, ...same }), base, JSON.stringify(same))
+  for (const moved of [{ conductorSid: LO_COND2 }, { how: 'joined' as const }, { nonce: 'cd'.repeat(16) }, { nonce: undefined }]) assert.notEqual(c.leadRecordText(LO_REPO, { ...LO_MADE, ...moved }), base, JSON.stringify(moved))
+  assert.notEqual(c.leadRecordText('/Users/x/code/app2', LO_MADE), base)
+  assert.ok(base.startsWith('lead-record\n'))
+  // Not a lane record's text: the first line sets it apart.
+  assert.notEqual(base.split('\n')[0], c.recordText({ name: 'lead-record', folder: LO_REPO, brief: `${LO_REPO}/B.md` }).split('\n')[1])
+})
+
+test('parseOwnerBinding takes only a clean repo, a 64-hex hash, a session id and a time', () => {
+  const good = { repo: LO_REPO, rec: 'f'.repeat(64), conductorSid: LO_COND, at: 5 }
+  assert.deepEqual(c.parseOwnerBinding({ ...good, name: 'X' }), good)
+  for (const bad of [undefined, null, 'x', [good], { ...good, repo: 'app' }, { ...good, repo: '/a/../b' }, { ...good, rec: 'f'.repeat(63) }, { ...good, rec: 'F'.repeat(64) }, { ...good, conductorSid: 'COND' }, { ...good, at: 'now' }, { ...good, at: undefined }]) assert.equal(c.parseOwnerBinding(bad), undefined, JSON.stringify(bad))
+  assert.equal(c.OWNER_PREFIX, 'owner:')
+  assert.equal(c.LEAD_RECORDS_DIR, 'lead-records')
+})
+
+test('ownerOf finds a lead record by name, by session, or as the only record for a lane that names no lead', () => {
+  const app = { key: 'a'.repeat(64), store: { repo: LO_REPO, leads: [LO_MADE, LO_JOINED] } }
+  const one = { key: 'b'.repeat(64), store: { repo: '/Users/x/code/app2', leads: [LO_JOINED] } }
+  const none = { key: 'c'.repeat(64), store: { repo: '/Users/x/code/cond', leads: [] } }
+  const all = [app, one, none]
+  assert.deepEqual(c.ownerOf(all, LO_REPO, 'APP-LEAD'), { key: app.key, repo: LO_REPO, rec: LO_MADE })
+  assert.deepEqual(c.ownerOf(all, `${LO_REPO}/api/deep`, 'SECOND'), { key: app.key, repo: LO_REPO, rec: LO_JOINED }, 'a lane in a subfolder')
+  assert.equal(c.ownerOf(all, LO_REPO, 'NOBODY'), undefined)
+  assert.equal(c.ownerOf(all, LO_REPO, 'app-lead'), undefined, 'the name as the registry writes it')
+  assert.equal(c.ownerOf(all, '/Users/x/code/app2', 'APP-LEAD'), undefined, "a name in another repo's store")
+  assert.equal(c.ownerOf(all, '/Users/x/code/application', 'APP-LEAD'), undefined, 'a folder that only starts like the repo')
+  assert.equal(c.ownerOf(all, '/Users/x/code', 'APP-LEAD'), undefined, 'a folder above the repo')
+  // A lane that names no lead follows its repo's only record.
+  assert.deepEqual(c.ownerOf(all, '/Users/x/code/app2/svc', undefined), { key: one.key, repo: '/Users/x/code/app2', rec: LO_JOINED })
+  assert.equal(c.ownerOf(all, LO_REPO, undefined), undefined, 'two records')
+  assert.equal(c.ownerOf(all, '/Users/x/code/cond', undefined), undefined, 'no record')
+  assert.equal(c.ownerOf([], LO_REPO, undefined), undefined)
+  // A lead that is known but has no name never gets the only record.
+  assert.equal(c.ownerOf(all, '/Users/x/code/app2', ''), undefined)
+  // By session: whatever the record is called, and nothing else is tried.
+  assert.deepEqual(c.ownerOf(all, LO_REPO, 'SOME-NEW-NAME', LO_LEAD), { key: app.key, repo: LO_REPO, rec: LO_MADE })
+  assert.deepEqual(c.ownerOf(all, LO_REPO, undefined, LO_LEAD), { key: app.key, repo: LO_REPO, rec: LO_MADE })
+  assert.equal(c.ownerOf(all, LO_REPO, 'SECOND', LO_LEAD2), undefined, 'no record of that session, so the name is not tried')
+  assert.equal(c.ownerOf(all, '/Users/x/code/app2', undefined, LO_LEAD), undefined, "a session of another repo's record")
+})
+
+test('ownerOf with nested repos: a named lead is found from the deepest store outward, a lane that names no lead only in the deepest', () => {
+  const inner: c.LeadRec = { ...LO_JOINED, name: 'INNER', sid: LO_LEAD2 }
+  const outer = { key: 'a'.repeat(64), store: { repo: LO_REPO, leads: [LO_MADE] } }
+  const nested = { key: 'b'.repeat(64), store: { repo: `${LO_REPO}/vendor/lib`, leads: [inner] } }
+  for (const stores of [[outer, nested], [nested, outer]]) {
+    assert.deepEqual(c.ownerOf(stores, `${LO_REPO}/vendor/lib/src`, 'INNER'), { key: nested.key, repo: nested.store.repo, rec: inner })
+    assert.deepEqual(c.ownerOf(stores, `${LO_REPO}/vendor/lib/src`, 'APP-LEAD'), { key: outer.key, repo: LO_REPO, rec: LO_MADE }, "an outer lead's lane working inside the nested repo")
+    assert.deepEqual(c.ownerOf(stores, `${LO_REPO}/vendor/lib`, undefined), { key: nested.key, repo: nested.store.repo, rec: inner }, 'the deeper store wins')
+    assert.deepEqual(c.ownerOf(stores, `${LO_REPO}/api`, undefined), { key: outer.key, repo: LO_REPO, rec: LO_MADE })
+    assert.deepEqual(c.ownerOf(stores, `${LO_REPO}/vendor/lib`, undefined, LO_LEAD), { key: outer.key, repo: LO_REPO, rec: LO_MADE }, 'by session, in any store that holds the folder')
+  }
+  const two = { key: 'b'.repeat(64), store: { repo: `${LO_REPO}/vendor/lib`, leads: [inner, { ...LO_JOINED, name: 'INNER2' }] } }
+  assert.equal(c.ownerOf([outer, two], `${LO_REPO}/vendor/lib`, undefined), undefined, 'the deepest store has two records: the outer one is not a fallback')
+})

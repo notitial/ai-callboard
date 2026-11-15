@@ -42,10 +42,14 @@ export const regFiles = (): Record<string, string> => (Object.keys(h.extraSessio
 // What the live checkout's .git/HEAD holds when the mod reads it at session start (undefined: the read fails). Default: on main, which warns nothing.
 const MAIN_HEAD = 'ref: refs/heads/main\n'
 export const LANESDIR = '/Users/x/.claude/callboard/lanes'
+// The lead-record files (one per repo, named as the lane stores are) sit in storeFiles too, under this folder.
+export const LEADRECDIR = '/Users/x/.claude/callboard/lead-records'
 export const storeFiles = new Map<string, string>()
 // Lanes a test seeds are store lanes, as a lead's lane_create leaves them. `laneSeed.text` takes a list of (name, folder, brief, repo?) and writes one store
 // file per repo (a lane with no repo goes in /data/x/work), with that repo's .git; undefined takes the files it wrote away again.
 const SEED_KEY = (repo: string) => (repo === '/Users/x/code/app2' ? 'b' : repo === '/Users/x/code/cond' ? 'c' : repo === '/data/x/work' ? 'd' : 'a').repeat(64)
+// The file name (less .json) of a repo's store, as the shasum mock hashes the repo's path.
+export const repoKey = SEED_KEY
 export const laneSeed = {
   get text(): string | undefined {
     return h.laneSeedText
@@ -199,6 +203,24 @@ export const fsReads: string[] = []
 export const lockOwnerReads: (string | undefined)[] = []
 export const lockLog: string[] = []
 const movedLocks = new Map<string, { owner: string | undefined; ino: number }>()
+// The lock folder of a lead-record file has a state of its own, by its path; every lane store's lock is h.lockState. The lock knobs and lockLog act on the
+// locks of one folder, the lane stores' unless a test sets h.lockKnobsDir = LEADRECDIR, so a test of one folder's lock is not moved by the other's.
+type LockState = { held: boolean; owner?: string; mtimeSec?: number; ino?: number }
+export const recLocks = new Map<string, LockState>()
+const isRecLock = (lock: string) => lock.startsWith(`${LEADRECDIR}/`)
+const getLock = (lock: string): LockState => {
+  if (!isRecLock(lock)) return h.lockState
+  if (!recLocks.has(lock)) recLocks.set(lock, { held: false })
+  return recLocks.get(lock)!
+}
+const setLock = (lock: string, st: LockState) => {
+  if (isRecLock(lock)) recLocks.set(lock, st)
+  else h.lockState = st
+}
+const knobs = (lock: string) => (isRecLock(lock) ? LEADRECDIR : LANESDIR) === h.lockKnobsDir
+const lockNote = (lock: string, what: string) => {
+  if (knobs(lock)) lockLog.push(what)
+}
 export const leadFiles = new Map<string, { text: string; mtimeSec?: number; mode?: string; nlink?: number; size?: number; uid?: number; kind?: string; swap?: boolean | 'once'; failHead?: number }>()
 export const psDead = new Set<string>()
 export const psConfirmCalls: string[] = []
@@ -336,6 +358,10 @@ export const h = {
   // Called with the target of every mv (a rename into place), before the mock acts on it.
   mvHook: undefined,
   lockState: { held: false } as { held: boolean; owner?: string; mtimeSec?: number; ino?: number },
+  // The store folder whose locks the lock knobs below and lockLog act on.
+  lockKnobsDir: LANESDIR as string,
+  // A write of a lead-record file: 'fail' makes the rename into place fail.
+  leadRecWrites: 'ok' as 'ok' | 'fail',
   gateHeld: undefined,
   lockMkdirErr: undefined,
   lockOwnerAfterMoveIno: undefined,
@@ -505,6 +531,9 @@ function resetStoreFiles() {
   storeFiles.clear()
   h.storeStatOverride = undefined
   h.lockState = { held: false }
+  h.lockKnobsDir = LANESDIR
+  h.leadRecWrites = 'ok'
+  recLocks.clear()
   h.gateHeld = undefined
   h.lockMkdirErr = undefined
   h.lockOwnerAfterMoveIno = undefined
@@ -828,7 +857,7 @@ export function engine(on0: any, argvSeen: string[][], stdins: string[] = [], cl
     if (e.path === LANESDIR && h.lanesListHook) await h.lanesListHook()
     return listed_(e)
   })
-  const listed_ = (e: any) => ({ value: e.path === '/Users/x/.claude/hooks' ? h.hooksList.map((name) => ({ name, kind: 'file', size: 1, mtimeMs: 0, isLink: true })) : isPromptPath(e.path) ? promptList(e.path) : e.path === `${ROOT}/leads` ? [...leadFiles.entries()].map(([k, f]) => ({ name: k.slice(ROOT.length + 7), kind: 'file', size: 1, mtimeMs: (f.mtimeSec ?? Math.floor(h.nowMs / 1000)) * 1000, isLink: false })) : e.path === `${ROOT}/result` ? h.resultList : e.path === `${ROOT}/cue` ? h.cueList : e.path === `${ROOT}/open` ? h.openList : e.path === OFFERS_DIR ? [...pfs.entries()].filter(([k]) => k.startsWith(`${OFFERS_DIR}/`)).map(([k, f]) => ({ name: k.slice(OFFERS_DIR.length + 1), kind: 'file', size: f.text.length, mtimeMs: (f.mtimeSec ?? Math.floor(h.nowMs / 1000)) * 1000, isLink: false })) : e.path === `${ROOT}/log` ? h.logList : e.path === LANESDIR ? [...storeFiles.keys()].map((k) => ({ name: k.slice(LANESDIR.length + 1), kind: 'file', size: 1, mtimeMs: 0, isLink: false })) : e.path === SESSIONS ? Object.keys(regFiles()).map((name) => ({ name, kind: 'file', size: 1, mtimeMs: 0, isLink: false })) : [] })
+  const listed_ = (e: any) => ({ value: e.path === '/Users/x/.claude/hooks' ? h.hooksList.map((name) => ({ name, kind: 'file', size: 1, mtimeMs: 0, isLink: true })) : isPromptPath(e.path) ? promptList(e.path) : e.path === `${ROOT}/leads` ? [...leadFiles.entries()].map(([k, f]) => ({ name: k.slice(ROOT.length + 7), kind: 'file', size: 1, mtimeMs: (f.mtimeSec ?? Math.floor(h.nowMs / 1000)) * 1000, isLink: false })) : e.path === `${ROOT}/result` ? h.resultList : e.path === `${ROOT}/cue` ? h.cueList : e.path === `${ROOT}/open` ? h.openList : e.path === OFFERS_DIR ? [...pfs.entries()].filter(([k]) => k.startsWith(`${OFFERS_DIR}/`)).map(([k, f]) => ({ name: k.slice(OFFERS_DIR.length + 1), kind: 'file', size: f.text.length, mtimeMs: (f.mtimeSec ?? Math.floor(h.nowMs / 1000)) * 1000, isLink: false })) : e.path === `${ROOT}/log` ? h.logList : e.path === LANESDIR || e.path === LEADRECDIR ? [...storeFiles.keys()].filter((k) => k.startsWith(`${e.path}/`)).map((k) => ({ name: k.slice(e.path.length + 1), kind: 'file', size: 1, mtimeMs: 0, isLink: false })) : e.path === SESSIONS ? Object.keys(regFiles()).map((name) => ({ name, kind: 'file', size: 1, mtimeMs: 0, isLink: false })) : [] })
   on('process.run', function procRun(_: any, e: any): any {
     if (over()) return { value: { exitCode: 1, stdout: '', stderr: 'test over', isStdoutTruncated: false, isStderrTruncated: false } }
     argvSeen.push([...e.argv])
@@ -857,7 +886,7 @@ export function engine(on0: any, argvSeen: string[][], stdins: string[] = [], cl
     }
     if (a[0] === '/usr/bin/shasum' && h.shaFailsFor?.(typeof e.init?.stdin === 'string' ? e.init.stdin : '')) return ok('', 1)
     if (a[0] === '/usr/bin/shasum' && h.recShaFails && typeof e.init?.stdin === 'string' && e.init.stdin.startsWith('LABLANE\n')) return ok('', 1)
-    if (a[0] === '/usr/bin/shasum') return ok(`${typeof e.init?.stdin === 'string' && (e.init.stdin.startsWith('LABLANE\n') || /^(ok|bad|absent)\n/.test(e.init.stdin) || e.init.stdin.includes('\nadopted\n')) ? fakeSha(e.init.stdin) : e.init?.stdin === '/Users/x/code/app2' ? 'b'.repeat(64) : e.init?.stdin === '/Users/x/code/cond' ? 'c'.repeat(64) : e.init?.stdin === '/data/x/work' ? 'd'.repeat(64) : 'a'.repeat(64)}  -\n`)
+    if (a[0] === '/usr/bin/shasum') return ok(`${typeof e.init?.stdin === 'string' && (e.init.stdin.startsWith('LABLANE\n') || e.init.stdin.startsWith('lead-record\n') || /^(ok|bad|absent)\n/.test(e.init.stdin) || e.init.stdin.includes('\nadopted\n')) ? fakeSha(e.init.stdin) : e.init?.stdin === '/Users/x/code/app2' ? 'b'.repeat(64) : e.init?.stdin === '/Users/x/code/cond' ? 'c'.repeat(64) : e.init?.stdin === '/data/x/work' ? 'd'.repeat(64) : 'a'.repeat(64)}  -\n`)
     if (a[0] === '/usr/bin/install') installed.add(a[a.length - 1])
     if (a[0] === '/usr/bin/tee' && a[1] === '--' && typeof e.init?.stdin === 'string') teeTexts.set(a[2], e.init.stdin)
     const last = a[a.length - 1]
@@ -905,12 +934,14 @@ export function engine(on0: any, argvSeen: string[][], stdins: string[] = [], cl
     const STALEDIR = /\.lock\.stale\.[0-9.]+$/
     const STALEOWN = /\.lock\.stale\.[0-9.]+\/owner$/
     if (a[0] === '/bin/mkdir' && !a.includes('-p') && LOCKRE.test(last)) {
-      lockLog.push('mkdir')
-      h.lockMkdirEnv = e.init?.env
-      h.lockHook?.('mkdir')
-      if (h.lockMkdirErr !== undefined) return ok('', 1, h.lockMkdirErr)
-      if (h.lockState.held) return ok('', 1, `mkdir: ${last}: File exists`)
-      h.lockState = { held: true, mtimeSec: Math.floor(h.nowMs / 1000), ino: 14 }
+      lockNote(last, 'mkdir')
+      if (knobs(last)) {
+        h.lockMkdirEnv = e.init?.env
+        h.lockHook?.('mkdir')
+        if (h.lockMkdirErr !== undefined) return ok('', 1, h.lockMkdirErr)
+      }
+      if (getLock(last).held) return ok('', 1, `mkdir: ${last}: File exists`)
+      setLock(last, { held: true, mtimeSec: Math.floor(h.nowMs / 1000), ino: 14 })
       return ok('')
     }
     if (a[0] === '/bin/mkdir' && !a.includes('-p') && GATERE.test(last)) {
@@ -929,46 +960,49 @@ export function engine(on0: any, argvSeen: string[][], stdins: string[] = [], cl
       return ok('', 1)
     }
     if (a[0] === '/usr/bin/stat' && GATERE.test(last)) return h.gateHeld ? ok(`501 700 2 Directory ${h.gateHeld.ino ?? 18} 64 ${h.gateHeld.mtimeSec}\n`) : ok('', 1)
-    if (a[0] === '/usr/bin/stat' && LOCKRE.test(last)) return h.lockState.held ? ok(`501 700 2 Directory ${h.lockState.ino ?? 14} 64 ${h.lockState.mtimeSec ?? T0 / 1000}\n`) : ok('', 1)
-    if (a[0] === '/usr/bin/stat' && last.endsWith('.lock/owner')) h.lockHook?.('owner-stat')
-    if (a[0] === '/usr/bin/stat' && last.endsWith('.lock/owner')) return h.lockState.owner !== undefined ? ok(`501 600 1 Regular File 15 ${h.lockState.owner.length} ${h.lockState.mtimeSec ?? T0 / 1000}\n`) : ok('', 1)
+    if (a[0] === '/usr/bin/stat' && LOCKRE.test(last)) return getLock(last).held ? ok(`501 700 2 Directory ${getLock(last).ino ?? 14} 64 ${getLock(last).mtimeSec ?? T0 / 1000}\n`) : ok('', 1)
+    // The lock folder an owner file sits in.
+    const ownerLock = last.endsWith('.lock/owner') ? last.slice(0, -6) : ''
+    if (a[0] === '/usr/bin/stat' && last.endsWith('.lock/owner') && knobs(ownerLock)) h.lockHook?.('owner-stat')
+    if (a[0] === '/usr/bin/stat' && last.endsWith('.lock/owner')) return getLock(ownerLock).owner !== undefined ? ok(`501 600 1 Regular File 15 ${getLock(ownerLock).owner!.length} ${getLock(ownerLock).mtimeSec ?? T0 / 1000}\n`) : ok('', 1)
     if (a[0] === '/usr/bin/stat' && STALEDIR.test(last)) return movedLocks.has(last) ? ok(`501 700 2 Directory ${movedLocks.get(last)!.ino} 64 ${T0 / 1000}\n`) : ok('', 1)
     if (a[0] === '/usr/bin/stat' && STALEOWN.test(last)) return movedLocks.get(last.slice(0, -6))?.owner !== undefined ? ok(`501 600 1 Regular File 15 ${movedLocks.get(last.slice(0, -6))!.owner!.length} ${T0 / 1000}\n`) : ok('', 1)
-    if (a[0] === '/usr/bin/head' && last.endsWith('.lock/owner')) return ok(lockOwnerReads.length > 0 ? (lockOwnerReads.shift() ?? '') : (h.lockState.owner ?? ''))
+    if (a[0] === '/usr/bin/head' && last.endsWith('.lock/owner')) return ok(knobs(ownerLock) && lockOwnerReads.length > 0 ? (lockOwnerReads.shift() ?? '') : (getLock(ownerLock).owner ?? ''))
     if (a[0] === '/usr/bin/head' && STALEOWN.test(last)) return ok(movedLocks.get(last.slice(0, -6))?.owner ?? '')
     if (a[0] === '/usr/bin/install' && last.endsWith('.lock/owner')) {
-      lockLog.push('owner-file')
-      if (h.lockState.held) h.lockState.owner = ''
+      lockNote(ownerLock, 'owner-file')
+      if (getLock(ownerLock).held) getLock(ownerLock).owner = ''
       return ok('')
     }
     if (a[0] === '/usr/bin/tee' && last.endsWith('.lock/owner')) {
-      lockLog.push('owner-write')
-      if (h.lockOwnerFails) return ok('', 1)
-      h.lockState.owner = h.lockOwnerWritten ?? e.init?.stdin
+      lockNote(ownerLock, 'owner-write')
+      if (knobs(ownerLock) && h.lockOwnerFails) return ok('', 1)
+      getLock(ownerLock).owner = (knobs(ownerLock) ? h.lockOwnerWritten : undefined) ?? e.init?.stdin
       return ok('')
     }
     if (a[0] === '/bin/rm' && a[1] === '-f' && last.endsWith('.lock/owner')) {
-      if (h.lockRmThrows) return Promise.reject(new Error('boom'))
-      lockLog.push('rm-owner')
-      h.lockState.owner = undefined
+      if (knobs(ownerLock) && h.lockRmThrows) return Promise.reject(new Error('boom'))
+      lockNote(ownerLock, 'rm-owner')
+      getLock(ownerLock).owner = undefined
       return ok('')
     }
     if (a[0] === '/bin/rmdir' && LOCKRE.test(last)) {
-      lockLog.push('rmdir')
-      if (h.lockState.owner !== undefined) return ok('', 1, `rmdir: ${last}: Directory not empty`)
-      h.lockState = { held: false }
+      lockNote(last, 'rmdir')
+      if (getLock(last).owner !== undefined) return ok('', 1, `rmdir: ${last}: Directory not empty`)
+      setLock(last, { held: false })
       return ok('')
     }
     if (a[0] === '/bin/mv' && a[1] === '-n' && LOCKRE.test(a[3] ?? '')) {
-      lockLog.push('break')
-      movedLocks.set(a[4], { owner: h.lockOwnerAfterMove ?? h.lockState.owner, ino: h.lockOwnerAfterMoveIno ?? h.lockState.ino ?? 14 })
-      h.lockState = h.lockRehold !== undefined ? { held: true, owner: h.lockRehold, mtimeSec: Math.floor(h.nowMs / 1000), ino: 15 } : { held: false }
-      h.lockHook?.('break')
+      const k = knobs(a[3])
+      lockNote(a[3], 'break')
+      movedLocks.set(a[4], { owner: (k ? h.lockOwnerAfterMove : undefined) ?? getLock(a[3]).owner, ino: (k ? h.lockOwnerAfterMoveIno : undefined) ?? getLock(a[3]).ino ?? 14 })
+      setLock(a[3], k && h.lockRehold !== undefined ? { held: true, owner: h.lockRehold, mtimeSec: Math.floor(h.nowMs / 1000), ino: 15 } : { held: false })
+      if (k) h.lockHook?.('break')
       return ok('')
     }
     if (a[0] === '/bin/mv' && a[1] === '-n' && LOCKRE.test(a[4] ?? '')) {
-      lockLog.push('put-back')
-      h.lockState = { held: true, owner: movedLocks.get(a[3])?.owner, mtimeSec: Math.floor(h.nowMs / 1000), ino: movedLocks.get(a[3])?.ino }
+      lockNote(a[4], 'put-back')
+      setLock(a[4], { held: true, owner: movedLocks.get(a[3])?.owner, mtimeSec: Math.floor(h.nowMs / 1000), ino: movedLocks.get(a[3])?.ino })
       movedLocks.delete(a[3])
       return ok('')
     }
@@ -1053,6 +1087,11 @@ export function engine(on0: any, argvSeen: string[][], stdins: string[] = [], cl
     }
     if (a[0] === '/bin/ps' && psDead.has(last)) return ok('', 1)
     if (a[0] === '/bin/ps' && psFail.has(last)) return ok('', 2)
+    if (a[0] === '/bin/mv' && a[1] === '-f' && a[4]?.startsWith(`${LEADRECDIR}/`) && teeTexts.has(a[3])) {
+      if (h.leadRecWrites === 'fail') return ok('', 1)
+      storeFiles.set(a[4], teeTexts.get(a[3])!)
+      return ok('')
+    }
     if (a[0] === '/bin/mv' && a[1] === '-f' && a[4]?.startsWith(`${LANESDIR}/`) && teeTexts.has(a[3])) {
       if (h.storeHang) return h.storeHang.then(() => ok(''))
       const put = () => {
@@ -1100,7 +1139,7 @@ export function engine(on0: any, argvSeen: string[][], stdins: string[] = [], cl
         return ok('')
       }
     }
-    if (a[0] === '/usr/bin/head' && storeFiles.has(a[a.length - 1])) return ok(h.lockState.held && storeReads.length > 0 ? storeReads.shift()! : storeFiles.get(a[a.length - 1])!)
+    if (a[0] === '/usr/bin/head' && storeFiles.has(a[a.length - 1])) return ok(!last.startsWith(`${LEADRECDIR}/`) && h.lockState.held && storeReads.length > 0 ? storeReads.shift()! : storeFiles.get(a[a.length - 1])!)
     if (a[0] === '/usr/bin/stat' && statErr.has(last)) return ok('', 1, statErr.get(last)!)
     if (a[0] === '/usr/bin/stat' && storeFiles.has(a[a.length - 1])) return ok(h.storeStatOverride ?? `501 600 1 Regular File 77 ${storeFiles.get(a[a.length - 1])!.length} 1700000000\n`)
     if (a[0] === '/usr/bin/stat' && targetLogs.has(last)) return ok(`501 600 1 Regular File 77 ${targetLogs.get(last)!.length} ${T0 / 1000}\n`)
@@ -1216,7 +1255,7 @@ export function engine(on0: any, argvSeen: string[][], stdins: string[] = [], cl
     if (a[0] === '/usr/bin/stat') {
       const path = a[a.length - 1]
       if (path === SESSIONS && !h.sessionsUnsafe) return ok('501 700 2 Directory 13 64 1700000000\n')
-      if (path.endsWith('/callboard') || path.endsWith('/lanes') || path.endsWith('/log') || path.endsWith('/cue') || path.endsWith('/open') || path.endsWith('/result') || path.endsWith('/leads')) return ok('501 700 2 Directory 11 64 1700000000\n')
+      if (path.endsWith('/callboard') || path.endsWith('/lanes') || path.endsWith('/lead-records') || path.endsWith('/log') || path.endsWith('/cue') || path.endsWith('/open') || path.endsWith('/result') || path.endsWith('/leads')) return ok('501 700 2 Directory 11 64 1700000000\n')
       if (installed.has(path)) return ok('501 600 1 Regular File 12 0 1700000000\n')
       return ok('', 1)
     }

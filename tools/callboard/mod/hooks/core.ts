@@ -193,6 +193,101 @@ export function storeText(s: Store): { text: string } | { no: 'store-size' } {
   return text.length > STORE_MAX_BYTES ? { no: 'store-size' } : { text }
 }
 
+// ---- lead records (ADR 0007): who a lead's conductor is ----
+// One file per repo beside the lane stores, in its own folder: ~/.claude/callboard/lead-records/<sha256 of the repo's real path>.json, read and written with the
+// lane store's file rules and parsed all or nothing. A record names its lead's conductor by session id.
+export const LEAD_RECORDS_DIR = 'lead-records'
+export const LEAD_STORE_MAX = 16
+// how: `made` for a lead a conductor opened (nonce: the offer's), `joined` for one the person assigned. conductorName is the conductor's name when the record was
+// written, for display only. sid is the lead's session id, written with the record; a record keeps none only when its lead was force stopped while lanes still
+// name it. parked: when the lead was parked (ms).
+export type LeadRec = { name: string; createdAt: number; how: 'made' | 'joined'; conductorSid: string; conductorName?: string; nonce?: string; sid?: string; parked?: number }
+export type LeadStore = { repo: string; leads: LeadRec[] }
+const LEAD_REC_KEYS = ['name', 'createdAt', 'how', 'conductorSid', 'conductorName', 'nonce', 'sid', 'parked']
+const HEX32_RE = /^[0-9a-f]{32}$/
+export function parseLeadStore(text: string): { ok: true; store: LeadStore } | { ok: false; reason: string } {
+  if (text.length > STORE_MAX_BYTES) return { ok: false, reason: 'store-size' }
+  let data: unknown
+  try {
+    data = JSON.parse(text)
+  } catch {
+    return { ok: false, reason: 'store-json' }
+  }
+  if (data === null || typeof data !== 'object' || Array.isArray(data)) return { ok: false, reason: 'store-shape' }
+  const { repo, leads } = data as Record<string, unknown>
+  if (typeof repo !== 'string' || repo.length < 2 || !isCleanAbs(repo)) return { ok: false, reason: 'store-repo' }
+  if (Object.keys(data).some((k) => k !== 'repo' && k !== 'leads')) return { ok: false, reason: 'store-shape' }
+  if (!Array.isArray(leads) || leads.length > LEAD_STORE_MAX) return { ok: false, reason: 'store-shape' }
+  const out: LeadRec[] = []
+  for (const l of leads) {
+    if (l === null || typeof l !== 'object' || Array.isArray(l) || Object.keys(l).some((k) => !LEAD_REC_KEYS.includes(k))) return { ok: false, reason: 'store-shape' }
+    const { name, createdAt, how, conductorSid, conductorName, nonce, sid, parked } = l as Record<string, unknown>
+    if (typeof name !== 'string' || !NAME_RE.test(name) || reservedHit(name, [])) return { ok: false, reason: 'store-name' }
+    if (!Number.isFinite(createdAt)) return { ok: false, reason: 'store-shape' }
+    if (how !== 'made' && how !== 'joined') return { ok: false, reason: 'store-owner' }
+    if (typeof conductorSid !== 'string' || !SID_RE.test(conductorSid)) return { ok: false, reason: 'store-owner' }
+    if (conductorName !== undefined && (typeof conductorName !== 'string' || !NAME_RE.test(conductorName))) return { ok: false, reason: 'store-owner' }
+    if (nonce !== undefined && (how !== 'made' || typeof nonce !== 'string' || !HEX32_RE.test(nonce))) return { ok: false, reason: 'store-owner' }
+    if (!sidFieldsOk(sid, parked)) return { ok: false, reason: 'store-shape' }
+    // One name space in any letter case, and one record per lead session: a record is found by either.
+    if (out.some((x) => x.name.toUpperCase() === name.toUpperCase() || (sid !== undefined && x.sid === sid))) return { ok: false, reason: 'store-dup' }
+    out.push({ name, createdAt: createdAt as number, how, conductorSid, ...(conductorName !== undefined ? { conductorName: conductorName as string } : {}), ...(nonce !== undefined ? { nonce: nonce as string } : {}), ...(sid !== undefined ? { sid: sid as string } : {}), ...(parked !== undefined ? { parked: parked as number } : {}) })
+  }
+  return { ok: true, store: { repo, leads: out } }
+}
+// The JSON a lead-record file keeps for a record: a fixed key order, an optional field only when present. Every writer uses it.
+export const storeLeadJson = (r: LeadRec) => ({ name: r.name, createdAt: r.createdAt, how: r.how, conductorSid: r.conductorSid, ...(r.conductorName !== undefined ? { conductorName: r.conductorName } : {}), ...(r.nonce !== undefined ? { nonce: r.nonce } : {}), ...(r.sid !== undefined ? { sid: r.sid } : {}), ...(r.parked !== undefined ? { parked: r.parked } : {}) })
+// A whole lead-record file as one writer writes it, or store-size when every reader would refuse it.
+export function leadStoreText(repo: string, leads: LeadRec[]): { text: string } | { no: 'store-size' } {
+  const text = JSON.stringify({ repo, leads: leads.map(storeLeadJson) })
+  return text.length > STORE_MAX_BYTES ? { no: 'store-size' } : { text }
+}
+// What a lead's binding hashes of its record: the repo, how it got its conductor, the conductor's session id and the nonce. Not the lead's name, its session id,
+// the parked time or the conductor's name, which change without changing who owns the lead: a rename or a park never makes a bound lead refuse its owner.
+// The first line keeps this text apart from every other text the mod hashes.
+export const leadRecordText = (repo: string, r: LeadRec): string => `lead-record\n${repo}\n${r.how}\n${r.conductorSid}\n${r.nonce ?? ''}`
+
+// The binding a lead keeps in $.store under `owner:<its session id>`: its record's repo and hash (of leadRecordText) and its conductor's session id, and no name.
+// Its record is the one in that repo's file whose sid is its own, under whatever name. at: when it was written (ms).
+export const OWNER_PREFIX = 'owner:'
+export type OwnerBinding = { repo: string; rec: string; conductorSid: string; at: number }
+export function parseOwnerBinding(raw: unknown): OwnerBinding | undefined {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return undefined
+  const { repo, rec, conductorSid, at } = raw as Record<string, unknown>
+  if (typeof repo !== 'string' || repo.length < 2 || !isCleanAbs(repo)) return undefined
+  if (typeof rec !== 'string' || !/^[0-9a-f]{64}$/.test(rec)) return undefined
+  if (typeof conductorSid !== 'string' || !SID_RE.test(conductorSid)) return undefined
+  if (!Number.isFinite(at)) return undefined
+  return { repo, rec, conductorSid, at: at as number }
+}
+
+// The lead record that answers for a folder (a session's folder, or a lane record's repo). The candidates are the stores whose repo is the folder or holds it.
+// - leadSid given: the record whose sid is that session, in any candidate, under whatever name (a lead's own lookups: its registry name may be ahead of its
+//   record's). Nothing else is tried.
+// - leadName a name: the candidates from the longest repo to the shortest, the first that holds a record of that name (a lane of an outer repo's lead working
+//   inside a nested repo is still found).
+// - leadName undefined (a lane that names no lead): the only record of the longest candidate, when it holds exactly one.
+// - leadName '': the lead is known but has no name. Never a record, so the rule above cannot pick another lead's.
+export type OwnerRec = { key: string; repo: string; rec: LeadRec }
+export function ownerOf(stores: { key: string; store: LeadStore }[], folder: string, leadName: string | undefined, leadSid?: string): OwnerRec | undefined {
+  const cands = stores.filter((s) => s.store.repo === folder || within(s.store.repo, folder)).sort((a, b) => b.store.repo.length - a.store.repo.length)
+  const hit = (s: { key: string; store: LeadStore }, rec: LeadRec): OwnerRec => ({ key: s.key, repo: s.store.repo, rec })
+  if (leadSid !== undefined) {
+    for (const s of cands) {
+      const rec = s.store.leads.find((l) => l.sid === leadSid)
+      if (rec) return hit(s, rec)
+    }
+    return undefined
+  }
+  if (leadName === '') return undefined
+  if (leadName === undefined) return cands.length > 0 && cands[0].store.leads.length === 1 ? hit(cands[0], cands[0].store.leads[0]) : undefined
+  for (const s of cands) {
+    const rec = s.store.leads.find((l) => l.name === leadName)
+    if (rec) return hit(s, rec)
+  }
+  return undefined
+}
+
 // What a lead's watch on its lane list hashes: the lanes that name this lead or no lead, without each lane's sid and parked, so a lane's own sid write, a park or
 // an unpark is not news to it (the lead reads those in lane_list). Another lead's lanes and the repo's create times are not its news, even when that lead is gone
 // (the check-in tells of such a lane). A store that does not parse is hashed as it is.
@@ -2014,7 +2109,10 @@ export const USAGE_FOOTNOTE = "5h/7d are the account's limits: sessions on one a
 // 'error': the conductors could not be read, so the table is drawn without that column and a note follows it.
 // A live lead in reach (its presence file passed every check; the registry gives its name), with the repo it leads. The manager's and a conductor's view draw
 // one for each lead that no lane group already names, so a lead with no lanes is seen. A lead's own view ignores them, and `self` (its own session) gives its group row its figures.
-export type ConductorView = { name?: string; repos: string[] }
+// sid: the conductor's session id, which a lead record names its conductor by.
+export type ConductorView = { name?: string; repos: string[]; sid?: string }
+// A lead record as a view draws it, with whether its lead is bound to it (boundTo in engine/lead-records.ts).
+export type RecordView = { repo: string; rec: LeadRec; bound: boolean }
 // state: the registry's word for the lead (display only; the registry is a filter, never proof). since: for waiting, when the registry last moved its status.
 export type LeadState = 'busy' | 'idle' | 'waiting' | 'unknown'
 export type LiveLead = { name: string; repo: string; sid?: string; state?: LeadState; since?: number }
@@ -2037,7 +2135,7 @@ export function aboveText(above: LayerAbove): string {
   ]
   return parts.length > 0 ? parts.join(' · ') : 'none'
 }
-export function laneListText(lanes: Lane[], entries: RegEntry[], now: number, view: { level?: 'lead' | 'manager' | 'conductor'; name?: string; self?: string; conductors?: ConductorView[] | 'error'; leads?: LiveLead[]; usage?: Map<string, UsageReading>; above?: LayerAbove } = {}): string {
+export function laneListText(lanes: Lane[], entries: RegEntry[], now: number, view: { level?: 'lead' | 'manager' | 'conductor'; name?: string; self?: string; conductors?: ConductorView[] | 'error'; leads?: LiveLead[]; usage?: Map<string, UsageReading>; above?: LayerAbove; records?: RecordView[] } = {}): string {
   const liveLeads = view.level === 'manager' || view.level === 'conductor' ? (view.leads ?? []) : []
   if (lanes.length === 0 && liveLeads.length === 0) return mdTable(['Lanes'], [[view.level === 'conductor' ? 'no lanes in its repos' : 'no lanes in this repo']]).join('\n')
   const names = entries.flatMap((e) => (typeof e.name === 'string' ? [e.name] : []))

@@ -1,6 +1,7 @@
 import { expect } from 'claude-code/testing'
-import { conductorFileText, folderName, LANES_CHANGED_TEXT, LANES_CHANGED_NOTE, reboundToast, KEEPALIVE_TEXT } from '../hooks/core'
-import { h, AUTO_OWN, GOOD, LANESDIR, NO, PS_TABLE, ROOT, SID, T0, TOOL, YES, condFiles, engine, extraStat, laneSeed, leadFiles, quiet, resultFiles, storeFiles, submitted } from './harness'
+import { conductorFileText, folderName, leadRecordText, LANES_CHANGED_TEXT, LANES_CHANGED_NOTE, reboundToast, KEEPALIVE_TEXT } from '../hooks/core'
+import type { LeadRec } from '../hooks/core'
+import { h, AUTO_OWN, GOOD, LANESDIR, LEADRECDIR, NO, PS_TABLE, ROOT, SID, T0, TOOL, YES, condFiles, engine, extraStat, fakeSha, laneSeed, leadFiles, quiet, repoKey, resultFiles, storeFiles, submitted } from './harness'
 import type { Trace } from './harness'
 
 export const TURN = { answer: 'ok', durationMs: 1, isAborted: false, turnId: 't1', reason: 'answer' } as const
@@ -581,3 +582,26 @@ export const sleeps = (argv: string[][]) => argv.filter((a) => a[0] === '/bin/sl
 // A lane a session joined whose session is gone (a lead's records of lanes it was joined to) could not be retired or terminated: only /callboard lane off in the gone session
 // detached it. A lead that was renamed lost the lanes naming its old name.
 export const GONE_ATT = (name = 'ATT', extra: Record<string, unknown> = {}) => attRec(SID, name, { leadName: 'LEAD', ...extra })
+
+// ---- lead records (ADR 0007): a lead's conductor ----
+// A repo's lead-record file. A record given in part is filled in: lead LEAD, joined to the conductor OTHERLEAD at time 1.
+export const leadRecFile = (repo = PIN) => `${LEADRECDIR}/${repoKey(repo)}.json`
+export function putLeadRecs(leads: Partial<LeadRec>[], repo = PIN): void {
+  storeFiles.set(leadRecFile(repo), JSON.stringify({ repo, leads: leads.map((l) => ({ name: 'LEAD', createdAt: 1, how: 'joined', conductorSid: OTHERLEAD, ...l })) }))
+  extraStat.set(`${repo}/.git`, dirStat)
+}
+export const leadRecsJson = (repo = PIN): { repo: string; leads: LeadRec[] } => JSON.parse(storeFiles.get(leadRecFile(repo))!)
+// The binding of the lead session `leadSid` to the record named `name` in the repo's file, as that lead's own mod writes it: the record's hash and its conductor.
+export function bindOwner(leadSid: string, conductorSid: string, name: string, repo = PIN): void {
+  const rec = leadRecsJson(repo).leads.find((l) => l.name === name)!
+  h.store.set(`owner:${leadSid}`, { repo, rec: fakeSha(leadRecordText(repo, rec)), conductorSid, at: T0 })
+}
+// "This lead is owned by that conductor": the record (added to the repo's file) and the lead's binding to it. Lead LEAD of this session in PIN unless said.
+export function ownedBy(conductorSid: string, o: { name?: string; leadSid?: string; repo?: string } = {}): void {
+  const repo = o.repo ?? PIN
+  const name = o.name ?? 'LEAD'
+  const leadSid = o.leadSid ?? SID
+  const had = storeFiles.has(leadRecFile(repo)) ? leadRecsJson(repo).leads.filter((l) => l.name !== name) : []
+  putLeadRecs([...had, { name, conductorSid, sid: leadSid }], repo)
+  bindOwner(leadSid, conductorSid, name, repo)
+}

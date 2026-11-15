@@ -608,16 +608,16 @@ export async function conductorTrustedSid($: any, live: RegRow[], except: string
 }
 // The same checks for the conductors whose approved list holds a repo that `match` accepts (a request's folder is in a conductor's reach when a pin holds it,
 // the same within-folder match a lead's pin gets), every one of them judged against the pins that matched. With `only`, no other session is examined and
-// the cap of 4 does not apply.
-export async function conductorsReaching($: any, live: RegRow[], except: string, match: (repo: string) => boolean, only?: string): Promise<{ sid: string; name?: string }[]> {
+// the cap of 4 does not apply; nor does it with `opt.cap` false (the candidates of a Join, which the person picks from). Each row carries the conductor's home.
+export async function conductorsReaching($: any, live: RegRow[], except: string, match: (repo: string) => boolean, only?: string, opt: { cap?: boolean } = {}): Promise<{ sid: string; name?: string; home: string }[]> {
   const d = await presenceNames($)
   if (typeof d === 'string') return []
   const p = d.p
   const rows = live.map((r) => r.j)
   const now = await $.clock.now()
-  const out: { sid: string; name?: string }[] = []
+  const out: { sid: string; name?: string; home: string }[] = []
   for (const s of d.names) {
-    if (s === except || (only !== undefined ? s !== only : out.length >= CONDUCTORS_SEEN_MAX)) continue
+    if (s === except || (only !== undefined ? s !== only : opt.cap !== false && out.length >= CONDUCTORS_SEEN_MAX)) continue
     const f = await presenceCheck($, p, live, s, (x) => x.level === 'conductor' && x.repos.some(match))
     if (typeof f === 'string' || f.level !== 'conductor') continue
     const home = f.home
@@ -629,7 +629,7 @@ export async function conductorsReaching($: any, live: RegRow[], except: string,
     if (lf.state !== 'ok') continue
     if (!(await resolveConductorList($, home, lf.entries)).ok.some(match)) continue
     const name = c.laneLeadOf(rows, s)?.name
-    out.push({ sid: s, ...(name ? { name } : {}) })
+    out.push({ sid: s, ...(name ? { name } : {}), home })
   }
   return out
 }
@@ -929,7 +929,7 @@ export async function conductorsLive($: any, live: RegRow[], except: string): Pr
     const f = await presenceCheck($, d.p, live, s, (x) => x.level === 'conductor')
     if (typeof f === 'string' || f.level !== 'conductor') continue
     const name = c.laneLeadOf(rows, s)?.name
-    out.push({ ...(name ? { name } : {}), repos: f.repos })
+    out.push({ ...(name ? { name } : {}), repos: f.repos, sid: s })
   }
   return out
 }
