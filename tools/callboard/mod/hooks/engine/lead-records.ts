@@ -252,7 +252,7 @@ export async function ownerLeave($: any, sid: string, why: 'left' | 'off'): Prom
 
 // The live conductors a lead of `repo` may be given to: each lists exactly that repo and passes the lead's conductor checks; no cap, since the person picks.
 export async function joinCands($: any, live: RegRow[], sid: string, repo: string): Promise<{ sid: string; name?: string; home: string }[]> {
-  return conductorsReaching($, live, sid, (r) => r === repo, undefined, { cap: false })
+  return conductorsReaching($, live, sid, (r) => r === repo)
 }
 
 // Whether a name is held by a lane record, or by a lead record of any repo that does not name `sid` (with or without a session of its own: a record kept for

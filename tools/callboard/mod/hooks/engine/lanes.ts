@@ -91,7 +91,6 @@ import {
   leadHere,
   managerTrusted,
   managersLive,
-  conductorsTrusted,
   pinOf,
   conductorReach,
   conductorsLive,
@@ -99,6 +98,7 @@ import {
   reservedGet,
   findLead,
 } from './grants.ts'
+import { loadLeadRecords, boundTo, ownerLive, ownOwner } from './lead-records.ts'
 import { briefOnce, epochOf } from './levels.ts'
 import { dropRequest, doCompact, isEligible, leadNudge, busyAgents, backgroundShells, counts, bump, interactive, saveHint } from './compaction.ts'
 import { ensureTimer } from './tick.ts'
@@ -584,13 +584,13 @@ export async function handle($: any, sid: string, cue: c.Cue, answer: Answer, cu
     if (!rec.repo) return refuse('no-lead')
     if (!(await leadHere($, await sessionRoot($), rec.repo, rec.leadName, reg))) {
       // With no live lead, the verbs a manager may send (resume, compact, retire) are taken while a live manager passes every
-      // presence check and has a reserved registry name (managerTrusted), and the verbs a conductor may send (compact) while a live conductor that lists the
-      // lane's repo passes conductorsTrusted. A filter, not proof: any writer of the cue folder can send the cue then.
+      // presence check and has a reserved registry name (managerTrusted), and the verbs a conductor may send (compact) while the lane's lead has a live owner
+      // (ownerLive: its record names a trusted conductor and its lead is bound to it). A filter, not proof: any writer of the cue folder can send the cue then.
       const byManager = c.MANAGER_CUE_VERBS.includes(cue.verb)
       const byConductor = c.CONDUCTOR_CUE_VERBS.includes(cue.verb)
       const live = byManager || byConductor ? await reg() : undefined
       if (!live) return refuse('no-lead')
-      if (!(byManager && (await managerTrusted($, live, sid))) && !(byConductor && (await conductorsTrusted($, live, sid, rec.repo)).length > 0)) return refuse('no-lead')
+      if (!(byManager && (await managerTrusted($, live, sid))) && !(byConductor && (await ownerLive($, live, sid, rec.repo, c.laneLeadKey(rec)).catch(() => undefined)) !== undefined)) return refuse('no-lead')
     }
   }
   // A session holding a lead grant: its own rules (engine/lead-cues.ts), from its owner, a trusted manager or a trusted conductor of its repo.
@@ -923,6 +923,24 @@ export async function leadBase($: any, e: unknown, sid: string) {
   return leadCore($, sid)
 }
 
+// The leads a conductor owns in its pins: each record of a pinned repo that names this conductor and whose lead is bound to it. undefined: the records could not
+// be read (logged), which is not the same as owning nothing.
+async function ownedLeads($: any, sid: string, pins: string[]): Promise<c.Owned[] | undefined> {
+  const stores = await loadLeadRecords($)
+  if (typeof stores === 'string') {
+    await logq($, sid, 'error', 'lead-records-unreadable')
+    return undefined
+  }
+  const out: c.Owned[] = []
+  for (const s of stores) {
+    if (!pins.includes(s.store.repo)) continue
+    for (const rec of s.store.leads) {
+      if (rec.conductorSid === sid && (await boundTo($, { key: s.key, repo: s.store.repo, rec }))) out.push({ repo: s.store.repo, name: rec.name, sole: s.store.leads.length === 1, ...(rec.sid !== undefined ? { sid: rec.sid } : {}) })
+    }
+  }
+  return out
+}
+
 export async function leadCore($: any, sid: string) {
   if (!grants.has(sid)) return { err: ['off', 'the lead tools are off. Ask the person to turn them on.'] as const }
   const lanes = await loadLanes($)
@@ -941,7 +959,10 @@ export async function leadCore($: any, sid: string) {
     const now = grantOf(sid)
     if (now?.level !== 'conductor' || ('no' in reach && reach.no === 'off')) return { err: ['off', 'the lead tools are off. Ask the person to turn them on.'] as const }
     if ('no' in reach) return { err: ['conductor-list', c.REASON_TEXT['conductor-list']] as const }
-    g = { ...now, pins: reach.pins }
+    // What it owns is read now too, from the lead records: a read that cannot be made is refused, never an empty reach.
+    const owns = await ownedLeads($, sid, reach.pins)
+    if (owns === undefined) return { err: ['store-unreadable', c.LEAD_RECORDS_UNREADABLE] as const }
+    g = { ...now, pins: reach.pins, owns }
   }
   // A lane this read finds live counts as seen live for the check-in's gone.
   const seen = laneObs.get(sid)
@@ -952,12 +973,13 @@ export async function leadCore($: any, sid: string) {
   return { lanes, live, g }
 }
 
-// Who is live above a lead (pin: its repo, for the conductors that list it) or a conductor (no pin): conductorsTrusted and managersLive, no new trust logic.
+// Who is live above a lead (its owner, from its binding) or a conductor (no owner above it): ownOwner and managersLive, no new trust logic.
 // A manager counts as the cues count it: its file passed the checks and the registry gives it a name. A manager look that could not be made (an unverified entry) is
-// 'error', never `none`; conductorsTrusted gives nothing when its look fails, so a failed conductor look reads as no conductor.
-async function layerAbove($: any, live: RegRow[], sid: string, pin: string | undefined): Promise<c.LayerAbove> {
+// 'error', never `none`; an owner look that fails (records unreadable, record changed, owner not live) reads as no conductor.
+async function layerAbove($: any, live: RegRow[], sid: string, lead: boolean): Promise<c.LayerAbove> {
   try {
-    const conductors = pin === undefined ? [] : (await conductorsTrusted($, live, sid, pin)).map((x) => x.name)
+    const own = lead ? await ownOwner($, sid, live) : undefined
+    const conductors = typeof own === 'object' ? [own.name] : []
     const found = await managersLive($, live, sid)
     if (found.some((m) => m.unverified === true)) return 'error'
     const managers = found.flatMap((m) => (m.name !== undefined ? [m.name] : []))
@@ -980,8 +1002,8 @@ export async function laneTable($: any, sid: string) {
   // The figure columns read the live lanes' files, the lead's own in its own list, and the leads' in a conductor's or the manager's list; any read that fails leaves a row at no reading.
   const wanted = [...(base.g.level === 'lead' ? [sid] : []), ...lanes.map((l) => { const one = c.laneSession(entries, l, ''); return one.ok ? one.entry.sessionId : '' }), ...leads.map((x) => x.sid ?? '')]
   const usage = await usageReadings($, wanted.flatMap((sid) => entries.filter((e) => e.sessionId === sid)), now).catch(() => new Map<string, c.UsageReading>())
-  // The layer above: a lead's trusted conductors and its live manager, a conductor's live manager; the manager has none. The same lookups the cues use.
-  const above = base.g.level === 'manager' ? undefined : await layerAbove($, base.live, sid, base.g.level === 'lead' ? pinOf(sid) : undefined)
+  // The layer above: a lead's owning conductor and its live manager, a conductor's live manager; the manager has none. The same lookups the cues use.
+  const above = base.g.level === 'manager' ? undefined : await layerAbove($, base.live, sid, base.g.level === 'lead')
   // The manager's list groups the leads by the conductor their record names.
   const records = base.g.level === 'manager' ? await recordViews($).catch(() => undefined) : undefined
   const text = c.laneListText(lanes, entries, now, { level: base.g.level, name: base.g.name, self: sid, conductors, leads, usage, above, ...(records ? { records } : {}) })

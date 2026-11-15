@@ -1,8 +1,8 @@
 import { expect, test } from 'claude-code/testing'
-import { MANAGER_LEAD_NO, MANAGER_LEAD_YES, REASON_TEXT, leadWhy, managerLeadQuestion, orderLeadText } from '../hooks/core'
+import { LEAD_RECORDS_UNREADABLE, MANAGER_LEAD_NO, MANAGER_LEAD_YES, REASON_TEXT, leadWhy, managerLeadQuestion, orderLeadText } from '../hooks/core'
 import { h, NO, PROMPTS_DIR, PS_TABLE, ROOT, SID, YES, LEADRECDIR, extraStat, leadFiles, longTest, submitted } from './harness'
 import { ledgerRows } from './answer-fixtures'
-import { CSESS, LEADPATH, LEADSID, MGR_SESS, MIN, OTHERLEAD, PIN, APP2, condOn, idleFor, leadFileText, leadReg, mgrAt, ownedBy, putLeadRecs, TURN } from './fixtures'
+import { APISID, CSESS, LEADPATH, LEADSID, MGR_SESS, MIN, OTHERLEAD, PIN, APP2, ckLane, condOn, idleFor, leadFileText, leadRecsJson, leadReg, mgrAt, ownedBy, putLeadRecs, putStore, TURN } from './fixtures'
 
 // ---- the lead tools (ADR 0007), the caller's side: lead_resume and lead_compact ----
 // The conductor is this session (SID in COND, over ../app and ../app2); the lead LEAD is session LEADSID (pid 4242) in PIN, with its presence file. `owned` adds
@@ -13,8 +13,7 @@ const cues = (argv: string[][]) => argv.filter((a) => a[0] === '/bin/mv' && a[a.
 const leadRows = () => ledgerRows().filter((r) => r.kind === 'lead-resume')
 const deny = async ($: any, c: unknown) => String(((await $.tool.call(c)) as { deny?: string }).deny)
 async function conductor($: any, on: any, argv: string[][], o: { owned?: boolean; sess?: Record<string, string>; repos?: string[] } = {}) {
-  await condOn($, on, [], { clock: true, argv, repos: o.repos, sess: o.sess ?? { ...CSESS(), ...leadReg() }, seed: () => leadFiles.set(LEADPATH, { text: leadFileText() }) })
-  if (o.owned !== false) ownedBy(SID, { leadSid: LEADSID })
+  await condOn($, on, [], { clock: true, argv, repos: o.repos, owns: o.owned === false ? [] : undefined, sess: o.sess ?? { ...CSESS(), ...leadReg() }, seed: () => leadFiles.set(LEADPATH, { text: leadFileText() }) })
 }
 async function manager($: any, on: any, argv: string[][]) {
   await mgrAt($, on, [], { argv, clock: true, sess: { ...MGR_SESS({ name: 'MANAGER' }), ...leadReg() }, seed: () => leadFiles.set(LEADPATH, { text: leadFileText() }) })
@@ -107,14 +106,16 @@ test('the conductor\'s lane_compact with the name of a lead it owns is lead_comp
   expect((await $.tool.call({ tool: 'mcp__callboard__lane_compact', lane: 'API' } as any)).result).toBe('cue compact acted for lane API.')
 })
 
-test('lane_compact on a lane goes to the lane whatever the lead records say: a record of the lane\'s name with no live lead, or a records folder that fails its checks', async ($, on) => {
+test('lane_compact on a lane goes to the lane though a lead record carries its name with no live lead; a records folder that fails its checks refuses both tools', async ($, on) => {
   const argv: string[][] = []
-  await conductor($, on, argv, { owned: false })
-  putLeadRecs([{ name: 'API', conductorSid: SID, sid: OTHERLEAD }])
+  await conductor($, on, argv)
+  // Lane API names its lead LEAD, which this conductor owns, so a second record in the repo leaves it in reach.
+  putStore([ckLane({ sid: APISID, leadName: 'LEAD' })])
+  putLeadRecs([...leadRecsJson().leads, { name: 'API', conductorSid: SID, sid: OTHERLEAD }])
   expect((await $.tool.call({ tool: 'mcp__callboard__lane_compact', lane: 'API' } as any)).result).toBe('cue compact acted for lane API.')
   extraStat.set(LEADRECDIR, '501 755 2 Directory 11 64 1700000000\n')
-  expect((await $.tool.call({ tool: 'mcp__callboard__lane_compact', lane: 'API' } as any)).result).toBe('cue compact acted for lane API.')
-  expect(await deny($, call('lead_compact'))).toContain('lead_compact refused: unsafe-dir')
+  expect(await deny($, { tool: 'mcp__callboard__lane_compact', lane: 'API' })).toBe(`lane_compact refused: ${LEAD_RECORDS_UNREADABLE}`)
+  expect(await deny($, call('lead_compact'))).toBe(`lead_compact refused: ${LEAD_RECORDS_UNREADABLE}`)
   extraStat.delete(LEADRECDIR)
   expect(cues(argv)).toBe(0)
 })

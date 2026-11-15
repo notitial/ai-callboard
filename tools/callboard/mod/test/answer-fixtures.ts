@@ -1,6 +1,6 @@
 import * as prm from '../hooks/prompts'
 import { h, PROMPTS_DIR, ROOT, SETTINGS_FILE, SID, T0, extraStat, leadFiles, pdirs, pfs, realMap } from './harness'
-import { APISID, APP2, COND, LEADPATH, LEADPS, LEADSID, PIN, SVC, attacher, condOn, condPresenceOf, dirStat, doLane, lead, leadAt, leadFileText, leadReg, leadSelfReg, ownReg, putCond, regAs } from './fixtures'
+import { APISID, APP2, COND, LEADPATH, LEADPS, LEADSID, PIN, SVC, attacher, condOn, condPresenceOf, dirStat, doLane, lead, leadAt, leadFileText, leadReg, leadSelfReg, ownReg, ownedBy, putCond, regAs } from './fixtures'
 
 // ---- ADR 0004 prompt answering: the hook, the files and the switch ----
 // A lane under a live lead (the attach helpers), the switch on for all, an ask rule beneath, and the engine's PermissionRequest chain beneath returning {}.
@@ -130,12 +130,15 @@ export const addMgrT = (name = 'MANAGER') => {
   leadFiles.set(MGRTPATH, { text: JSON.stringify({ sid: MGRT, pid: 4243, procStart: LEADPS, level: 'manager', name }) })
   h.extraRows = { ...h.extraRows, ...regAs(MGRT, 4243, name) }
 }
-export const addCondT = (name = 'CONDX', repos: string[] = [PIN]) => {
+// own (the default): the conductor owns the lead LEAD of PIN (its record and the lead's binding), as the conductor tier and a conductor's reach need; the lead's session
+// is LEADSID, or `leadSid` when the asking session is itself the lead. `own: false` is a conductor that lists the repo and owns nothing.
+export const addCondT = (name = 'CONDX', repos: string[] = [PIN], o: { own?: boolean; leadSid?: string } = {}) => {
   for (const r of [COND, PIN, APP2]) extraStat.set(`${r}/.git`, dirStat)
   putCond(['../app'])
   h.store.set(`conductor:${CNDT}`, { home: COND, repos, savedAt: T0 - 60_000 })
   condPresenceOf(CNDT, 4244, name, repos)
   h.extraRows = { ...h.extraRows, ...regAs(CNDT, 4244, name) }
+  if (o.own !== false) ownedBy(CNDT, { name: 'LEAD', leadSid: o.leadSid ?? LEADSID })
 }
 export const byCond = { level: 'conductor', sid: CNDT, name: 'CONDX' }
 export const byMgr = { level: 'manager', sid: MGRT, name: 'MANAGER' }
@@ -152,8 +155,9 @@ export const leadLive = () => {
   leadFiles.set(LEADPATH, { text: leadFileText() })
   h.sessions = { ...h.sessions, ...leadReg() }
 }
-export const asConductor = async ($: any, on: any, opts: { lead?: boolean; mgr?: boolean; clock?: boolean } = {}) => {
-  await condOn($, on, [], { clock: opts.clock })
+// owns: as condOn's; the default is this conductor owning the lead LEAD of PIN.
+export const asConductor = async ($: any, on: any, opts: { lead?: boolean; mgr?: boolean; clock?: boolean; owns?: { name?: string; leadSid?: string; repo?: string }[] } = {}) => {
+  await condOn($, on, [], { clock: opts.clock, owns: opts.owns })
   h.store.set('answering', { scope: 'all', asks: false, savedAt: T0 })
   if (opts.lead) leadLive()
   if (opts.mgr) {

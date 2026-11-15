@@ -15,7 +15,7 @@ enforces.
 
 - One session per machine coordinates every lane, lead and plain session on it. It decides, reviews and reports. It
   does no work itself.
-- **Scope split.** A lead decides its own lanes and their work; a conductor, the leads of its repos. The manager
+- **Scope split.** A lead decides its own lanes and their work; a conductor, the leads it owns. The manager
   decides across leads and repos: which session gets which work, in which order, build or defer, review verdicts.
   Never decide an item a lead or conductor owns.
 - **Every go is the person's**, typed in the session that executes it: push, PR, merge, install, control change,
