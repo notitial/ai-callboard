@@ -1017,8 +1017,8 @@ export async function commandRun($: any, e: any) {
   if (arg === 'lead') return grantLead($, sid, code, busy)
   const bound = (await getLane($)).value as Bound | null | undefined
   // Every session gets the keepalive and the nudges.
-  // A lead's status adds its check-ins.
-  const ckStatus: [string, string][] = arg === 'status' && grants.has(sid) && grants.get(sid)?.level !== 'conductor' ? [['Check-ins', c.checkinStatus((await cfgGet($, sid)).checkin, (await getCheckinPause($)).value, await $.clock.now())]] : []
+  // A lead's, conductor's or manager's status adds its check-ins.
+  const ckStatus: [string, string][] = arg === 'status' && grants.has(sid) ? [['Check-ins', c.checkinStatus((await cfgGet($, sid)).checkin, (await getCheckinPause($)).value, await $.clock.now())]] : []
   // The manager's status names its level in place of the lead's.
   const gs = grants.get(sid)
   const grantPart: [string, string] = gs?.level === 'manager' ? ['Manager', 'ON'] : gs?.level === 'conductor' ? ['Conductor', c.conductorStatus(gs.pins.length)] : ['Lead', grants.has(sid) ? 'ON' : 'OFF']

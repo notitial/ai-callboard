@@ -1,5 +1,5 @@
 import { expect } from 'claude-code/testing'
-import { conductorFileText, folderName, keptKey, leadRecordText, JOIN_NONE, LANES_CHANGED_TEXT, LANES_CHANGED_NOTE, reboundToast, KEEPALIVE_TEXT } from '../hooks/core'
+import { conductorFileText, folderName, keptKey, leadRecordText, JOIN_NONE, LANES_CHANGED_TEXT, LANES_CHANGED_NOTE, LEADS_CHANGED_NOTE, reboundToast, KEEPALIVE_TEXT } from '../hooks/core'
 import type { LeadRec } from '../hooks/core'
 import { h, AUTO_OWN, GOOD, LANESDIR, LEADRECDIR, NO, PS_TABLE, ROOT, SID, T0, TOOL, YES, condFiles, engine, extraStat, fakeSha, laneSeed, leadFiles, quiet, repoKey, resultFiles, storeFiles, submitted } from './harness'
 import type { Trace } from './harness'
@@ -268,7 +268,7 @@ export const mdTable = (groups: Array<[string, string, string[][]]>, head = LEAD
   ].join('\n')
 }
 export const mdBox = (who: [string, string], rows: string[][], head = LEADHEAD) => mdTable([[who[0], who[1], rows]], head)
-export const noNote = (t: string) => t.replace(`\n\n${LANES_CHANGED_NOTE}`, '').replace(` ${LANES_CHANGED_NOTE}`, '')
+export const noNote = (t: string) => [LANES_CHANGED_NOTE, LEADS_CHANGED_NOTE].reduce((r, n) => r.replace(`\n\n${n}`, '').replace(` ${n}`, ''), t)
 
 // ---- the lead's briefing in the system prompt ----
 export const COMPOSE = { model: 'm', promptModel: 'm', surfaces: [], tools: ['Bash', 'mcp__callboard__lane_list', 'mcp__callboard__lane_retire'], outputStyle: null, traits: [] } as any

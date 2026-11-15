@@ -2,7 +2,7 @@ import { expect, test } from 'claude-code/testing'
 import { HEADER, keptKey, leadRecordText, PARK_YES, REMOVE_YES, REOPEN_YES, REASON_TEXT, RETIRE_YES, TERMINATE_YES, afterSignalFailedLeadText, parkLeadQuestion, parkedLeadText, removedLeadNoSessionText, removeLeadQuestion, retireLeadQuestion, reopenedLeadText, stoppedLeadText, terminateLeadQuestion } from '../hooks/core'
 import { h, NO, PS_TABLE, ROOT, SID, T0, fakeSha, leadFiles, longTest, teeTexts, toasts } from './harness'
 import { ledgerRows } from './answer-fixtures'
-import { APISID, CSESS, HOME, LEADPATH, LEADSID, MGR_SESS, OTHERLEAD, PIN, condOn, drive, killed, lane, leadAt, leadFileText, leadRecsJson, leadReg, mgrAt, ownedBy, putLeadRecs, putStore } from './fixtures'
+import { APISID, CSESS, HOME, LEADPATH, LEADSID, MGR_SESS, OTHERLEAD, PIN, condOn, drive, killed, lane, leadAt, leadFileText, leadRecsJson, leadReg, mgrAt, noNote, ownedBy, putLeadRecs, putStore } from './fixtures'
 
 // ---- the lead stop tools (ADR 0007), the caller's side: lead_park, lead_unpark, lead_retire, lead_terminate ----
 // The conductor is this session (SID); the lead LEAD is session LEADSID (pid 4242) in PIN, with its presence file and (owned) its record naming the conductor and
@@ -201,7 +201,7 @@ test('lead_retire of a record no session carries: the conductor removes an orpha
   const recs = leadRecsJson(PIN)
   putLeadRecs(recs.leads.map((l) => ({ ...l, parked: T0 })))
   h.askAnswer = NO
-  expect(await deny($, call('lead_retire'))).toBe('lead_retire refused: the person did not confirm.')
+  expect(noNote(await deny($, call('lead_retire')))).toBe('lead_retire refused: the person did not confirm.')
   expect(h.lastQuestion).toBe(removeLeadQuestion('LEAD', PIN, true, HOME))
   expect(h.lastQuestion).toContain('~/code/app')
   expect(recOf()).toBeDefined()

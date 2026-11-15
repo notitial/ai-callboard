@@ -8,6 +8,7 @@ import {
   watch,
   grants,
   laneObs,
+  leadObs,
   leadToolsInFlight,
   leadDeclared,
   lastTurnUnknown,
@@ -80,7 +81,7 @@ import type { Reg, RegRow, Answer, Edit } from './store.ts'
 import {
   leadsFor,
   presenceTouch,
-  watchPoll,
+  watchLook,
   regEntry,
   presenceHeld,
   ownWrite,
@@ -146,11 +147,17 @@ export async function briefLane($: any, sid: string) {
   await briefOnce($, sid, laneBriefed, kept.name, () => note, 'lane-briefing')
 }
 
+// The lead tools name a record in any letter case; the observations are kept under the record's own name.
+function clearLeadObs(sid: string, name: string) {
+  const m = leadObs.get(sid)
+  const key = name.toUpperCase()
+  for (const k of [...(m?.keys() ?? [])]) if (k.toUpperCase() === key) m?.delete(k)
+}
 // Every lead tool call (it runs the tool's body through this) refreshes the presence file first and, once, tells the lead the lane list changed since its last lane tool call.
 export async function leadRun($: any, e: unknown, body: () => Promise<any>) {
   const sid = await $.session.id()
   await presenceTouch($, sid).catch(() => undefined)
-  await watchPoll($, sid).catch(() => undefined)
+  await watchLook($, sid).catch(() => undefined)
   const w = watch.get(sid)
   // Only a call that is served to the main agent of a lead that is on tells it anything: a refused one (a subagent, tools off) leaves the news for later.
   const served = grants.has(sid) && (e as { agentId?: string }).agentId === undefined
@@ -160,9 +167,12 @@ export async function leadRun($: any, e: unknown, body: () => Promise<any>) {
   const out = await body()
   // The lead acted on that lane itself (a served call that succeeded), so what the check-in saw of it starts over.
   if (served && typeof out?.result === 'string' && OBS_CLEAR_TOOLS.includes(String((e as { tool?: unknown }).tool))) laneObs.get(sid)?.delete(String((e as { lane?: unknown }).lane))
+  // A conductor acted on that lead itself, so what its check-in saw of the lead starts over.
+  if (served && typeof out?.result === 'string' && LEAD_OBS_CLEAR_TOOLS.includes(String((e as { tool?: unknown }).tool))) clearLeadObs(sid, String((e as { lead?: unknown }).lead))
   if (!moved || !out) return out
   // A lane_list text ends in a table, so the note goes after a blank line, never on a table row.
-  return typeof out.result === 'string' ? { ...out, result: `${out.result}${out.result.includes('\n| ') ? '\n\n' : ' '}${c.LANES_CHANGED_NOTE}` } : typeof out.deny === 'string' ? { ...out, deny: `${out.deny} ${c.LANES_CHANGED_NOTE}` } : out
+  const note = w?.kind === 'leads' ? c.LEADS_CHANGED_NOTE : c.LANES_CHANGED_NOTE
+  return typeof out.result === 'string' ? { ...out, result: `${out.result}${out.result.includes('\n| ') ? '\n\n' : ' '}${note}` } : typeof out.deny === 'string' ? { ...out, deny: `${out.deny} ${note}` } : out
 }
 
 // The start of every lane tool but the prompt ones: leadRun, the timer, and `no`, which logs a refusal and answers it as that tool (lane_<verb> refused: <why>).
@@ -1011,6 +1021,7 @@ export async function laneTable($: any, sid: string) {
 }
 
 const OBS_CLEAR_TOOLS = ['terminate', 'retire', 'park', 'unpark', 'resume'].map((v) => `mcp__callboard__lane_${v}`)
+const LEAD_OBS_CLEAR_TOOLS = ['terminate', 'retire', 'park', 'unpark', 'resume'].map((v) => `mcp__callboard__lead_${v}`)
 
 // ...then the lane's repo; an attached lane answers whichever lead holds the repo.
 async function leadPrep($: any, e: unknown, sid: string) {
