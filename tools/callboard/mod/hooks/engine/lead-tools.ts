@@ -51,7 +51,8 @@ export async function leadTarget($: any, e: unknown, sid: string, name: unknown,
     return { t: by, start }
   }
   const r = hit.rec
-  if (g.level === 'conductor' && !(await boundTo($, r))) return no('record-changed', c.leadWhy('record-changed'))
+  // A record with no session and no proof of its owner reaches nothing, but its own conductor may still remove it (lead_retire, the sidless call).
+  if (g.level === 'conductor' && !(r.rec.sid === undefined && opts.sidless === true) && !(await boundTo($, r))) return no('record-changed', c.leadWhy('record-changed'))
   if (r.rec.sid === undefined && opts.sidless !== true) return no('no-live-session', c.leadWhy('no-live-session'))
   if (r.rec.sid === sid) return no('self', c.reasonWhy('self'))
   return { t: { name: r.rec.name, sid: r.rec.sid, repo: r.repo, key: r.key, rec: r }, start }

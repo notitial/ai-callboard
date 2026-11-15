@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
-import { HEADER, PARK_YES, REOPEN_YES, REASON_TEXT, RETIRE_YES, TERMINATE_YES, parkLeadQuestion, parkedLeadText, removeLeadQuestion, retireLeadQuestion, reopenedLeadText, stoppedLeadText, terminateLeadQuestion } from '../hooks/core'
-import { h, NO, PS_TABLE, ROOT, SID, T0, leadFiles, longTest, teeTexts, toasts } from './harness'
+import { HEADER, keptKey, leadRecordText, PARK_YES, REOPEN_YES, REASON_TEXT, RETIRE_YES, TERMINATE_YES, parkLeadQuestion, parkedLeadText, removeLeadQuestion, retireLeadQuestion, reopenedLeadText, stoppedLeadText, terminateLeadQuestion } from '../hooks/core'
+import { h, NO, PS_TABLE, ROOT, SID, T0, fakeSha, leadFiles, longTest, teeTexts, toasts } from './harness'
 import { ledgerRows } from './answer-fixtures'
 import { APISID, CSESS, LEADPATH, LEADSID, MGR_SESS, OTHERLEAD, PIN, condOn, drive, killed, lane, leadAt, leadFileText, leadRecsJson, leadReg, mgrAt, ownedBy, putLeadRecs, putStore } from './fixtures'
 
@@ -75,6 +75,27 @@ test('lead_terminate of a lead that lanes still name keeps its record with no se
   expect(rec!.sid).toBeUndefined()
   expect(rec!.conductorSid).toBe(SID)
   expect(h.store.has(LEADKEY)).toBe(false)
+  // The owner the lead was bound to stays as the proof that lets the sessionless record keep its lanes; lead_retire removes record and proof.
+  const proofKey = keptKey(fakeSha(leadRecordText(PIN, rec!)), 'LEAD')
+  expect(h.store.get(proofKey)).toMatchObject({ repo: PIN, conductorSid: SID, name: 'LEAD' })
+  putStore([])
+  h.sessions = CSESS()
+  expect((await result($, call('lead_retire'))).result).toContain('LEAD')
+  expect(recOf()).toBeUndefined()
+  expect(h.store.has(proofKey)).toBe(false)
+})
+
+test('lead_terminate whose proof cannot be saved keeps the record unproven and says its lanes reach no conductor', async ($, on) => {
+  const argv: string[][] = []
+  await conductor($, on, argv)
+  putStore([namingLane({ sid: APISID })])
+  h.askAnswer = TERMINATE_YES
+  h.storeSetHook = (k: string) => {
+    if (k.startsWith('owner-kept:')) throw new Error('store full')
+  }
+  expect((await result($, call('lead_terminate'))).result).toBe(stoppedLeadText('terminate', 'LEAD', 4242, 'kept-unproven'))
+  expect(recOf()?.sid).toBeUndefined()
+  expect([...h.store.keys()].some((k) => k.startsWith('owner-kept:'))).toBe(false)
 })
 
 longTest('lead_terminate: a process that does not end leaves the record and keys and says so; a failed ledger write sends no signal', async ($, on) => {

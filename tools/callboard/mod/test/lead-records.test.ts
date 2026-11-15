@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { leadRecordText } from '../hooks/core'
+import { keptKey, leadRecordText } from '../hooks/core'
 import type { LeadStore } from '../hooks/core'
 import { loadLeadRecords, loadLeadRecordsFor, editLeadRecs, bindingOf, boundTo, ownerLive, ownOwner } from '../hooks/engine/lead-records'
 import { registryEntries, unlockRetry } from '../hooks/engine/store'
@@ -247,8 +247,20 @@ test('a binding is read from the lead\'s own key and counts only whole; a record
   expect(await boundTo(d.$$, { ...r, rec: { ...rec, how: 'made' } })).toBe(false)
   expect(await boundTo(d.$$, { ...r, repo: APP2 })).toBe(false)
   expect(await boundTo(d.$$, { ...r, rec: { ...rec, sid: OTHER } })).toBe(false)
-  // A record with no session (a force-stopped lead kept for its lanes) needs no binding.
-  expect(await boundTo(d.$$, { ...r, rec: { ...rec, sid: undefined } })).toBe(true)
+  // A record with no session (a force-stopped lead kept for its lanes) is bound only by the proof its force stop left: a record file alone, or a proof of
+  // another name, conductor, repo or hash, is not.
+  const kept = { ...r, rec: { ...rec, sid: undefined } }
+  const hash = fakeSha(leadRecordText(PIN, rec))
+  expect(await boundTo(d.$$, kept)).toBe(false)
+  const proof = { repo: PIN, rec: hash, conductorSid: OTHERLEAD, at: T0, name: rec.name }
+  h.store.set(keptKey(hash, rec.name), proof)
+  expect(await boundTo(d.$$, kept)).toBe(true)
+  expect(await boundTo(d.$$, { ...kept, rec: { ...kept.rec, name: 'FORGED' } })).toBe(false)
+  for (const bad of [{ conductorSid: OTHER }, { repo: APP2 }, { rec: 'f'.repeat(64) }, { name: 'OTHERNAME' }]) {
+    h.store.set(keptKey(hash, rec.name), { ...proof, ...bad })
+    expect(await boundTo(d.$$, kept), JSON.stringify(bad)).toBe(false)
+  }
+  h.store.delete(keptKey(hash, rec.name))
   h.store.set(`owner:${SID}`, { ...(h.store.get(`owner:${SID}`) as object), rec: 'short' })
   expect(await bindingOf(d.$$, SID)).toBe(undefined)
   expect(await boundTo(d.$$, r)).toBe(false)
@@ -281,12 +293,17 @@ test('ownerLive gives the owner only when the record is found, its lead is bound
   statErr.set(LEADRECDIR, 'stat: timed out')
   expect(await owner('LEAD')).toBe(undefined)
   statErr.clear()
-  // A record whose lead never bound to it, or left, routes nothing; a record with no session needs no binding.
-  const binding = h.store.get(`owner:${SID}`)
+  // A record whose lead never bound to it, or left, routes nothing; a record with no session routes only with its force stop's proof: a forged one, written
+  // straight into the records folder, gives its conductor no reach over the lanes that name it.
+  const binding = h.store.get(`owner:${SID}`) as Record<string, unknown>
   h.store.delete(`owner:${SID}`)
   expect(await owner('LEAD')).toBe(undefined)
   putLeadRecs([{ name: 'LEAD', conductorSid: OTHERLEAD }])
+  expect(await owner('LEAD')).toBe(undefined)
+  h.store.set(keptKey(binding.rec as string, 'LEAD'), { ...binding, name: 'LEAD' })
   expect(await owner('LEAD')).toMatchObject({ sid: OTHERLEAD })
+  putLeadRecs([{ name: 'FOO', conductorSid: OTHERLEAD }])
+  expect(await owner('FOO')).toBe(undefined)
   // A record edited to another conductor no longer matches the binding.
   putLeadRecs([{ name: 'LEAD', conductorSid: OTHER, sid: SID }])
   h.store.set(`owner:${SID}`, binding)

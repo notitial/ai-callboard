@@ -2902,12 +2902,14 @@ export const reopenedLeadText = (name: string, sid: string) =>
 export const alreadyLiveLeadText = (name: string, sid: string) => `lead ${name} is already live as session ${sid}. Its parked mark is cleared. Next: lead_resume.`
 // outcome: removed (record and keys gone), kept (a force stop of a lead that lane records still name: keys gone, the record stays with no session), alive (the
 // session outlived its signal: nothing removed), unremoved (the record write failed; code says why). keyKept: a saved key could not be deleted.
-export function stoppedLeadText(verb: 'retire' | 'terminate', name: string, pid: number, outcome: 'removed' | 'kept' | 'alive' | { unremoved: string }, keyKept = false): string {
+export function stoppedLeadText(verb: 'retire' | 'terminate', name: string, pid: number, outcome: 'removed' | 'kept' | 'kept-unproven' | 'alive' | { unremoved: string }, keyKept = false): string {
   const done = verb === 'retire' ? 'retired' : 'terminated'
   const kept = keyKept ? ' Its saved lead grant could not be deleted (lead-key-kept): a resume of that conversation by hand may restore it as a lead.' : ''
   if (outcome === 'removed') return `lead ${name} ${done} and removed: SIGTERM sent to process ${pid}. Its record and saved lead grant are gone; its .archive/${name}/ folder stays.${kept}`
   if (outcome === 'kept')
     return `lead ${name} ${done}: SIGTERM sent to process ${pid}. Its saved lead grant is gone. Lane records still name it, so its record stays with no session and holds the name: its lanes stay in your list, and lead_retire removes the record once they are gone.${kept}`
+  if (outcome === 'kept-unproven')
+    return `lead ${name} ${done}: SIGTERM sent to process ${pid}. Its saved lead grant is gone. Lane records still name it, so its record stays with no session and holds the name, but its owner could not be recorded (lead-owner-unsaved): its lanes reach no conductor now. lead_retire removes the record once they are gone.${kept}`
   if (outcome === 'alive') return `lead ${name} ${done}: SIGTERM sent to process ${pid}, but the session was still running ${(STOP_POLLS * STOP_POLL_MS) / 1000} seconds later, so nothing was removed. Call lead_${verb} again if it does not end.`
   return `lead ${name} ${done}: SIGTERM sent to process ${pid}. Its record could not be removed (${outcome.unremoved}); call lead_retire to remove it.${kept}`
 }
@@ -2921,4 +2923,17 @@ export function namedLanes(why: string, names: string[]): string {
   if (ok.length === 0) return why
   const shown = ok.slice(0, 4).join(', ')
   return `${why} Lanes: ${shown}${ok.length > 4 ? ` and ${ok.length - 4} more` : ''}.`
+}
+
+// The proof a force stop leaves for the record it keeps with no session, under keptKey(record hash, name): the owner binding the lead held at the stop (its
+// repo, record hash and conductor) and the record's name. A record with no session counts as bound (reaches lanes) only while such a proof matches it; a
+// record file alone, which any process of the user can write, proves nothing.
+export const KEPT_PREFIX = 'owner-kept:'
+export const keptKey = (recHash: string, name: string): string => `${KEPT_PREFIX}${recHash}:${name}`
+export type KeptProof = OwnerBinding & { name: string }
+export function parseKeptProof(raw: unknown): KeptProof | undefined {
+  const b = parseOwnerBinding(raw)
+  const name = (raw as { name?: unknown } | null | undefined)?.name
+  if (!b || typeof name !== 'string' || !NAME_RE.test(name)) return undefined
+  return { ...b, name }
 }

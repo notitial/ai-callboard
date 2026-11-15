@@ -8,11 +8,11 @@
 // saved lead grant (lead:<sid>) and a binding (owner:<sid>) of the stopped session go only once its process has ended, and only the exact session the record
 // named at the signal.
 import * as c from '../core.ts'
-import { run, KILL, pause, psOne, psStart, psArgs, toast, askOnce, timedOut, log, logq } from './base.ts'
+import { run, KILL, pause, psOne, psStart, psArgs, toast, askOnce, timedOut, log, logq, sha } from './base.ts'
 import { cueExchange, loadLanes, registryEntries, writeIn } from './store.ts'
 import { leadReason, grantOf } from './grants.ts'
 import { leadTool, readReport, openExchange } from './lanes.ts'
-import { editLeadRecs, loadLeadRecords, boundTo } from './lead-records.ts'
+import { editLeadRecs, loadLeadRecords, boundTo, bindingOf } from './lead-records.ts'
 import { leadTarget, targetCheck, managerAsk } from './lead-tools.ts'
 import type { No, Target, Start } from './lead-tools.ts'
 import { epochOf } from './levels.ts'
@@ -92,7 +92,8 @@ async function recordCheck($: any, sid: string, t: Target, start: Start): Promis
   const was = t.rec.rec
   const now = hit.rec.rec
   if (hit.rec.key !== t.rec.key || now.sid !== was.sid || now.conductorSid !== was.conductorSid || now.parked !== was.parked) return 'grant-changed'
-  if (g.level === 'conductor' && !(await boundTo($, hit.rec))) return 'record-changed'
+  // A record with no session is only removed here; it needs no proof of its owner for that.
+  if (g.level === 'conductor' && now.sid !== undefined && !(await boundTo($, hit.rec))) return 'record-changed'
   return undefined
 }
 
@@ -119,6 +120,22 @@ async function recordEdit($: any, t: Target, victim: string | undefined, change:
     return { store: { ...store, leads } }
   }).catch(() => ({ no: 'throw' }))
   return 'no' in r ? r.no : undefined
+}
+
+// The proof of the owner of a record kept with no session (c.keptKey): the binding the stopped lead held, when it still matches the record (repo, hash,
+// conductor). undefined: no such binding, so the kept record will reach nothing.
+async function keptProof($: any, t: Target, victim: string): Promise<{ key: string; proof: c.KeptProof } | undefined> {
+  if (!t.rec) return undefined
+  const b = await bindingOf($, victim)
+  const hash = await sha($, c.leadRecordText(t.repo, t.rec.rec)).catch(() => '')
+  if (!b || !hash || b.repo !== t.repo || b.rec !== hash || b.conductorSid !== t.rec.rec.conductorSid) return undefined
+  return { key: c.keptKey(hash, t.rec.rec.name), proof: { ...b, name: t.rec.rec.name } }
+}
+async function dropProof($: any, sid: string, t: Target): Promise<void> {
+  if (!t.rec) return
+  const hash = await sha($, c.leadRecordText(t.repo, t.rec.rec)).catch(() => '')
+  if (!hash) return
+  await Promise.resolve($.store.delete(c.keptKey(hash, t.rec.rec.name))).catch(() => logq($, sid, 'error', 'lead-proof-kept'))
 }
 
 // The stopped session's saved lead grant and owner binding, once its process has ended. false: a delete failed (logged).
@@ -306,6 +323,7 @@ async function retireCall($: any, x: Ctx) {
     if (!(await stopRow($, sid, t, start, 'remove', dialog))) return fail(no, 'ledger-write')
     const gone = await recordEdit($, t, t.sid, 'remove')
     if (gone) return fail(no, gone)
+    if (t.sid === undefined) await dropProof($, sid, t)
     const keys = t.sid === undefined ? true : await dropKeys($, sid, t.sid)
     await log($, sid, 'lead-removed', t.name)
     return { result: c.removedLeadNoSessionText(t.name, !keys) }
@@ -356,6 +374,8 @@ async function afterStop($: any, sid: string, verb: 'retire' | 'terminate', t: T
     await logq($, sid, 'error', 'lead-still-running')
     return { result: c.stoppedLeadText(verb, t.name, pid, 'alive') }
   }
+  // The binding is read before it is deleted: a record kept with no session carries its owner only by the proof made from it.
+  const proof = verb === 'terminate' ? await keptProof($, t, victim.sessionId) : undefined
   const keys = await dropKeys($, sid, victim.sessionId)
   if (!t.rec) return { result: c.stoppedLeadText(verb, t.name, pid, 'removed', !keys) }
   let change: RecChange = 'remove'
@@ -364,13 +384,25 @@ async function afterStop($: any, sid: string, verb: 'retire' | 'terminate', t: T
     const lanes = await lanesOf($, t)
     if (typeof lanes === 'string' || lanes.named.length > 0) change = 'unsession'
   }
+  // The proof goes in before the record loses its session, so the kept record is never without it.
+  let proven = false
+  if (change === 'unsession' && proof) {
+    try {
+      await $.store.set(proof.key, proof.proof)
+      proven = true
+    } catch {
+      proven = false
+    }
+  }
+  if (change === 'unsession' && !proven) await logq($, sid, 'error', 'lead-owner-unsaved')
   const bad = await recordEdit($, t, victim.sessionId, change)
+  if (bad && proven) await Promise.resolve($.store.delete(proof!.key)).catch(() => undefined)
   if (bad && bad !== 'unknown-lead') {
     await logq($, sid, 'error', `lead-unremoved ${bad}`)
     return { result: c.stoppedLeadText(verb, t.name, pid, { unremoved: bad }, !keys) }
   }
   await log($, sid, change === 'remove' ? 'lead-removed' : 'lead-unsessioned', t.name)
-  return { result: c.stoppedLeadText(verb, t.name, pid, change === 'remove' ? 'removed' : 'kept', !keys) }
+  return { result: c.stoppedLeadText(verb, t.name, pid, change === 'remove' ? 'removed' : proven ? 'kept' : 'kept-unproven', !keys) }
 }
 
 // lead_terminate: the person's Force stop click every time, at both levels, after the full checks; the checks again from a fresh read after the click; the

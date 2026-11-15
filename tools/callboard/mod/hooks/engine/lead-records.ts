@@ -117,9 +117,15 @@ export async function bindingOf($: any, leadSid: string): Promise<c.OwnerBinding
 }
 
 // Whether a record's lead is bound to it: the binding of the record's session names this repo, this record's hash and this conductor. A record with no session
-// (a force-stopped lead kept for its lanes) needs no binding. A hash that could not be made is not a match.
+// (a force-stopped lead kept for its lanes) is bound only by the proof its force stop left (c.keptKey): the same repo, hash, conductor and name. A hash that
+// could not be made is not a match.
 export async function boundTo($: any, r: c.OwnerRec): Promise<boolean> {
-  if (r.rec.sid === undefined) return true
+  if (r.rec.sid === undefined) {
+    const hash = await sha($, c.leadRecordText(r.repo, r.rec)).catch(() => '')
+    if (!hash) return false
+    const p = c.parseKeptProof(await (async () => $.store.get(c.keptKey(hash, r.rec.name)))().catch(() => undefined))
+    return !!p && p.repo === r.repo && p.rec === hash && p.conductorSid === r.rec.conductorSid && p.name === r.rec.name
+  }
   const b = await bindingOf($, r.rec.sid)
   if (!b || b.repo !== r.repo || b.conductorSid !== r.rec.conductorSid) return false
   return b.rec === (await sha($, c.leadRecordText(r.repo, r.rec)).catch(() => ''))
