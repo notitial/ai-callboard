@@ -367,14 +367,17 @@ export function applyCheck(a: ApplyIn): ApplyOut {
 }
 
 // ---- the ledger: machine-wide, one JSON row per line, no input text ----
-export type RowKind = 'requested' | 'answered' | 'escalated' | 'dropped' | 'returned' | 'superseded' | 'expired-denied' | 'off' | 'abandoned' | 'dialog' | 'not-judgeable' | 'no-tier' | 'answering-on' | 'answering-off' | 'relayed' | 'relay-lost' | 'relay-left' | 'relay-late' | 'relay-closed' | 'deny-unclear' | 'lead-offer' | 'lead-offer-void' | 'lead-grant' | 'lead-owner' | 'lead-resume' | 'lead-stop'
+export type RowKind = 'requested' | 'answered' | 'escalated' | 'dropped' | 'returned' | 'superseded' | 'expired-denied' | 'off' | 'abandoned' | 'dialog' | 'not-judgeable' | 'no-tier' | 'answering-on' | 'answering-off' | 'relayed' | 'relay-lost' | 'relay-left' | 'relay-late' | 'relay-closed' | 'deny-unclear' | 'lead-offer' | 'lead-offer-void' | 'lead-grant' | 'lead-owner' | 'lead-resume' | 'lead-stop' | 'go-grant' | 'go-end' | 'go-read'
 // A `lead-owner` row (ADR 0007), written before the lead record changes: code made | joined | left | off, hash the repo's key, repo, lane the lead's name at the
 // time (for reading only), target the lead's session id, by the conductor's session id (made, joined), was the conductor the lead left (left, off), nonce (made).
 // cap and target: set on an `answered` and a `returned` row of a comment that starts the review command (claudeCap), so the standing comment cap can be counted.
 // by: the session id of the lead that answered (on `answered` and `returned`, so the apply and the audit can bind a decision file to its row); tuid: the call's tool_use_id (on `returned`).
 // dialog (a `lead-resume` row): 'yes' when the person's dialog said yes before the cue (the manager's calls), 'none' when no dialog is asked (a conductor's).
+// The go's rows (ADR 0009), each written before its effect: `go-grant` (id the go's, by the granting session, tier its level, hash the SHA-256 of the go file's bytes,
+// end the go's end as an ISO time, repo, lane the lead's name then), `go-end` (id, code off | expired | grantor-off | void, by the session that ended it) and
+// `go-read` (id, by the reading session, code listed | later, lane its lane name), once per reading session.
 // opt, lh (a question's `answer` rows, code 'answer'): the chosen option's index as a string, and the first 16 hex of SHA-256(id + "\n" + label); no label text. Strings, since the audit drops a row with another type.
-export type LedgerRow = { t: string; kind: RowKind; code?: string; id?: string; lane?: string; repo?: string; tool?: string; pattern?: string; hash?: string; tier?: string; why?: string; nonce?: string; cap?: CapKind; target?: string; by?: string; tuid?: string; via?: 'person'; short?: string; opt?: string; lh?: string; was?: string; dialog?: 'yes' | 'none' }
+export type LedgerRow = { t: string; kind: RowKind; code?: string; id?: string; lane?: string; repo?: string; tool?: string; pattern?: string; hash?: string; tier?: string; why?: string; nonce?: string; cap?: CapKind; target?: string; by?: string; tuid?: string; via?: 'person'; short?: string; opt?: string; lh?: string; was?: string; dialog?: 'yes' | 'none'; end?: string }
 export function ledgerLine(row: LedgerRow): string {
   const r: LedgerRow = { ...row }
   if (r.why !== undefined) r.why = capBytes(redact(r.why).replace(/[\r\n]+/g, ' '), WHY_MAX).text

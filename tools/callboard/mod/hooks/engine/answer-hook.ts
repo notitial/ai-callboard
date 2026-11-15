@@ -164,7 +164,7 @@ async function guardRun($: any): Promise<pr.GuardMissing | undefined> {
   return undefined
 }
 
-async function guardCheck($: any): Promise<pr.GuardMissing | undefined> {
+export async function guardCheck($: any): Promise<pr.GuardMissing | undefined> {
   const now = await $.clock.now()
   const g = mem.guard
   if (g && now >= g.at && now - g.at < GUARD_TTL_MS) return g.missing

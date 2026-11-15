@@ -13,6 +13,7 @@ import { commandRun } from './engine/commands.ts'
 import { toolCheck, permissionRequest, doneHook } from './engine/answer-hook.ts'
 import { promptListCall, promptAnswerCall, promptEscalateCall } from './engine/answer-tiers.ts'
 import { usageMeasure } from './engine/usage.ts'
+import { goRequestCall, goStatusCall } from './engine/go.ts'
 
 export const register: Register = (on) => {
   on('session.start', sessionStart).catch(($, e, next) => next(e))
@@ -46,6 +47,9 @@ export const register: Register = (on) => {
   on('tool.call', { tool: 'mcp__callboard__prompt_list' }, promptListCall).catch(() => ({ deny: 'prompt_list failed closed.' }))
   on('tool.call', { tool: 'mcp__callboard__prompt_answer' }, promptAnswerCall).catch(() => ({ deny: 'prompt_answer failed closed.' }))
   on('tool.call', { tool: 'mcp__callboard__prompt_escalate' }, promptEscalateCall).catch(() => ({ deny: 'prompt_escalate failed closed.' }))
+
+  on('tool.call', { tool: 'mcp__callboard__go_request' }, goRequestCall).catch(() => ({ deny: 'go_request failed closed.' }))
+  on('tool.call', { tool: 'mcp__callboard__go_status' }, goStatusCall).catch(() => ({ deny: 'go_status failed closed.' }))
 
   for (const verb of c.STOP_VERBS) {
     on('tool.call', { tool: `mcp__callboard__lane_${verb}` }, ($, e, next) => stopVerbCall($, e, next, verb)).catch(($, e, next) => stopVerbFailed($, e, next, verb))

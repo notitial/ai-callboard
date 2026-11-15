@@ -75,6 +75,8 @@ import { epochOf, heldNo, holdsOf, levelSave } from './levels.ts'
 import type { LevelDesc } from './levels.ts'
 import { ANSWERING_KEY, ledgerAdd, promptsOff, escalationNow, defaultForget } from './answer-hook.ts'
 import { ledgerRestore } from './answer-tiers.ts'
+import * as go from '../go.ts'
+import { goCommand } from './go.ts'
 import { getCheckinPause, getLane, getRequest, setCheckinPause, setLane, setNudgeDue, setNudgedAt, setRequest, setRest } from '../state.ts'
 
 // The refusal of a person-only command from another origin: logged as <command>-not-person:<origin>, answered with the command's fixed text.
@@ -935,6 +937,8 @@ export async function commandRun($: any, e: any) {
   // It only narrows (it stops pings), so any origin may type it, as `escalation off`.
   if (line === 'rest') return restCommand($, sid, code)
   if (line === 'escalation' || line.startsWith('escalation ')) return escalationCommand($, sid, code, pr.parseEscalationArgs(line.slice(10)))
+  // The go (ADR 0009): read here, as escalation is; its text keeps its own words.
+  if (line === 'go' || line.startsWith('go ')) return goCommand($, sid, code, go.parseGoArgs(line.slice(2)))
   if (line === '' || line === 'help') return { text: c.helpText() }
   const arg = c.parseCommandArgs(rawArgs)
   if (!arg) return { text: c.HELP_USAGE }

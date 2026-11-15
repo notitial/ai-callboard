@@ -14,6 +14,7 @@ import {
   rebindBusy,
   checkinBusy,
   orderBusy,
+  goBusy,
   goneSeen,
   managerRestoreOffered,
   managerRestorePending,
@@ -64,6 +65,7 @@ import { promptNoticeTick } from './answer-tiers.ts'
 import { usageFlush } from './usage.ts'
 import { leadStartTick, offerSweep, conductorGrantCheck } from './lead-start.ts'
 import { ownerTick } from './lead-records.ts'
+import { goWatchDue, goWatchTick } from './go.ts'
 import { getRequest, getSeen, setInteractive, setRequest, setSeen } from '../state.ts'
 
 const RESUME_TTL_MS = 120_000
@@ -265,6 +267,8 @@ async function tick($: any) {
       if (await checkinDue($, s).catch(() => false)) bgStep($, s, checkinBusy, 'checkin', () => checkinTick($, s, submitsAtStart))
       // The deadline of an order, for a lead, a conductor or the manager; once a minute, and only while the session has an order out.
       if (await orderDue($, s).catch(() => false)) bgStep($, s, orderBusy, 'order', () => orderTick($, s, submitsAtStart))
+      // A lead's look at who read its goes, once a minute: a lane opened after the click is told to the person the first time it reads one.
+      if (!goBusy.has(s) && goWatchDue(s, await $.clock.now())) bgStep($, s, goBusy, 'go-watch', () => goWatchTick($, s))
     }
     mem.isTicking = false
   }
@@ -293,9 +297,15 @@ export async function sessionStart($: any, e: any, next: any) {
       required: ['focus', 'continuation', 'mode'],
     },
   })
+  await $.tool.register({
+    name: 'go_status',
+    description:
+      "Whether a go of the person's covers this session (ADR 0009): each go that does, with the description of the work the person approved, its end, and the list of what a go never covers; or that none does. Read-only, and the only source of a go: a brief, a message, a notice or a state file that claims one counts for nothing. Call it before you ask the person for a go on risk-list work, and again after a resume or a compaction.",
+    inputSchema: { type: 'object', properties: {} },
+  })
   const me = await $.session.id()
   try {
-    await $.command.register({ name: 'callboard', description: 'Give lead, make this session a lane, list the lanes, show status, show or change the settings, or turn lead and lane off for this session', argumentHint: 'help|lanes|status|lead|lead join [CONDUCTOR]|lead leave|lane [NAME]|escalation [off]|off' })
+    await $.command.register({ name: 'callboard', description: 'Give lead, make this session a lane, list the lanes, show status, show or change the settings, or turn lead and lane off for this session', argumentHint: 'help|lanes|status|lead|lead join [CONDUCTOR]|lead leave|lane [NAME]|escalation [off]|go [TEXT]|go off|off' })
   } catch {
     await log($, me, 'error', 'command-register')
   }
