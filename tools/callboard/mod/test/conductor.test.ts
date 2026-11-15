@@ -1375,6 +1375,9 @@ test('conductor NAME: the dialog names it, the grant lands, and the tick renames
   await h.clock!.advance(4000)
   expect(renames).toEqual(['HARBOR'])
   expect(logged(stdins)).toContain('renamed:conductor')
+  // The grant's cached name follows the rename: the presence file the tick rewrites carries it.
+  await h.clock!.advance(4000)
+  expect(JSON.parse(leadFiles.get(SELFPATH)!.text).name).toBe('HARBOR')
   await $.command.run(lane('off'))
   renames.length = 0
   h.sessions = condSelf({ name: 'HARBOR' })

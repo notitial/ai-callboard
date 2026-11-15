@@ -2033,6 +2033,8 @@ export const LEFT_TOAST = 'Lead left its conductor'
 export const OFF_OWNER_REMOVED = '\nIts conductor tie is removed.'
 export const offOwnerKept = (code: string): string => code === BINDING_KEPT ? '\nIts conductor tie could not be removed: run /callboard lead leave in this session again.' : `\nIts conductor tie is removed, but its lead record could not be (${hasText(code) ? code : 'other'}); it routes nothing.`
 export const JOIN_NOT_ASKED_NAME = '\nNo conductor yet: name this session with /rename, then type /callboard lead join.'
+// A lead granted with a NAME is not renamed yet when the question after the click would ask for its conductor: that question is skipped, and the person joins by hand.
+export const JOIN_AFTER_RENAME = '\nNo conductor yet: once the rename has landed, type /callboard lead join.'
 export const JOIN_NOT_PICKED = '\nNo conductor yet: /callboard lead join assigns one.'
 export const OWNER_UNSET_TOAST = 'Lead on, but its conductor was not recorded: type /callboard lead join'
 export const renameTakenToast = (old: string, cur: string): string => `The lead's new name ${cur} is taken by a lane or another lead, so its record and lanes stay under ${old}. /rename it to a free name.`

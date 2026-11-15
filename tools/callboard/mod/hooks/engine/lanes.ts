@@ -796,8 +796,12 @@ export async function renameTick($: any, sid: string) {
     if (bad !== undefined) return fail(bad)
   }
   const done = await withTimeout($, Promise.resolve($.command.run({ command: 'rename', args: pr.name })).then(() => 'ok' as const, () => 'refused' as const), ACTION_TIMEOUT_MS)
-  if (done === 'ok') await log($, sid, 'renamed', pr.manager ? 'manager' : (pr.grant ?? 'attach'))
-  else await fail(done)
+  if (done === 'ok') {
+    await log($, sid, 'renamed', pr.manager ? 'manager' : (pr.grant ?? 'attach'))
+    // A conductor's cached name is set at its grant, before this rename; leadRenameTick moves a lead's, nothing moves a conductor's.
+    const now = grants.get(sid)
+    if (pr.grant === 'conductor' && now?.level === 'conductor') grants.set(sid, { ...now, name: pr.name })
+  } else await fail(done)
 }
 
 // The cheap part, every tick with no time limit (a state read): the binding the sync is due for, if any; its key is set here.

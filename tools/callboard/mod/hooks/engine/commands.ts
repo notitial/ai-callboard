@@ -969,6 +969,13 @@ export async function grantLead($: any, sid: string, code: c.OriginCode, busy: (
   })
   // The question after the click: only the person's own command, and only when the grant was just made (its text), never the accept's silent grant.
   if (o.silent || !c.originIsPerson(code) || res.code !== undefined || res.text !== c.LEAD_ON_TEXT) return res
+  // The question reads the session's current name, which is not NAME until the rename lands: with a NAME the person joins by hand, and is told so only when a conductor is live.
+  if (want !== undefined) {
+    const repo = pinOf(sid)
+    const live = repo === undefined || (await bindingOf($, sid)) !== undefined ? undefined : await registryEntries($)
+    const some = live && repo !== undefined ? (await joinCands($, live, sid, repo)).length > 0 : false
+    return some ? { ...res, text: `${res.text}${c.JOIN_AFTER_RENAME}` } : res
+  }
   return leadClickQuestion($, sid, res)
 }
 

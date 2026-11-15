@@ -329,6 +329,26 @@ test('the question after a Lead click is not asked when no conductor is live, wh
   nothing()
 })
 
+test('lead NAME with a live conductor skips the join question (it would read the old name) and says to join once the rename has landed; with no conductor live it says nothing', async ($, on) => {
+  h.sessions = leadSelfReg()
+  await started($, on, [], { clock: true })
+  extraStat.set(`${PIN}/.git`, dirStat)
+  h.callerCwd = PIN
+  h.askAnswer = 'Lead'
+  expect((await $.command.run(lane('lead HARBOR'))).text).toBe(c.LEAD_ON_TEXT)
+  expect(h.askCount).toBe(1)
+  await $.command.run(lane('off'))
+  for (const mine of [leadSelfReg(), leadSelfReg({ name: 'two words' })]) {
+    h.askCount = 0
+    h.sessions = sessions(mine)
+    condSeed()
+    expect((await $.command.run(lane('lead HARBOR'))).text).toBe(`${c.LEAD_ON_TEXT}${c.JOIN_AFTER_RENAME}`)
+    expect(h.askCount).toBe(1)
+    nothing()
+    await $.command.run(lane('off'))
+  }
+})
+
 test('a lead that was just joined and is renamed moves its record in one write, the binding stays byte for byte, then the lanes follow', async ($, on) => {
   const stdins: string[] = []
   await joiner($, on, stdins)
