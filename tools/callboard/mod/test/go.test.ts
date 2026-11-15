@@ -264,7 +264,7 @@ test('go_status returns no go for a file with no row, a row with no file, a row 
   expect(goRows().filter((r) => r.kind === 'go-read')).toHaveLength(1)
 })
 
-test('the end time ends a go: no go from then on, and one go-end row however often it is read', async ($, on) => {
+longTest('the end time ends a go: no go from then on, and one go-end row however often it is read', async ($, on) => {
   await reader($, on)
   const go = putGo({ ends: T0 + 2 * HOUR_MS })
   expect(await status($)).toContain(WORK)
