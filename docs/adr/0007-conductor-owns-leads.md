@@ -140,7 +140,9 @@ The conductor still never creates, opens, starts, resumes, parks or retires a **
 *Amended 2026-11-15 (the lead stop tools): the manager also has `lead_park` and `lead_unpark`, so its four lead stop
 tools are `lead_park`, `lead_unpark`, `lead_retire` and `lead_terminate`. It owns no lead and acts on any lead only
 through the tool's own dialog, which the person answers themselves every time; never unattended. A park still needs
-the lead's own mod to confirm, as for its conductor. H2's exception in ADR 0001 names all four.*
+the lead's own mod to confirm, as for its conductor, so a lead takes `park` as well as `resume`, `compact` and
+`retire` from a trusted manager. The table's manager column reads `yes, behind its dialog` for `lead_park` and
+`lead_unpark`. H2's exception in ADR 0001 names all four.*
 
 **Target checks.** Before any dialog or cue, after the dialog, and right before the signal, each time from a fresh read:
 the record's session id is the target session's; the target holds a live lead presence file for exactly the record's

@@ -3372,5 +3372,5 @@ test('leadOpenArgs takes job as a boolean; leadJobBriefText puts the fixed job p
   assert.ok(b.includes('Do not create or open lanes.'))
   assert.ok(b.includes('.archive/LEAD-A/REPORT.md'))
   assert.ok(b.includes('append a new last line "status: done <your session id>", tell your conductor in one line, and stop.'))
-  assert.ok(b.endsWith('Your conductor then retires this session.\n\nFix the typo.'))
+  assert.ok(b.endsWith('Your conductor then retires this session. The task is the conductor\'s, not the person\'s: anything on the risk list in it still needs the person\'s own turn in this session.\n\nFix the typo.'))
 })

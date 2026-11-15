@@ -890,7 +890,7 @@ test('a lead request replaced by another file between the read and the claim is 
 
 const { readLeadStores, allLeads } = require('./spool.js')
 const LREPO = '/work/repo'
-const LEAD = { name: 'LEAD-A', folder: LREPO, repo: LREPO, sid: SID, lead: true }
+const LEAD = { name: 'LEAD-A', folder: LREPO, repo: LREPO, sid: SID, lead: true, parked: Date.now() }
 
 test('a reopen for a parked lead whose record names that sid reopens it in the window that holds its repo', async () => {
   const w = world({ lanes: [], leads: [LEAD], ws: [LREPO] })
@@ -919,6 +919,22 @@ test('a lead reopen with another sid or a record with no sid is sid-mismatch; an
   assert.equal(c.result('LEAD-A'), undefined)
 })
 
+test('a lead reopen needs a parked mark at most 28 days old, as the mod does', async () => {
+  const { parked, ...live } = LEAD
+  const cases = [
+    [live, 'no parked mark'],
+    [{ ...LEAD, parked: Date.now() - 28 * 24 * 3_600_000 - 60_000 }, 'parked more than 28 days ago'],
+    [{ ...LEAD, parked: Date.now() + 60_000 }, 'parked in the future'],
+  ]
+  for (const [lead, why] of cases) {
+    const w = world({ lanes: [], leads: [lead], ws: [LREPO] })
+    w.putReopen('LEAD-A')
+    assert.deepEqual(await w.spool.scan(), [['LEAD-A', 'not-parked']], why)
+    assert.equal(w.result('LEAD-A'), 'error not-parked\n', why)
+    assert.deepEqual(w.reopened, [], why)
+  }
+})
+
 test('a name a lane and a lead both carry, in any letter case, is unknown-lane for a reopen, and a lead is never opened by an open request', async () => {
   const both = world({ lanes: [{ name: 'lead-a', folder: `${LREPO}/x`, repo: LREPO, sid: SID }], leads: [LEAD], ws: [LREPO, `${LREPO}/x`] })
   both.putReopen('LEAD-A')
@@ -944,7 +960,7 @@ test('readLeadStores reads a lead record as the mod does and refuses the whole f
   const rec = { name: 'LEAD-A', createdAt: 1, how: 'made', conductorSid: C, conductorName: 'COND', nonce: 'a'.repeat(32), sid: SID, parked: 5 }
   const good = { repo: w.repo, leads: [rec] }
   w.put(good)
-  assert.deepEqual(await readLeadStores(w.dir), [{ name: 'LEAD-A', folder: w.repo, repo: w.repo, store: `${w.key}.json`, sid: SID }])
+  assert.deepEqual(await readLeadStores(w.dir), [{ name: 'LEAD-A', folder: w.repo, repo: w.repo, store: `${w.key}.json`, sid: SID, parked: 5 }])
   const two = { ...rec, name: 'LEAD-B', sid: undefined, parked: undefined, how: 'joined', nonce: undefined }
   w.put({ repo: w.repo, leads: [rec, JSON.parse(JSON.stringify(two))] })
   assert.deepEqual((await readLeadStores(w.dir)).map((l) => [l.name, 'sid' in l]), [['LEAD-A', true], ['LEAD-B', false]])

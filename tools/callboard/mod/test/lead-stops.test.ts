@@ -2,7 +2,7 @@ import { expect, test } from 'claude-code/testing'
 import { HEADER, keptKey, leadRecordText, PARK_YES, REMOVE_YES, REOPEN_YES, REASON_TEXT, RETIRE_YES, TERMINATE_YES, parkLeadQuestion, parkedLeadText, removeLeadQuestion, retireLeadQuestion, reopenedLeadText, stoppedLeadText, terminateLeadQuestion } from '../hooks/core'
 import { h, NO, PS_TABLE, ROOT, SID, T0, fakeSha, leadFiles, longTest, teeTexts, toasts } from './harness'
 import { ledgerRows } from './answer-fixtures'
-import { APISID, CSESS, LEADPATH, LEADSID, MGR_SESS, OTHERLEAD, PIN, condOn, drive, killed, lane, leadAt, leadFileText, leadRecsJson, leadReg, mgrAt, ownedBy, putLeadRecs, putStore } from './fixtures'
+import { APISID, CSESS, HOME, LEADPATH, LEADSID, MGR_SESS, OTHERLEAD, PIN, condOn, drive, killed, lane, leadAt, leadFileText, leadRecsJson, leadReg, mgrAt, ownedBy, putLeadRecs, putStore } from './fixtures'
 
 // ---- the lead stop tools (ADR 0007), the caller's side: lead_park, lead_unpark, lead_retire, lead_terminate ----
 // The conductor is this session (SID); the lead LEAD is session LEADSID (pid 4242) in PIN, with its presence file and (owned) its record naming the conductor and
@@ -118,7 +118,7 @@ test('lead_terminate by the manager on a live lead with no record: the dialog, t
   await manager($, on, argv)
   const asked = h.askCount
   h.askAnswer = TERMINATE_YES
-  expect((await result($, call('lead_terminate'))).result).toBe(stoppedLeadText('terminate', 'LEAD', 4242, 'removed'))
+  expect((await result($, call('lead_terminate'))).result).toBe(stoppedLeadText('terminate', 'LEAD', 4242, 'stopped'))
   expect(h.askCount).toBe(asked + 1)
   expect(h.lastQuestion).toBe(terminateLeadQuestion('LEAD', PIN, LEADSID, 4242, 0))
   expect(killed(argv)).toEqual([['/bin/kill', '-TERM', '4242']])
@@ -202,7 +202,8 @@ test('lead_retire of a record no session carries: the conductor removes an orpha
   putLeadRecs(recs.leads.map((l) => ({ ...l, parked: T0 })))
   h.askAnswer = NO
   expect(await deny($, call('lead_retire'))).toBe('lead_retire refused: the person did not confirm.')
-  expect(h.lastQuestion).toBe(removeLeadQuestion('LEAD', PIN, true))
+  expect(h.lastQuestion).toBe(removeLeadQuestion('LEAD', PIN, true, HOME))
+  expect(h.lastQuestion).toContain('~/code/app')
   expect(recOf()).toBeDefined()
   expect(killed(argv)).toEqual([])
 })
@@ -229,13 +230,25 @@ test('a record whose session is gone for good and whose binding went with it: th
   expect(recOf()).toBeDefined()
 })
 
+test('removing a record whose session another record\'s binding names leaves that session\'s keys alone', async ($, on) => {
+  const argv: string[][] = []
+  await conductor($, on, argv, { sess: CSESS() })
+  const other = { repo: '/Users/x/code/other', rec: 'b'.repeat(64), conductorSid: OTHERLEAD, at: T0 }
+  h.store.set(OWNKEY, other)
+  putLeadRecs([{ name: 'LEAD', conductorSid: SID, sid: LEADSID }])
+  expect((await result($, call('lead_retire'))).result).toContain('LEAD')
+  expect(recOf()).toBeUndefined()
+  expect(h.store.get(OWNKEY)).toEqual(other)
+  expect(h.store.has(LEADKEY)).toBe(true)
+})
+
 test('the manager\'s lead_retire removes a record whose session is gone, only after the person\'s click', async ($, on) => {
   const argv: string[][] = []
   await manager($, on, argv, { sess: MGR_SESS({ name: 'MANAGER' }) })
   putLeadRecs([{ name: 'LEAD', conductorSid: OTHERLEAD, sid: LEADSID }])
   h.askAnswer = NO
   expect(await deny($, call('lead_retire'))).toBe('lead_retire refused: the person did not confirm.')
-  expect(h.lastQuestion).toBe(removeLeadQuestion('LEAD', PIN, false))
+  expect(h.lastQuestion).toBe(removeLeadQuestion('LEAD', PIN, false, HOME))
   expect(recOf()).toBeDefined()
   h.askAnswer = REMOVE_YES
   expect((await result($, call('lead_retire'))).result).toContain('LEAD')
@@ -269,11 +282,11 @@ test('lead_park refuses a lead with a live lane before any cue', async ($, on) =
   expect(killed(argv)).toEqual([])
 })
 
-test('the manager\'s lead_park of a lead with no record refuses unknown-lead before any dialog; of an owned lead it asks once', async ($, on) => {
+test('the manager\'s lead_park of a lead with no record refuses lead-no-record before any dialog; of an owned lead it asks once', async ($, on) => {
   const argv: string[][] = []
   await manager($, on, argv)
   const asked = h.askCount
-  expect(await deny($, call('lead_park'))).toContain('lead_park refused: unknown-lead')
+  expect(await deny($, call('lead_park'))).toContain('lead_park refused: lead-no-record')
   expect(h.askCount).toBe(asked)
   ownedBy(OTHERLEAD, { leadSid: LEADSID })
   h.askAnswer = NO

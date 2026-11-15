@@ -8,9 +8,9 @@
 // saved lead grant (lead:<sid>) and a binding (owner:<sid>) of the stopped session go only once its process has ended, and only the exact session the record
 // named at the signal.
 import * as c from '../core.ts'
-import { run, KILL, pause, psOne, psStart, psArgs, toast, askOnce, timedOut, log, logq, sha } from './base.ts'
+import { run, KILL, pause, psOne, psStart, psArgs, toast, askOnce, timedOut, log, logq, sha, where } from './base.ts'
 import { cueExchange, loadLanes, registryEntries, writeIn } from './store.ts'
-import { leadReason, grantOf } from './grants.ts'
+import { leadReason, grantOf, homeOf } from './grants.ts'
 import { leadTool, readReport, openExchange } from './lanes.ts'
 import { editLeadRecs, loadLeadRecords, boundTo, bindingOf } from './lead-records.ts'
 import { leadTarget, targetCheck, managerAsk } from './lead-tools.ts'
@@ -132,11 +132,30 @@ async function keptProof($: any, t: Target, victim: string): Promise<{ key: stri
   if (!b || !hash || b.repo !== t.repo || b.rec !== hash || b.conductorSid !== t.rec.rec.conductorSid) return undefined
   return { key: c.keptKey(hash, t.rec.rec.name), proof: { ...b, name: t.rec.rec.name } }
 }
+// Whether the records hold a record of t's name with no session, the same repo and conductor (a kept record the proof may bind). A read that fails counts as
+// yes: the proof stays, the safe side for the record.
+async function keptBy($: any, t: Target): Promise<boolean> {
+  const recs = await loadLeadRecords($)
+  if (typeof recs === 'string') return true
+  return recs.some((s) => s.key === t.rec?.key && s.store.leads.some((l) => l.name === t.name && l.sid === undefined && l.conductorSid === t.rec?.rec.conductorSid))
+}
 async function dropProof($: any, sid: string, t: Target): Promise<void> {
   if (!t.rec) return
   const hash = await sha($, c.leadRecordText(t.repo, t.rec.rec)).catch(() => '')
   if (!hash) return
   await Promise.resolve($.store.delete(c.keptKey(hash, t.rec.rec.name))).catch(() => logq($, sid, 'error', 'lead-proof-kept'))
+}
+
+// Whether a removed record's session keys may go: no process was signalled, so the registry is read once more (a session resumed by hand meanwhile keeps
+// them), and the session's binding must be absent or bind this very record (repo, hash, conductor), so a record naming another lead's session never
+// deletes that lead's keys. false: the keys stay (logged).
+async function staleKeys($: any, sid: string, t: Target, victim: string): Promise<boolean> {
+  const live = await registryEntries($)
+  const b = live && !live.some((r) => r.j.sessionId === victim) ? await bindingOf($, victim) : 'live'
+  const hash = t.rec ? await sha($, c.leadRecordText(t.repo, t.rec.rec)).catch(() => '') : ''
+  const ok = b !== 'live' && (b === undefined || (!!t.rec && !!hash && b.repo === t.repo && b.rec === hash && b.conductorSid === t.rec.rec.conductorSid))
+  if (!ok) await logq($, sid, 'error', 'lead-keys-left')
+  return ok
 }
 
 // The stopped session's saved lead grant and owner binding, once its process has ended. false: a delete failed (logged).
@@ -168,7 +187,7 @@ async function signal($: any, sid: string, tool: Tool, e: any, t: Target, victim
 async function ended($: any, victim: c.RegEntry): Promise<boolean> {
   for (let i = 0; ; i++) {
     const at = await psOne($, victim.pid, 'lstart=').catch((): 'error' => 'error')
-    if (at === 'gone' || (at !== 'error' && !c.sameStart(victim.procStart, at.out))) return true
+    if (at === 'gone' || (at !== 'error' && at.out.trim() !== '' && !c.sameStart(victim.procStart, at.out))) return true
     if (i >= c.STOP_POLLS) return false
     if (!(await pause($, c.STOP_POLL_MS))) throw new Error('pause-failed')
   }
@@ -187,7 +206,7 @@ async function parkCall($: any, x: Ctx) {
   if ('deny' in got) return got
   const { t, start } = got
   // A live lead with no record (the manager's) has nothing to carry the mark.
-  if (!t.rec) return fail(no, 'unknown-lead')
+  if (!t.rec) return fail(no, 'lead-no-record')
   const first = await fullCheck($, sid, t, start)
   if (typeof first === 'string') return fail(no, first)
   const idle = await idleWait($, sid, tool, t, start, first, no, abandoned)
@@ -229,14 +248,15 @@ async function parkCall($: any, x: Ctx) {
 }
 
 // lead_unpark: a parked record, within 28 days of its park, whose conversation is not live, is reopened by its session id (the extension's reopen of a lead
-// record); the reopened session restores its own lead grant and binding. The parked mark goes once it is open.
+// record); the reopened session restores its own lead grant and binding. The parked mark goes once it is open. A conversation already live as the lead (resumed
+// by hand) only loses the mark. The live and name checks run again after the manager's dialog.
 async function unparkCall($: any, x: Ctx) {
-  const { sid, e, tool, no } = x
+  const { sid, e, tool, no, abandoned } = x
   const got = await leadTarget($, e, sid, e.lead, no)
   if (got === 'none') return fail(no, 'unknown-lead')
   if ('deny' in got) return got
   const { t, start } = got
-  if (!t.rec) return fail(no, 'unknown-lead')
+  if (!t.rec) return fail(no, 'lead-no-record')
   const parked = t.rec.rec.parked
   const want = t.sid!
   if (parked === undefined) return fail(no, 'not-parked')
@@ -251,30 +271,42 @@ async function unparkCall($: any, x: Ctx) {
     return out
   }
   const stopped = (r: c.RegEntry) => typeof r.startedAt !== 'number' || r.startedAt <= parked
-  let live = await liveOf()
-  for (let i = 0; i < 10 && live?.some(stopped); i++) {
-    if (!(await pause($, c.OPEN_POLL_MS))) break
-    live = await liveOf()
+  // 'reopen': not live, and no other live session carries the name; 'already': live once, as the lead; else a refusal.
+  const state = async (): Promise<'reopen' | 'already' | { deny: string }> => {
+    let live = await liveOf()
+    for (let i = 0; i < 10 && live?.some(stopped); i++) {
+      if (!(await pause($, c.OPEN_POLL_MS))) break
+      live = await liveOf()
+    }
+    if (!live) return fail(no, 'registry-unreadable')
+    if (live.some(stopped)) return fail(no, 'session-live')
+    const all = await registryEntries($)
+    if (!all) return fail(no, 'registry-unreadable')
+    const rows = all.map((r) => r.j as c.RegEntry)
+    if (live.length === 1 && live[0].name === t.name) return 'already'
+    if (live.length > 0) return fail(no, 'session-live')
+    if (rows.some((r) => r.name === t.name && r.sessionId !== want)) return no('name-in-use', 'a live session already carries that lead name.')
+    return 'reopen'
   }
-  if (!live) return fail(no, 'registry-unreadable')
-  if (live.some(stopped)) return fail(no, 'session-live')
-  const rows = (await registryEntries($))?.map((r) => r.j as c.RegEntry) ?? []
-  if (live.length === 1 && live[0].name === t.name) {
-    const bad = await recordEdit($, t, want, 'unpark')
-    if (bad) await log($, sid, 'error', `unpark-unmarked ${bad}`)
-    return { result: c.alreadyLiveLeadText(t.name, want) }
-  }
-  if (live.length > 0) return fail(no, 'session-live')
-  if (rows.some((r) => r.name === t.name && r.sessionId !== want)) return no('name-in-use', 'a live session already carries that lead name.')
+  const before = await state()
+  if (typeof before !== 'string') return before
   let dialog: 'yes' | 'none' = 'none'
   if (start.level === 'manager') {
     const asked = await managerAsk($, sid, tool, c.unparkLeadQuestion(t.name, t.repo, want), c.REOPEN_YES, no)
     if (asked) return asked
     dialog = 'yes'
   }
+  const now = dialog === 'yes' ? await state() : before
+  if (typeof now !== 'string') return now
   const bad = await recordCheck($, sid, t, start)
   if (bad) return fail(no, bad)
+  if (abandoned()) return { deny: leadReason(tool, c.reasonWhy('abandoned')) }
   if (!(await stopRow($, sid, t, start, 'unpark', dialog))) return fail(no, 'ledger-write')
+  if (now === 'already') {
+    const unmarked = await recordEdit($, t, want, 'unpark')
+    if (unmarked) await log($, sid, 'error', `unpark-unmarked ${unmarked}`)
+    return { result: c.alreadyLiveLeadText(t.name, want) }
+  }
   // An extension older than 1.4.0 knows no lead record and answers unknown-lane at once: that answer names the version needed.
   const reopenNo: No = (code, why) => (code === 'reopen-unknown-lane' ? fail(no, 'lead-reopen-unknown-lane') : no(code, why))
   const r = await openExchange($, sid, t.name, 'reopen', `${want}\n`, c.leadWhy('reopen-timeout'), reopenNo)
@@ -307,7 +339,8 @@ async function retireCall($: any, x: Ctx) {
     const parked = t.rec.rec.parked !== undefined
     let dialog: 'yes' | 'none' = 'none'
     if (start.level === 'manager' || parked) {
-      const r = await askOnce($, sid, c.removeLeadQuestion(t.name, t.repo, parked), c.REMOVE_YES, c.REMOVE_NO, c.HEADER.stopLead)
+      const p = await where($)
+      const r = await askOnce($, sid, c.removeLeadQuestion(t.name, t.repo, parked, p ? homeOf(p) : undefined), c.REMOVE_YES, c.REMOVE_NO, c.HEADER.stopLead)
       if (r === 'busy') return fail(no, 'busy')
       if (r === 'timed-out') return { deny: leadReason(tool, `${await timedOut($, sid)}.`) }
       if (r !== 'yes') return no('not-confirmed', 'the person did not confirm.')
@@ -321,11 +354,12 @@ async function retireCall($: any, x: Ctx) {
     const again = await lanesOf($, t)
     if (typeof again === 'string') return fail(no, again)
     if (again.named.length > 0) return no('lead-has-lanes', c.namedLanes(c.reasonWhy('lead-has-lanes'), again.named))
+    if (abandoned()) return { deny: leadReason(tool, c.reasonWhy('abandoned')) }
     if (!(await stopRow($, sid, t, start, 'remove', dialog))) return fail(no, 'ledger-write')
     const gone = await recordEdit($, t, t.sid, 'remove')
     if (gone) return fail(no, gone)
     if (t.sid === undefined) await dropProof($, sid, t)
-    const keys = t.sid === undefined ? true : await dropKeys($, sid, t.sid)
+    const keys = t.sid === undefined || !(await staleKeys($, sid, t, t.sid)) ? true : await dropKeys($, sid, t.sid)
     await log($, sid, 'lead-removed', t.name)
     return { result: c.removedLeadNoSessionText(t.name, !keys) }
   }
@@ -378,7 +412,7 @@ async function afterStop($: any, sid: string, verb: 'retire' | 'terminate', t: T
   // The binding is read before it is deleted: a record kept with no session carries its owner only by the proof made from it.
   const proof = verb === 'terminate' ? await keptProof($, t, victim.sessionId) : undefined
   const keys = await dropKeys($, sid, victim.sessionId)
-  if (!t.rec) return { result: c.stoppedLeadText(verb, t.name, pid, 'removed', !keys) }
+  if (!t.rec) return { result: c.stoppedLeadText(verb, t.name, pid, 'stopped', !keys) }
   let change: RecChange = 'remove'
   if (verb === 'terminate') {
     // A lane list that cannot be read keeps the record (with no session): the name stays held, the safe side.
@@ -397,7 +431,9 @@ async function afterStop($: any, sid: string, verb: 'retire' | 'terminate', t: T
   }
   if (change === 'unsession' && !proven) await logq($, sid, 'error', 'lead-owner-unsaved')
   const bad = await recordEdit($, t, victim.sessionId, change)
-  if (bad && proven) await Promise.resolve($.store.delete(proof!.key)).catch(() => undefined)
+  // The proof goes again with a failed edit, unless another call's edit kept the record with no session meanwhile: the key has no session in it, so that
+  // record may be standing on this very proof.
+  if (bad && proven && !(await keptBy($, t))) await Promise.resolve($.store.delete(proof!.key)).catch(() => undefined)
   if (bad && bad !== 'unknown-lead') {
     await logq($, sid, 'error', `lead-unremoved ${bad}`)
     return { result: c.stoppedLeadText(verb, t.name, pid, { unremoved: bad }, !keys) }
