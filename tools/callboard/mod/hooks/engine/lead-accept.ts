@@ -14,7 +14,7 @@ import { heldNo } from './levels.ts'
 import { ledgerAdd, ledgerRowsFor } from './answer-hook.ts'
 import { promptLinkOnce } from './answer-tiers.ts'
 import { grantLead } from './commands.ts'
-import { ownerWrite } from './lead-records.ts'
+import { ownerWrite, ownerLeave } from './lead-records.ts'
 
 // The wait for the registry to carry the new name, in 1 s tries.
 const NAME_TRIES = 5
@@ -220,7 +220,16 @@ export async function leadAccept(
   // time never undoes the grant: the lead is on with no conductor, the answer says so, and the person assigns one with /callboard lead join.
   const rowsNow = await bounded(registryEntries($))
   const condName = rowsNow ? c.laneLeadOf(rowsNow.map((r) => r.j), offer.conductor.sid)?.name : undefined
-  const own = await bounded(ownerWrite($, sid, { repo, name: offer.name, how: 'made', conductorSid: offer.conductor.sid, ...(condName !== undefined ? { conductorName: condName } : {}), nonce }))
+  const writing = ownerWrite($, sid, { repo, name: offer.name, how: 'made', conductorSid: offer.conductor.sid, ...(condName !== undefined ? { conductorName: condName } : {}), nonce })
+  let own = await withTimeout($, writing, c.OWNER_WRITE_TIMEOUT_MS).then((r) => (r === 'timeout' ? undefined : r), () => undefined)
+  if (own === undefined) {
+    // A write that lands after the answer was given is taken back: the answer said there is no conductor, so none may be left behind.
+    void writing.then((r) => ('ok' in r ? ownerLeave($, sid, 'off') : undefined)).catch(() => undefined)
+  } else if ('ok' in own && (grants.get(sid)?.level !== 'lead' || (offSeq.get(sid) ?? 0) !== x.seq)) {
+    // An /callboard off typed while the write ran: the person's off wins, and the record and binding just written go.
+    await ownerLeave($, sid, 'off').catch(() => undefined)
+    own = { no: 'off-meanwhile' }
+  }
   const ownerOk = own !== undefined && 'ok' in own
   if (!ownerOk) {
     await logq($, sid, 'error', `owner-unset ${own === undefined ? 'timeout' : c.hasText(own.no) ? own.no : 'other'}`)

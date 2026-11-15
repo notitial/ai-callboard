@@ -353,6 +353,34 @@ test('a rename to a name a lane, another lead or another repo holds carries noth
   expect(toasts.filter((t) => t === c.renameTakenToast('LEAD', 'taken'))).toHaveLength(1)
 })
 
+test('a lead with no binding that renames onto a name a lead record holds carries nothing and is told once', async ($, on) => {
+  await joiner($, on)
+  putLeadRecs([{ name: 'TAKEN', sid: '8a1b2c3d-0000-4000-8000-123456789abc', conductorSid: OTHERLEAD }])
+  h.sessions = sessions({ ...leadSelfReg({ name: 'taken', nameSource: 'user' }) })
+  for (let i = 0; i < 3; i++) await tickOnce()
+  expect(toasts.filter((t) => t === c.renameTakenToast('LEAD', 'taken'))).toHaveLength(1)
+  expect(leadRecsJson().leads.map((l) => l.name)).toEqual(['TAKEN'])
+})
+
+test('a leftover record that names a lead with no binding shows in status, refuses a join, and a leave removes it', async ($, on) => {
+  await joiner($, on)
+  await join($)
+  h.store.delete(`owner:${SID}`)
+  expect(await statusRow($)).toBe(c.OWNER_LEFTOVER)
+  expect((await join($)).text).toBe(refusedText('already-owned'))
+  expect((await leave($)).text).toBe(c.leftText())
+  noOwner()
+})
+
+test('a leave whose binding cannot be deleted says so and keeps nothing hidden', async ($, on) => {
+  await joiner($, on)
+  await join($)
+  h.storeDeleteFails = true
+  expect((await leave($)).text).toBe(c.leftText(c.BINDING_KEPT))
+  h.storeDeleteFails = false
+  expect(leadRecsJson().leads).toEqual([])
+})
+
 // The rename look runs every 10 s of the mock clock; one step of the timer is 2 s.
 async function tickOnce() {
   await ticks(6)

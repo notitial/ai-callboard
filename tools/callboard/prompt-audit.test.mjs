@@ -126,7 +126,7 @@ test('g: two grants of one repo within an hour are an anomaly; another repo, or 
   assert.deepEqual(rules(run(f3)), [])
 })
 
-const LEADSID = 'c1b2c3d4-0000-4000-8000-123456789abc'
+const LEADSID = 'a1b2c3d4-0000-4000-8000-123456789abc'
 const OWNER = (code, at, o = {}) => R('lead-owner', BASE + at, { hash: H('c'), repo: '/Users/x/api', lane: 'LEAD-A', target: LEADSID, by: SID, ...o, code })
 
 test('h: a made row after its own lead-grant, a joined row, and a leave then a join are no anomaly; the rows are counted', () => {
@@ -138,7 +138,7 @@ test('h: a made row after its own lead-grant, a joined row, and a leave then a j
 })
 
 test('h: a made row with no earlier lead-grant of its repo, nonce and conductor is an anomaly', () => {
-  for (const rows of [[OWNER('made', 2500, { nonce: N1 })], [OFFER(N1, 1000), GRANT(N1, 2000), OWNER('made', 2500, { nonce: N2 })], [OFFER(N1, 1000), GRANT(N1, 2000), OWNER('made', 2500, { nonce: N1, by: 'b1b2c3d4-0000-4000-8000-123456789abc' })], [OFFER(N1, 1000), GRANT(N1, 3000), OWNER('made', 2500, { nonce: N1 })]]) {
+  for (const rows of [[OWNER('made', 2500, { nonce: N1 })], [OFFER(N1, 1000), GRANT(N1, 2000), OWNER('made', 2500, { nonce: N2 })], [OFFER(N1, 1000), GRANT(N1, 2000), OWNER('made', 2500, { nonce: N1, by: 'b1b2c3d4-0000-4000-8000-123456789abc' })], [OFFER(N1, 1000), GRANT(N1, 3000), OWNER('made', 2500, { nonce: N1 })], [OFFER(N1, 1000), GRANT(N1, 2000), OWNER('made', 2500, { nonce: N1, target: 'd1b2c3d4-0000-4000-8000-123456789abc' })]]) {
     const fx = fixture()
     ledger(fx, [ON(), ...clean(), ...rows])
     assert.ok(rules(run(fx)).includes('lead-owner-made-without-grant'), JSON.stringify(rules(run(fx))))

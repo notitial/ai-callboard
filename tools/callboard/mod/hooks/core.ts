@@ -1330,6 +1330,8 @@ export const goneKey = (r: { pid: string; j: any }): string | undefined => {
 export const GONE_CACHE_MAX = 512
 // The longest a mod waits on one engine call held inside a lane or lead mark (a rename, a state write, tool registration) before it gives up.
 export const ENGINE_CALL_TIMEOUT_MS = 30_000
+// The accept's write of a lead's record and binding: the conductor waits for the answer, so it is given less than LEAD_CUE_WAIT_MS.
+export const OWNER_WRITE_TIMEOUT_MS = 5_000
 // The lane's /model step at start. The cue is claimed on a 2 s tick, then the start checks run, then this: together they must stay under the lead's
 // 20 s wait for the start answer (LANE_CUE_DEADLINE_MS). A /model that has not returned by then is model-failed.
 export const MODEL_TIMEOUT_MS = 2000
@@ -1966,20 +1968,25 @@ export const joinQuestion = (lead: string, repo: string, to: JoinCand, home?: st
 export const joinedText = (lead: string, to: JoinCand): string => `Lead ${lead} now has conductor ${to.name} (${to.sid.slice(0, 8)}).`
 export const joinedToast = (lead: string, to: JoinCand): string => `Lead ${lead} joined conductor ${to.name}`
 // recordKept: the lead's record could not be removed (a code); it routes nothing with the binding gone.
+export const BINDING_KEPT = 'binding-kept'
+// A record that names this session with no binding to it: a join is refused, a leave removes it.
+export const OWNER_LEFTOVER = 'a leftover record, no binding: /callboard lead leave'
 export const leftText = (recordKept?: string): string =>
-  `This lead has no conductor now. /callboard lead join assigns one.${recordKept === undefined ? '' : ` Its record could not be removed (${hasText(recordKept) ? recordKept : 'other'}): it names no session's binding and routes nothing. Run /callboard lead leave again to remove it.`}`
+  recordKept === BINDING_KEPT
+    ? 'The conductor tie could not be removed from this session: it may still be bound. Run /callboard lead leave again.'
+    : `This lead has no conductor now. /callboard lead join assigns one.${recordKept === undefined ? '' : ` Its record could not be removed (${hasText(recordKept) ? recordKept : 'other'}): it names no session's binding and routes nothing. Run /callboard lead leave again to remove it.`}`
 // The reply of a lead grant the person made: the question after a Lead click is asked only after this text.
 export const LEAD_ON_TEXT = 'Lead is on from your next prompt.\nOnly a force stop asks you.'
 export const LEFT_TOAST = 'Lead left its conductor'
 export const OFF_OWNER_REMOVED = '\nIts conductor tie is removed.'
-export const offOwnerKept = (code: string): string => `\nIts conductor tie is removed, but its lead record could not be (${hasText(code) ? code : 'other'}); it routes nothing.`
+export const offOwnerKept = (code: string): string => code === BINDING_KEPT ? '\nIts conductor tie could not be removed: run /callboard lead leave in this session again.' : `\nIts conductor tie is removed, but its lead record could not be (${hasText(code) ? code : 'other'}); it routes nothing.`
 export const JOIN_NOT_ASKED_NAME = '\nNo conductor yet: name this session with /rename, then type /callboard lead join.'
 export const JOIN_NOT_PICKED = '\nNo conductor yet: /callboard lead join assigns one.'
 export const OWNER_UNSET_TOAST = 'Lead on, but its conductor was not recorded: type /callboard lead join'
 export const renameTakenToast = (old: string, cur: string): string => `The lead's new name ${cur} is taken by a lane or another lead, so its record and lanes stay under ${old}. /rename it to a free name.`
 // The Conductor row of /callboard status in a lead. o undefined: no conductor. gone: its conductor's session is not live (or no longer reaches the repo).
 export const ownerStatus = (o: { name?: string; sid: string; gone: boolean } | 'record-changed' | 'store-unreadable' | undefined): string =>
-  o === undefined ? 'none: /callboard lead join' : o === 'record-changed' ? 'its record changed: /callboard lead leave, then lead join' : o === 'store-unreadable' ? 'the lead records cannot be read' : `${o.name ?? 'a conductor'} (${o.gone ? 'gone' : o.sid.slice(0, 8)})`
+  o === undefined ? 'none: /callboard lead join' : o === 'record-changed' ? 'its record changed: /callboard lead leave, then lead join' : o === 'store-unreadable' ? 'the lead records cannot be read' : `${o.name ? mdEscape(o.name) : 'a conductor'} (${o.gone ? 'gone' : o.sid.slice(0, 8)})`
 // The words the person reads for a refused Join or leave: its own text where REASON_TEXT speaks of lanes.
 const JOIN_TEXT: Record<string, string> = {
   'lead-needs-name': 'a lead needs a name of its own to have a conductor. /rename this session first.',
@@ -1989,6 +1996,7 @@ const JOIN_TEXT: Record<string, string> = {
   'store-size': 'this repo\'s lead records are too big.',
   'store-repo': 'this repo\'s lead records belong to another repo.',
   'store-write': 'the lead record could not be saved.',
+  'binding-kept': 'the conductor tie could not be removed from this session. Run /callboard lead leave again.',
 }
 export const joinRefusalText = (code: string): string =>
   code === 'join-origin' ? REASON_TEXT[code] : `Conductor not changed: ${hasCode(JOIN_TEXT, code) ? JOIN_TEXT[code] : hasText(code) ? REASON_TEXT[code] : code}`

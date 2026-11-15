@@ -295,7 +295,8 @@ async function joinWrite($: any, sid: string, repo: string, cand: c.JoinCand, sh
   const w = await ownerWrite($, sid, { repo, name: again.leadName, how: 'joined', conductorSid: cand.sid, conductorName: cand.name })
   if ('no' in w) return w
   if (ended()) {
-    await ownerLeave($, sid, 'off').catch(() => undefined)
+    const left = await ownerLeave($, sid, 'off').catch(() => undefined)
+    if (left?.kept !== undefined) await log($, sid, 'error', `join-cleanup-kept ${c.hasText(left.kept) ? left.kept : 'other'}`)
     return { no: 'off-meanwhile' }
   }
   return { ok: true }
@@ -902,6 +903,8 @@ export async function grantLead($: any, sid: string, code: c.OriginCode, busy: (
         leadEpoch.set(sid, epochOf(sid) + 1)
         laneObs.delete(sid)
         attnTold.delete(sid)
+        // The record and binding name the old repo: a lead that moves leaves its conductor, and the person joins one for the new folder.
+        await ownerLeave($, sid, 'off').catch(() => undefined)
       }
       grants.set(sid, c.leadGrant(pinned))
       return epochOf(sid)

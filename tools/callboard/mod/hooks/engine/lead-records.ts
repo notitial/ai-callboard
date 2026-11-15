@@ -229,9 +229,16 @@ export async function ownerLeave($: any, sid: string, why: 'left' | 'off'): Prom
   const hadKey = b !== undefined || (await (async () => $.store.get(`${c.OWNER_PREFIX}${sid}`))().catch(() => undefined)) !== undefined
   const all = await loadLeadRecords($)
   const mine = typeof all === 'string' ? [] : all.flatMap((s) => s.store.leads.filter((l) => l.sid === sid).map((rec) => ({ key: s.key, repo: s.store.repo, rec })))
-  if (hadKey) await (async () => $.store.delete(`${c.OWNER_PREFIX}${sid}`))().catch(() => logq($, sid, 'error', 'owner-binding-kept'))
-  if (!b && mine.length === 0) return { had: false, ...(typeof all === 'string' ? { kept: all } : {}) }
   let kept: string | undefined = typeof all === 'string' ? all : undefined
+  if (hadKey) {
+    // A binding that cannot be deleted is told like a record that cannot be removed: the tie is not fully gone.
+    const gone = await (async () => $.store.delete(`${c.OWNER_PREFIX}${sid}`))().then(() => true).catch(() => false)
+    if (!gone) {
+      await logq($, sid, 'error', 'owner-binding-kept')
+      kept = 'binding-kept'
+    }
+  }
+  if (!b && mine.length === 0) return { had: false, ...(kept !== undefined ? { kept } : {}) }
   const rows = mine.length > 0 ? mine.map((m) => ({ hash: m.key, repo: m.repo, lane: m.rec.name, was: m.rec.conductorSid })) : b ? [{ hash: await keyOf($, b.repo).catch(() => ''), repo: b.repo, was: b.conductorSid }] : []
   for (const r of rows) {
     if (!(await ledgerAdd($, { kind: 'lead-owner', code: why, target: sid, ...r }).catch(() => false))) await logq($, sid, 'error', 'owner-ledger-write')
@@ -287,10 +294,14 @@ export async function ownerTick($: any, sid: string): Promise<void> {
 
 // A bound lead's new registry name moves into its record: one write under the record lock that sets the name on the record naming this session. The binding
 // is neither read for its content nor written (the name is in neither the hash nor the binding), so a move that fails leaves the lead bound under its old name
-// and the next look tries again. 'none': no binding, so there is nothing to move. A name a lane record or another lead record holds is refused `name-in-use`.
+// and the next look tries again. 'none': no binding, so there is nothing to move. A name a lane record (bound lead only) or another lead record holds is refused `name-in-use`.
 export async function ownerRename($: any, sid: string, cur: string): Promise<'moved' | 'none' | { no: string }> {
   const b = await bindingOf($, sid)
-  if (!b) return 'none'
+  // A lead with no binding carries its lanes as it always did, except onto a name a lead record of another session holds: that name is not inherited.
+  if (!b) {
+    const taken = await leadNameHeld($, sid, cur, false)
+    return taken === false ? 'none' : { no: taken === true ? 'name-in-use' : taken }
+  }
   const held = await leadNameHeld($, sid, cur)
   if (held !== false) return { no: held === true ? 'name-in-use' : held }
   const key = await keyOf($, b.repo).catch(() => undefined)
@@ -329,7 +340,10 @@ export async function joinPlanNow($: any, sid: string, repo: string, want: strin
 // The Conductor row of /callboard status in a lead: its binding, and whether the conductor is live and passes the checks (c.ownerStatus).
 export async function ownerStatusNow($: any, sid: string): Promise<string> {
   const b = await bindingOf($, sid)
-  if (!b) return c.ownerStatus(undefined)
+  if (!b) {
+    const recs = await loadLeadRecords($)
+    return typeof recs !== 'string' && recs.some((s) => s.store.leads.some((l) => l.sid === sid)) ? c.OWNER_LEFTOVER : c.ownerStatus(undefined)
+  }
   const live = await registryEntries($)
   if (!live) return c.ownerStatus({ sid: b.conductorSid, gone: true })
   const o = await ownOwner($, sid, live)

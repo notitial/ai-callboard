@@ -676,13 +676,13 @@ function ruleLeadGrants({ rows, flag, inRange }) {
   }
 }
 
-// h. lead owners (ADR 0007): a `made` lead-owner row needs a lead-grant row of the same repo hash, nonce and conductor (`by`); and a lead (`target`) of a repo (`hash`) is given
+// h. lead owners (ADR 0007): a `made` lead-owner row needs a lead-grant row of the same repo hash, nonce, conductor (`by`) and lead (`target`); and a lead (`target`) of a repo (`hash`) is given
 // a conductor (a `made` or `joined` row) only when it has none: an earlier made or joined row with no `left` or `off` row of that lead and repo after it is an owner changed
 // without a leave, which assign-only forbids. A lead is told by its session id, never its name, so a rename (which writes no row) raises no flag.
 function ruleLeadOwners({ rows, flag, inRange }) {
   const owners = rows.filter((r) => r.kind === 'lead-owner' && inRange(r.ms)).sort((a, b) => a.ms - b.ms)
   for (const o of owners) {
-    if (o.code === 'made' && !rows.some((r) => r.kind === 'lead-grant' && r.nonce === o.nonce && r.hash === o.hash && r.by === o.by && r.ms <= o.ms)) flag('h', 'lead-owner-made-without-grant', `the lead-owner made row of ${o.lane ?? '?'} (${o.t}) has no earlier lead-grant row of the same repo, nonce and conductor ${o.by ?? '?'}`, { t: o.t })
+    if (o.code === 'made' && !rows.some((r) => r.kind === 'lead-grant' && r.nonce === o.nonce && r.hash === o.hash && r.by === o.by && r.target === o.target && r.ms <= o.ms)) flag('h', 'lead-owner-made-without-grant', `the lead-owner made row of ${o.lane ?? '?'} (${o.t}) has no earlier lead-grant row of the same repo, nonce, conductor and lead ${o.by ?? '?'}`, { t: o.t })
   }
   const all = rows.filter((r) => r.kind === 'lead-owner').sort((a, b) => a.ms - b.ms)
   for (const o of owners) {
