@@ -322,6 +322,8 @@ export const prBusy = new Set<string>()
 export const prFails = new Map<string, number>()
 // A lead's looks in a row that found no live session for a lane whose tracker names it, by the lane's session id.
 export const prGone = new Map<string, number>()
+// A gone lane's round whose tracker write is still owed: the tracker text the round began from and the PRs after it.
+export const prHeld = new Map<string, { text: string; prs: unknown[] }>()
 // The notes owed to a session as its folder was last read, when that was, and the files already delivered (kept until they are seen gone, so a failed removal
 // never delivers one twice in this load).
 export const prPending = new Map<string, { file: string; note: pw.Note }[]>()

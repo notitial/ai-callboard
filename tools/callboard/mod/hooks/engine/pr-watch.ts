@@ -18,6 +18,7 @@ import {
   prBusy,
   prFails,
   prGone,
+  prHeld,
   prPending,
   prSpoolAt,
   prDelivered,
@@ -112,12 +113,21 @@ async function prDirs($: any, p: Paths, sub?: string): Promise<boolean> {
   return true
 }
 
-// A tracker file. `unread`: the read itself failed, so nothing is known; `none`: no file, or one that fails a check. A registration dated after now counts
-// from now, so no tracker outlives PR_TRACK_MS on the strength of its own date.
+// A tracker file, read by session `me`. `unread`: the stat or the read itself failed, so nothing is known; `none`: no file, or one that fails a check
+// (its kind, owner, mode, link count or size), which is removed and logged. A registration dated after now counts from now, so no tracker outlives
+// PR_TRACK_MS on the strength of its own date.
 type Loaded = { state: 'unread' } | { state: 'none' } | { state: 'ok'; text: string; t: pw.Tracker }
-async function trackerRead($: any, p: Paths, sid: string): Promise<Loaded> {
-  const f = await readStoreFile($, `${p.root}/prs/${sid}.json`, p.uid, pw.PR_TRACKER_MAX).catch(() => undefined)
-  if (!f || f.state === 'bad') return { state: 'unread' }
+async function trackerRead($: any, p: Paths, me: string, sid: string): Promise<Loaded> {
+  const path = `${p.root}/prs/${sid}.json`
+  const f = await readStoreFile($, path, p.uid, pw.PR_TRACKER_MAX).catch(() => undefined)
+  if (!f) return { state: 'unread' }
+  if (f.state === 'bad') {
+    const s = await facts($, path).catch(() => undefined)
+    if (!s || (c.cueFileOk(s, p.uid) === undefined && s.size <= pw.PR_TRACKER_MAX)) return { state: 'unread' }
+    await rmF($, path)
+    await logq($, me, 'pr-tracker-dropped', 'check')
+    return { state: 'none' }
+  }
   const t = f.state === 'ok' ? pw.parseTracker(f.text, sid) : undefined
   if (!t) return { state: 'none' }
   const now = await $.clock.now()
@@ -136,7 +146,7 @@ async function trackerWrite($: any, p: Paths, t: pw.Tracker): Promise<boolean> {
 // failed is tried again at the next call. 'unread': nothing is known yet.
 async function ownTracker($: any, p: Paths, sid: string): Promise<pw.Tracker | undefined | 'unread'> {
   if (!prLoaded.has(sid)) {
-    const r = await trackerRead($, p, sid)
+    const r = await trackerRead($, p, sid, sid)
     if (r.state === 'unread') return 'unread'
     if (r.state === 'ok') prTrack.set(sid, r.t)
     prLoaded.add(sid)
@@ -144,9 +154,9 @@ async function ownTracker($: any, p: Paths, sid: string): Promise<pw.Tracker | u
   return prTrack.get(sid)
 }
 
-// One note into the folder of the session it is owed to. `full`: the folder already holds PR_NOTES_MAX, so the note is dropped for good and logged;
-// `failed`: it could not be written, and may be tried again.
-async function notePut($: any, p: Paths, me: string, target: string, note: pw.Note): Promise<'ok' | 'full' | 'failed'> {
+// One note into the folder of the session it is owed to; it gives the note's file name. `full`: the folder already holds PR_NOTES_MAX, so the note is
+// dropped for good and logged; `failed`: it could not be written, and may be tried again.
+async function notePut($: any, p: Paths, me: string, target: string, note: pw.Note): Promise<{ file: string } | 'full' | 'failed'> {
   try {
     if (!c.SID_RE.test(target) || !(await prDirs($, p, target))) throw new Error('dir')
     const dir = `${p.root}/prs/notes/${target}`
@@ -155,8 +165,9 @@ async function notePut($: any, p: Paths, me: string, target: string, note: pw.No
       await logq($, me, 'pr-note-dropped', 'full')
       return 'full'
     }
-    if ('err' in (await writeIn($, `prs/notes/${target}`, pw.noteFile(await $.clock.now(), ++mem.seq), pw.noteText(note)))) throw new Error('write')
-    return 'ok'
+    const file = pw.noteFile(await $.clock.now(), ++mem.seq)
+    if ('err' in (await writeIn($, `prs/notes/${target}`, file, pw.noteText(note)))) throw new Error('write')
+    return { file }
   } catch {
     await logq($, me, 'pr-note-dropped', 'write')
     return 'failed'
@@ -182,7 +193,8 @@ async function watchRow($: any, code: string, lane: string, ref: pw.PrRef): Prom
 // One round over the PRs of a tracker, with no lock held: the PRs whose tracking ran out, then one call per repo and what each PR's change tells. `gone`:
 // the tracker is a lane's that has no live session, polled by its lead (me), which gets every note with the lane's name; else the tracker is this session's
 // own, and its lead gets a copy of the notes a lead is told. A PR moves on (a new fingerprint, or its end) only once its notes are written or dropped as
-// full: a note that could not be written leaves the PR as it was, for the next round. It gives the PRs after the round and how each one that ended did.
+// full: a note that could not be written leaves the PR as it was, for the next round, and the notes of that PR already written in this round are taken
+// back, so the next round tells each once. It gives the PRs after the round and how each one that ended did.
 async function prRound($: any, p: Paths, me: string, t: pw.Tracker, gone: boolean): Promise<{ prs: pw.Tracked[]; ended: Map<string, string> }> {
   const now = await $.clock.now()
   const lane = gone ? t.lane : undefined
@@ -216,15 +228,21 @@ async function prRound($: any, p: Paths, me: string, t: pw.Tracker, gone: boolea
       prFails.delete(failKey(t.sid, pr))
       const next = pw.seenOf(look, pr.seen)
       const { notes, ended: over } = pw.notesOf(pr, pr.seen, next, now, lane)
+      const put: string[] = []
       let written = true
       for (const n of notes) {
-        if (!(await told(n))) {
+        const w = await notePut($, p, me, me, n)
+        if (w === 'failed') {
           written = false
           break
         }
-        if (!gone && t.lead !== undefined && t.lead !== me && pw.LEAD_KINDS.includes(n.kind)) await leadPut($, p, me, t.lead, { ...n, lane: t.lane })
+        if (w !== 'full') put.push(`${p.root}/prs/notes/${me}/${w.file}`)
       }
-      if (!written) continue
+      if (!written) {
+        if (put.length > 0) await rmF($, put).catch(() => undefined)
+        continue
+      }
+      if (!gone && t.lead !== undefined && t.lead !== me) for (const n of notes) if (pw.LEAD_KINDS.includes(n.kind)) await leadPut($, p, me, t.lead, { ...n, lane: t.lane })
       if (over) await end(pr, next.state)
       else if (!pw.sameSeen(pr.seen, next)) prs = prs.map((x) => (x === pr ? { ...pr, seen: next } : x))
     }
@@ -246,24 +264,33 @@ async function prRound($: any, p: Paths, me: string, t: pw.Tracker, gone: boolea
 
 // The trackers of lanes that are gone and name this lead: polled here until they end. The lane is its tracker's writer while it lives, so this lead takes
 // over only after PR_GONE_LOOKS looks in a row found no live session for it, and before it writes the tracker back it reads the registry and the file once
-// more: a lane that is live again, or a file that is no longer the text this round began from, makes it write nothing. A tracker nobody polls is removed a
-// day after it was last written, and once an hour the note folders of sessions that are gone lose their day-old files.
+// more: a lane that is live again, or a file that is gone or no longer the text this round began from, makes it write nothing. When one of those two reads
+// fails, or the write does, the round's result is kept (prHeld) and the next look starts from it, so its notes are not written a second time. A tracker
+// nobody polls is removed a day after it was last written, and once an hour the note folders of sessions that are gone lose their day-old files.
 async function orphanRound($: any, p: Paths, me: string) {
   const dir = `${p.root}/prs`
   const files = ((await $.fs.list(dir).catch(() => [])) as { name: string; mtimeMs?: number }[]).flatMap((f) => {
     const sid = pw.TRACKER_FILE_RE.exec(f.name)?.[1]
     return sid !== undefined && sid !== me ? [{ sid, mtimeMs: f.mtimeMs }] : []
   })
-  for (const sid of [...prGone.keys()]) if (!files.some((f) => f.sid === sid)) prGone.delete(sid)
+  for (const sid of [...prGone.keys(), ...prHeld.keys()]) {
+    if (files.some((f) => f.sid === sid)) continue
+    prGone.delete(sid)
+    prHeld.delete(sid)
+  }
   const now = await $.clock.now()
   const sweep = c.dueEvery(prGh.sweptAt, now, SWEEP_MS)
   if (files.length === 0 && !sweep) return
   const live = await registryEntries($)
   if (!live || !(await dirOk($, dir, p.uid))) return
   const sids = new Set(live.map((r) => r.j.sessionId))
-  for (const f of files) if (sids.has(f.sid)) prGone.delete(f.sid)
+  for (const f of files) {
+    if (!sids.has(f.sid)) continue
+    prGone.delete(f.sid)
+    prHeld.delete(f.sid)
+  }
   for (const f of files.filter((x) => !sids.has(x.sid)).slice(0, pw.PR_ORPHANS_MAX)) {
-    const r = await trackerRead($, p, f.sid)
+    const r = await trackerRead($, p, me, f.sid)
     if (r.state === 'unread') continue
     if (r.state === 'none' || r.t.lead !== me) {
       if (typeof f.mtimeMs === 'number' && now - f.mtimeMs > pw.PR_KEEP_MS) await rmF($, `${dir}/${f.sid}.json`)
@@ -272,16 +299,22 @@ async function orphanRound($: any, p: Paths, me: string) {
     const looks = (prGone.get(f.sid) ?? 0) + 1
     prGone.set(f.sid, Math.min(looks, pw.PR_GONE_LOOKS))
     if (looks < pw.PR_GONE_LOOKS) continue
+    const held = prHeld.get(f.sid)
+    const base = held !== undefined && held.text === r.text ? { ...r.t, prs: held.prs as pw.Tracked[] } : r.t
+    if (base === r.t) prHeld.delete(f.sid)
     await prLock(f.sid, async () => {
-      const next = await prRound($, p, me, r.t, true)
+      const next = await prRound($, p, me, base, true)
       if (next.prs === r.t.prs) return
-      const again = await trackerRead($, p, f.sid)
+      const again = await trackerRead($, p, me, f.sid)
       const liveNow = await registryEntries($)
-      if (again.state !== 'ok' || again.text !== r.text || !liveNow || liveNow.some((x) => x.j.sessionId === f.sid)) {
+      if (liveNow?.some((x) => x.j.sessionId === f.sid) || again.state === 'none' || (again.state === 'ok' && again.text !== r.text)) {
         prGone.delete(f.sid)
+        prHeld.delete(f.sid)
         return logq($, me, 'pr-orphan-yield')
       }
-      if (!(await trackerWrite($, p, { ...r.t, prs: next.prs }))) await logq($, me, 'error', 'pr-tracker-write')
+      if (again.state === 'ok' && liveNow && (await trackerWrite($, p, { ...r.t, prs: next.prs }))) return void prHeld.delete(f.sid)
+      prHeld.set(f.sid, { text: r.text, prs: next.prs })
+      await logq($, me, 'error', 'pr-tracker-write')
     })
   }
   if (!sweep) return

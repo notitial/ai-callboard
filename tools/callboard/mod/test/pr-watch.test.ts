@@ -498,3 +498,63 @@ test('a push whose checks have not started is not reported mergeable; /callboard
   expect(notices()).toEqual([])
   expect(await midCtx($)).toEqual([one('`acme/app#12`: all checks finished green on bbbbbbb.', "`acme/app#12`: GitHub reports it open, not a draft, with no conflict, no failed or running check and no blocking review. A merge is the person's, always.")])
 })
+
+test('a tracker file that fails a check is removed and logged, and the lane registers again from nothing', async ($, on) => {
+  const stdins: string[] = []
+  await laneOn($, on, stdins)
+  seedTracker()
+  pfs.get(TRACKER)!.mode = '644'
+  world.set('acme/app', { 12: node(), 13: node() })
+  expect(said(await $.tool.call(CALL('acme', 'app', 13)))).toBe(pw.watchOk({ ...REF, number: 13 }, false))
+  expect(tracker()!.prs.map((x) => x.number)).toEqual([13])
+  expect(prLog(stdins).filter((x) => x.startsWith('pr-tracker'))).toEqual(['pr-tracker-dropped:check'])
+})
+
+test('the notes of one PR are written all or none: a second note that fails takes the first back, and the next round tells each once', async ($, on) => {
+  await laneOn($, on)
+  world.set('acme/app', { 12: node() })
+  await $.tool.call(CALL())
+  world.set('acme/app', { 12: node({ ...rollup('SUCCESS'), comments: { totalCount: 1 } }) })
+  let tees = 0
+  h.pfsFails = (a) => a[0] === '/usr/bin/tee' && (a[2] ?? '').startsWith(`${PRS_DIR}/notes/`) && ++tees === 2
+  await round()
+  expect(tees).toBe(2)
+  expect(notesOf()).toEqual([])
+  expect(notices()).toEqual([])
+  expect(tracker()!.prs[0]!.seen.checks).toBe('pending')
+  h.pfsFails = undefined
+  await round()
+  expect(notices()).toEqual([one('`acme/app#12`: all checks finished green on aaaaaaa.', '`acme/app#12`: 1 new comment. Read them with the github tools.')])
+  await round()
+  expect(notices().length).toBe(1)
+})
+
+longTest('a lead whose write of a gone lane\'s tracker fails keeps the round: the next look writes it and tells nothing twice', async ($, on) => {
+  const stdins: string[] = []
+  world.clear()
+  realMap.clear()
+  postBeneath(on)
+  await person($, on, stdins)
+  await $.command.run(lane('off'))
+  laneSeed.text = LEAD_LANES('/data/x/work')
+  await $.command.run(lane('lead'))
+  h.sessions = OWN_ROW()
+  cli()
+  await $.turn.complete(TURN as any)
+  seedTracker({ lane: 'API', lead: SID }, OTHER)
+  world.set('acme/app', { 12: node(rollup('FAILURE')) })
+  const FILE = `${PRS_DIR}/${OTHER}.json`
+  h.pfsFails = (a) => a[0] === '/bin/mv' && a[a.length - 1] === FILE
+  await ticks(2 * POLL)
+  await round()
+  const told = [one('`acme/app#12` (registered by lane `API`): a check failed on aaaaaaa. Read the checks with the github tools.')]
+  expect(notices()).toEqual(told)
+  expect(pw.parseTracker(pfs.get(FILE)!.text, OTHER)!.prs[0]!.seen.checks).toBe('pending')
+  // Each look that could not write says so; none of them yields or tells the note again.
+  expect([...new Set(logged(stdins).filter((x) => x.startsWith('error:pr-') || x.startsWith('pr-orphan')))]).toEqual(['error:pr-tracker-write'])
+  h.pfsFails = undefined
+  await round()
+  await round()
+  expect(notices()).toEqual(told)
+  expect(pw.parseTracker(pfs.get(FILE)!.text, OTHER)!.prs[0]!.seen.checks).toBe('failed')
+})
