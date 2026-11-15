@@ -285,6 +285,11 @@ export type Request = {
 }
 export const requestText = (r: Request): string => JSON.stringify(r)
 
+// The lead name a request hands to the owner lookup (c.ownerOf): a lane's lead by name; '' when the lane's lead is known but has no name (no record can name it, so no
+// other lead's record is taken for it); undefined for a lane that names no lead (the repo's only record). A lead's own request is looked up by its session id too;
+// its name here is its own.
+export const tierLead = (q: Pick<Request, 'level' | 'lane' | 'leadName' | 'leadSid'>): string | undefined => (q.level === 'lead' ? (q.lane ?? '') : q.leadSid !== undefined ? '' : q.leadName)
+
 // `answer` is a question's decision: the zero-based index of the chosen option and its label as the tier read it (redacted, trimmed). It goes with decision 'answer' only.
 export type Decision = { id: string; inputHash: string; decision: 'allow' | 'deny' | 'answer'; why: string; by: { level: string; sid: string; name: string }; via?: 'person'; at: number; nonce: string; answer?: { index: number; label: string } }
 const ANSWER_LABEL_MAX = 200
