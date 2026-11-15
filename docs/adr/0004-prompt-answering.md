@@ -88,6 +88,11 @@ answer was held, so a fast tier could decide before the person had looked. A tie
 later than before. The head start is counted in wall-clock time from the request; the 30-second hold on what lands
 stays in awake time.
 
+*2026-11-15 ([ADR 0007](0007-conductor-owns-leads.md), proposed): the conductor tier is one session, the live owner of
+the request's lead (for a lead's own request, of that lead), and only while it passes the lead's conductor checks for
+the repo. An unowned lead, or one whose owner is gone, has no conductor tier: the manager takes its window, as for any missing tier.
+This replaces every conductor whose approved repos hold the folder (the code capped them at four).*
+
 ### The relay
 
 *Amended 2026-11-10 with the tiers change; this replaces the first version, in which only the manager asked the person

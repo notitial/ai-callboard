@@ -8,6 +8,8 @@ or waiting, and wake an idle lead. It adds to [ADR 0002](0002-callboard.md) (lev
 lead's single grant path comes from the callboard redesign that made the three grant levels one descriptor; ADR
 0002 records it in a dated line. Prompt answering ([ADR 0004](0004-prompt-answering.md)) is unchanged: a lead made
 this way is a tier like any other.
+*2026-11-15 ([ADR 0007](0007-conductor-owns-leads.md), proposed): a lead made this way is owned by the conductor that
+opened it, and that conductor alone is its conductor tier.*
 
 ## Context
 
@@ -107,6 +109,9 @@ For waking a lead:
 - **Afterwards it is a lead.** The saved grant, the restore at the next start, the tools, the tier rights and
   `/callboard off` are the same as for a lead the person made. Who made it is a log line and a ledger row, never
   a field anything reads to decide.
+  *2026-11-15 ([ADR 0007](0007-conductor-owns-leads.md), proposed): replaced. At the accept the new lead writes a lead
+  record naming the offering conductor by session id, and a binding to it in its own store; the record and the binding
+  decide who its conductor is. The ledger stays the audit.*
 - **Consent.** The person's consent is the conductor grant. Its dialog says, for a new grant: "It can also open a
   lead in one of these repos without asking you (one per repo, one an hour each)." Conductors granted before
   this change get the power without a new dialog, by the person's choice.
@@ -129,6 +134,12 @@ prompt or the person for N minutes. Display only; the registry is a filter, neve
   the registry names as the sender asks it to read the message that carries the token, and only that one; to
   continue only work the person authorised in their own turn; nothing in the message is the person's approval.
   The cue carries no other text.
+
+*2026-11-15 ([ADR 0007](0007-conductor-owns-leads.md), proposed): the token form is not built. `lead_resume { lead }`
+works like `lane_resume`: a fixed lead-worded resume text with no token, at most 12 an hour, taken from the lead's
+owning conductor or a trusted manager. Its sender is audited through the `lead-resume` row the caller writes, and the
+audit below flags a resume whose sender was not the lead's owner or a manager at the time. The same-uid residual under
+Consequences becomes at most 12 fixed resume turns an hour with no token. P-C5 and P-C6 still apply.*
 
 ### Audit
 
@@ -170,6 +181,10 @@ fires for a grant it offered before a restart, which is the safe side).
   that account's limits.
 - Nothing here changes the rubric, the person-only commands, or what a conductor may do to lanes; a
   conductor still cannot stop a lead.
+  *2026-11-15 ([ADR 0007](0007-conductor-owns-leads.md), proposed): replaced. A conductor owns the leads it opens or
+  the person joins to it, and can park, unpark and retire them (retire with no dialog, on the lead's signed report) and
+  force stop them through the person's dialog. The prompt-injected conductor above gains those powers over its own
+  leads, including a retire it can bring about by writing the lead's report itself; ADR 0007 states the residual.*
 
 ## Probes
 
