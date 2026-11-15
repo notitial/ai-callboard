@@ -1003,7 +1003,7 @@ export async function laneTable($: any, sid: string) {
   // The figure columns read the live lanes' files, the lead's own in its own list, and the leads' in a conductor's or the manager's list; any read that fails leaves a row at no reading.
   const wanted = [...(base.g.level === 'lead' ? [sid] : []), ...lanes.map((l) => { const one = c.laneSession(entries, l, ''); return one.ok ? one.entry.sessionId : '' }), ...leads.map((x) => x.sid ?? '')]
   const usage = await usageReadings($, wanted.flatMap((sid) => entries.filter((e) => e.sessionId === sid)), now).catch(() => new Map<string, c.UsageReading>())
-  // The layer above: a lead's trusted conductors and its live manager, a conductor's live manager; the manager has none. The same lookups the cues use.
+  // The layer above: a lead's owning conductor and its live manager, a conductor's live manager; the manager has none. The same lookups the cues use.
   const above = base.g.level === 'manager' ? undefined : await layerAbove($, base.live, sid, base.g.level === 'lead')
   const text = c.laneListText(lanes, entries, now, { level: base.g.level, name: base.g.name, self: sid, conductors, leads, usage, above })
   return { text }

@@ -1398,10 +1398,11 @@ export const LEAD_OPEN_POLL_MAX = 140
 // The longest answer to a lead request, `ok <session id> <nonce>\n` (73 bytes), as the mod reads it; a lane's answers keep RESULT_MAX.
 export const LEAD_OPEN_RESULT_MAX = 96
 
-// The words the lead model reads for a refusal code: fixed text only, never anything a session or a file wrote.
-// Codes that ask for a retry say when; the rest mean "do not send the same cue again". A refused compact cue gets COMPACT_DROPPED too.
 // A conductor's tool when the lead records cannot be read: it owns nothing it can prove, and says so rather than listing nothing.
 export const LEAD_RECORDS_UNREADABLE = 'the lead records cannot be read safely, so no lead can be shown as yours. Ask the person to check ~/.claude/callboard/lead-records.'
+
+// The words the lead model reads for a refusal code: fixed text only, never anything a session or a file wrote.
+// Codes that ask for a retry say when; the rest mean "do not send the same cue again". A refused compact cue gets COMPACT_DROPPED too.
 export const REASON_TEXT: Record<string, string> = {
   'rate-limit': `rate limit: 1 compaction per ${COMPACT_GAP_MS / 60_000} minutes, ${RESUME_PER_HOUR} resumes per hour. Retry after that.`,
   'no-request': 'no armed on-cue compaction request. If the session just called request_compact (on-cue), retry after its turn ends; otherwise it must call it again.',
@@ -2141,7 +2142,7 @@ export function leadStateOf(e: RegEntry): { state: LeadState; since?: number } {
   if (e.status === 'idle' && (e.waitingFor ?? null) === null) return { state: 'idle' }
   return { state: e.status === 'busy' ? 'busy' : 'unknown' }
 }
-// The layer above the viewer, shown on the header line: a lead's trusted conductors and live manager, a conductor's live manager (names; a conductor with no name is
+// The layer above the viewer, shown on the header line: a lead's owning conductor and live manager, a conductor's live manager (names; a conductor with no name is
 // `a conductor`). 'error': the lookup failed. Left out in the manager's view, which has nothing above it.
 export type LayerAbove = { conductors: (string | undefined)[]; managers: string[] } | 'error'
 export function aboveText(above: LayerAbove): string {

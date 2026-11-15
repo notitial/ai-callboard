@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { h, LEADRECDIR, ROOT, SID, T0, extraStat, leadFiles, pfs, toolDefs } from './harness'
+import { h, LEADRECDIR, ROOT, SID, T0, extraStat, leadFiles, longTest, pfs, toolDefs } from './harness'
 import { APISID, COND, LEADPATH, LEADSID, OTHERLEAD, PIN, condOn, condPresenceOf, leadRecsJson, listCall, mgrCall, ownedBy, putCond, putLeadRecs, regAs } from './fixtures'
 import { APIQ, CNDT, LDIR, LEAD2, PDIR, TID, TID2, addCondT, answerCall, answerer, asConductor, at, byCond, decideBy, pcall, putQ, readReq, refusal, rowKinds, runRequest, said } from './answer-fixtures'
 
@@ -13,7 +13,7 @@ const addOtherCond = (sid: string, pid: number, name: string) => {
 const others = ['1c', '2c', '3c', '4c'].map((p, i) => ({ sid: `${p}1b2c3d-0000-4000-8000-123456789abc`, pid: 4251 + i, name: `CND${i}` }))
 const ids = (n: number) => Array.from({ length: n }, (_, i) => `${(i + 1).toString(16).padStart(8, '0')}-0000-4000-8000-123456789abc`)
 
-test('five conductors list one repo and the lead is owned by the one whose session id sorts last: it is the only conductor tier, and a decision of another is dropped', async ($, on) => {
+longTest('five conductors list one repo and the lead is owned by the one whose session id sorts last: it is the only conductor tier, and a decision of another is dropped', async ($, on) => {
   await answerer($, on, [])
   leadFiles.delete(LEADPATH)
   addCondT()
