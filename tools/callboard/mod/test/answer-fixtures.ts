@@ -167,6 +167,23 @@ export const asConductor = async ($: any, on: any, opts: { lead?: boolean; mgr?:
 }
 export const relayQ = (id: string, text = `Lane svc-api wants to run ssh. Risk: none. Allow?`, header = `Relay ${id.slice(0, 8)}`) => ({ header, question: `${text} (${id.slice(0, 4)})`, options: [{ label: 'Yes', description: 'a' }, { label: 'No', description: 'b' }], multiSelect: false })
 export const askPost = (qs: ReturnType<typeof relayQ>[], answers: Record<string, string>, over: Record<string, unknown> = {}) => ({ tool_name: 'AskUserQuestion', tool_input: { questions: qs }, tool_response: { questions: qs, answers, annotations: {} }, tool_use_id: 'tuQ', ...over }) as any
+// A tier's relay question as its permission request. The hook marks the relay and then holds the question, so the call does not return while the question is open:
+// this resolves once the hook is holding (its first poll sleep, which then never ends), or with the hook's own result when it returned without holding.
+export const askRelay = ($: any, qs: unknown[]): Promise<any> => {
+  let holds!: () => void
+  const holding = new Promise<undefined>((r) => (holds = () => r(undefined)))
+  h.fastSleep = () => {
+    holds()
+    return new Promise<void>(() => undefined)
+  }
+  return Promise.race([holding, $.classic.PermissionRequest({ tool_name: 'AskUserQuestion', tool_input: { questions: qs } } as any)])
+}
+// The same question with the test's clock driven by the hold's own polls: each poll moves the clock and runs the acts, and the call returns what the hook returns.
+export const holdRelay = ($: any, qs: unknown[], acts: ((rel: number) => void | Promise<void>)[]): Promise<any> => {
+  driveClock()
+  h.clockHooks.push(...acts)
+  return $.classic.PermissionRequest({ tool_name: 'AskUserQuestion', tool_input: { questions: qs } } as any)
+}
 export const beneathHooks = (on: any) => {
   for (const ev of ['classic.PostToolUse', 'classic.PostToolUseFailure', 'classic.PermissionDenied', 'classic.PermissionRequest'] as const) on(ev, () => ({}))
 }

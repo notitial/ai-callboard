@@ -120,6 +120,22 @@ Trust rises with the tier.
   of awake time from the request, so a relay lost after that ends the wait at once) and the dialog stays the only way to answer. A relay that never reached the person (not asked) does fall
   back to the 20-minute deny.
 - **An answer that arrives too late** (the request already ended) is not applied; the tier is told so in a fixed line.
+- **A relay question is withdrawn once its prompt has closed** (amended 2026-11-15). Before this, a prompt the person
+  answered in the lane's own panel left the tier's relay question on screen, and the tier stayed blocked until the
+  person clicked a question that no longer decided anything. Now the tier's own permission hook stays pending beside
+  its relay question and looks every 5 seconds at the requests the question relays. When one has closed by any route
+  (answered in the lane, a decision returned, expired, the lane gone, the relay taken back), the hook answers the
+  question with a deny and one fixed line, and writes a `relay-closed` row. The card closes by itself and the tier goes
+  on; it says nothing to the person. The mod makes up no answer: it denies only its own tier's question, only for a
+  request that is already closed, and the lane's request is untouched. The person's click still wins: an answer ends
+  the hold before it is read, and a click in the same moment as a close is `relay-late`, as before. One call can hold
+  up to 4 relays: the whole call is withdrawn when any of them closes, and the fixed line names the ones still open for
+  the tier to ask again (the person's choice: no dead question stays on screen). The withdrawal is silent beyond that
+  line, and the ledger row is its only record (the person's choices: no chat line, no panel list). Options not taken:
+  ending the tier's whole turn with `$.turn.abort` (it stops every other tool of the turn), a second hook on
+  `tool.call` (two waits for one dialog), a relay that is not a blocking question (a new answer surface), and a
+  short-lived question the tier re-asks. If the mod reloads while the question is open, the hold is lost and the card
+  stays until the person clicks it.
 - **Hook budget for the relay wait** (the fix pass, 2026-11-11). A relay holds the PermissionRequest hook for up to 2
   hours, so the engine's limit on a hook matters. Read from the engine's plugin types and docs: a hook's budget is 10 s
   of its own time per dispatch, the clock stops while any `$` call is in flight (`$.process.run` included, 10 minutes at
@@ -362,7 +378,7 @@ tiers (and the relay) it also reports a person's answer whose relaying tier's tr
 question answered `Yes` or `No`, an agent's answer or a returned decision while the request was with the person (no
 `relay-lost` row before it), and a tier that answers a request after its own pass-up. It prints every relayed question as the
 tier put it, beside the request's tool and pattern, so a wrong summary can be read afterwards. The new rows (`relayed`,
-`relay-lost`, `relay-left`, `relay-late`, `expired-denied`, `deny-unclear`) are listed and counted, not anomalies.
+`relay-lost`, `relay-left`, `relay-late`, `relay-closed`, `expired-denied`, `deny-unclear`) are listed and counted, not anomalies.
 
 *Amended 2026-11-12: rule e.* The audit compares each request with the latest `answering-on` or `answering-off` row in
 force at its time, not with the first `answering-on` row ever written: a request raised while answering was off is
@@ -516,6 +532,11 @@ the engine finishes a sibling call before it shows the card; a relay question's 
 tool result exactly as asked; a hook deny of the relay question shows no card, and the model does not retry with guessed
 labels; a pick through the relay lands in the lane at once, bare. Not yet probed on the merged code: auto and bypass mode, and
 the phone.
+
+Probed for the withdrawal (2026-11-15, build 2.1.325): in a main session on the CLI, a `classic.PermissionRequest` hook that
+returns a deny 15 seconds after an `AskUserQuestion` card opened closes the card with no click, and the model reads the
+deny's message as the tool's error. In a headless run, no `PostToolUse`, `PostToolUseFailure` or `PermissionDenied` event
+follows a permission hook's deny. Not probed: the VS Code panel and the phone.
 
 ## Not verified live
 

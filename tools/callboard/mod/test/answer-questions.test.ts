@@ -2,7 +2,7 @@ import { expect, test } from 'claude-code/testing'
 import * as prm from '../hooks/prompts'
 import { h, PROMPTS_DIR, SID, T0, longTest, pdirs, pfs } from './harness'
 import { APISID, LEADSID, MGR_SESS, PIN, TURN, lane, leadReg, mgrAt, ownReg } from './fixtures'
-import { LDIR, OFF_FILE, PDIR, QASK, QIN, QTEXT, SHORT, THASH, TID, TID2, addCondT, answerCall, answered, answerer, askCheck, askPost, at, beneathHooks, byCond, callOf, decFile, decOf, driveClock, handDecision, hookKinds, ledgerRows, noFiles, pcall, putFile, putFileAt, putQ, putRelay, putRelayT, readReq, refusal, relayQ, reqFiles, rowKinds, runRequest, said, startReq, stop, tier, waitingRow } from './answer-fixtures'
+import { LDIR, OFF_FILE, PDIR, QASK, QIN, QTEXT, SHORT, THASH, TID, TID2, addCondT, answerCall, answered, answerer, askCheck, askPost, askRelay, at, beneathHooks, byCond, callOf, decFile, decOf, driveClock, handDecision, hookKinds, ledgerRows, noFiles, pcall, putFile, putFileAt, putQ, putRelay, putRelayT, readReq, refusal, relayQ, reqFiles, rowKinds, runRequest, said, startReq, stop, tier, waitingRow } from './answer-fixtures'
 
 const QCALL = callOf('AskUserQuestion', QIN)
 const answerBy = (index: number, label: string, over: Record<string, unknown> = {}) => ({ decision: 'answer', answer: { index, label }, why: 'settled by the lane brief', ...over })
@@ -297,7 +297,7 @@ test('prompts relay: Yes on a question relay is never applied as the Yes/No rule
 
 test('prompts relay: a dismissed question relay (the turn ends with it open) is relay-left and decides nothing', async ($, on) => {
   await relayQFixture($, on, { asked: false })
-  await $.classic.PermissionRequest({ tool_name: 'AskUserQuestion', tool_input: { questions: [relayQQ(TID)] } } as any)
+  await askRelay($, [relayQQ(TID)])
   expect(pfs.has(`${LDIR()}/${TID}.asked`)).toBe(true)
   await $.turn.complete(TURN as any)
   expect(pfs.has(`${LDIR()}/${TID}.left`)).toBe(true)
@@ -308,11 +308,11 @@ test('prompts relay: a dismissed question relay (the turn ends with it open) is 
 test('prompts relay: step 0 denies options that are not the lane\'s labels with the options line and marks nothing; a corrected call is asked and marked', async ($, on) => {
   await relayQFixture($, on, { asked: false })
   for (const labels of [['Yes', 'No'], ['3000', '9090'], ['3000']]) {
-    const r = await $.classic.PermissionRequest({ tool_name: 'AskUserQuestion', tool_input: { questions: [relayQQ(TID, labels)] } } as any)
+    const r = await askRelay($, [relayQQ(TID, labels)])
     expect(r).toEqual({ decision: { behavior: 'deny', message: prm.relayOptionsLine(SHORT) } })
     expect(pfs.has(`${LDIR()}/${TID}.asked`)).toBe(false)
   }
-  expect(((await $.classic.PermissionRequest({ tool_name: 'AskUserQuestion', tool_input: { questions: [relayQQ(TID)] } } as any)) ?? {})).toEqual({})
+  expect(((await askRelay($, [relayQQ(TID)])) ?? {})).toEqual({})
   expect(pfs.has(`${LDIR()}/${TID}.asked`)).toBe(true)
   const q = relayQQ(TID)
   await $.classic.PostToolUse(askPost([q as any], { [q.question]: '3000' }))
@@ -412,7 +412,7 @@ test('prompts tools (manager): the manager at the top relays a question: the rel
   expect(said(await $.tool.call(pcall('prompt_escalate', { id: TID, why: 'x' })))).toContain(`header exactly "Relay ${SHORT}"`)
   expect(JSON.parse(pfs.get(`${LDIR(APISID)}/${TID}.relay.json`)!.text).by.level).toBe('manager')
   const q = relayQQ(TID)
-  expect((await $.classic.PermissionRequest({ tool_name: 'AskUserQuestion', tool_input: { questions: [q] } } as any)) ?? {}).toEqual({})
+  expect((await askRelay($, [q])) ?? {}).toEqual({})
   await $.classic.PostToolUse(askPost([q as any], { [q.question]: '3000' }))
   expect(JSON.parse(pfs.get(`${LDIR(APISID)}/${TID}.decision.json`)!.text)).toMatchObject({ decision: 'answer', answer: { index: 0, label: '3000' }, via: 'person', by: { level: 'manager' } })
 })

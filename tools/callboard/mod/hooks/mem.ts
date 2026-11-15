@@ -274,6 +274,9 @@ export const askingSids = new Set<string>()
 // The tiers that asked a relay question in the turn now running: the turn end sweeps their relays whatever the asking mark says (an answered question spends the mark,
 // and an earlier one that was dismissed in the same turn would otherwise never be left).
 export const relayAskedTurn = new Set<string>()
+// The relay question a tier's permission hook is holding, by session: a token the hold checks at each poll. The question's own end (its answer), the turn's end and a
+// later relay question take it away, and the hold then ends without answering.
+export const relayHolds = new Map<string, object>()
 
 export const windowsSeen = new Map<string, Record<string, number>>()
 

@@ -907,7 +907,7 @@ test('tiers: a tier that passed a request up does not answer it afterwards; anot
   ledger(fx, [ON(), ...rows('conductor')])
   assert.deepEqual(run(fx).anomalies, [])
 })
-test('tiers: relay-left, relay-late, expired-denied and deny-unclear are listed and counted, never anomalies', () => {
+test('tiers: relay-left, relay-late, relay-closed, expired-denied and deny-unclear are listed and counted, never anomalies', () => {
   const fx = fixture()
   ledger(fx, [
     ON(),
@@ -915,6 +915,7 @@ test('tiers: relay-left, relay-late, expired-denied and deny-unclear are listed 
     R('relayed', BASE + 20_000, { ...T, id: uid(1), nonce: uid(101), code: 'conductor', short: SHORT, by: MGR }),
     R('relay-left', BASE + 30_000, { id: uid(1), short: SHORT, by: MGR, tier: 'conductor' }),
     R('relay-late', BASE + 40_000, { short: 'ffffffff', by: MGR, code: 'closed' }),
+    R('relay-closed', BASE + 45_000, { id: uid(1), short: SHORT, by: MGR, tier: 'conductor' }),
     R('expired-denied', BASE + 50_000, { ...T, id: uid(1), code: 'timeout' }),
     R('deny-unclear', BASE + 60_000, { ...T, id: uid(2), nonce: uid(102), code: 'deny', by: LEAD }),
   ])
@@ -929,6 +930,8 @@ test('tiers: relay-left, relay-late, expired-denied and deny-unclear are listed 
   // The tier that asked, not "(none)": a relay-left row carries it in `tier`.
   assert.deepEqual(r['relay-left'].codes, { conductor: 1 })
   assert.match(text, /relay-left: 1 \(conductor 1\)/)
+  assert.deepEqual(r['relay-closed'], { n: 1, codes: { conductor: 1 } })
+  assert.match(text, /relay-closed: 1 \(conductor 1\)/)
 })
 // One call with two relay questions, answered differently: each answer belongs to its own question.
 function relayTranscript2(fx, sid, pairs) {
