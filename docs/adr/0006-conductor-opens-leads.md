@@ -65,7 +65,9 @@ For waking a lead:
   side and at the new panel's accept. Nothing replaces the cap: the hourly rate per repo, one successful open and
   three offers, is the bound on a conductor that loops. The offer and claim stay per repo, so two opens of one repo
   still take turns. A repo may hold several live leads; a lane or a cue is routed among them as with two leads
-  made by hand (ADR 0002, several leads in a repo).*
+  made by hand (ADR 0002, several leads in a repo). The new panel's own second-lead rule is unchanged: with
+  another live lead that has no usable name it refuses `other-lead-unnamed` at the grant, after the offer, the
+  panel and the brief are written, so the panel stays a plain one and the offer counts against the hour.*
 - **Two files.** The conductor's mod writes the task to `<repo>/.archive/<NAME>/BRIEF.md` under a lead brief
   header, an **offer** in callboard's offer folder (one file per repo, created exclusively: name, repo, model, the
   conductor's session id, pid and process start time, a time and a single-use nonce), and a small **open
@@ -123,6 +125,8 @@ For waking a lead:
 - **Consent.** The person's consent is the conductor grant. Its dialog says, for a new grant: "It can also open a
   lead in one of these repos without asking you (one per repo, one an hour each)." Conductors granted before
   this change get the power without a new dialog, by the person's choice.
+  *2026-11-15: the dialog now says "(one an hour per repo)", as the one-lead-per-repo rule is dropped (see "Limits
+  on the act").*
 - **Built in steps.** The tool and the extension's open came first and alone only opened the panel. The grant
   is the second step; it is the part on the risk list and needed the person's own go.
 

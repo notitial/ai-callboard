@@ -141,6 +141,14 @@ longTest('lead_open refuses when an offer or a claim is in place, or the hour is
   expect(offers()).toEqual([])
 })
 
+// With no cap on live leads, a looping conductor could fill the repo's record file; the open then stops before any write, not after a grant that leaves a lead with no owner.
+longTest('lead_open refuses a repo whose lead record file is full, before any write', async ($, on) => {
+  const argv: string[][] = []
+  await conductor($, on, argv, { seed: () => putLeadRecs(Array.from({ length: c.LEAD_STORE_MAX }, (_, i) => ({ name: `OLD-${i}`, sid: undefined }))) })
+  expect(await open($)).toContain(REASON_TEXT['lead-record-cap'])
+  wroteNothing(argv)
+})
+
 // A live lead is no bar to an open: the conductor's own, one another conductor owns and one made by hand (no owner), all live in the repo. The hourly rate still holds.
 longTest('lead_open opens beside live leads of the repo (its own, another conductor\'s, one made by hand), and the hourly rate still refuses a second open', async ($, on) => {
   const argv: string[][] = []
