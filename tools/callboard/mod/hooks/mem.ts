@@ -36,6 +36,8 @@ export const mem = {
   defaultSyncing: undefined as Promise<boolean> | undefined,
   // When the usage files were last swept (usage.ts).
   usageSweptAt: undefined as number | undefined,
+  // When this session's tick last swept the presence folder (grants.ts presencePrune).
+  presencePrunedAt: undefined as number | undefined,
 }
 
 export const own = new Map<string, number>()
@@ -84,6 +86,12 @@ export const leadDeclared = new Set<string>()
 export const briefed = new Map<string, string>()
 
 export const presenceText = new Map<string, string>()
+
+// When the tick last rewrote each session's presence file; dropped with the file, so the next tick writes at once.
+export const presenceTouchedAt = new Map<string, number>()
+
+// A lane-store file that failed to parse, by its key, with the text that failed (at most STORE_MAX_BYTES a file): the person is told once per file and change (store.ts loadStores).
+export const badStoreSeen = new Map<string, string>()
 
 export const presenceErrs = new Map<string, { n: number; at: number }>()
 // What a conductor's cached presence text was made from (its repo, name and pins).

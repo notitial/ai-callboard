@@ -2089,6 +2089,10 @@ export function noticeReach(g: Grant, l: Lane, mySid: string, ownLeadLive: boole
 export const LEAD_FILE_MAX = 4096
 export const LEAD_FILES_MAX = 64
 const LEAD_FRESH_MS = 30_000
+// How often a running session rewrites its presence file (well inside LEAD_FRESH_MS, so a tick or two of delay never reads as stale) and how often it
+// sweeps the folder for files nobody has written for LEAD_PRUNE_MS.
+export const PRESENCE_TOUCH_MS = 10_000
+export const PRESENCE_PRUNE_MS = 60_000
 const PRESENCE_NAME_MAX = 64
 export type LeadFile = { sid: string; pid: number; procStart: string; level: 'lead'; repo: string; name?: string }
 // A conductor's file also names its own repo (home), so a lead can find the conductor's list file.
@@ -2978,6 +2982,8 @@ export function parseLiveHead(text: unknown): LiveHead {
   const shown = /^[A-Za-z0-9][A-Za-z0-9._\/-]{0,99}$/.test(ref) && !ref.includes('..') && !ref.endsWith('/')
   return shown ? { kind: 'branch', name: ref } : { kind: 'branch' }
 }
+export const badStoreToast = (key: string): string =>
+  `Callboard cannot read the lane store lanes/${key}.json in its folder, so the lanes in it are hidden from every session. Fix or remove the file.`
 export const liveCheckoutToast = (checkout: string, head: { kind: 'branch'; name?: string } | { kind: 'detached' }): string =>
   `Callboard loads from ${checkout}, which is not on main (it is on ${head.kind === 'detached' ? 'a detached commit' : head.name !== undefined ? `branch ${head.name}` : 'another branch'}). Whatever is checked out there is live in every session.`
 

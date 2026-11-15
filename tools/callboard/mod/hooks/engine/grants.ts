@@ -7,6 +7,7 @@ import {
   grants,
   leadGranting,
   presenceText,
+  presenceTouchedAt,
   conductorHome,
   conductorPresenceKey,
   presenceErrs,
@@ -222,7 +223,7 @@ export const leadReason = (verb: string, why: string) => `${verb.startsWith('lea
 export const homeOf = (p: { root: string }) => p.root.slice(0, -'/.claude/callboard'.length)
 
 // ---- the lead's presence file: <root>/leads/<lead sid>.json, a filter that says a lead runs for a repo; nothing is ever sent to the sid in it ----
-// Written at the grant (only for a pin lane_create would accept), rewritten every tick and at the start of every lead tool call so its mtime stays fresh,
+// Written at the grant (only for a pin lane_create would accept), rewritten by the tick every PRESENCE_TOUCH_MS and at the start of every lead tool call so its mtime stays fresh,
 // removed on off, on a Deny, at session start and at session end. Its writes and its removal go one at a time, so a removal is not undone by a write in flight.
 const queued = <T>(fn: () => Promise<T>): Promise<T> => {
   const r = mem.presenceQ.then(fn, fn)
@@ -274,6 +275,7 @@ export function presenceTouch($: any, sid: string): Promise<boolean | void> {
       if (text === '') return false
       const w = await writeIn($, 'leads', `${sid}.json`, text)
       if ('err' in w) await log($, sid, 'error', d.err)
+      else presenceTouchedAt.set(sid, await $.clock.now())
       return !('err' in w)
     }
     if (pin === undefined || !p) return
@@ -303,10 +305,20 @@ export function presenceTouch($: any, sid: string): Promise<boolean | void> {
     if (text === '') return
     const w = await writeIn($, 'leads', `${sid}.json`, text)
     if ('err' in w) await log($, sid, 'error', 'presence')
+    else presenceTouchedAt.set(sid, await $.clock.now())
   })
+}
+// The tick's test for a presence write: PRESENCE_TOUCH_MS passed since the last one, or a conductor's name or reach changed since its text was written
+// (presenceTouch then rewrites the text, as the tick always did).
+export function presenceDue(sid: string, now: number): boolean {
+  if (c.dueEvery(presenceTouchedAt.get(sid), now, c.PRESENCE_TOUCH_MS)) return true
+  const g = grants.get(sid)
+  if (g?.level !== 'conductor') return false
+  return CONDUCTOR.presence!.key!(g, conductorHome.get(sid)) !== conductorPresenceKey.get(sid)
 }
 export function presenceDrop($: any, sid: string) {
   presenceText.delete(sid)
+  presenceTouchedAt.delete(sid)
   presenceErrs.delete(sid)
   conductorPresenceKey.delete(sid)
   return queued(async () => {
@@ -727,7 +739,7 @@ export async function leadHere($: any, cwd: string, repo: string, leadName: stri
   return leadName === undefined ? leads.length > 0 : leads.some((x) => c.leadNameOf(rows, x.sid) === leadName)
 }
 
-// A lead's tick removes presence files nobody has written for ten minutes (a session that died without its end hook), and the usage files of sessions that are gone.
+// A lead's tick, once every PRESENCE_PRUNE_MS, removes presence files nobody has written for ten minutes (a session that died without its end hook), and the usage files of sessions that are gone.
 export async function presencePrune($: any) {
   const p = await leadsDirOk($)
   if (!p) return

@@ -1,8 +1,8 @@
 import { expect, test } from 'claude-code/testing'
-import { refusalText, LANES_CHANGED_NOTE, OFF_QUESTION, offLeavesLane, LEAD_YES, LEAD_NO, RESTORE_YES, RESTORE_NO, REASON_TEXT, OFF_NOTHING } from '../hooks/core'
+import { PRESENCE_PRUNE_MS, PRESENCE_TOUCH_MS, badStoreToast, leadFileFresh, refusalText, LANES_CHANGED_NOTE, OFF_QUESTION, offLeavesLane, LEAD_YES, LEAD_NO, RESTORE_YES, RESTORE_NO, REASON_TEXT, OFF_NOTHING } from '../hooks/core'
 import { h, NO, ROOT, SID, T0, YES, extraStat, gitFiles, gitNoHead, laneSeed, leadFiles, longTest, realFails, realMap, resultFiles, statErr, storeFiles, toasts, toolDefs } from './harness'
 import type { Trace } from './harness'
-import { ATTACHED, LANES, LEADKEY, LEADPATH, LEADPS, LEADSID, LEAD_LANES, MFOLDER, OTHER, OTHERLEAD, PIN, REG, REGFILE, RESULT, SELFPATH, STATUS_NONE, STORE_LANE, USAGE, allEvents, attRec, attacher, callCreate, created, creator, cue, cueSession, dirStat, doLane, drive, dropRec, grantAt, lane, laneTarget, lead, leadAt, leadCall, leadFileText, leadReg, leadSelfReg, selfAs, listCall, logged, newTrace, notices, ownReg, pause, putStore, rebinder, rebinds, recOf, renameThroughTick, started, statusTable, statusText, storeLaneNames, tickTwice, ticks } from './fixtures'
+import { ATTACHED, LANES, LEADKEY, LEADPATH, LEADPS, LEADSID, LEAD_LANES, MFOLDER, OTHER, OTHERLEAD, PIN, REG, REGFILE, RESULT, SELFPATH, STATUS_NONE, STOREFILE, STORE_LANE, USAGE, allEvents, attRec, attacher, callCreate, created, creator, cue, cueSession, dirStat, doLane, drive, dropRec, grantAt, lane, laneTarget, lead, leadAt, leadCall, leadFileText, leadReg, leadSelfReg, selfAs, listCall, logged, newTrace, notices, ownReg, pause, putStore, rebinder, rebinds, recOf, renameThroughTick, started, statusTable, statusText, storeLaneNames, tickTwice, ticks } from './fixtures'
 
 test('the lead scope is the cwd at the grant, not the live cwd', async ($, on) => {
   await lead($, on, [])
@@ -194,17 +194,42 @@ test('a presence file that is not a plain 0600 file of the user, one link, at mo
   expect(h.askCount).toBe(1)
 })
 
-test('the lead grant writes a presence file with four fields for a repo lane_create would accept; each tick and each lead tool call rewrites it', async ($, on) => {
+test('the lead grant writes a presence file with four fields for a repo lane_create would accept; the tick rewrites it every PRESENCE_TOUCH_MS and each lead tool call at once', async ($, on) => {
   const stdins: string[] = []
   await leadAt($, on, stdins, { clock: true })
   expect(JSON.parse(leadFiles.get(SELFPATH)!.text)).toEqual({ sid: SID, pid: 4400, procStart: LEADPS, repo: PIN })
   expect(leadFiles.get(SELFPATH)!.text.length).toBeLessThanOrEqual(256)
   const m0 = leadFiles.get(SELFPATH)!.mtimeSec!
+  await tickTwice()
+  expect(leadFiles.get(SELFPATH)!.mtimeSec!).toBe(m0)
+  await h.clock!.advance(PRESENCE_TOUCH_MS - 4000 - 2000)
+  expect(leadFiles.get(SELFPATH)!.mtimeSec!).toBe(m0)
   await h.clock!.advance(2000)
-  expect(leadFiles.get(SELFPATH)!.mtimeSec!).toBe(m0 + 2)
-  h.nowMs += 20_000
+  expect(leadFiles.get(SELFPATH)!.mtimeSec!).toBe(m0 + PRESENCE_TOUCH_MS / 1000)
+  h.nowMs += 5000
   await $.tool.call(listCall())
-  expect(leadFiles.get(SELFPATH)!.mtimeSec!).toBe(m0 + 22)
+  expect(leadFiles.get(SELFPATH)!.mtimeSec!).toBe(m0 + PRESENCE_TOUCH_MS / 1000 + 5)
+})
+
+test('a presence file the tick rewrites every PRESENCE_TOUCH_MS is never older than the freshness readers accept', async ($, on) => {
+  await leadAt($, on, [], { clock: true })
+  for (let i = 0; i < 20; i++) {
+    await h.clock!.advance(2000)
+    expect(h.nowMs - leadFiles.get(SELFPATH)!.mtimeSec! * 1000).toBeLessThanOrEqual(PRESENCE_TOUCH_MS)
+    expect(leadFileFresh(h.nowMs, leadFiles.get(SELFPATH)!.mtimeSec! * 1000)).toBe(true)
+  }
+})
+
+test('a session start that finds the lead grant still held (a compaction) keeps the presence file; one with no grant removes it', async ($, on) => {
+  await leadAt($, on, [], { clock: true })
+  expect(leadFiles.has(SELFPATH)).toBe(true)
+  await $.session.start({ cwd: '/data/x/work/lab', surface: 'vscode', isInteractive: true })
+  expect(leadFiles.has(SELFPATH)).toBe(true)
+  await $.command.run(lane('off'))
+  expect(leadFiles.has(SELFPATH)).toBe(false)
+  leadFiles.set(SELFPATH, { text: leadFileText({ sid: SID }) })
+  await $.session.start({ cwd: '/data/x/work/lab', surface: 'vscode', isInteractive: true })
+  expect(leadFiles.has(SELFPATH)).toBe(false)
 })
 
 const noPresence: [string, string, () => void][] = [
@@ -315,6 +340,38 @@ test('a lead tick removes presence files older than ten minutes, of any session,
   expect(leadFiles.has(old)).toBe(false)
   expect(leadFiles.has(young)).toBe(true)
   expect(leadFiles.has(SELFPATH)).toBe(true)
+})
+
+test('the presence prune runs once every PRESENCE_PRUNE_MS, not on every tick', async ($, on) => {
+  await leadAt($, on, [], { clock: true })
+  await tickTwice()
+  const old = `${ROOT}/leads/${OTHERLEAD}.json`
+  leadFiles.set(old, { text: '{}', mtimeSec: h.nowMs / 1000 - 601 })
+  await h.clock!.advance(PRESENCE_PRUNE_MS - 8000)
+  expect(leadFiles.has(old)).toBe(true)
+  await h.clock!.advance(8000)
+  expect(leadFiles.has(old)).toBe(false)
+})
+
+test('a store file that does not parse is told once with a toast, again only when its text changes or after it parsed in between', async ($, on) => {
+  await creator($, on)
+  await callCreate($)
+  const good = storeFiles.get(STOREFILE)!
+  const told = () => toasts.filter((t: string) => t === badStoreToast('a'.repeat(64))).length
+  expect(told()).toBe(0)
+  storeFiles.set(STOREFILE, '{')
+  await $.tool.call(listCall())
+  await $.tool.call(listCall())
+  expect(told()).toBe(1)
+  storeFiles.set(STOREFILE, '{ ')
+  await $.tool.call(listCall())
+  await $.tool.call(listCall())
+  expect(told()).toBe(2)
+  storeFiles.set(STOREFILE, good)
+  await $.tool.call(listCall())
+  storeFiles.set(STOREFILE, '{ ')
+  await $.tool.call(listCall())
+  expect(told()).toBe(3)
 })
 
 test('a presence file replaced while it was read gets one more read; one that changes every time is not a lead', async ($, on) => {
@@ -688,7 +745,7 @@ test('the lead grant is saved in the store at the grant, and removed by off and 
   expect(h.store.has(LEADKEY)).toBe(false)
 })
 
-test('a session whose saved grant names its own folder is lead again at start: no question, no second note, tools serve, presence on the first tick', async ($, on) => {
+test('a session whose saved grant names its own folder is lead again at start: no question, no second note, tools serve, a deleted presence file is back within one touch period', async ($, on) => {
   const stdins: string[] = []
   await leadRestarter($, on, stdins)
   expect(await statusText($)).toContain('| Lead | ON |')
@@ -699,7 +756,7 @@ test('a session whose saved grant names its own folder is lead again at start: n
   expect(h.store.get(LEADKEY)).toEqual({ pin: PIN, savedAt: T0 })
   expect(JSON.stringify(await $.tool.call(listCall()))).not.toContain('lead tools are off')
   leadFiles.delete(SELFPATH)
-  await h.clock!.advance(2000)
+  await h.clock!.advance(PRESENCE_TOUCH_MS)
   expect(JSON.parse(leadFiles.get(SELFPATH)!.text)).toMatchObject({ sid: SID, repo: PIN })
   await grantAt($, PIN)
   expect(h.appendRows.length).toBe(0)

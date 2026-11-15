@@ -1178,6 +1178,16 @@ test('a presence file is fresh for 30 seconds and never from the future', () => 
   assert.equal(c.leadFileFresh(100_000, 100_001), false)
 })
 
+test('the presence touch period leaves a file fresh across a slow tick, and the prune is a multiple of it', () => {
+  assert.equal(c.leadFileFresh(100_000, 100_000 - c.PRESENCE_TOUCH_MS - 4_000), true)
+  assert.equal(c.PRESENCE_PRUNE_MS % c.PRESENCE_TOUCH_MS, 0)
+  assert.ok(c.PRESENCE_PRUNE_MS < c.LEAD_PRUNE_MS)
+})
+
+test('badStoreToast names the store file', () => {
+  assert.match(c.badStoreToast('a'.repeat(64)), /lanes\/a{64}\.json/)
+})
+
 test('parseOwner takes a pid above 1, a start time and a nonce', () => {
   assert.deepEqual(c.parseOwner('{"pid":4242,"procStart":"x","nonce":"abc-123-xyz"}'), { pid: 4242, procStart: 'x', nonce: 'abc-123-xyz' })
   for (const bad of ['{', '{"pid":0,"procStart":"x","nonce":"abc-123-xyz"}', '{"pid":1,"procStart":"x","nonce":"abc-123-xyz"}', '{"pid":"4","procStart":"x","nonce":"abc-123-xyz"}', '{"pid":4242,"procStart":" ","nonce":"abc-123-xyz"}', '{"pid":4242,"procStart":"x"}', '{"pid":4242,"procStart":"x","nonce":"short"}', '{"pid":4242,"procStart":"x","nonce":"has space here"}', 'null']) assert.equal(c.parseOwner(bad), undefined, bad)

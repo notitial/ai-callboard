@@ -31,6 +31,7 @@ import {
   watchInit,
   LEAD,
   presenceTouch,
+  presenceDue,
   presencePrune,
   leadRenameTick,
   watchTick,
@@ -204,8 +205,14 @@ async function tick($: any) {
       // A lead's pin only: a later non-lead grant must never save a lead hint without a pin.
       const pin = pinOf(sid)
       if (pin !== undefined && c.leadRefreshDue(savedAt, await $.clock.now(), LEAD.refreshMs)) await levelSave($, sid, LEAD, pin)
-      await presenceTouch($, sid).catch(logFail($, sid, 'presence'))
-      await presencePrune($).catch(logFail($, sid, 'presence-prune'))
+      // The presence file is fresh for 30 s and pruned after ten minutes, so neither needs a write or a scan on every tick. Every write of the file (the
+      // grant, a lead tool call, this step) sets presenceTouchedAt (presenceDue).
+      const at = await $.clock.now()
+      if (presenceDue(sid as string, at)) await presenceTouch($, sid).catch(logFail($, sid, 'presence'))
+      if (c.dueEvery(mem.presencePrunedAt, at, c.PRESENCE_PRUNE_MS)) {
+        mem.presencePrunedAt = at
+        await presencePrune($).catch(logFail($, sid, 'presence-prune'))
+      }
       await leadRenameTick($, sid).catch(logFail($, sid, 'lead-rename'))
       // The block runs for every level: only a lead has an owner binding to look at.
       if (grants.get(sid)?.level === 'lead') await ownerTick($, sid).catch(logFail($, sid, 'owner'))
@@ -315,7 +322,8 @@ export async function sessionStart($: any, e: any, next: any) {
   await reservedGet($, me, true)
   await pruneResults($).catch(logFail($, me, 'result-prune'))
   await pruneLogs($, me).catch(logFail($, me, 'log-prune'))
-  await presenceDrop($, me).catch(logFail($, me, 'presence-drop'))
+  // A grant that survived a compaction keeps its file: the process is the same and the tick keeps it fresh.
+  if (!grants.has(me)) await presenceDrop($, me).catch(logFail($, me, 'presence-drop'))
   // A saved lead grant for this session, then whether a store record names it, looked at from the tick.
   if (c.SID_RE.test(me)) {
     try {
