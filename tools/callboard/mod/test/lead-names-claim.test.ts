@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
-import { STOPPABLE_BY_NAME, reserveShowText, reserveAddedText, reserveRemovedText, reserveNotListedText, reserveManagerText, RESERVE_NOT_PERSON, RESERVE_USAGE, refusalText, attachQuestion, ATTACH_YES, ATTACH_NO, LANE_NO_LEAD, REASON_TEXT, LEAD_MORE, LEAD_PICK_QUESTION } from '../hooks/core'
-import { h, ROOT, SID, T0, YES, extraStat, laneSeed, leadFiles, lockLog, longTest, realMap, storeFiles, teeTexts } from './harness'
-import { ANY, ATTACHED, GONE_ATT, LEADPATH, LEADSID, OTHER, OTHERLEAD, OTHERPATH, PIN, SELFPATH, STATUS_NONE, STOREFILE, SVC, USAGE, attRec, attacher, bareList, bornWithTwoLeads, callCreate, created, cue, cueSession, dirStat, doLane, lane, leadAt, leadCall, leadFileText, leadReg, logged, madeLane, mdBox, mdTable, mgrFile, mgrRow, noLaneWritten, ownReg, putStore, regAs, selfAs, started, statusTable, storeJson, storeLaneNames, waitFor } from './fixtures'
+import { GRANT_NAME_ON, LEAD_NAME_NOT_PERSON, grantNameText, leadQuestion, STOPPABLE_BY_NAME, reserveShowText, reserveAddedText, reserveRemovedText, reserveNotListedText, reserveManagerText, RESERVE_NOT_PERSON, RESERVE_USAGE, refusalText, attachQuestion, ATTACH_YES, ATTACH_NO, LANE_NO_LEAD, REASON_TEXT, LEAD_MORE, LEAD_PICK_QUESTION } from '../hooks/core'
+import { h, ROOT, SID, T0, YES, extraStat, laneSeed, leadFiles, lockLog, longTest, realMap, renames, storeFiles, teeTexts } from './harness'
+import { ANY, ATTACHED, GONE_ATT, LEADPATH, LEADSID, OTHER, OTHERLEAD, OTHERPATH, PIN, SELFPATH, STATUS_NONE, STOREFILE, SVC, USAGE, attRec, attacher, bareList, bornWithTwoLeads, callCreate, created, cue, cueSession, dirStat, doLane, lane, leadAt, leadCall, leadFileText, leadReg, logged, madeLane, mdBox, mdTable, mgrFile, mgrRow, noLaneWritten, ownReg, putLeadRecs, putStore, regAs, selfAs, started, statusTable, storeJson, storeLaneNames, waitFor } from './fixtures'
 
 longTest('lane_create stamps the lead name; another lead (or this one renamed) neither lists nor reaches that lane; a legacy lane stays in reach of both', async ($, on) => {
   await leadAt($, on, [], { sess: selfAs('LEADA') })
@@ -494,4 +494,138 @@ test('stuck lanes: a removal whose record was remade or re-pointed at another le
   expect(JSON.stringify(await $.tool.call(leadCall('terminate', { lane: 'ATT' })))).toContain('changed')
   h.askScript = undefined
   expect(storeJson().lanes.length).toBe(1)
+})
+
+// ---- /callboard lead NAME ----
+const namedOff = (code: string) => `Lead stays off: ${grantNameText(code)}`
+
+test('lead NAME: the dialog names it, the grant lands, and the tick renames the session to it', async ($, on) => {
+  const stdins: string[] = []
+  await beside($, on, selfAs('OLDNAME'), undefined, stdins, true)
+  expect((await $.command.run(lane('lead HARBOR'))).text).toBe(LEAD_ON)
+  expect(h.lastQuestion).toBe(leadQuestion(PIN, 'HARBOR'))
+  expect(h.lastQuestion.split('\n')[0]).toBe('Let this session lead the lanes in app, named HARBOR?')
+  expect(leadFiles.has(SELFPATH)).toBe(true)
+  expect(renames).toEqual([])
+  await h.clock!.advance(4000)
+  expect(renames).toEqual(['HARBOR'])
+  expect(logged(stdins)).toContain('renamed:lead')
+})
+
+test('lead NAME: a session that already carries the name is not renamed; with no NAME nothing changes', async ($, on) => {
+  const stdins: string[] = []
+  await beside($, on, selfAs('HARBOR'), undefined, stdins, true)
+  expect((await $.command.run(lane('lead HARBOR'))).text).toBe(LEAD_ON)
+  expect(logged(stdins)).toContain('rename-skipped:lead')
+  await h.clock!.advance(4000)
+  expect(renames).toEqual([])
+  await $.command.run(lane('off'))
+  expect((await $.command.run(lane('lead'))).text).toBe(LEAD_ON)
+  expect(h.lastQuestion).toBe(leadQuestion(PIN))
+  await h.clock!.advance(4000)
+  expect(renames).toEqual([])
+})
+
+test('lead NAME from a plugin, another session or a script is refused with a fixed text and no dialog; the prompt and the phone are the person', async ($, on) => {
+  const stdins: string[] = []
+  await beside($, on, selfAs('OLDNAME'), undefined, stdins)
+  const n = h.askCount
+  for (const origin of [{ kind: 'plugin', name: 'x' }, { kind: 'peer' }, { kind: 'script' }]) expect((await $.command.run(lane('lead HARBOR', origin))).text).toBe(LEAD_NAME_NOT_PERSON)
+  expect(h.askCount).toBe(n)
+  expect(logged(stdins)).toContain('refused:lead-name-not-person:plugin')
+  expect(leadFiles.has(SELFPATH)).toBe(false)
+  expect((await $.command.run(lane('lead HARBOR', { kind: 'bridge' }))).text).toBe(LEAD_ON)
+  expect(h.askCount).toBe(n + 1)
+})
+
+test('lead NAME is refused before any dialog when it is bad, reserved, or held by a live session, a lane, a lead stamp or a lead record, in any letter case', async ($, on) => {
+  const stdins: string[] = []
+  await beside($, on, selfAs('OLDNAME'), undefined, stdins)
+  h.store.set('reserved', { names: ['WARDEN'] })
+  const n = h.askCount
+  const no = async (args: string, code: string) => {
+    expect((await $.command.run(lane(args))).text).toBe(namedOff(code))
+    expect(logged(stdins)).toContain(`refused:${code}`)
+    expect(h.askCount).toBe(n)
+    expect(leadFiles.has(SELFPATH)).toBe(false)
+  }
+  await no('lead bad!', 'name-bad')
+  await no(`lead ${'a'.repeat(41)}`, 'name-bad')
+  await no('lead MANAGER-2', 'name-reserved')
+  await no('lead warden', 'name-reserved')
+  h.sessions = { ...h.sessions, ...regAs(OTHER, 4600, 'Harbor') }
+  await no('lead HARBOR', 'name-in-use')
+  h.sessions = selfAs('OLDNAME')
+  putStore([madeLane('LANEX'), madeLane('SVC', 'STAMPED')])
+  await no('lead lanex', 'name-in-use')
+  await no('lead stamped', 'name-in-use')
+  putStore([])
+  putLeadRecs([{ name: 'KEPT', sid: undefined }])
+  await no('lead kept', 'name-in-use')
+  storeFiles.clear()
+  h.openList = [{ name: 'Queued.open', kind: 'file', size: 9, mtimeMs: 0, isLink: false }]
+  await no('lead QUEUED', 'name-in-open')
+  h.openList = []
+  expect((await $.command.run(lane('lead QUEUED'))).text).toBe(LEAD_ON)
+})
+
+test('lead NAME: the own current name, in any case, is no clash; an unreadable store or session list refuses', async ($, on) => {
+  await beside($, on, selfAs('Harbor'), undefined)
+  h.sessionsUnsafe = true
+  expect((await $.command.run(lane('lead HARBOR'))).text).toBe(namedOff('registry-unreadable'))
+  h.sessionsUnsafe = false
+  expect((await $.command.run(lane('lead HARBOR'))).text).toBe(LEAD_ON)
+})
+
+test('lead NAME is judged again after the click: a session that took the name while the dialog was open stops the grant', async ($, on) => {
+  const stdins: string[] = []
+  await beside($, on, selfAs('OLDNAME'), undefined, stdins, true)
+  h.askScript = async () => {
+    h.sessions = { ...h.sessions, ...regAs(OTHER, 4600, 'harbor') }
+    return YES
+  }
+  expect((await $.command.run(lane('lead HARBOR'))).text).toBe(namedOff('name-in-use'))
+  h.askScript = undefined
+  expect(leadFiles.has(SELFPATH)).toBe(false)
+  await h.clock!.advance(4000)
+  expect(renames).toEqual([])
+})
+
+test('lead NAME with another lead in the repo is judged as the session\'s name: an unnamed session passes with a NAME; the other lead still needs one', async ($, on) => {
+  await beside($, on, selfAs('x y', { nameSource: 'auto' }), { name: 'LEADA' })
+  expect((await $.command.run(lane('lead'))).text).toBe(leadStaysOff('lead-needs-name'))
+  expect((await $.command.run(lane('lead LEADB'))).text).toBe(LEAD_ON)
+  await $.command.run(lane('off'))
+  h.sessions = { ...selfAs('x y', { nameSource: 'auto' }), '4243.json': leadReg({ sessionId: OTHERLEAD, pid: 4243, name: 'x y' })['4242.json'] }
+  expect((await $.command.run(lane('lead LEADB'))).text).toBe(namedOff('other-lead-unnamed'))
+})
+
+test('lead NAME in a session that is a lead already changes nothing and asks nothing', async ($, on) => {
+  const stdins: string[] = []
+  await beside($, on, selfAs('OLDNAME'), undefined, stdins)
+  expect((await $.command.run(lane('lead'))).text).toBe(LEAD_ON)
+  const n = h.askCount
+  expect((await $.command.run(lane('lead HARBOR'))).text).toBe(GRANT_NAME_ON('Lead'))
+  expect(logged(stdins)).toContain('refused:lead-name-on')
+  expect(h.askCount).toBe(n)
+})
+
+test('lead NAME: a lane stamp the session made itself is no clash; one another lead made is', async ($, on) => {
+  await beside($, on, selfAs('OLDNAME'), undefined)
+  putStore([{ ...madeLane('SVC', 'HARBOR'), leadSid: SID }])
+  expect((await $.command.run(lane('lead harbor'))).text).toBe(LEAD_ON)
+  await $.command.run(lane('off'))
+  putStore([{ ...madeLane('SVC', 'HARBOR'), leadSid: OTHERLEAD }])
+  expect((await $.command.run(lane('lead harbor'))).text).toBe(namedOff('name-in-use'))
+})
+
+test('lead NAME: the rename judges the NAME once more; a lane that took it after the grant stops the rename, and the session keeps its name', async ($, on) => {
+  const stdins: string[] = []
+  await beside($, on, selfAs('OLDNAME'), undefined, stdins, true)
+  expect((await $.command.run(lane('lead HARBOR'))).text).toBe(LEAD_ON)
+  putStore([madeLane('harbor')])
+  await h.clock!.advance(4000)
+  expect(renames).toEqual([])
+  expect(logged(stdins)).toContain('rename-failed:name-in-use')
+  expect(leadFiles.has(SELFPATH)).toBe(true)
 })

@@ -100,6 +100,7 @@ import {
   findLead,
 } from './grants.ts'
 import { loadLeadRecords, boundTo, ownerLive, ownOwner, leadNameHeld } from './lead-records.ts'
+import { grantNameNo } from './lead-open.ts'
 import { briefOnce, epochOf } from './levels.ts'
 import { dropRequest, doCompact, isEligible, leadNudge, busyAgents, backgroundShells, counts, bump, interactive, saveHint } from './compaction.ts'
 import { ensureTimer } from './tick.ts'
@@ -776,9 +777,9 @@ export async function renameTick($: any, sid: string) {
   const pr = pendingRename.get(sid)
   if (!pr) return
   pendingRename.delete(sid)
-  // The manager's rename, while its grant still names it (the outcome is logged either way).
+  // The manager's rename, while its grant still names it; a lead's or conductor's, while the session still holds that grant (the outcome is logged either way).
   const g = grants.get(sid)
-  if (pr.manager ? !(g?.level === 'manager' && g.name === pr.name) : ((await getLane($)).value as { name?: string } | null | undefined)?.name !== pr.name) return
+  if (pr.manager ? !(g?.level === 'manager' && g.name === pr.name) : pr.grant ? g?.level !== pr.grant : ((await getLane($)).value as { name?: string } | null | undefined)?.name !== pr.name) return
   const fail = async (why: string) => {
     await log($, sid, 'rename-failed', why)
     toast($, c.renameFailedToast(pr.name))
@@ -788,8 +789,14 @@ export async function renameTick($: any, sid: string) {
   const reg = await registryEntries($)
   if (!reg) return fail('registry-unreadable')
   if (reg.some((e) => e.j.name === pr.name && e.j.sessionId !== sid)) return fail('name-taken')
+  // A lead's or conductor's NAME is judged once more as at the grant (any letter case, lanes, lead records, the open folder): another lead may have taken it since.
+  if (pr.grant) {
+    await reservedGet($, sid, true)
+    const bad = await grantNameNo($, sid, pr.name)
+    if (bad !== undefined) return fail(bad)
+  }
   const done = await withTimeout($, Promise.resolve($.command.run({ command: 'rename', args: pr.name })).then(() => 'ok' as const, () => 'refused' as const), ACTION_TIMEOUT_MS)
-  if (done === 'ok') await log($, sid, 'renamed', pr.manager ? 'manager' : 'attach')
+  if (done === 'ok') await log($, sid, 'renamed', pr.manager ? 'manager' : (pr.grant ?? 'attach'))
   else await fail(done)
 }
 

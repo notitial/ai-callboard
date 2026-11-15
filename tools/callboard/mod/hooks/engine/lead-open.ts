@@ -4,19 +4,43 @@
 import * as c from '../core.ts'
 import { conductorHome, condOffers } from '../mem.ts'
 import { sha, where, statR, real, logq, rmF, pause } from './base.ts'
-import { writeBrief, resultDirOk, sendCue } from './store.ts'
+import { writeBrief, resultDirOk, sendCue, registryEntries, loadLanes } from './store.ts'
 import type { RegRow } from './store.ts'
 import { leadsFor, cfgReadStrict, reservedGet, ownWrite } from './grants.ts'
 import { leadTool, leadBase, openExchange } from './lanes.ts'
 import { ledgerAdd, ledgerRowsFor, promptNewId } from './answer-hook.ts'
 import { promptLinkOnce } from './answer-tiers.ts'
-import { loadLeadRecords } from './lead-records.ts'
+import { loadLeadRecords, leadNameHeld } from './lead-records.ts'
 
 // The conductors that have an open running, by session id, and the names those opens carry (lower case): held until the offer is gone.
 const opening = new Set<string>()
 const openingNames = new Set<string>()
 
 const TIMEOUT_WHY = 'no window answered in time. A VS Code window with the repo as its first workspace folder must run the callboard panels extension (1.3.0 or later). A panel may still appear in that folder: do not open another.'
+
+// The NAME the person typed for /callboard lead or conductor, judged the way lead_open judges a new lead's name: a code for a refusal, undefined when the name is free.
+// The shape (NAME_RE) and the reserved names first; then, in any letter case, no other live session, no lane, no lead stamp on a lane, no lead record of any repo
+// (the session's own record excepted; a lane stamp counts unless the session made or joined that lane) and no request in the open folder or in flight carries it. A store that cannot be read refuses. The caller loads the
+// machine's reserved names first (reservedGet).
+export async function grantNameNo($: any, sid: string, name: string): Promise<string | undefined> {
+  if (!c.NAME_RE.test(name)) return 'name-bad'
+  if (c.reservedHit(name)) return 'name-reserved'
+  const lower = name.toLowerCase()
+  const live = await registryEntries($)
+  if (!live) return 'registry-unreadable'
+  if (live.some((r) => r.j.sessionId !== sid && typeof r.j.name === 'string' && r.j.name.toLowerCase() === lower)) return 'name-in-use'
+  const lanes = await loadLanes($)
+  if (typeof lanes === 'string') return lanes
+  if (lanes.some((l) => l.name.toLowerCase() === lower || (l.leadName?.toLowerCase() === lower && !c.leadOwns(l, sid)))) return 'name-in-use'
+  const held = await leadNameHeld($, sid, name, false)
+  if (held === true) return 'name-in-use'
+  if (held !== false) return 'store-unreadable'
+  const p = await where($)
+  if (!p) return 'no-paths'
+  if (openingNames.has(lower)) return 'name-in-open'
+  const waiting = ((await $.fs.list(`${p.root}/open`).catch(() => [])) as { name: string }[]).some((f) => f.name.toLowerCase().startsWith(`${lower}.`) && !f.name.toLowerCase().endsWith('.result'))
+  return waiting ? 'name-in-open' : undefined
+}
 
 export async function leadOpenCall($: any, e: any, next: any) {
   return leadTool($, e, 'lead_open', async (sid, no) => {

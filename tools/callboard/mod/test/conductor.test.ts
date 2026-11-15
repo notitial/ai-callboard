@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
-import { HINT_PREFIX, usageFileText, conductorFileText, conductorAddQuestion, conductorRefusalText, conductorAddedText, CONDUCTOR_NOT_PERSON, CONDUCTOR_USAGE, conductorQuestion, conductorRestoreQuestion, conductorBriefing, conductorBriefingNote, conductorRestoredToast, conductorUnansweredToast, conductorFileBadToast, conductorNoReposToast, CONDUCTOR_ON_TEXT, CONDUCTOR_OFF_QUESTION, conductorStatus, leadBriefing, LANES_CHANGED_TEXT, reboundToast, REASON_TEXT, managerRefusalText, terminateQuestion, leadConductorText } from '../hooks/core'
-import { h, GOOD, LANESDIR, NO, PS_TABLE, ROOT, SID, T0, USAGE_DIR, YES, condFiles, condStat, extraStat, laneSeed, leadFiles, longTest, pdirs, pfs, psDead, realFails, realMap, seen, storeFiles, submitted, toasts, toolDefs } from './harness'
+import { GRANT_NAME_ON, CONDUCTOR_NAME_NOT_PERSON, grantNameText, HINT_PREFIX, usageFileText, conductorFileText, conductorAddQuestion, conductorRefusalText, conductorAddedText, CONDUCTOR_NOT_PERSON, CONDUCTOR_USAGE, conductorQuestion, conductorRestoreQuestion, conductorBriefing, conductorBriefingNote, conductorRestoredToast, conductorUnansweredToast, conductorFileBadToast, conductorNoReposToast, CONDUCTOR_ON_TEXT, CONDUCTOR_OFF_QUESTION, conductorStatus, leadBriefing, LANES_CHANGED_TEXT, reboundToast, REASON_TEXT, managerRefusalText, terminateQuestion, leadConductorText } from '../hooks/core'
+import { h, GOOD, LANESDIR, NO, PS_TABLE, ROOT, SID, T0, USAGE_DIR, YES, renames, condFiles, condStat, extraStat, laneSeed, leadFiles, longTest, pdirs, pfs, psDead, realFails, realMap, seen, storeFiles, submitted, toasts, toolDefs } from './harness'
 import type { Trace } from './harness'
 import { APISID, APP2, keptOwner, COMPOSE, COND, CONDFILE, CSESS, FAR, LANE_HINT, LEADKEY, LEADPATH, LEADPS, LEADSID, MGR_SESS, MIN, NO_LANES, NO_LANES_COND, OTHER, OTHERLEAD, OTHERPATH, PIN, SELFPATH, STATUS_NONE, TURN, allEvents, attacher, briefings, ckLane, ckRow, condAt, condOn, condPresenceOf, condRun, condSelf, cue, dirStat, doLane, grantAt, idleFor, killed, lane, leadAt, leadFileText, leadReg, leadSelfReg, listCall, listed, logged, madeLane, mgrAt, mgrCall, mgrFile, mgrRow, newTrace, noteRows, nudges, ownReg, bindOwner, putCond, putLeadRecs, putStore, regAs, renameThroughTick, selfAs, started, statusTable, statusText, ticks, unanswered, waitFor, noNote, ownedBy } from './fixtures'
 
@@ -1359,4 +1359,101 @@ test('a conductor\'s lane_list names the live manager above it', async ($, on) =
     throw new Error('list')
   }
   expect(headOf(await listed($))).toBe('**Conductor COND** · live · above unreadable')
+})
+
+// ---- /callboard conductor NAME ----
+const namedNo = (code: string) => `Conductor stays off: ${grantNameText(code)}`
+
+test('conductor NAME: the dialog names it, the grant lands, and the tick renames the session; a session that already carries the name is not renamed', async ($, on) => {
+  const stdins: string[] = []
+  await condAt($, on, stdins, { clock: true })
+  putCond(['../app', '../app2'])
+  expect((await condRun($, 'HARBOR')).text).toBe(CONDUCTOR_ON_TEXT)
+  expect(h.lastQuestion).toBe(conductorQuestion(COND, [PIN, APP2], CHOME, [], 'HARBOR'))
+  expect(h.lastQuestion.startsWith('Make this session a conductor named HARBOR for these repos? ../app, ../app2.')).toBe(true)
+  expect(renames).toEqual([])
+  await h.clock!.advance(4000)
+  expect(renames).toEqual(['HARBOR'])
+  expect(logged(stdins)).toContain('renamed:conductor')
+  await $.command.run(lane('off'))
+  renames.length = 0
+  h.sessions = condSelf({ name: 'HARBOR' })
+  expect((await condRun($, 'HARBOR')).text).toBe(CONDUCTOR_ON_TEXT)
+  expect(logged(stdins)).toContain('rename-skipped:conductor')
+  await h.clock!.advance(4000)
+  expect(renames).toEqual([])
+})
+
+test('conductor with no NAME is as before: the question names none and no rename runs', async ($, on) => {
+  await condAt($, on, [], { clock: true })
+  putCond(['../app', '../app2'])
+  expect((await condRun($, '')).text).toBe(CONDUCTOR_ON_TEXT)
+  expect(h.lastQuestion).toBe(conductorQuestion(COND, [PIN, APP2], CHOME))
+  await h.clock!.advance(4000)
+  expect(renames).toEqual([])
+})
+
+test('conductor NAME from a plugin, another session or a script is refused with a fixed text and no dialog; the phone is the person', async ($, on) => {
+  const stdins: string[] = []
+  await condAt($, on, stdins)
+  putCond(['../app'])
+  for (const origin of [{ kind: 'plugin', name: 'x' }, { kind: 'peer' }, { kind: 'script' }]) expect((await condRun($, 'HARBOR', origin)).text).toBe(CONDUCTOR_NAME_NOT_PERSON)
+  expect(h.askCount).toBe(0)
+  expect(logged(stdins)).toContain('refused:conductor-name-not-person:plugin')
+  expect((await condRun($, 'HARBOR', { kind: 'bridge' })).text).toBe(CONDUCTOR_ON_TEXT)
+  expect(h.askCount).toBe(1)
+})
+
+test('conductor NAME is refused before any dialog when it is bad, reserved, or held by a live session, a lane, a lead stamp or a lead record, in any letter case', async ($, on) => {
+  const stdins: string[] = []
+  await condAt($, on, stdins)
+  putCond(['../app'])
+  h.store.set('reserved', { names: ['WARDEN'] })
+  const no = async (arg: string, code: string) => {
+    expect((await condRun($, arg)).text).toBe(namedNo(code))
+    expect(logged(stdins)).toContain(`refused:${code}`)
+    expect(h.askCount).toBe(0)
+    expect(leadFiles.has(SELFPATH)).toBe(false)
+  }
+  await no('bad!', 'name-bad')
+  await no('MANAGER-2', 'name-reserved')
+  await no('warden', 'name-reserved')
+  h.sessions = { ...h.sessions, ...regAs(OTHER, 4600, 'Harbor') }
+  await no('HARBOR', 'name-in-use')
+  h.sessions = condSelf()
+  putStore([madeLane('LANEX'), madeLane('SVC', 'STAMPED')])
+  await no('lanex', 'name-in-use')
+  await no('stamped', 'name-in-use')
+  putStore([])
+  putLeadRecs([{ name: 'KEPT', sid: undefined }])
+  await no('kept', 'name-in-use')
+  h.openList = [{ name: 'Queued.open', kind: 'file', size: 9, mtimeMs: 0, isLink: false }]
+  await no('QUEUED', 'name-in-open')
+})
+
+test('conductor NAME is judged again after the click: a session that took the name while the dialog was open stops the grant', async ($, on) => {
+  await condAt($, on, [], { clock: true })
+  putCond(['../app'])
+  h.askScript = async () => {
+    h.sessions = { ...h.sessions, ...regAs(OTHER, 4600, 'harbor') }
+    return YES
+  }
+  expect((await condRun($, 'HARBOR')).text).toBe(namedNo('name-in-use'))
+  h.askScript = undefined
+  expect(leadFiles.has(SELFPATH)).toBe(false)
+  await h.clock!.advance(4000)
+  expect(renames).toEqual([])
+})
+
+test('conductor NAME in a session that is a conductor already changes nothing and asks nothing; add and remove stay subcommands', async ($, on) => {
+  const stdins: string[] = []
+  await condAt($, on, stdins)
+  putCond(['../app'])
+  expect((await condRun($, '')).text).toBe(CONDUCTOR_ON_TEXT)
+  const n = h.askCount
+  expect((await condRun($, 'HARBOR')).text).toBe(GRANT_NAME_ON('Conductor'))
+  expect(logged(stdins)).toContain('refused:conductor-name-on')
+  expect(h.askCount).toBe(n)
+  for (const word of ['add', 'remove', 'Add', 'off']) expect((await condRun($, word)).text).toBe(CONDUCTOR_USAGE)
+  expect(h.askCount).toBe(n)
 })

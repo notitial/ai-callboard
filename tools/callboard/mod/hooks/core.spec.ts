@@ -1197,7 +1197,7 @@ test('helpText is a header and a two-column table with one row per subcommand, m
   assert.deepEqual(lines.slice(0, 4), ['**Callboard commands**', '', '| Command | What it does |', '|---|---|'])
   const rows = lines.slice(4)
   const words = rows.map((l) => /^\| ([^ \\|]+)/.exec(l)![1])
-  assert.deepEqual(words, ['lanes', 'status', 'lead', 'lead', 'lead', 'lane', 'escalation', 'conductor', 'manager', 'config', 'reserve', 'checkin', 'rest', 'off', 'help'])
+  assert.deepEqual(words, ['lanes', 'status', 'lead', 'lead', 'lead', 'lane', 'escalation', 'conductor', 'conductor', 'manager', 'config', 'reserve', 'checkin', 'rest', 'off', 'help'])
   assert.ok(lines.some((l) => l.startsWith('| lead join \\[CONDUCTOR\\] |')) && lines.some((l) => l.startsWith('| lead leave |')))
   assert.ok(lines.includes('| lane \\[NAME\\] | Make this session a lane, named NAME if given; lane off takes it out of its lane. |'))
   for (const l of rows) assert.equal(l.replace(/\\\|/g, '').split('|').length, 4, l)
@@ -2355,7 +2355,7 @@ test('v15 S6a: parseCommandArgs takes conductor, conductor add ARG and conductor
   assert.deepEqual(c.parseCommandArgs(' conductor  add   app '), { conductor: { add: 'app' } })
   assert.deepEqual(c.parseCommandArgs('conductor add ../app'), { conductor: { add: '../app' } })
   assert.deepEqual(c.parseCommandArgs('conductor remove /Users/t/far/x'), { conductor: { remove: '/Users/t/far/x' } })
-  for (const bad of ['conductor add', 'conductor add a/b', 'conductor add ..', 'conductor add ../..', 'conductor add rel/path', 'conductor add //x', 'conductor drop app', 'conductor add a b', 'conductor x'])
+  for (const bad of ['conductor add', 'conductor add a/b', 'conductor add ..', 'conductor add ../..', 'conductor add rel/path', 'conductor add //x', 'conductor drop app', 'conductor add a b', 'conductor remove', 'conductor x y', 'conductor off', 'conductor ON', 'conductor Add'])
     assert.deepEqual(c.parseCommandArgs(bad), { conductor: 'bad' }, bad)
   assert.equal(c.parseCommandArgs('conductors'), undefined)
 })
@@ -3460,7 +3460,41 @@ test('parseCommandArgs: lead join [CONDUCTOR] and lead leave are commands; any o
   assert.deepEqual(c.parseCommandArgs('lead join COND-1'), { leadJoin: 'COND-1' })
   assert.equal(c.parseCommandArgs('lead leave'), 'lead-leave')
   assert.equal(c.parseCommandArgs('lead'), 'lead')
-  for (const bad of ['lead joinX', 'lead join a b', 'lead on', 'lead off', 'lead leave now', 'lead join bad name', 'lead join ' + 'a'.repeat(41)]) assert.equal(c.parseCommandArgs(bad), undefined, bad)
+  for (const bad of ['lead join a b', 'lead on', 'lead off', 'lead leave now', 'lead join bad name', 'lead join ' + 'a'.repeat(41)]) assert.equal(c.parseCommandArgs(bad), undefined, bad)
+})
+
+test('parseCommandArgs: lead NAME and conductor NAME are the grants with a name; join, leave, add, remove, on and off are never names, in any letter case', () => {
+  assert.deepEqual(c.parseCommandArgs('lead HARBOR'), { leadNamed: 'HARBOR' })
+  assert.deepEqual(c.parseCommandArgs(' lead   joinX '), { leadNamed: 'joinX' })
+  assert.deepEqual(c.parseCommandArgs('conductor HARBOR'), { conductor: { grant: 'HARBOR' } })
+  assert.deepEqual(c.parseCommandArgs('conductor addons'), { conductor: { grant: 'addons' } })
+  // A word that is not a name shape still parses: grantNameNo refuses it with its own text, not the usage line.
+  assert.deepEqual(c.parseCommandArgs('lead bad!'), { leadNamed: 'bad!' })
+  assert.deepEqual(c.parseCommandArgs('conductor ' + 'a'.repeat(41)), { conductor: { grant: 'a'.repeat(41) } })
+  for (const w of ['join', 'leave', 'add', 'remove', 'on', 'off', 'Join', 'LEAVE', 'Remove', 'status', 'lanes', 'Help', 'config', 'rest', 'escalation', 'manager']) {
+    assert.ok(c.isGrantWord(w), w)
+    assert.notDeepEqual(c.parseCommandArgs(`lead ${w}`), { leadNamed: w }, w)
+    assert.notDeepEqual(c.parseCommandArgs(`conductor ${w}`), { conductor: { grant: w } }, w)
+  }
+  assert.equal(c.parseCommandArgs('lead add'), undefined)
+  assert.equal(c.parseCommandArgs('lead remove'), undefined)
+  assert.equal(c.parseCommandArgs('lead leave'), 'lead-leave')
+  assert.deepEqual(c.parseCommandArgs('lead join'), { leadJoin: undefined })
+  assert.deepEqual(c.parseCommandArgs('conductor add'), { conductor: 'bad' })
+  assert.deepEqual(c.parseCommandArgs('conductor remove'), { conductor: 'bad' })
+  for (const bad of ['lead A B', 'lead\nA', 'lead ' + 'a'.repeat(81)]) assert.equal(c.parseCommandArgs(bad), undefined, JSON.stringify(bad))
+})
+
+test('the grant questions name the NAME only when one is given, and a refused NAME has its own words', () => {
+  assert.equal(c.leadQuestion('/w/repo/x', 'HARBOR').split('\n')[0], 'Let this session lead the lanes in x, named HARBOR?')
+  assert.equal(c.leadQuestion('/w/repo/x'), c.leadQuestion('/w/repo/x', undefined))
+  assert.ok(!c.leadQuestion('/w/repo/x').includes('named'))
+  assert.ok(c.conductorQuestion(CR, ['/Users/t/code/app'], '/Users/t', [], 'HARBOR').startsWith('Make this session a conductor named HARBOR for these repos? ../app.'))
+  assert.ok(c.conductorQuestion(CR, ['/Users/t/code/app'], '/Users/t').startsWith('Make this session a conductor for these repos? ../app.'))
+  for (const code of ['name-bad', 'name-reserved', 'name-in-use', 'name-in-open', 'name-check-slow', 'store-unreadable']) assert.notEqual(c.grantNameText(code), code, code)
+  assert.equal(c.grantNameText('registry-unreadable'), c.REASON_TEXT['registry-unreadable'])
+  assert.equal(c.grantNameText('no-such-code'), 'no-such-code')
+  assert.equal(c.GRANT_NAME_ON('Lead').startsWith('Lead stays on:'), true)
 })
 
 test('the accept answer rides an owner note: owner-unset and owner-model-unset round trip for a lead, no other verb carries one, and leadOkNote picks the code', () => {
