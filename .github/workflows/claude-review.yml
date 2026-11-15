@@ -594,7 +594,7 @@ jobs:
                  event: $event,
                  head_sha: ($head | if test("^[0-9a-f]{40}$") then . else null end),
                  reviewer: "claude-pr-review@v3.3",
-                 action: "anthropics/claude-code-action@f27be6b65a4652f08a2ba3cff79114829b588967",
+                 action: "anthropics/claude-code-action@4fa93a88de49bbef68b10eb15aabedf28ca0e1ed",
                  total_cost_usd: ((.total_cost_usd | numbers) // null),
                  duration_ms: ((.duration_ms | numbers) // null),
                  num_turns: ((.num_turns | numbers) // null),
@@ -1007,12 +1007,15 @@ jobs:
               return (data, None) if ok else (None, "the wrong shape")
 
 
+          INCOMPLETE = "issues reported without findings"
+
+
           def contradiction(mode, data):
               """Why a well-formed result can't be used in this mode, or None."""
               if data["stopped"] and (mode != "initial" or data["findings"]):
                   return "a stop outside an initial review, or a stop with findings"
               if mode != "followup" and not data["stopped"] and not data["no_issues"] and not data["findings"]:
-                  return "issues reported without findings"
+                  return INCOMPLETE
               return None
 
 
@@ -1520,19 +1523,22 @@ jobs:
                       and ("b" not in h or is_int(h["b"]) and 0 <= h["b"] <= h["n"]))
 
 
-          def merge_history(body, entry):
-              """Newest first, at most 10, one entry per run (a re-run replaces its own)."""
-              history = []
+          def read_history(body):
               m = HISTORY_MARKER.search(body or "")
-              if m:
-                  try:
-                      raw = json.loads(m.group(1))
-                  except ValueError:
-                      raw = None
-                  if isinstance(raw, list):
-                      history = [h for h in raw if valid_entry(h)]
-                  else:
-                      print("::warning::The overview's history couldn't be read: starting it again")
+              if not m:
+                  return []
+              try:
+                  raw = json.loads(m.group(1))
+              except ValueError:
+                  raw = None
+              if isinstance(raw, list):
+                  return [h for h in raw if valid_entry(h)]
+              print("::warning::The overview's history couldn't be read: starting it again")
+              return []
+
+
+          def merge_history(history, entry):
+              """Newest first, at most 10, one entry per run (a re-run replaces its own)."""
               return ([entry] + [h for h in history if h["run"] != entry["run"]])[:10]
 
 
@@ -1635,7 +1641,7 @@ jobs:
                   print(f"The review job's result is '{review_result or 'none'}': no verdict")
                   return
 
-              data, retry = None, []
+              data, retry, incomplete = None, [], False
               if ctx.env.get("HAS_RESULT") == "true":
                   data, why = load_result(ctx.env.get("RESULT_FILE", ""))
                   if why == "missing":
@@ -1646,7 +1652,9 @@ jobs:
                   why = why or contradiction(ctx.mode, data)
                   if why:
                       print(f"No verdict: Claude's result is {why}" if data is None else f"No verdict: Claude's result has {why}")
-                      return
+                      if why != INCOMPLETE:
+                          return
+                      incomplete = True   # say the review ran: carry on to the overview, with no verdict
               else:
                   retry = parse_ids(ctx.env.get("RETRY_IDS", ""))
                   if retry is None:
@@ -1677,7 +1685,7 @@ jobs:
 
               # Replies, then resolve: resolve keys on the reply's marker.
               to_resolve = list(retry)
-              if data is not None and data["threads"] and ctx.mode != "initial":
+              if data is not None and data["threads"] and ctx.mode != "initial" and not incomplete:
                   to_resolve += reply_in_threads(ctx, data["threads"])
               if to_resolve:
                   resolve_threads(ctx, to_resolve)
@@ -1718,6 +1726,8 @@ jobs:
 
               if data is not None and data["stopped"]:
                   decision, result, line = "none", "stopped", "Review stopped (eligibility): nothing to review. No verdict."
+              elif incomplete:
+                  decision, result, line = "none", "issues", "Review incomplete: issues reported without findings. No verdict."
               elif full:
                   if n_found:
                       decision, result, line = "changes+findings", "issues", f"{n_found} finding{'s' if n_found != 1 else ''}."
@@ -1742,11 +1752,16 @@ jobs:
                   print(f"::warning::Reading the overview comment failed: {type(e).__name__}")
                   existing = None
               old = (existing or {}).get("body") or ""
+              history = read_history(old)
+              if decision == "none" and full and any(h["run"] == int(ctx.run_id) and h["n"] for h in history):
+                  # "Re-run all jobs" that ends without a verdict: its note would replace findings an earlier attempt posted.
+                  print("No verdict on a re-run: keeping this run's posted result")
+                  return
               st = {
                   "comment": existing, "result": result, "line": line, "resolved": resolved, "open": open_links,
                   "fallback": [],
                   "slot": overview_slot(data["overview"]) if full and not data["stopped"] else "" if full else old_slot(old),
-                  "history": merge_history(old, {"sha": ctx.head[:7], "mode": ctx.mode, "result": result, "n": n_found,
+                  "history": merge_history(history, {"sha": ctx.head[:7], "mode": ctx.mode, "result": result, "n": n_found,
                                                  "b": len(in_body), "run": int(ctx.run_id), "attempt": int(ctx.attempt)}),
               }
               if not full:
