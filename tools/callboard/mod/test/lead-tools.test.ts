@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 import { MANAGER_LEAD_NO, MANAGER_LEAD_YES, REASON_TEXT, leadWhy, managerLeadQuestion, orderLeadText } from '../hooks/core'
-import { h, NO, PROMPTS_DIR, PS_TABLE, ROOT, SID, YES, leadFiles, longTest, submitted } from './harness'
+import { h, NO, PROMPTS_DIR, PS_TABLE, ROOT, SID, YES, LEADRECDIR, extraStat, leadFiles, longTest, submitted } from './harness'
 import { ledgerRows } from './answer-fixtures'
 import { CSESS, LEADPATH, LEADSID, MGR_SESS, MIN, OTHERLEAD, PIN, APP2, condOn, idleFor, leadFileText, leadReg, mgrAt, ownedBy, putLeadRecs, TURN } from './fixtures'
 
@@ -105,6 +105,18 @@ test('the conductor\'s lane_compact with the name of a lead it owns is lead_comp
   expect((await $.tool.call({ tool: 'mcp__callboard__lane_compact', lane: 'LEAD' } as any)).result).toBe('cue compact acted for lead LEAD.')
   expect(cues(argv)).toBe(1)
   expect((await $.tool.call({ tool: 'mcp__callboard__lane_compact', lane: 'API' } as any)).result).toBe('cue compact acted for lane API.')
+})
+
+test('lane_compact on a lane goes to the lane whatever the lead records say: a record of the lane\'s name with no live lead, or a records folder that fails its checks', async ($, on) => {
+  const argv: string[][] = []
+  await conductor($, on, argv, { owned: false })
+  putLeadRecs([{ name: 'API', conductorSid: SID, sid: OTHERLEAD }])
+  expect((await $.tool.call({ tool: 'mcp__callboard__lane_compact', lane: 'API' } as any)).result).toBe('cue compact acted for lane API.')
+  extraStat.set(LEADRECDIR, '501 755 2 Directory 11 64 1700000000\n')
+  expect((await $.tool.call({ tool: 'mcp__callboard__lane_compact', lane: 'API' } as any)).result).toBe('cue compact acted for lane API.')
+  expect(await deny($, call('lead_compact'))).toContain('lead_compact refused: unsafe-dir')
+  extraStat.delete(LEADRECDIR)
+  expect(cues(argv)).toBe(0)
 })
 
 test('the manager\'s lead tools ask the person every time: one dialog naming the lead, its repo and its session; Cancel sends nothing and writes no row', async ($, on) => {

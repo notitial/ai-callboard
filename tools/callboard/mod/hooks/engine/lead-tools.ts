@@ -33,12 +33,20 @@ async function liveLeadByName($: any, live: RegRow[], lanes: c.Lane[], sid: stri
 // The target of a lead tool, or 'none' when no lead carries the name at all (the lane_compact alias then goes on to the lanes). A conductor reaches only a record
 // it owns and is bound to; a live lead with no record is the manager's only (t.rec is then undefined: nothing to park or remove). A record that names no session
 // is refused no-live-session unless the caller takes such targets (sidless: a retire of an orphan record). Liveness is the caller's to check (targetCheck).
-export async function leadTarget($: any, e: unknown, sid: string, name: unknown, no: No, opts: { sidless?: boolean } = {}): Promise<{ t: Target; start: Start } | { deny: string } | 'none'> {
+// lanePath (the lane_compact alias): a name a lane in reach carries goes on to the lanes ('none') unless a live lead carries it too (lane-or-lead), whatever the
+// lead records say, so a lane's compaction never waits on the record store or on a record left by a lead that is gone.
+export async function leadTarget($: any, e: unknown, sid: string, name: unknown, no: No, opts: { sidless?: boolean; lanePath?: boolean } = {}): Promise<{ t: Target; start: Start } | { deny: string } | 'none'> {
   const base = await leadBase($, e, sid)
   if ('err' in base) return no(...base.err)
   const g = base.g
   if (g.level !== 'conductor' && g.level !== 'manager') return no('lead-tool-level', c.reasonWhy('lead-tool-level'))
   const start = { level: g.level, epoch: epochOf(sid) }
+  if (opts.lanePath === true && typeof name === 'string' && base.lanes.some((l) => l.name.toUpperCase() === name.toUpperCase())) {
+    const by = await liveLeadByName($, base.live, base.lanes, sid, name)
+    // With a lane of the name, liveLeadByName never returns a target: no live lead, or lane-or-lead.
+    if (by === undefined || !('no' in by)) return 'none'
+    return no(by.no, c.leadWhy(by.no))
+  }
   const recs = await loadLeadRecords($)
   if (typeof recs === 'string') return no(recs, c.leadWhy(recs))
   const hit = c.leadRec(recs, base.lanes, g, sid, name)
@@ -100,8 +108,9 @@ export async function managerAsk($: any, sid: string, tool: string, question: st
   return undefined
 }
 
-// One lead tool call on a target: the checks, the manager's dialog and the checks again, the ledger row of a resume, then the cue.
-async function leadVerb($: any, sid: string, tool: Tool, got: { t: Target; start: Start }, no: No) {
+// One lead tool call on a target: the checks, the manager's dialog and the checks again, the ledger row of a resume, then the cue. A call the engine abandoned
+// (cut off while the dialog was open: its answer went out already) writes no row and sends nothing.
+async function leadVerb($: any, sid: string, tool: Tool, got: { t: Target; start: Start }, no: No, next: any) {
   const { t, start } = got
   const verb: c.Verb = tool === 'lead_resume' ? 'resume' : 'compact'
   const bad = await targetCheck($, sid, t, start)
@@ -116,6 +125,7 @@ async function leadVerb($: any, sid: string, tool: Tool, got: { t: Target; start
     const again = await targetCheck($, sid, t, start)
     if (again) return no(again, c.leadWhy(again))
   }
+  if (next?.signal?.aborted === true) return no('abandoned', c.leadWhy('abandoned'))
   if (verb === 'resume') {
     const row = { kind: 'lead-resume' as const, hash: t.key, repo: t.repo, lane: t.name, by: sid, target: toSid, tier: start.level, dialog }
     if (!(await ledgerAdd($, row))) return no('ledger-write', c.reasonWhy('ledger-write'))
@@ -126,21 +136,21 @@ async function leadVerb($: any, sid: string, tool: Tool, got: { t: Target; start
   return { result: `cue ${verb} acted for lead ${t.name}.` }
 }
 
-export async function leadToolCall($: any, e: any, _next: any, tool: Tool) {
+export async function leadToolCall($: any, e: any, next: any, tool: Tool) {
   return leadTool($, e, tool, async (sid, no) => {
     const got = await leadTarget($, e, sid, e.lead, no)
     if (got === 'none') return no('unknown-lead', c.leadWhy('unknown-lead'))
     if ('deny' in got) return got
-    return leadVerb($, sid, tool, got, no)
+    return leadVerb($, sid, tool, got, no, next)
   })
 }
 
 // lane_compact with a lead's name, for a conductor or the manager: the same call as lead_compact (the manager's dialog included). undefined: no lead carries the
 // name, and the caller goes on to the lanes.
-export async function leadCompactTo($: any, e: any, sid: string, no: No): Promise<{ deny: string } | { result: string } | undefined> {
+export async function leadCompactTo($: any, e: any, sid: string, no: No, next: any): Promise<{ deny: string } | { result: string } | undefined> {
   if (typeof e.lane !== 'string' || !c.NAME_RE.test(e.lane)) return undefined
-  const got = await leadTarget($, e, sid, e.lane, no)
+  const got = await leadTarget($, e, sid, e.lane, no, { lanePath: true })
   if (got === 'none') return undefined
   if ('deny' in got) return got
-  return leadVerb($, sid, 'lead_compact', got, no)
+  return leadVerb($, sid, 'lead_compact', got, no, next)
 }
