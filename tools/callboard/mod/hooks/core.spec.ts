@@ -3265,7 +3265,7 @@ test('ownerOf with nested repos: a named lead is found from the deepest store ou
   assert.equal(c.ownerOf([outer, two], `${LO_REPO}/vendor/lib`, undefined), undefined, 'the deepest store has two records: the outer one is not a fallback')
 })
 
-// ---- routing follows ownership (ADR 0007, PR B) ----
+// ---- routing follows ownership (ADR 0007) ----
 const RT_REPO = '/w/repo'
 const RT_LANE = { name: 'L', folder: `${RT_REPO}/l`, brief: `${RT_REPO}/l/B.md`, repo: RT_REPO }
 const RT_OWNS = (name: string, sole = false, repo = RT_REPO): c.Grant => ({ level: 'conductor', pins: [repo], name: '', owns: [{ repo, name, sole }] })
