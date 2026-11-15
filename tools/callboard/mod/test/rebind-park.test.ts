@@ -236,7 +236,7 @@ longTest('a question nobody answers in 90 seconds is not a decision: it says so,
   h.askHang = new Promise<string>(() => undefined)
   expect((await unanswered($.command.run(lane('lead', plugin)))).text).toBe('Lead stays on. The question timed out.')
   expect((await unanswered($.command.run(lane('off', plugin)))).text).toBe('Nothing changed: the question timed out.')
-  expect((await $.command.run(lane('status'))).text).toBe(statusTable(['Lane', 'NONE'], ['Lead', 'ON'], ['Check-ins', 'ON']))
+  expect((await $.command.run(lane('status'))).text).toBe(statusTable(['Lane', 'NONE'], ['Lead', 'ON'], ['Conductor', 'none: /callboard lead join'], ['Check-ins', 'ON']))
   expect(JSON.stringify(await unanswered($.tool.call(leadCall('terminate'))))).toContain('lane_terminate refused: the question timed out.')
   expect(argv.some((a) => a[0] === '/bin/kill')).toBe(false)
   expect((await unanswered($.command.run(lane('lead')))).text).toBe('Lead is now off. The question timed out.')

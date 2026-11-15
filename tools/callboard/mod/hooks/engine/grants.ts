@@ -51,6 +51,7 @@ import {
   midDelivered,
   promptMidSent,
   promptMidRetold,
+  renameRefused,
   mem,
 } from '../mem.ts'
 import type { Watch, MgrPending, CondPending } from '../mem.ts'
@@ -100,6 +101,7 @@ import { sessionRoot, leadToolsOnce, promptToolsRegister, leadCore, readReport }
 import type { Bound } from './lanes.ts'
 import { interactive, busyAgents, personRow, backgroundShells } from './compaction.ts'
 import { managerCommand } from './commands.ts'
+import { ownerLeave, ownerRename, leadNameHeld } from './lead-records.ts'
 import { epochOf, heldNo, levelBrief, levelSave } from './levels.ts'
 import { usageDrop, usageSweep } from './usage.ts'
 import type { LevelDesc, GrantDialog } from './levels.ts'
@@ -329,6 +331,7 @@ export function leadDrop($: any, sid: string): Promise<boolean> {
   leadlessSeen.delete(sid)
   leadSavedAt.delete(sid)
   leadRestorePending.delete(sid)
+  renameRefused.delete(sid)
   // A conductor's repo, approved list and pending restore go too, and its saved grant below.
   conductorHome.delete(sid)
   conductorApproved.delete(sid)
@@ -343,6 +346,8 @@ export function leadDrop($: any, sid: string): Promise<boolean> {
   const unsave = Promise.resolve()
     .then(() => $.store.delete(`${c.LEAD_HINT_PREFIX}${sid}`))
     .then(() => $.store.delete(`${c.CONDUCTOR_HINT_PREFIX}${sid}`))
+    // A lead's owner binding goes with its grant, so nothing is obeyed for a session that is no lead (ownerLeave, called before this, also removes the record).
+    .then(() => $.store.delete(`${c.OWNER_PREFIX}${sid}`))
     .then(
       () => true,
       async () => {
@@ -367,6 +372,8 @@ export async function grantDialog($: any, sid: string, d: LevelDesc, g: GrantDia
     const wasOn = g.on()
     const was = wasOn && (r !== 'timed-out' || d.notYes === 'person-or-no')
     const drops = d.notYes === 'person-no' ? r === 'no' && g.person : d.notYes === 'person-or-no' ? r === 'no' || g.person : false
+    // A lead grant that ends here takes its conductor tie with it (the binding and the record), so no orphan record keeps the lead's name.
+    if (drops && wasOn && d.level === 'lead') await ownerLeave($, sid, 'off').catch(() => undefined)
     const kept = drops && !(await leadDrop($, sid)) ? d.kept : ''
     let why = ''
     if (r === 'timed-out') {
@@ -700,7 +707,14 @@ export async function secondLeadNo($: any, sid: string, pin: string): Promise<st
   const live = await registryEntries($)
   if (!live) return 'registry-unreadable'
   const others = (await leadsFor($, live, pin, pin)).filter((x) => x.sid !== sid)
-  return c.secondLeadRefusal(live.map((r) => r.j), sid, others.map((x) => x.sid))
+  const refused = c.secondLeadRefusal(live.map((r) => r.j), sid, others.map((x) => x.sid))
+  if (refused !== undefined) return refused
+  // A name a lead record holds is not free for another session, in any repo, with or without a session of its own (a record kept for its lanes keeps its
+  // name). A read that failed refuses.
+  const name = c.leadNameOf(live.map((r) => r.j), sid)
+  if (name === undefined) return undefined
+  const held = await leadNameHeld($, sid, name, false)
+  return held === true ? 'name-in-use' : held === false ? undefined : 'store-unreadable'
 }
 
 // An attached lane works with whichever lead holds a valid grant for its repo (consent given under one lead carries to the next one the person allows there);
@@ -1196,6 +1210,18 @@ export async function leadRenameTick($: any, sid: string) {
     return
   }
   const old = g.name
+  // A bound lead's record takes the new name first, in one write; the lanes follow only once it has moved. A name that is taken carries nothing: the lead stays
+  // bound under the old name and the person is told once per pair. Any other failure is tried again at the next look.
+  const moved = await ownerRename($, sid, cur)
+  if (typeof moved === 'object') {
+    await logq($, sid, 'error', `lead-rename-owner ${c.hasText(moved.no) ? moved.no : 'other'}`)
+    if (moved.no === 'name-in-use' && renameRefused.get(sid) !== `${old}\n${cur}`) {
+      renameRefused.set(sid, `${old}\n${cur}`)
+      toast($, c.renameTakenToast(old, cur))
+    }
+    return
+  }
+  if (grantOf(sid)?.level !== 'lead' || epochOf(sid) !== epoch) return
   const lanes = await loadLanes($)
   if (typeof lanes === 'string') return
   const mine = lanes.filter((l) => l.src !== undefined && l.repo === g.pins[0] && c.leadOwns(l, sid) && l.leadName === old)

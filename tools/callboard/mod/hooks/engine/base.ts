@@ -283,15 +283,21 @@ export async function askOnce($: any, sid: string, question: string, yes: string
 // The Join dialog's lead picker, with ask's time limit and error handling. More… turns the page; a dismissal, a failure or an answer not offered is 'error'.
 // The answer is wrapped, so a lead named like the timeout mark is still a name.
 export async function pickLead($: any, names: string[]): Promise<{ name: string } | 'error' | 'timed-out'> {
+  const r = await pickFrom($, c.LEAD_PICK_QUESTION, names, c.HEADER.attach)
+  return typeof r === 'string' ? r : 'index' in r ? { name: names[r.index] } : 'error'
+}
+// A picker over any list of distinct labels (c.pickOptions): the index of the picked one. extra: one more option on every page, answered as { extra: true }.
+export async function pickFrom($: any, question: string, labels: string[], header: string, extra?: string): Promise<{ index: number } | { extra: true } | 'error' | 'timed-out'> {
   for (let page = 0; ; page++) {
-    const options = c.leadPickOptions(names, page)
+    const options = c.pickOptions(labels, page, extra)
     try {
-      const a = await withTimeout($, Promise.resolve($.ui.ask(c.LEAD_PICK_QUESTION, { options, header: c.HEADER.attach })).then((x: unknown) => ({ x })), ASK_TIMEOUT_MS)
+      const a = await withTimeout($, Promise.resolve($.ui.ask(question, { options, header })).then((x: unknown) => ({ x })), ASK_TIMEOUT_MS)
       if (a === 'timeout') return 'timed-out'
       if (a.x === c.LEAD_MORE && options.includes(c.LEAD_MORE)) continue
-      // Cancel beside a lone name is a cancel, even for a lead named Cancel.
-      if (names.length === 1 && a.x === c.ATTACH_NO) return 'error'
-      return typeof a.x === 'string' && names.includes(a.x) && options.includes(a.x) ? { name: a.x } : 'error'
+      if (extra !== undefined && a.x === extra) return { extra: true }
+      // Cancel beside a lone label is a cancel, even for a label that reads Cancel.
+      if (extra === undefined && labels.length === 1 && a.x === c.ATTACH_NO) return 'error'
+      return typeof a.x === 'string' && labels.includes(a.x) && options.includes(a.x) ? { index: labels.indexOf(a.x) } : 'error'
     } catch {
       return 'error'
     }
