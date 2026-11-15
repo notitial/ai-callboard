@@ -54,10 +54,10 @@ test('prompts: prompt_list shows the open request of a lane in reach: the input 
   const t = said(await $.tool.call(pcall('prompt_list')))
   expect(t).toContain('1 prompt waiting.')
   expect(t).toContain(`### ${TID}`)
-  expect(t).toContain('lane: svc-api · tool: Bash · raised by: rule · open 0 s')
+  expect(t).toContain('lane: svc-api · tool: Bash · raised by: rule · open 30 s')
   expect(t).toContain('<untrusted-input>')
   expect(t).toContain('ssh host uptime')
-  expect(t).toContain('held until the prompt has been open 30 s')
+  expect(t).not.toContain('held until')
   expect(t).toContain('**Allow only if you can say yes to all of these:**')
   expect(t.indexOf('</untrusted-input>')).toBeLessThan(t.indexOf('**Allow only if'))
 })
@@ -747,12 +747,12 @@ test('prompts tools (conductor): with no lead and no manager the conductor is th
 test('prompts tools (conductor): with a live lead the conductor\'s window opens at 5 minutes, or at once when the lead passes the request up (30 s still bind)', async ($, on) => {
   await asConductor($, on, { lead: true })
   putQ({ ...APIQ })
-  expect(turnOf(said(await $.tool.call(pcall('prompt_list'))))).toContain('Your window opens in 300 s')
+  expect(turnOf(said(await $.tool.call(pcall('prompt_list'))))).toContain('Your window opens in 270 s')
   expect(said(await $.tool.call(answerCall()))).toContain(refusal('window'))
   expect(said(await $.tool.call(pcall('prompt_escalate', { id: TID, why: 'x' })))).toContain(refusal('window'))
-  h.nowMs = T0 + 299_000
+  h.nowMs = T0 + 269_000
   expect(said(await $.tool.call(answerCall()))).toContain(refusal('window'))
-  h.nowMs = T0 + 301_000
+  h.nowMs = T0 + 271_000
   expect(said(await $.tool.call(answerCall()))).toContain('Recorded: allow')
   // A pass-up by the lead at 40 s opens the conductor at 40 s.
   h.nowMs = T0 + 45_000
@@ -771,7 +771,7 @@ test('prompts tools (conductor): a lower tier that goes live after the request d
   expect(turnOf(said(await $.tool.call(pcall('prompt_list'))))).not.toContain('window opens')
   expect(said(await $.tool.call(answerCall()))).toContain('Recorded: allow')
   // A request first seen with the lead already live still opens the conductor at 5 minutes.
-  putQ({ ...APIQ, id: TID2, at: T0 + 31_000 })
+  putQ({ ...APIQ, id: TID2, at: T0 + 1_000 })
   expect(said(await $.tool.call(answerCall({ id: TID2 })))).toContain(refusal('window'))
 })
 
@@ -823,7 +823,7 @@ test('prompts tools: a conductor and the manager have the three prompt tools, an
 })
 
 // ---- notices to every tier, and the three tiers' briefings ----
-test('prompts notice: a lead is told at once even with a manager above it; a request with a relay is told to nobody, and told again if the relay is lost', async ($, on) => {
+test('prompts notice: a lead is told even with a manager above it; a request with a relay is told to nobody, and told again if the relay is lost', async ($, on) => {
   await tier($, on, [], { clock: true })
   tierFixtures('mgr')
   putQ()
@@ -841,7 +841,7 @@ test('prompts notice: a lead is told at once even with a manager above it; a req
 
 longTest('prompts notice: an idle conductor is told when its window opens (5 minutes after the request with a lead live), not before', async ($, on) => {
   await asConductor($, on, { lead: true, clock: true })
-  putQ({ ...APIQ })
+  putQ({ ...APIQ, at: T0 })
   await h.clock!.advance(2000)
   await tickTwice()
   expect(promptNotices()).toBe(0)
@@ -859,7 +859,7 @@ longTest('prompts notice: an idle conductor is told when its window opens (5 min
   expect(promptNotices()).toBe(1)
 })
 
-test('prompts notice: an idle conductor with no lead is told at once; so is one told of a request the lead has passed up', async ($, on) => {
+test('prompts notice: an idle conductor with no lead is told; so is one told of a request the lead has passed up', async ($, on) => {
   await asConductor($, on, { clock: true })
   putQ({ ...APIQ, leadName: undefined })
   await h.clock!.advance(2000)
@@ -886,7 +886,110 @@ test('prompts tools (manager): a lead that passed the request up leaves the mana
   await h.clock!.set(T0 + 60_000)
   // Presence files carry a fresh mtime while the fake clock jumps (the live mod rewrites its own every tick).
   for (const f of leadFiles.values()) f.mtimeSec = Math.floor(h.nowMs / 1000)
-  expect(turnOf(said(await $.tool.call(pcall('prompt_list'))))).toContain('Your window opens in 540 s')
+  expect(turnOf(said(await $.tool.call(pcall('prompt_list'))))).toContain('Your window opens in 510 s')
   pfs.set(`${LDIR(APISID)}/${TID}.escalate-lead.json`, { text: prm.escalateText({ id: TID, tier: 'up', why: 'x', at: T0 + 45_000, level: 'lead', sid: LEADSID }), mtimeSec: T0 / 1000 })
-  expect(turnOf(said(await $.tool.call(pcall('prompt_list'))))).toContain('Your window opens in 540 s')
+  expect(turnOf(said(await $.tool.call(pcall('prompt_list'))))).toContain('Your window opens in 510 s')
+})
+
+// ---- the person's head start: no tier is told, can list, answer, relay or pass up before the request is 30 s old ----
+test('head start: a lead does not list a request younger than 30 s, counts it, and lists it from 30 s', async ($, on) => {
+  await tier($, on)
+  putQ({ at: T0 })
+  const t = said(await $.tool.call(pcall('prompt_list')))
+  expect(t).not.toContain(TID)
+  expect(t).toBe(prm.promptListText([], { on: true, young: 1 }))
+  expect(t).toContain("1 prompt is still the person's for their first 30 s")
+  h.nowMs = T0 + 29_999
+  expect(said(await $.tool.call(pcall('prompt_list')))).not.toContain(TID)
+  h.nowMs = T0 + 30_000
+  const u = said(await $.tool.call(pcall('prompt_list')))
+  expect(u).toContain(TID)
+  expect(u).not.toContain('still the person')
+})
+
+test('head start: a young request is counted only for a tier it reaches; a closed or own one is not', async ($, on) => {
+  await tier($, on, [], { scope: 'svc-api' })
+  putQ({ at: T0, id: TID2, lane: 'other-lane' })
+  putQ({ at: T0, id: '1a1b2c3d-5555-4000-8000-123456789abc', leadName: 'ANOTHER' })
+  putQ({ at: T0 })
+  putFile(`${TID}.done`)
+  putQ({ at: T0, id: '1a1b2c3d-6666-4000-8000-123456789abc' })
+  expect(said(await $.tool.call(pcall('prompt_list')))).toBe(prm.promptListText([], { on: true, young: 1 }))
+})
+
+test('head start: a lead\'s answer, relay and pass-up are refused window before 30 s and nothing is written; each works at 30 s', async ($, on) => {
+  await tier($, on)
+  putQ({ at: T0 })
+  expect(said(await $.tool.call(answerCall()))).toContain(refusal('window'))
+  expect(said(await $.tool.call(answerCall({ decision: 'deny' })))).toContain(refusal('window'))
+  expect(said(await $.tool.call(pcall('prompt_escalate', { id: TID, why: 'x' })))).toContain(refusal('window'))
+  expect(decFile()).toBeUndefined()
+  expect(pfs.has(`${LDIR()}/${TID}.relay.json`)).toBe(false)
+  expect(ledgerRows().filter((x) => x.kind === 'answered' || x.kind === 'relayed' || x.kind === 'escalated')).toEqual([])
+  h.nowMs = T0 + 30_000
+  expect(said(await $.tool.call(answerCall()))).toContain('Recorded: allow')
+})
+
+test('head start: the relay is refused window before 30 s and opens at 30 s', async ($, on) => {
+  await tier($, on)
+  putQ({ at: T0 })
+  h.nowMs = T0 + 29_000
+  expect(said(await $.tool.call(pcall('prompt_escalate', { id: TID, why: 'x' })))).toContain(refusal('window'))
+  expect(pfs.has(`${LDIR()}/${TID}.relay.json`)).toBe(false)
+  h.nowMs = T0 + 30_000
+  expect(said(await $.tool.call(pcall('prompt_escalate', { id: TID, why: 'x' })))).toContain('header exactly')
+  expect(pfs.has(`${LDIR()}/${TID}.relay.json`)).toBe(true)
+})
+
+test('head start: a pass-up with a manager above is refused window before 30 s, and at 31 s it goes and opens the manager at once', async ($, on) => {
+  await tier($, on)
+  tierFixtures('mgr')
+  putQ({ at: T0 })
+  h.nowMs = T0 + 20_000
+  expect(said(await $.tool.call(pcall('prompt_escalate', { id: TID, why: 'x' })))).toContain(refusal('window'))
+  expect(pfs.has(`${LDIR()}/${TID}.escalate-lead.json`)).toBe(false)
+  expect(ledgerRows().filter((x) => x.kind === 'escalated')).toEqual([])
+  h.nowMs = T0 + 31_000
+  expect(said(await $.tool.call(pcall('prompt_escalate', { id: TID, why: 'x' })))).toContain('Passed up')
+  expect(prm.parseEscalate(pfs.get(`${LDIR()}/${TID}.escalate-lead.json`)!.text)?.at).toBe(T0 + 31_000)
+})
+
+test('head start: a conductor with no lead above or below it is no exception: hidden, counted and refused before 30 s', async ($, on) => {
+  await asConductor($, on)
+  putQ({ ...APIQ, at: T0 })
+  expect(said(await $.tool.call(pcall('prompt_list')))).toBe(prm.promptListText([], { on: true, young: 1 }))
+  expect(said(await $.tool.call(answerCall()))).toContain(refusal('window'))
+  expect(said(await $.tool.call(pcall('prompt_escalate', { id: TID, why: 'x' })))).toContain(refusal('window'))
+  h.nowMs = T0 + 30_000
+  expect(said(await $.tool.call(answerCall()))).toContain('Recorded: allow')
+})
+
+test('head start: a lead is told of a request once it is 30 s old, not at 4 s or 28 s', async ($, on) => {
+  await tier($, on, [], { clock: true })
+  putQ({ at: T0 })
+  for (let i = 0; i < 14; i++) await h.clock!.advance(2000)
+  expect(promptNotices()).toBe(0)
+  await h.clock!.advance(2000)
+  await h.clock!.advance(2000)
+  expect(promptNotices()).toBe(1)
+})
+
+test('head start: a busy lead gets no mid-turn notice for a request younger than 30 s, and gets it once it is 30 s old', async ($, on) => {
+  postBeneath(on)
+  await tier($, on, [], { clock: true })
+  swapLead('busy')
+  putQ({ at: T0 })
+  await ticks(14)
+  expect(await midCtx($)).toEqual([])
+  await ticks(3)
+  expect(await midCtx($)).toEqual([prm.PROMPT_NOTICE_TEXT])
+})
+
+test('head start: a conductor with a lead and a manager live may not pass up before its own window, so the manager is not opened early', async ($, on) => {
+  await asConductor($, on, { lead: true, mgr: true })
+  putQ({ ...APIQ, at: T0 - 70_000 })
+  h.nowMs = T0
+  expect(said(await $.tool.call(pcall('prompt_escalate', { id: TID, why: 'x' })))).toContain(refusal('window'))
+  expect(pfs.has(`${LDIR(APISID)}/${TID}.escalate-conductor.json`)).toBe(false)
+  expect(ledgerRows().filter((x) => x.kind === 'escalated')).toEqual([])
 })
