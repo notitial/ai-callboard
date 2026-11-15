@@ -76,11 +76,13 @@ Facts that bound the options:
   (`made` or `joined`), the conductor's session id, the conductor's name at the time of writing (display only), the
   offer nonce for a made lead, the lead's session id and a parked time. Its lock and lock folder are its own, so a lead
   record and the lane store of the same repo never wait on each other.
-- **The hash** covers the name, repo, how, the conductor's session id and the nonce; not the lead's session id, the
-  parked time or the conductor's name, which change without changing ownership.
-- **The binding.** The lead keeps, in its own `$.store` under `owner:<sid>`, the record's key and hash and its
-  conductor's session id. It
-  takes an owner's cue only while its record still matches the binding and the record's session id is its own. A
+- **The hash** covers the repo, how, the conductor's session id and the nonce; not the lead's name, the lead's session
+  id, the parked time or the conductor's name, which change without changing ownership. The record's identity is the
+  lead's session id and the name follows a rename, as for an attached lane record (ADR 0002, the stuck-lanes hash), so
+  a rename never makes a bound lead refuse its owner.
+- **The binding.** The lead keeps, in its own `$.store` under `owner:<sid>`, the record's repo and hash and its
+  conductor's session id, and no name. Its record is the one in that repo's file whose session id is its own, under
+  whatever name. It takes an owner's cue only while that record still matches the binding. A
   restore of the same conversation keeps the binding. A session that later carries the lead's name inherits nothing.
 - **One writer of ownership.** Only the lead's own mod creates a record or changes its conductor, after its grant is
   set (a stop's caller only removes a record or sets its parked time): at the accept of a conductor's
@@ -90,10 +92,13 @@ Facts that bound the options:
 - **One name space.** A name is a lane record, a lead record or neither, machine-wide in any letter case. Every way a
   name is taken checks both: `lane_create`, `/callboard lane`, `lead_open`, `/callboard lead` (a record of that name
   bound to another session refuses `name-in-use`), the Join and a rename.
-- **The session id and a rename.** The bound lead writes its own session id into its record once per grant. A lead
-  whose registry name changes moves its record's name under the record lock and rewrites its binding, then its lanes
-  follow by the existing lane rename carry. A new name held by another record or lane refuses the move: the old name
-  stays and a toast tells the person. No conductor rename carry is needed, since ownership is by session id.
+- **The session id and a rename.** The lead's mod writes its own session id into the record in the same write that
+  creates it or changes its conductor, so a record always names its lead's session. A lead whose registry name changes
+  moves its record's name under the record lock, then its lanes follow by the existing lane rename carry. That move is
+  one write: the name is in neither the hash nor the binding, so the binding is not rewritten and a move that fails or
+  is cut short leaves the lead bound, under its old name, and the next look moves the name again. A new name held by
+  another record or lane refuses the move: the old name stays in the record, the lead stays bound, and a toast tells
+  the person. No conductor rename carry is needed, since ownership is by session id.
 - **Leaving.** `/callboard lead leave` and `/callboard off` in the lead remove its record and its binding. The lead
   stays a lead (after `leave`) with no conductor.
 - **Orphans.** A lead that ends without a stop (a crash, a closed window) leaves its record with a dead session id. It
@@ -241,7 +246,9 @@ and a record change with no `lead-owner` row.
 - **Accepted residual: same-uid forgery, wider than before.** A process running as the person can write a record and
   the binding, and so make any approved, live conductor a lead's owner, with its prompts and its stop powers. It could
   already send the signal itself (ADR 0002). New: the owner it picks can then park or retire that lead with no dialog,
-  and terminate it with the person's click.
+  and terminate it with the person's click. Because the lead's name is out of the hash, a record whose name such a
+  process changes still matches its binding (a changed conductor or session id does not); the name only says what the
+  owner and the manager call the lead, and the target checks still need it in exactly one place.
 - **Closed: inheritance by name.** A new session under an old lead's name, a `/rename`, or the named plain panel of a
   refused offer gets no owner: the binding is missing, and `/callboard lead` refuses a name bound to another session.
 - **Orphan records** hold a name and a slot until a stop removes them.
