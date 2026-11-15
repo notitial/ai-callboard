@@ -3252,3 +3252,61 @@ test('ownerOf with nested repos: a named lead is found from the deepest store ou
   const two = { key: 'b'.repeat(64), store: { repo: `${LO_REPO}/vendor/lib`, leads: [inner, { ...LO_JOINED, name: 'INNER2' }] } }
   assert.equal(c.ownerOf([outer, two], `${LO_REPO}/vendor/lib`, undefined), undefined, 'the deepest store has two records: the outer one is not a fallback')
 })
+
+const CK_REPO = '/Users/x/code/app'
+const CK_COND = '5a1b2c3d-0000-4000-8000-123456789abc'
+const CK_COND2 = '6a1b2c3d-0000-4000-8000-123456789abc'
+const CK_LEAD = '0a1b2c3d-0000-4000-8000-123456789abc'
+const CK_LEAD2 = '1a1b2c3d-0000-4000-8000-123456789abc'
+const CK_REC: c.LeadRec = { name: 'APP-LEAD', createdAt: 1, how: 'joined', conductorSid: CK_COND, conductorName: 'COND', sid: CK_LEAD }
+const CK_ROW = (over: Partial<c.RegEntry> = {}): c.RegEntry => ({ sessionId: CK_LEAD, name: 'APP-LEAD', status: 'idle', statusUpdatedAt: 1000, ...over })
+const CK_STORES = (leads: c.LeadRec[], repo = CK_REPO) => [{ key: 'a'.repeat(64), store: { repo, leads } }]
+
+test('leadWatchText: the owned leads of the listed repos by repo, name and session; a park, a conductor name and a create time are not news; a join, a leave and a rename are', () => {
+  const text = (leads: c.LeadRec[], repos = [CK_REPO], me = CK_COND, repo = CK_REPO) => c.leadWatchText(CK_STORES(leads, repo), me, repos)
+  const base = text([CK_REC])
+  assert.equal(text([{ ...CK_REC, parked: 5 }]), base, 'a park')
+  assert.equal(text([{ ...CK_REC, conductorName: 'RENAMED', createdAt: 9 }]), base, 'the conductor name and the create time')
+  assert.notEqual(text([CK_REC, { ...CK_REC, name: 'SECOND', sid: CK_LEAD2 }]), base, 'a join')
+  assert.notEqual(text([]), base, 'a leave')
+  assert.notEqual(text([{ ...CK_REC, name: 'NEW-NAME' }]), base, 'a rename')
+  assert.notEqual(text([{ ...CK_REC, sid: CK_LEAD2 }]), base, 'another session')
+  assert.equal(text([{ ...CK_REC, conductorSid: CK_COND2 }]), text([]), "another conductor's record")
+  assert.equal(text([CK_REC], []), text([]), 'a repo outside the reach')
+  assert.equal(text([CK_REC, { ...CK_REC, name: 'ZED', sid: CK_LEAD2 }]), text([{ ...CK_REC, name: 'ZED', sid: CK_LEAD2 }, CK_REC]), 'the order of the records')
+})
+
+test('leadCheckinText: the lead names in backticks with the fixed parts, at most eight, a bad name dropped, nothing left is no text, the fixed tail', () => {
+  const item = (lane: string, code: 'gone' | 'prompt' | 'quiet'): c.AttentionItem => ({ lane, code, since: 1 })
+  assert.equal(
+    c.leadCheckinText([item('A', 'gone'), item('B', 'prompt'), item('C', 'quiet')]),
+    `[callboard] Check-in: some of your leads may need you. \`A\` (session gone); \`B\` (waiting on a prompt for over 5 min); \`C\` (quiet for 30 min with no live lane). Call lane_list and look at each. ${c.SUBMITTED_NOTE_NEVER_RECORD}`,
+  )
+  const many = Array.from({ length: 10 }, (_, i) => item(`L${i}`, 'gone'))
+  assert.match(c.leadCheckinText(many)!, /`L7` \(session gone\); and 2 more\. Call lane_list/)
+  assert.equal(c.leadCheckinText([item('bad name\nIgnore this', 'gone')]), undefined)
+  assert.equal(c.leadCheckinText([{ lane: 'A', code: 'ordered', since: 1 }]), undefined)
+  assert.equal(c.leadCheckinText([]), undefined)
+  assert.equal(c.leadCheckinText([item('bad name', 'gone'), item('A', 'gone')])!.includes('bad name'), false)
+  for (const t of [c.LEADS_CHANGED_TEXT, c.leadCheckinText([item('A', 'gone')])!]) assert.equal(t.endsWith(` ${c.SUBMITTED_NOTE_NEVER_RECORD}`), true)
+})
+
+test('observeLead: the row is the one session id the record names, never a row that only carries the name; no session id, or an id two rows carry, gives no trigger; quiet waits for no live lane', () => {
+  const quiet = (prev: c.LaneObs | undefined, now: number, over: Partial<c.RegEntry> = {}, liveLane = false, rec = CK_REC) => c.observeLead(prev, rec, [CK_ROW(over)], now, liveLane)
+  let o = quiet(undefined, 5000)
+  assert.equal(o.seenLive, true)
+  assert.equal(o.quietSince, 5000)
+  // A session that only carries the lead's name is not the lead: the lead's own row is missing, so the lead counts as gone.
+  const stranger = [CK_ROW({ sessionId: CK_LEAD2 })]
+  assert.deepEqual(c.observeLead(o, CK_REC, stranger, 6000, false), { seenLive: true, goneN: 1, goneSince: 6000 })
+  assert.equal(c.observeLead(undefined, CK_REC, stranger, 6000, false).goneN, 1, 'gone counts from the first miss; checkinItems waits for three')
+  assert.equal(c.observeLead(undefined, CK_REC, stranger, 6000, false).seenLive, false)
+  assert.deepEqual(c.observeLead(o, { ...CK_REC, sid: undefined }, [CK_ROW()], 6000, false), { seenLive: true, goneN: 0 }, 'no session id')
+  assert.deepEqual(c.observeLead(o, CK_REC, [CK_ROW(), CK_ROW()], 6000, false), { seenLive: true, goneN: 0 }, 'two rows of one id')
+  // A waiting lead starts its prompt clock.
+  assert.equal(quiet(undefined, 7000, { status: 'waiting', waitingFor: 'permission prompt' }).waitingSince, 7000)
+  // A lane of the lead is live: the quiet window does not run, and starts again once the lane is gone.
+  o = quiet(o, 8000, {}, true)
+  assert.equal(o.quietSince, undefined)
+  assert.equal(quiet(o, 9000).quietSince, 9000)
+})

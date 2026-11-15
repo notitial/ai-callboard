@@ -290,7 +290,7 @@ test('/callboard conductor asks once with every repo and the restart sentence; C
   expect(h.store.get(CONDKEY)).toEqual({ home: COND, repos: [PIN, APP2, FAR], savedAt: T0 })
   expect(noteRows().length).toBe(1)
   expect(noteRows()[0].text).toBe(conductorBriefingNote('', COND, [PIN, APP2, FAR]))
-  expect(await statusText($)).toBe(statusTable(['Lane', 'NONE'], ['Conductor', 'ON (3 repos)']))
+  expect(await statusText($)).toBe(statusTable(['Lane', 'NONE'], ['Conductor', 'ON (3 repos)'], ['Check-ins', 'ON']))
   expect(logged(stdins)).toContain('conductor-on:prompt')
   // Again with nothing new: no dialog, the reach.
   expect((await condRun($, '')).text).toBe(['**Conductor** · on', '', '| Repo | State |', '|---|---|', '| ../app | in reach |', '| ../app2 | in reach |', '| ~/data/x/work/elsewhere/far-repo (not next to cond) | in reach |', '| ../gone | out of reach: not found |'].join('\n'))
@@ -327,7 +327,7 @@ test('starting a session in the conductor repo, with a list file and no saved gr
 test('a saved grant is restored with no question in a person\'s session; a --bg worker (row kind background) is not and keeps the key; a missing row is retried', async ($, on) => {
   const stdins: string[] = []
   await condRestarter($, on, stdins)
-  expect(await statusText($)).toBe(statusTable(['Lane', 'NONE'], ['Conductor', 'ON (2 repos)']))
+  expect(await statusText($)).toBe(statusTable(['Lane', 'NONE'], ['Conductor', 'ON (2 repos)'], ['Check-ins', 'ON']))
   expect(h.askCount).toBe(0)
   expect(h.appendRows.length).toBe(0)
   expect(condLogs(stdins)).toContain('conductor-restored:')
@@ -351,7 +351,7 @@ test('a person\'s row that arrives late is retried, and the restore lands althou
   for (let i = 0; i < 3 && !condLogs(stdins).includes('conductor-restored:'); i++) await h.clock!.advance(2000)
   expect(condLogs(stdins)).toContain('conductor-restored:')
   expect(condLogs(stdins).some((x) => x.startsWith('conductor-restore-rejected'))).toBe(false)
-  expect(await statusText($)).toBe(statusTable(['Lane', 'NONE'], ['Conductor', 'ON (2 repos)']))
+  expect(await statusText($)).toBe(statusTable(['Lane', 'NONE'], ['Conductor', 'ON (2 repos)'], ['Check-ins', 'ON']))
 })
 
 test('a restore whose file names a repo outside the approved list asks first, naming every repo and the new one; Conductor restores with all of them and saves them', async ($, on) => {
@@ -366,7 +366,7 @@ test('a restore whose file names a repo outside the approved list asks first, na
   // The new repos first, a fixed closing sentence.
   expect(h.lastQuestion).toBe("cond's conductor list changed since you approved it. New: ../app2. Restore this session as a conductor for these repos? ../app, ../app2. Cancel removes the saved conductor grant.")
   expect(h.lastHeader).toBe('Conductor')
-  expect(await statusText($)).toBe(statusTable(['Lane', 'NONE'], ['Conductor', 'ON (2 repos)']))
+  expect(await statusText($)).toBe(statusTable(['Lane', 'NONE'], ['Conductor', 'ON (2 repos)'], ['Check-ins', 'ON']))
   expect(h.store.get(CONDKEY)).toMatchObject({ home: COND, repos: [PIN, APP2] })
   expect(noteRows().length).toBe(1)
   expect(h.askCount).toBe(1)
@@ -392,7 +392,7 @@ test('a grant made while a restore question waits ends that restore; a later Can
   expect(h.askCount).toBe(asked)
   expect(condLogs(stdins).some((x) => x.startsWith('conductor-restore-cancelled'))).toBe(false)
   expect(h.store.get(CONDKEY)).toMatchObject({ home: COND, repos: [PIN, APP2] })
-  expect(await statusText($)).toBe(statusTable(['Lane', 'NONE'], ['Conductor', 'ON (2 repos)']))
+  expect(await statusText($)).toBe(statusTable(['Lane', 'NONE'], ['Conductor', 'ON (2 repos)'], ['Check-ins', 'ON']))
 })
 
 longTest('a restore dialog nobody answers restores nothing and keeps the key; its 90 s use up no retry ticks', async ($, on) => {
@@ -413,7 +413,7 @@ longTest('a restore dialog nobody answers restores nothing and keeps the key; it
 test('a restore where the file dropped a repo restores without it and asks nothing; with no approved repo left nothing is restored and the key is kept', async ($, on) => {
   const stdins: string[] = []
   await condRestarter($, on, stdins, { repos: [PIN, APP2], file: ['../app'] })
-  expect(await statusText($)).toBe(statusTable(['Lane', 'NONE'], ['Conductor', 'ON (1 repo)']))
+  expect(await statusText($)).toBe(statusTable(['Lane', 'NONE'], ['Conductor', 'ON (1 repo)'], ['Check-ins', 'ON']))
   expect(h.askCount).toBe(0)
   expect(h.store.get(CONDKEY)).toMatchObject({ repos: [PIN] })
   expect(condLogs(stdins)).toContain('conductor-ratchet:1')
@@ -433,7 +433,7 @@ test('in a running conductor an entry written into the file by hand is not reach
   await condOn($, on, stdins, { repos: ['../app'] })
   putCond(['../app', '../app2'])
   await $.tool.call(listCall())
-  expect(await statusText($)).toBe(statusTable(['Lane', 'NONE'], ['Conductor', 'ON (1 repo)']))
+  expect(await statusText($)).toBe(statusTable(['Lane', 'NONE'], ['Conductor', 'ON (1 repo)'], ['Check-ins', 'ON']))
   // Another origin never widens: no dialog, the reach and what is out.
   expect((await condRun($, '', { kind: 'plugin', name: 'x' })).text).toBe(['**Conductor** · on', '', '| Repo | State |', '|---|---|', '| ../app | in reach |', '| ../app2 | out of reach: not approved in this session |'].join('\n'))
   expect(h.askCount).toBe(1)
@@ -442,7 +442,7 @@ test('in a running conductor an entry written into the file by hand is not reach
   // The repo not yet approved is named first.
   expect(h.lastQuestion).toBe(conductorQuestion(COND, [PIN, APP2], CHOME, [APP2]))
   expect(h.lastQuestion.startsWith('New since you approved: ../app2. Make this session a conductor')).toBe(true)
-  expect(await statusText($)).toBe(statusTable(['Lane', 'NONE'], ['Conductor', 'ON (2 repos)']))
+  expect(await statusText($)).toBe(statusTable(['Lane', 'NONE'], ['Conductor', 'ON (2 repos)'], ['Check-ins', 'ON']))
   expect(h.store.get(CONDKEY)).toMatchObject({ repos: [PIN, APP2] })
 })
 
@@ -588,7 +588,7 @@ test('a listed repo that is no longer a git root is left out at the grant and th
 test('a restore leaves out a repo that is no longer a git root', async ($, on) => {
   const stdins: string[] = []
   await condRestarter($, on, stdins, { seed: () => extraStat.delete(`${APP2}/.git`) })
-  expect(await statusText($)).toBe(statusTable(['Lane', 'NONE'], ['Conductor', 'ON (1 repo)']))
+  expect(await statusText($)).toBe(statusTable(['Lane', 'NONE'], ['Conductor', 'ON (1 repo)'], ['Check-ins', 'ON']))
   expect(h.store.get(CONDKEY)).toMatchObject({ repos: [PIN] })
 })
 
@@ -633,7 +633,7 @@ test('a remove elsewhere narrows the next lane_list at once; a repo re-added the
   expect(h.store.get(CONDKEY)).toMatchObject({ repos: [APP2] })
   putCond(['../app', '../app2'])
   expect((await $.tool.call(listCall())).result).toBe(NO_LANES_COND)
-  expect(await statusText($)).toBe(statusTable(['Lane', 'NONE'], ['Conductor', 'ON (1 repo)']))
+  expect(await statusText($)).toBe(statusTable(['Lane', 'NONE'], ['Conductor', 'ON (1 repo)'], ['Check-ins', 'ON']))
   expect(h.store.get(CONDKEY)).toMatchObject({ repos: [APP2] })
   expect(condLogs(stdins)).toContain('conductor-ratchet:1')
 })
@@ -743,7 +743,7 @@ test('a session that was a conductor is not offered the Restore question for a l
   expect(logged(stdins).filter((x) => x.startsWith('hint-'))).toEqual([])
 })
 
-test('a conductor gets no check-ins and no lanes-changed notice', async ($, on) => {
+test('a conductor with no owned lead gets no check-ins and no lanes-changed notice (an owned lead: lead-checkins.test.ts)', async ($, on) => {
   await condOn($, on, [], { clock: true, sess: condSelf() })
   // Every other condition of a check-in holds (as ckLead): a lane in reach whose session is gone, its report not signed, an idle session with no background work.
   h.reportAt = `${PIN}/.archive/API/REPORT.md`
@@ -795,7 +795,7 @@ test('the off question asked from another origin in a conductor session names th
   h.askAnswer = NO
   await $.command.run(lane('off', { kind: 'plugin', name: 'x' }))
   expect(h.lastQuestion).toBe(`Asked from another plugin. ${CONDUCTOR_OFF_QUESTION}`)
-  expect(await statusText($)).toBe(statusTable(['Lane', 'NONE'], ['Conductor', 'ON (2 repos)']))
+  expect(await statusText($)).toBe(statusTable(['Lane', 'NONE'], ['Conductor', 'ON (2 repos)'], ['Check-ins', 'ON']))
 })
 
 // ---- the Conductor box in the manager's list ----

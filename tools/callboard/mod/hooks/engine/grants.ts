@@ -15,6 +15,7 @@ import {
   watch,
   cappedLogged,
   laneObs,
+  leadObs,
   attnTold,
   attnCapped,
   obsAt,
@@ -99,6 +100,7 @@ import type { RegRow, Reg } from './store.ts'
 import { sessionRoot, leadToolsOnce, promptToolsRegister, leadCore, readReport } from './lanes.ts'
 import type { Bound } from './lanes.ts'
 import { interactive, busyAgents, personRow, backgroundShells } from './compaction.ts'
+import { loadLeadRecords, boundTo } from './lead-records.ts'
 import { managerCommand } from './commands.ts'
 import { epochOf, heldNo, levelBrief, levelSave } from './levels.ts'
 import { usageDrop, usageSweep } from './usage.ts'
@@ -318,6 +320,7 @@ export function leadDrop($: any, sid: string): Promise<boolean> {
   cappedLogged.delete(sid)
   // The check-in memory goes with the grant; laneNotices (the hourly cap) stays.
   laneObs.delete(sid)
+  leadObs.delete(sid)
   attnTold.delete(sid)
   attnCapped.delete(sid)
   obsAt.delete(sid)
@@ -729,7 +732,8 @@ export async function presencePrune($: any) {
 export async function watchPoll($: any, sid: string) {
   const w = watch.get(sid)
   const p = await where($)
-  if (!w || !p) return
+  // A conductor's watch is over computed text, looked at by leadWatchLook (conductorTick, watchLook), not polled here every tick.
+  if (!w || w.kind !== 'lanes' || w.path === undefined || !p) return
   const f = await facts($, w.path)
   const sig = f ? `${f.ino}:${f.size}:${f.mtimeMs}` : 'none'
   // The lead's name is set after the grant (nameGrant) and moves on a rename: a change of it alone is not news, so a settled watch is moved with it.
@@ -755,10 +759,37 @@ export async function watchInit($: any, sid: string) {
   const pin = pinOf(sid)
   const p = await where($)
   if (pin === undefined || !p) return
-  const w: Watch = { path: await storePath($, await sha($, pin)), cur: '', told: '', seen: '' }
+  const w: Watch = { kind: 'lanes', path: await storePath($, await sha($, pin)), cur: '', told: '', seen: '' }
   watch.set(sid, w)
   await watchPoll($, sid)
   w.told = w.seen = w.cur
+}
+// A conductor's look at the leads it owns: the hash of c.leadWatchText over the records of its reach. The first look is the baseline (no notice for what was already
+// there). A look that could not be made (the records folder unreadable, no reach left) keeps the last good hash and is logged once: a passing read error is not news.
+export async function leadWatchLook($: any, sid: string) {
+  const g = grants.get(sid)
+  if (g?.level !== 'conductor') return
+  const ep = epochOf(sid)
+  const stores = g.pins.length > 0 ? await loadLeadRecords($) : 'no-reach'
+  if (typeof stores === 'string') return logq($, sid, 'error', `lead-watch-${stores}`)
+  // The leads it owns as the check-in counts them: bound to their record, and with a session.
+  const owned: typeof stores = []
+  for (const s of stores) {
+    if (!g.pins.includes(s.store.repo)) continue
+    const leads: c.LeadRec[] = []
+    for (const rec of s.store.leads) if (rec.conductorSid === sid && rec.sid !== undefined && (await boundTo($, { key: s.key, repo: s.store.repo, rec }))) leads.push(rec)
+    owned.push({ key: s.key, store: { repo: s.store.repo, leads } })
+  }
+  const cur = await sha($, c.leadWatchText(owned, sid, g.pins))
+  if (epochOf(sid) !== ep || grants.get(sid)?.level !== 'conductor') return
+  const w = watch.get(sid)
+  if (!w) return void watch.set(sid, { kind: 'leads', cur, told: cur, seen: cur })
+  w.cur = cur
+}
+// A lead's own call and write look at what moves for it: the store file for a lead, the owned leads for a conductor.
+export async function watchLook($: any, sid: string) {
+  if (grants.get(sid)?.level === 'conductor') await leadWatchLook($, sid)
+  else await watchPoll($, sid)
 }
 // The lead's own write is not news to it, unless something else changed before it.
 async function watchOwn($: any, sid: string) {
@@ -766,7 +797,7 @@ async function watchOwn($: any, sid: string) {
   if (!w) return
   // Taken before the poll: a name fill in it rebases told and seen, and the rebased values no longer equal what was there before this write.
   const { cur: was, told, seen } = w
-  await watchPoll($, sid)
+  await watchLook($, sid)
   if (was === told) w.told = w.cur
   if (was === seen) w.seen = w.cur
 }
@@ -796,7 +827,7 @@ export async function watchTick($: any, sid: string) {
   if (!c.noticeAllowed(times, now, c.LANES_NOTICES_PER_HOUR)) {
     if (cappedLogged.has(sid)) return
     cappedLogged.add(sid)
-    return log($, sid, 'notice-capped', 'lanes-changed')
+    return log($, sid, 'notice-capped', w.kind === 'leads' ? 'leads-changed' : 'lanes-changed')
   }
   if ((await idleCheck($, sid)) !== undefined) return
   if (mem.submits !== submitsAt) return
@@ -807,7 +838,7 @@ export async function watchTick($: any, sid: string) {
   cappedLogged.delete(sid)
   laneNotices.set(sid, c.pushRecent(times, now))
   // A notice that did not go out is still owed: told and seen go back (unless something moved them meanwhile).
-  await submitOwn($, c.LANES_CHANGED_TEXT, false).catch(async () => {
+  await submitOwn($, w.kind === 'leads' ? c.LEADS_CHANGED_TEXT : c.LANES_CHANGED_TEXT, false).catch(async () => {
     turnKind.delete(sid)
     if (w.told === w.cur) w.told = before
     if (w.seen === w.cur) w.seen = seenBefore
@@ -954,8 +985,8 @@ const LEADLESS_KEEP_MS = c.CHECKIN_EVERY_MS + 10_000
 
 // A lead's observation is due once a minute; the stamp is taken here, so a step that fails or times out waits for the next minute.
 export async function checkinDue($: any, sid: string): Promise<boolean> {
-  // The manager too, over the lanes no live lead reaches; never a conductor.
-  if (!grants.has(sid) || grants.get(sid)?.level === 'conductor') return false
+  // The manager too, over the lanes no live lead reaches; a conductor over the leads it owns (conductorCheckin).
+  if (!grants.has(sid)) return false
   const now = await $.clock.now()
   const last = obsAt.get(sid)
   if (!c.dueEvery(last, now, c.CHECKIN_EVERY_MS)) return false
@@ -967,7 +998,25 @@ export async function checkinDue($: any, sid: string): Promise<boolean> {
   }
   return true
 }
+// The told set keeps only conditions that still hold: one that cleared and comes back has a new since. Returns the items not told yet.
+function owedItems(sid: string, items: c.AttentionItem[]): { told: Set<string>; owed: c.AttentionItem[] } {
+  const told = attnTold.get(sid) ?? new Set<string>()
+  attnTold.set(sid, told)
+  const keys = new Set(items.map(c.checkinKey))
+  for (const k of told) if (!keys.has(k)) told.delete(k)
+  return { told, owed: items.filter((i) => !told.has(c.checkinKey(i))) }
+}
+// The timing gates of a check-in: on in the config, not paused, no wake in the last 30 minutes, and the session idle for 20.
+async function checkinGates($: any, sid: string, now: number): Promise<boolean> {
+  if (!(await cfgGet($, sid)).checkin) return false
+  const pause = (await getCheckinPause($)).value
+  if (typeof pause === 'number' && pause > now) return false
+  if (mem.wokeAt !== undefined && now - mem.wokeAt < c.CHECKIN_WAKE_MS) return false
+  const turnEnd = (await getTurnEnd($)).value
+  return typeof turnEnd === 'number' && now - Math.max(turnEnd, lastSubmitAt.get(sid) ?? 0) >= c.CHECKIN_IDLE_MS
+}
 export async function checkinTick($: any, sid: string, submitsAtStart: number) {
+  if (grants.get(sid)?.level === 'conductor') return conductorCheckin($, sid, submitsAtStart)
   const now = await $.clock.now()
   const ep = epochOf(sid)
   const base = await leadCore($, sid)
@@ -1009,20 +1058,9 @@ export async function checkinTick($: any, sid: string, submitsAtStart: number) {
   // The repo reads above wait: an off or a re-grant meanwhile has cleared this grant's memory, and the observations are not written back over it.
   if (epochOf(sid) !== ep) return
   laneObs.set(sid, obs)
-  const items = c.checkinItems(obs, now)
-  // The told set keeps only conditions that still hold: one that cleared and comes back has a new since.
-  const told = attnTold.get(sid) ?? new Set<string>()
-  attnTold.set(sid, told)
-  const keys = new Set(items.map(c.checkinKey))
-  for (const k of told) if (!keys.has(k)) told.delete(k)
-  const owed = items.filter((i) => !told.has(c.checkinKey(i)))
+  const { told, owed } = owedItems(sid, c.checkinItems(obs, now))
   if (owed.length === 0) return
-  if (!(await cfgGet($, sid)).checkin) return
-  const pause = (await getCheckinPause($)).value
-  if (typeof pause === 'number' && pause > now) return
-  if (mem.wokeAt !== undefined && now - mem.wokeAt < c.CHECKIN_WAKE_MS) return
-  const turnEnd = (await getTurnEnd($)).value
-  if (typeof turnEnd !== 'number' || now - Math.max(turnEnd, lastSubmitAt.get(sid) ?? 0) < c.CHECKIN_IDLE_MS) return
+  if (!(await checkinGates($, sid, now))) return
   // The manager is told only of lanes no live lead reaches, by leadHere's rule (a lane naming its lead: a live
   // lead of its repo with that registry name; a legacy lane: any live lead of its repo). The leads of a repo are read at most once per evaluation. A lane a lead
   // reaches is left untold, so it is told once its lead is gone. The filter runs right after the timing gates, before the notice's own gate
@@ -1058,6 +1096,38 @@ export async function checkinTick($: any, sid: string, submitsAtStart: number) {
     return send
   }
   await attentionNotice($, sid, mine, submitsAtStart, ep, signed)
+}
+
+// A conductor's check-in, over the leads it owns: a record of a repo in its reach that names it, whose lead is bound to it, that has a session and is not parked.
+// Gone, a prompt waiting and quiet are the lane check-in's observations of the lead's own session; quiet only counts once no lane of the lead is live (c.observeLead).
+// The conductor hears nothing of lanes here: a lane whose lead is gone is told to the manager.
+async function conductorCheckin($: any, sid: string, submitsAtStart: number) {
+  const now = await $.clock.now()
+  const ep = epochOf(sid)
+  const base = await leadCore($, sid)
+  if ('err' in base || base.g.level !== 'conductor' || epochOf(sid) !== ep) return
+  const stores = await loadLeadRecords($)
+  // A read that failed is no observation at all, never "all gone".
+  if (typeof stores === 'string') return
+  const entries = base.live.map(regEntry)
+  const prev = leadObs.get(sid) ?? new Map<string, c.LaneObs>()
+  const obs = new Map<string, c.LaneObs>()
+  for (const s of stores) {
+    if (!base.g.pins.includes(s.store.repo)) continue
+    for (const rec of s.store.leads) {
+      if (rec.conductorSid !== sid || rec.sid === undefined || rec.parked !== undefined) continue
+      if (!(await boundTo($, { key: s.key, repo: s.store.repo, rec }))) continue
+      const liveLane = base.lanes.some((l) => l.repo === s.store.repo && c.laneLead(l, { name: rec.name, sid: rec.sid ?? '' }) === 'me' && c.laneSession(entries, l, sid).ok)
+      obs.set(rec.name, c.observeLead(prev.get(rec.name), rec, entries, now, liveLane))
+    }
+  }
+  // The reads above wait: an off or a re-grant meanwhile has cleared this grant's memory, and the observations are not written back over it.
+  if (epochOf(sid) !== ep) return
+  leadObs.set(sid, obs)
+  const { owed } = owedItems(sid, c.checkinItems(obs, now))
+  if (owed.length === 0) return
+  if (!(await checkinGates($, sid, now))) return
+  await attentionNotice($, sid, owed, submitsAtStart, ep, undefined, { render: c.leadCheckinText, label: 'lead-checkin' })
 }
 
 // ---- the deadline of an order ----
@@ -1763,6 +1833,8 @@ export async function conductorTick($: any, sid: string) {
   if (c.dueEvery(last, now, CONDUCTOR_REFRESH_MS)) {
     conductorReadAt.set(sid, now)
     await conductorReach($, sid)
+    // Not during the conductor's own write (lead_open): its end looks once and moves told with cur (watchOwn).
+    if (!ownWriting.has(sid)) await leadWatchLook($, sid).catch(logFail($, sid, 'lead-watch'))
   }
 }
 

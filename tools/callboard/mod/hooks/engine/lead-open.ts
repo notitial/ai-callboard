@@ -6,7 +6,7 @@ import { conductorHome, condOffers } from '../mem.ts'
 import { sha, where, statR, real, logq, rmF, pause } from './base.ts'
 import { writeBrief, resultDirOk, sendCue } from './store.ts'
 import type { RegRow } from './store.ts'
-import { leadsFor, cfgReadStrict, reservedGet } from './grants.ts'
+import { leadsFor, cfgReadStrict, reservedGet, ownWrite } from './grants.ts'
 import { leadTool, leadBase, openExchange } from './lanes.ts'
 import { ledgerAdd, ledgerRowsFor, promptNewId } from './answer-hook.ts'
 import { promptLinkOnce } from './answer-tiers.ts'
@@ -33,7 +33,8 @@ export async function leadOpenCall($: any, e: any, next: any) {
     opening.add(sid)
     if (nm !== '') openingNames.add(nm)
     try {
-      return await openLead($, e, sid, base, no)
+      // The record the accept writes names this conductor: its own act, so the leads-changed watch moves with it (ownWrite holds the tick's look back meanwhile).
+      return await ownWrite($, sid, () => openLead($, e, sid, base, no))
     } finally {
       opening.delete(sid)
       if (nm !== '') openingNames.delete(nm)

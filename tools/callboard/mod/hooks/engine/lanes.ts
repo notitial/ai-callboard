@@ -80,7 +80,7 @@ import type { Reg, RegRow, Answer, Edit } from './store.ts'
 import {
   leadsFor,
   presenceTouch,
-  watchPoll,
+  watchLook,
   regEntry,
   presenceHeld,
   ownWrite,
@@ -147,7 +147,7 @@ export async function briefLane($: any, sid: string) {
 export async function leadRun($: any, e: unknown, body: () => Promise<any>) {
   const sid = await $.session.id()
   await presenceTouch($, sid).catch(() => undefined)
-  await watchPoll($, sid).catch(() => undefined)
+  await watchLook($, sid).catch(() => undefined)
   const w = watch.get(sid)
   // Only a call that is served to the main agent of a lead that is on tells it anything: a refused one (a subagent, tools off) leaves the news for later.
   const served = grants.has(sid) && (e as { agentId?: string }).agentId === undefined
@@ -159,7 +159,8 @@ export async function leadRun($: any, e: unknown, body: () => Promise<any>) {
   if (served && typeof out?.result === 'string' && OBS_CLEAR_TOOLS.includes(String((e as { tool?: unknown }).tool))) laneObs.get(sid)?.delete(String((e as { lane?: unknown }).lane))
   if (!moved || !out) return out
   // A lane_list text ends in a table, so the note goes after a blank line, never on a table row.
-  return typeof out.result === 'string' ? { ...out, result: `${out.result}${out.result.includes('\n| ') ? '\n\n' : ' '}${c.LANES_CHANGED_NOTE}` } : typeof out.deny === 'string' ? { ...out, deny: `${out.deny} ${c.LANES_CHANGED_NOTE}` } : out
+  const note = w?.kind === 'leads' ? c.LEADS_CHANGED_NOTE : c.LANES_CHANGED_NOTE
+  return typeof out.result === 'string' ? { ...out, result: `${out.result}${out.result.includes('\n| ') ? '\n\n' : ' '}${note}` } : typeof out.deny === 'string' ? { ...out, deny: `${out.deny} ${note}` } : out
 }
 
 // The start of every lane tool but the prompt ones: leadRun, the timer, and `no`, which logs a refusal and answers it as that tool (lane_<verb> refused: <why>).

@@ -214,7 +214,7 @@ test('/callboard checkin outside a lead is refused and stores nothing', async ($
   const trace = newTrace()
   await started($, on, [], { trace })
   const writes = trace.log.length
-  for (const a of ['checkin pause 1h', 'checkin on']) expect((await $.command.run(lane(a))).text).toBe('Check-ins are for a lead or manager, and this session is neither. Nothing changed.')
+  for (const a of ['checkin pause 1h', 'checkin on']) expect((await $.command.run(lane(a))).text).toBe('Check-ins are for a lead, conductor or manager, and this session is none of them. Nothing changed.')
   expect(trace.log.slice(writes)).toEqual([])
 })
 
