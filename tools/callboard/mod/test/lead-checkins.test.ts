@@ -1,12 +1,12 @@
 import { expect, test } from 'claude-code/testing'
 import { LEADS_CHANGED_NOTE, LEADS_CHANGED_TEXT, SUBMITTED_NOTE_NEVER_RECORD } from '../hooks/core'
 import { LEADRECDIR, PS_TABLE, SID, T0, extraStat, h, longTest, submitted } from './harness'
-import { APISID, CSESS, LEADSID, MIN, OTHERLEAD, TURN, bindOwner, ckLane, condOn, idleFor, lane, leadReg, listed, ownedBy, putLeadRecs, putStore, ticks } from './fixtures'
+import { APISID, CSESS, LEADSID, MIN, OTHERLEAD, PIN, TURN, bindOwner, ckLane, condOn, idleFor, lane, leadReg, listed, ownedBy, putLeadRecs, putStore, ticks, leadRecsJson } from './fixtures'
 
 // An owning conductor's check-ins on its leads and the leads-changed notice (the lead's own: checkins.test.ts, lead.test.ts).
 const THEIRS = '7a1b2c3d-0000-4000-8000-123456789abc'
 const leadCk = (parts: string) => `[callboard] Check-in: some of your leads may need you. ${parts}. Call lane_list and look at each. ${SUBMITTED_NOTE_NEVER_RECORD}`
-const LEAD_QUIET = '`LEAD` (quiet for 30 min with no live lane)'
+const LEAD_QUIET = '`LEAD` (quiet for 30 min with no live lane, report not signed done)'
 const leadCheckins = () => submitted.filter((t) => t.startsWith('[callboard] Check-in: some of your leads'))
 const anyCheckins = () => submitted.filter((t) => t.startsWith('[callboard] Check-in:'))
 const leadsChanged = () => submitted.filter((t) => t === LEADS_CHANGED_TEXT).length
@@ -23,6 +23,7 @@ async function ckOwn($: any, on: any, o: { owned?: boolean; lead?: Record<string
   const lead = 'lead' in o ? o.lead : {}
   await condOn($, on, [], {
     clock: true,
+    owns: [],
     sess: sessions(lead),
     seed: () => {
       if (o.lanes) putStore(o.lanes)
@@ -70,7 +71,7 @@ longTest('lead check-in: an owned lead whose session is gone is told', async ($,
   await idleFor(4 * MIN)
   h.sessions = sessions(null)
   await idleFor(24 * MIN)
-  expect(leadCheckins()).toEqual([leadCk('`LEAD` (session gone)')])
+  expect(leadCheckins()).toEqual([leadCk('`LEAD` (session gone, report not signed done)')])
 })
 
 longTest('lead check-in: a parked lead and a record with no session are never gone', async ($, on) => {
@@ -184,4 +185,26 @@ longTest('leads-changed: a record that names the conductor but has no binding, o
   bindOwner(LEADSID, SID, 'LEAD')
   await ticks(7)
   expect(leadsChanged()).toBe(1)
+})
+
+longTest('lead check-in: a lead whose report is signed done is not told quiet or gone (one with no report is: above)', async ($, on) => {
+  await ckOwn($, on)
+  h.reportAt = `${PIN}/.archive/LEAD/REPORT.md`
+  h.reportFile = { text: `# report\nstatus: done ${LEADSID}\n`, mtimeSec: T0 / 1000 }
+  await idleFor(36 * MIN)
+  expect(leadCheckins()).toEqual([])
+  h.sessions = sessions(null)
+  await idleFor(24 * MIN)
+  expect(leadCheckins()).toEqual([])
+})
+
+longTest("leads-changed: the conductor's own lead_retire of a record no session carries is not news to it", async ($, on) => {
+  await ckOwn($, on, { lead: null })
+  h.store.set(`lead:${LEADSID}`, { pin: PIN, savedAt: T0 })
+  await ticks(7)
+  const r = (await $.tool.call({ tool: 'mcp__callboard__lead_retire', lead: 'LEAD' })) as { result?: string; deny?: string }
+  expect(r.result).toContain('LEAD')
+  expect(leadRecsJson().leads).toEqual([])
+  await ticks(14)
+  expect(leadsChanged()).toBe(0)
 })

@@ -1129,6 +1129,7 @@ async function conductorCheckin($: any, sid: string, submitsAtStart: number) {
   const entries = base.live.map(regEntry)
   const prev = leadObs.get(sid) ?? new Map<string, c.LaneObs>()
   const obs = new Map<string, c.LaneObs>()
+  const repos = new Map<string, { repo: string; sid: string }>()
   for (const s of stores) {
     if (!base.g.pins.includes(s.store.repo)) continue
     for (const rec of s.store.leads) {
@@ -1136,6 +1137,7 @@ async function conductorCheckin($: any, sid: string, submitsAtStart: number) {
       if (!(await boundTo($, { key: s.key, repo: s.store.repo, rec }))) continue
       const liveLane = base.lanes.some((l) => l.repo === s.store.repo && c.laneLead(l, { name: rec.name, sid: rec.sid ?? '' }) === 'me' && c.laneSession(entries, l, sid).ok)
       obs.set(rec.name, c.observeLead(prev.get(rec.name), rec, entries, now, liveLane))
+      repos.set(rec.name, { repo: s.store.repo, sid: rec.sid })
     }
   }
   // The reads above wait: an off or a re-grant meanwhile has cleared this grant's memory, and the observations are not written back over it.
@@ -1144,7 +1146,25 @@ async function conductorCheckin($: any, sid: string, submitsAtStart: number) {
   const { owed } = owedItems(sid, c.checkinItems(obs, now))
   if (owed.length === 0) return
   if (!(await checkinGates($, sid, now))) return
-  await attentionNotice($, sid, owed, submitsAtStart, ep, undefined, { render: c.leadCheckinText, label: 'lead-checkin' })
+  // Signed done drops gone and quiet, as for a lane: the lead's report (.archive/<NAME>/REPORT.md of its repo) ends in `status: done <sid>`. Read only once the notice's
+  // own gates hold; quiet by the live session's id, gone by the record's.
+  const told = attnTold.get(sid)
+  const signed = async (items: c.AttentionItem[]) => {
+    const send: c.AttentionItem[] = []
+    for (const i of items) {
+      const at = repos.get(i.lane)
+      if (i.code !== 'prompt' && at) {
+        const r = await readReport($, { name: i.lane, repo: at.repo, folder: at.repo, brief: '' }).catch(() => ({ no: 'report-read' }))
+        if (!('no' in r) && c.reportSigned(r.text, i.code === 'quiet' ? (obs.get(i.lane)?.sid ?? '') : at.sid)) {
+          told?.add(c.checkinKey(i))
+          continue
+        }
+      }
+      send.push(i)
+    }
+    return send
+  }
+  await attentionNotice($, sid, owed, submitsAtStart, ep, signed, { render: c.leadCheckinText, label: 'lead-checkin' })
 }
 
 // ---- the deadline of an order ----

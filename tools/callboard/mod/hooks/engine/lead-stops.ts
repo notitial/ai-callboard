@@ -10,7 +10,7 @@
 import * as c from '../core.ts'
 import { run, KILL, pause, psOne, psStart, psArgs, toast, askOnce, timedOut, log, logq, sha, where } from './base.ts'
 import { cueExchange, loadLanes, registryEntries, writeIn } from './store.ts'
-import { leadReason, grantOf, homeOf } from './grants.ts'
+import { leadReason, grantOf, homeOf, ownWrite } from './grants.ts'
 import { leadTool, readReport, openExchange } from './lanes.ts'
 import { editLeadRecs, loadLeadRecords, boundTo, bindingOf } from './lead-records.ts'
 import { leadTarget, targetCheck, managerAsk } from './lead-tools.ts'
@@ -494,10 +494,8 @@ async function terminateCall($: any, x: Ctx) {
 export async function leadStopCall($: any, e: any, next: any, tool: Tool) {
   return leadTool($, e, tool, async (sid, no) => {
     const x: Ctx = { sid, e, tool, no, abandoned: () => next?.signal?.aborted === true }
-    if (tool === 'lead_park') return parkCall($, x)
-    if (tool === 'lead_unpark') return unparkCall($, x)
-    if (tool === 'lead_retire') return retireCall($, x)
-    return terminateCall($, x)
+    // The record this removes or marks is the caller's own act: the leads-changed watch moves with it (ownWrite holds the tick's look back meanwhile).
+    return ownWrite($, sid, () => (tool === 'lead_park' ? parkCall($, x) : tool === 'lead_unpark' ? unparkCall($, x) : tool === 'lead_retire' ? retireCall($, x) : terminateCall($, x)))
   })
 }
 

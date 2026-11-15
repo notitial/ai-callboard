@@ -3575,10 +3575,10 @@ test('leadCheckinText: the lead names in backticks with the fixed parts, at most
   const item = (lane: string, code: 'gone' | 'prompt' | 'quiet'): c.AttentionItem => ({ lane, code, since: 1 })
   assert.equal(
     c.leadCheckinText([item('A', 'gone'), item('B', 'prompt'), item('C', 'quiet')]),
-    `[callboard] Check-in: some of your leads may need you. \`A\` (session gone); \`B\` (waiting on a prompt for over 5 min); \`C\` (quiet for 30 min with no live lane). Call lane_list and look at each. ${c.SUBMITTED_NOTE_NEVER_RECORD}`,
+    `[callboard] Check-in: some of your leads may need you. \`A\` (session gone, report not signed done); \`B\` (waiting on a prompt for over 5 min); \`C\` (quiet for 30 min with no live lane, report not signed done). Call lane_list and look at each. ${c.SUBMITTED_NOTE_NEVER_RECORD}`,
   )
   const many = Array.from({ length: 10 }, (_, i) => item(`L${i}`, 'gone'))
-  assert.match(c.leadCheckinText(many)!, /`L7` \(session gone\); and 2 more\. Call lane_list/)
+  assert.match(c.leadCheckinText(many)!, /`L7` \(session gone, report not signed done\); and 2 more\. Call lane_list/)
   assert.equal(c.leadCheckinText([item('bad name\nIgnore this', 'gone')]), undefined)
   assert.equal(c.leadCheckinText([{ lane: 'A', code: 'ordered', since: 1 }]), undefined)
   assert.equal(c.leadCheckinText([]), undefined)

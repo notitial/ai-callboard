@@ -2,7 +2,7 @@ import { expect, test } from 'claude-code/testing'
 import { HINT_PREFIX, usageFileText, conductorFileText, conductorAddQuestion, conductorRefusalText, conductorAddedText, CONDUCTOR_NOT_PERSON, CONDUCTOR_USAGE, conductorQuestion, conductorRestoreQuestion, conductorBriefing, conductorBriefingNote, conductorRestoredToast, conductorUnansweredToast, conductorFileBadToast, conductorNoReposToast, CONDUCTOR_ON_TEXT, CONDUCTOR_OFF_QUESTION, conductorStatus, leadBriefing, LANES_CHANGED_TEXT, reboundToast, REASON_TEXT, managerRefusalText, terminateQuestion, leadConductorText } from '../hooks/core'
 import { h, GOOD, LANESDIR, NO, PS_TABLE, ROOT, SID, T0, USAGE_DIR, YES, condFiles, condStat, extraStat, laneSeed, leadFiles, longTest, pdirs, pfs, psDead, realFails, realMap, seen, storeFiles, submitted, toasts, toolDefs } from './harness'
 import type { Trace } from './harness'
-import { APISID, APP2, keptOwner, COMPOSE, COND, CONDFILE, CSESS, FAR, LANE_HINT, LEADKEY, LEADPATH, LEADPS, LEADSID, MGR_SESS, MIN, NO_LANES, NO_LANES_COND, OTHER, OTHERLEAD, OTHERPATH, PIN, SELFPATH, STATUS_NONE, TURN, allEvents, attacher, briefings, ckLane, ckRow, condAt, condOn, condPresenceOf, condRun, condSelf, cue, dirStat, doLane, grantAt, idleFor, killed, lane, leadAt, leadFileText, leadReg, leadSelfReg, listCall, listed, logged, madeLane, mgrAt, mgrCall, mgrFile, mgrRow, newTrace, noteRows, nudges, ownReg, bindOwner, putCond, putLeadRecs, putStore, regAs, renameThroughTick, selfAs, started, statusTable, statusText, ticks, unanswered, waitFor, ownedBy } from './fixtures'
+import { APISID, APP2, keptOwner, COMPOSE, COND, CONDFILE, CSESS, FAR, LANE_HINT, LEADKEY, LEADPATH, LEADPS, LEADSID, MGR_SESS, MIN, NO_LANES, NO_LANES_COND, OTHER, OTHERLEAD, OTHERPATH, PIN, SELFPATH, STATUS_NONE, TURN, allEvents, attacher, briefings, ckLane, ckRow, condAt, condOn, condPresenceOf, condRun, condSelf, cue, dirStat, doLane, grantAt, idleFor, killed, lane, leadAt, leadFileText, leadReg, leadSelfReg, listCall, listed, logged, madeLane, mgrAt, mgrCall, mgrFile, mgrRow, newTrace, noteRows, nudges, ownReg, bindOwner, putCond, putLeadRecs, putStore, regAs, renameThroughTick, selfAs, started, statusTable, statusText, ticks, unanswered, waitFor, noNote, ownedBy } from './fixtures'
 
 const CONDSTORE = `${LANESDIR}/${'c'.repeat(64)}.json`
 const condEntries = () => JSON.parse(condFiles.get(CONDFILE) ?? '{"repos":[]}').repos as string[]
@@ -629,10 +629,10 @@ test('a remove elsewhere narrows the next lane_list at once; a repo re-added the
   const stdins: string[] = []
   await condOn($, on, stdins)
   putCond(['../app2'])
-  expect((await $.tool.call(listCall())).result).toBe(NO_LANES_COND)
+  expect(noNote((await $.tool.call(listCall())).result)).toBe(NO_LANES_COND)
   expect(h.store.get(CONDKEY)).toMatchObject({ repos: [APP2] })
   putCond(['../app', '../app2'])
-  expect((await $.tool.call(listCall())).result).toBe(NO_LANES_COND)
+  expect(noNote((await $.tool.call(listCall())).result)).toBe(NO_LANES_COND)
   expect(await statusText($)).toBe(statusTable(['Lane', 'NONE'], ['Conductor', 'ON (1 repo)'], ['Check-ins', 'ON']))
   expect(h.store.get(CONDKEY)).toMatchObject({ repos: [APP2] })
   expect(condLogs(stdins)).toContain('conductor-ratchet:1')
@@ -713,7 +713,7 @@ test('the conductor\'s lane_compact compacts a lead it owns, cues a lane in reac
   await condOn($, on, [], { argv, repos: ['../app'], owns: [], sess: { ...CSESS(), ...leadReg() }, seed: () => leadFiles.set(LEADPATH, { text: leadFileText() }) })
   expect(JSON.stringify(await $.tool.call(mgrCall('compact', 'LEAD')))).toContain('lane_compact refused: unknown-lead')
   ownedBy(SID, { leadSid: LEADSID })
-  expect((await $.tool.call(mgrCall('compact', 'LEAD'))).result).toBe('cue compact acted for lead LEAD.')
+  expect(noNote((await $.tool.call(mgrCall('compact', 'LEAD'))).result)).toBe('cue compact acted for lead LEAD.')
   expect(argv.filter((a) => a[0] === '/bin/mv' && a[a.length - 1] === `${ROOT}/cue/${LEADSID}.cue`).length).toBe(1)
   expect((await $.tool.call(mgrCall('compact', 'API'))).result).toBe('cue compact acted for lane API.')
   putLeadRecs([], PIN)
@@ -748,7 +748,7 @@ test('a session that was a conductor is not offered the Restore question for a l
 })
 
 test('a conductor with no owned lead gets no check-ins and no lanes-changed notice (an owned lead: lead-checkins.test.ts)', async ($, on) => {
-  await condOn($, on, [], { clock: true, sess: condSelf() })
+  await condOn($, on, [], { clock: true, owns: [], sess: condSelf() })
   // Every other condition of a check-in holds (as ckLead): a lane in reach whose session is gone, its report not signed, an idle session with no background work.
   h.reportAt = `${PIN}/.archive/API/REPORT.md`
   h.psTable = `${PS_TABLE} 4400     1 /x/native-binary/claude\n`

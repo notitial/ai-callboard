@@ -8,6 +8,7 @@ import {
   watch,
   grants,
   laneObs,
+  leadObs,
   leadToolsInFlight,
   leadDeclared,
   lastTurnUnknown,
@@ -160,6 +161,8 @@ export async function leadRun($: any, e: unknown, body: () => Promise<any>) {
   const out = await body()
   // The lead acted on that lane itself (a served call that succeeded), so what the check-in saw of it starts over.
   if (served && typeof out?.result === 'string' && OBS_CLEAR_TOOLS.includes(String((e as { tool?: unknown }).tool))) laneObs.get(sid)?.delete(String((e as { lane?: unknown }).lane))
+  // A conductor acted on that lead itself, so what its check-in saw of the lead starts over.
+  if (served && typeof out?.result === 'string' && LEAD_OBS_CLEAR_TOOLS.includes(String((e as { tool?: unknown }).tool))) leadObs.get(sid)?.delete(String((e as { lead?: unknown }).lead))
   if (!moved || !out) return out
   // A lane_list text ends in a table, so the note goes after a blank line, never on a table row.
   const note = w?.kind === 'leads' ? c.LEADS_CHANGED_NOTE : c.LANES_CHANGED_NOTE
@@ -1012,6 +1015,7 @@ export async function laneTable($: any, sid: string) {
 }
 
 const OBS_CLEAR_TOOLS = ['terminate', 'retire', 'park', 'unpark', 'resume'].map((v) => `mcp__callboard__lane_${v}`)
+const LEAD_OBS_CLEAR_TOOLS = ['terminate', 'retire', 'park', 'unpark', 'resume'].map((v) => `mcp__callboard__lead_${v}`)
 
 // ...then the lane's repo; an attached lane answers whichever lead holds the repo.
 async function leadPrep($: any, e: unknown, sid: string) {

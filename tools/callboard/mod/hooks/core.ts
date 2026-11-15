@@ -2510,9 +2510,9 @@ export function checkinText(items: AttentionItem[]): string | undefined {
 }
 // The owning conductor's check-in on its leads: the same fixed form, lead names through NAME_RE only.
 export const LEAD_ATTENTION_PART: Record<'gone' | 'prompt' | 'quiet', string> = {
-  gone: 'session gone',
+  gone: 'session gone, report not signed done',
   prompt: 'waiting on a prompt for over 5 min',
-  quiet: 'quiet for 30 min with no live lane',
+  quiet: 'quiet for 30 min with no live lane, report not signed done',
 }
 export function leadCheckinText(items: AttentionItem[]): string | undefined {
   const ok = items.filter((i) => NAME_RE.test(i.lane) && hasCode(LEAD_ATTENTION_PART, i.code))
