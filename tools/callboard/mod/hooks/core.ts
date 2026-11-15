@@ -1566,6 +1566,10 @@ export const REASON_TEXT: Record<string, string> = {
   'not-a-lead': 'the session that lead record names holds no live lead presence file for the record\'s repo. Nothing was sent.',
   'presence-unreadable': 'the lead\'s presence file could not be checked. Nothing was sent; retry in a moment.',
   'lead-tool-level': 'the lead tools are for a conductor and the manager only.',
+  // The lead stops (ADR 0007).
+  'lead-has-live-lanes': 'that lead has lanes with a live session. Nothing was sent: a lead is parked only once its lanes are parked, retired or stopped.',
+  'lead-has-lanes': 'lane records still name that lead. Nothing was sent: retire or remove its lanes first; a lead is retired only once none is left.',
+  'grant-unsaved': 'the lead could not refresh its saved lead grant, so it could not be reopened as a lead later. Nothing was sent; retry in a moment.',
   other: 'the session refused for a reason not shown here. Check it before sending another cue.',
 }
 // Whether a table has its own entry for a code (a code such as `constructor` is not one).
@@ -2782,11 +2786,12 @@ export function leadRec(recs: { key: string; store: LeadStore }[], lanes: Lane[]
   return { ok: true, rec: hit }
 }
 
-// The cues a lead takes. From its owner (the binding's conductor, live and trusted): resume and compact. From a trusted live manager: resume and compact (it
-// compacts only on its own on-cue request, or as an order while it has a live owner, since a cue carries no sender). From any other trusted conductor of its
-// repo: compact on its own armed on-cue request, the rule from before lead records. MANAGER_CUE_VERBS stays as it is for lanes.
-export const OWNER_CUE_VERBS: readonly Verb[] = ['resume', 'compact']
-export const LEAD_MANAGER_CUE_VERBS: readonly Verb[] = ['resume', 'compact']
+// The cues a lead takes. From its owner (the binding's conductor, live and trusted): resume, compact, park and retire. From a trusted live manager the same four
+// (it compacts only on its own on-cue request, or as an order while it has a live owner, since a cue carries no sender; the manager's every call is behind the
+// person's dialog). From any other trusted conductor of its repo: compact on its own armed on-cue request, the rule from before lead records. MANAGER_CUE_VERBS
+// stays as it is for lanes.
+export const OWNER_CUE_VERBS: readonly Verb[] = ['resume', 'compact', 'park', 'retire']
+export const LEAD_MANAGER_CUE_VERBS: readonly Verb[] = ['resume', 'compact', 'park', 'retire']
 export function leadCueNo(verb: Verb, from: { owner: boolean; manager: boolean; conductor?: boolean }): string | undefined {
   if (from.owner && OWNER_CUE_VERBS.includes(verb)) return undefined
   if (from.manager && LEAD_MANAGER_CUE_VERBS.includes(verb)) return undefined
@@ -2806,7 +2811,7 @@ export function orderLeadText(leads: string[]): string | undefined {
   const shown = ok.slice(0, ATTENTION_MAX).map((l) => `\`${l}\``).join(', ')
   const more = ok.length > ATTENTION_MAX ? ` and ${ok.length - ATTENTION_MAX} more` : ''
   const one = ok.length === 1
-  return `[callboard] ${one ? 'Lead' : 'Leads'} ${shown}${more} did not compact after your order (${ORDER_MS / 60_000} minutes). Tell the person and ask what to do; do not stop ${one ? 'it' : 'them'} any other way. ${SUBMITTED_NOTE_NEVER_RECORD}`
+  return `[callboard] ${one ? 'Lead' : 'Leads'} ${shown}${more} did not compact after your order (${ORDER_MS / 60_000} minutes). Ask the person whether to lead_terminate ${one ? 'it' : 'them'}; they confirm in a dialog every time. Do not stop ${one ? 'it' : 'them'} any other way. ${SUBMITTED_NOTE_NEVER_RECORD}`
 }
 
 // The manager's dialog before each of its lead tool calls, every time: what happens to the lead's session, the lead, its repo and its short session id.
@@ -2840,4 +2845,17 @@ export function leadCueWhy(verb: Verb, code: string, why: string): string {
   if (!m || !hasCode(LEAD_WHY, m[2])) return why
   if (verb === 'compact' && m[1] === 'refused' && COMPACT_FINAL.includes(m[2])) return why
   return `${m[1] === 'held' ? 'held, ' : ''}${leadWhy(m[2])} ${NO_REPEAT}`
+}
+
+// ---- the lead stops (ADR 0007): park, unpark, retire and terminate of a lead ----
+// The lane records that name a lead, in any repo: a record that names the lead's session (leadOwns) or one of its names, in any letter case (the record's name,
+// the grant's and the registry's can differ for a few ticks after a rename). A legacy lane, which names no lead, names none.
+export function leadLanes(lanes: Lane[], lead: { sid?: string; names: (string | undefined)[] }): Lane[] {
+  const names = new Set(lead.names.filter((n): n is string => typeof n === 'string' && n !== '').map((n) => n.toUpperCase()))
+  return lanes.filter((l) => (lead.sid !== undefined && leadOwns(l, lead.sid)) || (l.leadName !== undefined && names.has(l.leadName.toUpperCase())))
+}
+// The names of those lanes that have a live session: a registry row that carries the lane's name or the record's session id. Read wide on purpose: a lane whose
+// session cannot be told apart (two rows, another folder) counts as live, so a park never leaves a working lane without its lead.
+export function liveLaneNames(lanes: Lane[], entries: RegEntry[]): string[] {
+  return lanes.filter((l) => entries.some((e) => SID_RE.test(e.sessionId) && (e.name === l.name || (l.sid !== undefined && e.sessionId === l.sid)))).map((l) => l.name)
 }

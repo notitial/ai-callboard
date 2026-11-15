@@ -3277,16 +3277,16 @@ test('leadRec: a bad name, a name a lane or two lead records carry, no record; a
   assert.deepEqual(c.leadRec(LT_STORES, [], LT_MGR_G, 'm', 'APP-LEAD'), hit, 'the manager reaches a lead it does not own, in any repo')
 })
 
-test('leadCueNo: the owner sends resume and compact, a trusted manager too, another trusted conductor only compact; nobody sends park or retire yet', () => {
-  for (const verb of ['resume', 'compact'] as const) {
+test('leadCueNo: the owner sends resume, compact, park and retire, a trusted manager too, another trusted conductor only compact', () => {
+  for (const verb of ['resume', 'compact', 'park', 'retire'] as const) {
     assert.equal(c.leadCueNo(verb, { owner: true, manager: false }), undefined, verb)
     assert.equal(c.leadCueNo(verb, { owner: false, manager: true }), undefined, verb)
     assert.equal(c.leadCueNo(verb, { owner: true, manager: true }), undefined, verb)
     assert.equal(c.leadCueNo(verb, { owner: false, manager: false }), 'not-eligible', verb)
   }
   assert.equal(c.leadCueNo('compact', { owner: false, manager: false, conductor: true }), undefined)
-  assert.equal(c.leadCueNo('resume', { owner: false, manager: false, conductor: true }), 'not-eligible')
-  for (const verb of ['park', 'retire', 'start', 'rename', 'lead'] as const) assert.equal(c.leadCueNo(verb, { owner: true, manager: true, conductor: true }), 'not-eligible', verb)
+  for (const verb of ['resume', 'park', 'retire'] as const) assert.equal(c.leadCueNo(verb, { owner: false, manager: false, conductor: true }), 'not-eligible', verb)
+  for (const verb of ['start', 'rename', 'lead'] as const) assert.equal(c.leadCueNo(verb, { owner: true, manager: true, conductor: true }), 'not-eligible', verb)
 })
 
 test('the lead texts: the resume turn names the lead, the order nudge names the conductor, the order notice names the leads; the lane texts stay', () => {
@@ -3302,7 +3302,7 @@ test('the lead texts: the resume turn names the lead, the order nudge names the 
   assert.equal(c.nudgeText('lead', c.CONFIG_DEFAULTS, 'manager'), lane, 'only a lead grant changes the words')
   assert.equal(c.nudgeText('idle', c.CONFIG_DEFAULTS, 'lead'), c.nudgeText('idle'))
   const n = c.orderLeadText(['APP-LEAD'])!
-  assert.ok(n.startsWith('[callboard] Lead `APP-LEAD` did not compact after your order (15 minutes). Tell the person'))
+  assert.ok(n.startsWith('[callboard] Lead `APP-LEAD` did not compact after your order (15 minutes). Ask the person whether to lead_terminate it'))
   assert.ok(!n.includes('lane_terminate'))
   assert.ok(c.orderLeadText(['A', 'B'])!.startsWith('[callboard] Leads `A`, `B` did not compact'))
   assert.equal(c.orderLeadText(['bad name']), undefined)
