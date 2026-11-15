@@ -187,7 +187,7 @@ export const requestFails = new Map<string, { n: number; firstMs: number }>()
 export const takenSwept = new Map<string, number>()
 
 // The rename of an attached session cannot run inside the command (the engine refuses it there), so it runs from the next tick, once.
-export const pendingRename = new Map<string, { name: string; until: number; manager?: true }>()
+export const pendingRename = new Map<string, { name: string; until: number; manager?: true; grant?: 'lead' | 'conductor' }>()
 // A new lead's start turn, held until its box is empty and it is idle (engine/lead-accept.ts sets it, leadStartTick submits it): the lead's name, repo and brief
 // path, the turn count the grant left (a person who typed meanwhile is driving), and when it is given up.
 export type LeadStart = { name: string; repo: string; brief: string; turns: number; until: number }

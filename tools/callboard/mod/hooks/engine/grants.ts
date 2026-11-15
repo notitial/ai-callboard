@@ -701,15 +701,17 @@ export async function findLead($: any, live: RegRow[], cwd: string, pick?: strin
 }
 
 // A second lead in the repo of the pin needs a usable name, and so does every other lead there (c.secondLeadRefusal). An unreadable registry refuses.
-export async function secondLeadNo($: any, sid: string, pin: string): Promise<string | undefined> {
+// `want`: the NAME the person typed for this session, judged in place of its current name.
+export async function secondLeadNo($: any, sid: string, pin: string, want?: string): Promise<string | undefined> {
   const live = await registryEntries($)
   if (!live) return 'registry-unreadable'
   const others = (await leadsFor($, live, pin, pin)).filter((x) => x.sid !== sid)
-  const refused = c.secondLeadRefusal(live.map((r) => r.j), sid, others.map((x) => x.sid))
+  const rows = live.map((r) => (want !== undefined && r.j.sessionId === sid ? { ...r.j, name: want } : r.j))
+  const refused = c.secondLeadRefusal(rows, sid, others.map((x) => x.sid))
   if (refused !== undefined) return refused
   // A name a lead record holds is not free for another session, in any repo, with or without a session of its own (a record kept for its lanes keeps its
   // name). A read that failed refuses.
-  const name = c.leadNameOf(live.map((r) => r.j), sid)
+  const name = c.leadNameOf(rows, sid)
   if (name === undefined) return undefined
   const held = await leadNameHeld($, sid, name, false)
   return held === true ? 'name-in-use' : held === false ? undefined : 'store-unreadable'
