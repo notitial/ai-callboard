@@ -2,6 +2,7 @@
 // It imports no engine file, so an import cycle between engine files cannot reach a constant that is not yet initialised.
 import * as c from './core.ts'
 import * as pr from './prompts.ts'
+import type * as pw from './pr-watch.ts'
 
 export const mem = {
   isTicking: false,
@@ -308,3 +309,27 @@ export const ownerLooked = new Map<string, number>()
 export const ownerFlagged = new Set<string>()
 // A lead's rename whose new name is taken: the `old\ncur` pair the person was already told about, so the toast comes once per pair.
 export const renameRefused = new Map<string, string>()
+
+// ---- PR notices (engine/pr-watch.ts, ADR 0010) ----
+// A session's own tracker as last read or written, and whether its file was looked at in this load; by tracker session, the one writer at a time.
+export const prTrack = new Map<string, pw.Tracker>()
+export const prLoaded = new Set<string>()
+export const prChain = new Map<string, Promise<void>>()
+// When a session last polled, and the poll in flight.
+export const prPollAt = new Map<string, number>()
+export const prBusy = new Set<string>()
+// Failed looks in a row, by tracker session and PR.
+export const prFails = new Map<string, number>()
+// The notes owed to a session as its folder was last read, when that was, and the files already delivered (kept until they are seen gone, so a failed removal
+// never delivers one twice in this load).
+export const prPending = new Map<string, { file: string; note: pw.Note }[]>()
+export const prSpoolAt = new Map<string, number>()
+export const prDelivered = new Map<string, Set<string>>()
+// The wakes, the first looks and the notes written to a lead in the last hour; the cold stretch a lead was already told about; the cap already logged.
+export const prWakes = new Map<string, number[]>()
+export const prLooks = new Map<string, number[]>()
+export const prLeadNotes = new Map<string, number[]>()
+export const prColdTold = new Map<string, number>()
+export const prCapLogged = new Set<string>()
+// The GitHub CLI's real path as last resolved (undefined: none found), and when the folders of sessions that are gone were last swept.
+export const prGh = { path: undefined as string | undefined, at: undefined as number | undefined, sweptAt: undefined as number | undefined }
