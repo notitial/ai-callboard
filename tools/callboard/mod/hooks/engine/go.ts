@@ -298,9 +298,11 @@ function watchOf(sid: string, now: number) {
   goWatch.set(sid, w)
   return w
 }
+// Only a lead has a watch: the tick asks this first, so no other session's tick reads the clock for it.
+export const goWatchOn = (sid: string): boolean => grantOf(sid)?.level === 'lead'
 // Once a minute, in a lead.
 export function goWatchDue(sid: string, now: number): boolean {
-  return grantOf(sid)?.level === 'lead' && c.dueEvery(goWatch.get(sid)?.at, now, GO_WATCH_MS)
+  return goWatchOn(sid) && c.dueEvery(goWatch.get(sid)?.at, now, GO_WATCH_MS)
 }
 // The `go-read` rows of this lead's live goes: a session the dialog did not list (code later), read since the watch began and not yet told, gets one toast.
 export async function goWatchTick($: any, sid: string): Promise<void> {
