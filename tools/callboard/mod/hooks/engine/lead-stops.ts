@@ -79,8 +79,8 @@ async function lanesOf($: any, t: Target, rows?: c.RegEntry[]): Promise<{ named:
 }
 
 // The record checks with no live session (an unpark, or the removal of a record no session carries): the grant is the start's, the record of that name is
-// still the one machine-wide, with the same repo, session, conductor and parked mark, and a conductor's own and bound.
-async function recordCheck($: any, sid: string, t: Target, start: Start): Promise<string | undefined> {
+// still the one machine-wide, with the same repo, session, conductor and parked mark, and a conductor's own and, unless `removing`, bound.
+async function recordCheck($: any, sid: string, t: Target, start: Start, removing = false): Promise<string | undefined> {
   const g = grantOf(sid)
   if (g?.level !== start.level || epochOf(sid) !== start.epoch || !t.rec) return 'grant-changed'
   const recs = await loadLeadRecords($)
@@ -92,8 +92,9 @@ async function recordCheck($: any, sid: string, t: Target, start: Start): Promis
   const was = t.rec.rec
   const now = hit.rec.rec
   if (hit.rec.key !== t.rec.key || now.sid !== was.sid || now.conductorSid !== was.conductorSid || now.parked !== was.parked) return 'grant-changed'
-  // A record with no session is only removed here; it needs no proof of its owner for that.
-  if (g.level === 'conductor' && now.sid !== undefined && !(await boundTo($, hit.rec))) return 'record-changed'
+  // A removal needs no proof of the owner: the record names this conductor, its session is not live (checked again after this), and removing it gives no
+  // reach. An unpark, which reopens the lead, needs the binding.
+  if (g.level === 'conductor' && !removing && now.sid !== undefined && !(await boundTo($, hit.rec))) return 'record-changed'
   return undefined
 }
 
@@ -312,7 +313,7 @@ async function retireCall($: any, x: Ctx) {
       if (r !== 'yes') return no('not-confirmed', 'the person did not confirm.')
       dialog = 'yes'
     }
-    const bad = await recordCheck($, sid, t, start)
+    const bad = await recordCheck($, sid, t, start, true)
     if (bad) return fail(no, bad)
     const now = await registryEntries($)
     if (!now) return fail(no, 'registry-unreadable')

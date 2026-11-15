@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { HEADER, keptKey, leadRecordText, PARK_YES, REOPEN_YES, REASON_TEXT, RETIRE_YES, TERMINATE_YES, parkLeadQuestion, parkedLeadText, removeLeadQuestion, retireLeadQuestion, reopenedLeadText, stoppedLeadText, terminateLeadQuestion } from '../hooks/core'
+import { HEADER, keptKey, leadRecordText, PARK_YES, REMOVE_YES, REOPEN_YES, REASON_TEXT, RETIRE_YES, TERMINATE_YES, parkLeadQuestion, parkedLeadText, removeLeadQuestion, retireLeadQuestion, reopenedLeadText, stoppedLeadText, terminateLeadQuestion } from '../hooks/core'
 import { h, NO, PS_TABLE, ROOT, SID, T0, fakeSha, leadFiles, longTest, teeTexts, toasts } from './harness'
 import { ledgerRows } from './answer-fixtures'
 import { APISID, CSESS, LEADPATH, LEADSID, MGR_SESS, OTHERLEAD, PIN, condOn, drive, killed, lane, leadAt, leadFileText, leadRecsJson, leadReg, mgrAt, ownedBy, putLeadRecs, putStore } from './fixtures'
@@ -204,6 +204,43 @@ test('lead_retire of a record no session carries: the conductor removes an orpha
   expect(await deny($, call('lead_retire'))).toBe('lead_retire refused: the person did not confirm.')
   expect(h.lastQuestion).toBe(removeLeadQuestion('LEAD', PIN, true))
   expect(recOf()).toBeDefined()
+  expect(killed(argv)).toEqual([])
+})
+
+test('a record whose session is gone for good and whose binding went with it: the owner\'s lead_retire removes it and its stale grant; an unpark still needs the binding', async ($, on) => {
+  const argv: string[][] = []
+  await conductor($, on, argv, { sess: CSESS() })
+  h.store.delete(OWNKEY)
+  putLeadRecs([{ name: 'LEAD', conductorSid: SID, sid: LEADSID, parked: T0 }])
+  h.openResultPath = `${ROOT}/open/LEAD.result`
+  expect(await deny($, call('lead_unpark'))).toContain('lead_unpark refused: record-changed')
+  expect(reopenWrites(argv).length).toBe(0)
+  putLeadRecs([{ name: 'LEAD', conductorSid: SID, sid: LEADSID }])
+  const asked = h.askCount
+  expect((await result($, call('lead_retire'))).result).toContain('LEAD')
+  expect(h.askCount).toBe(asked)
+  expect(recOf()).toBeUndefined()
+  expect(h.store.has(LEADKEY)).toBe(false)
+  expect(stopRows()).toEqual([expect.objectContaining({ code: 'remove', dialog: 'none' })])
+  expect(killed(argv)).toEqual([])
+  // Another conductor's record is still out of reach, binding or not.
+  putLeadRecs([{ name: 'LEAD', conductorSid: OTHERLEAD, sid: LEADSID }])
+  expect(await deny($, call('lead_retire'))).toContain('lead_retire refused: not-owner')
+  expect(recOf()).toBeDefined()
+})
+
+test('the manager\'s lead_retire removes a record whose session is gone, only after the person\'s click', async ($, on) => {
+  const argv: string[][] = []
+  await manager($, on, argv, { sess: MGR_SESS({ name: 'MANAGER' }) })
+  putLeadRecs([{ name: 'LEAD', conductorSid: OTHERLEAD, sid: LEADSID }])
+  h.askAnswer = NO
+  expect(await deny($, call('lead_retire'))).toBe('lead_retire refused: the person did not confirm.')
+  expect(h.lastQuestion).toBe(removeLeadQuestion('LEAD', PIN, false))
+  expect(recOf()).toBeDefined()
+  h.askAnswer = REMOVE_YES
+  expect((await result($, call('lead_retire'))).result).toContain('LEAD')
+  expect(recOf()).toBeUndefined()
+  expect(stopRows()).toEqual([expect.objectContaining({ code: 'remove', dialog: 'yes' })])
   expect(killed(argv)).toEqual([])
 })
 
