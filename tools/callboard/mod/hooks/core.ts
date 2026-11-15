@@ -2838,6 +2838,8 @@ const LEAD_WHY: Record<string, string> = {
   'grant-changed': "this session's grant, or the lead's record, changed while the question was open. Nothing was sent.",
   'record-changed': 'that lead\'s record changed, or its lead is no longer bound to it. Nothing was sent.',
   'store-unreadable': 'the lead records cannot be read safely. Nothing was sent; retry in a moment.',
+  'session-live': "that lead's conversation is already open in another session, maybe in a terminal. Nothing was reopened. Ask the person to close it first.",
+  'reopen-timeout': 'no window answered in time. A VS Code window with the lead\'s repo as its first folder must run the callboard panels extension (1.4.0 or later). The conversation may still open; call lane_list before you try again.',
   'nudge-limit': `the lead was nudged in the last ${NUDGE_GAP_MS / 60_000} minutes, or already got this order.`,
   'not-interactive': 'the lead session is not an interactive session, so it cannot be ordered to compact.',
   nudged: `the lead was ordered to compact. It is told at the end of its current turn (now, if idle) and compacts itself when it asks on-cue, whatever its context size. If it has not asked within ${ORDER_MS / 60_000} minutes, you are told: then tell the person.`,
@@ -2862,4 +2864,60 @@ export function leadLanes(lanes: Lane[], lead: { sid?: string; names: (string | 
 // session cannot be told apart (two rows, another folder) counts as live, so a park never leaves a working lane without its lead.
 export function liveLaneNames(lanes: Lane[], entries: RegEntry[]): string[] {
   return lanes.filter((l) => entries.some((e) => SID_RE.test(e.sessionId) && (e.name === l.name || (l.sid !== undefined && e.sessionId === l.sid)))).map((l) => l.name)
+}
+
+// The lead tools that park, reopen or stop a lead's session (engine/lead-stops.ts).
+export const LEAD_STOP_TOOLS = ['lead_park', 'lead_unpark', 'lead_retire', 'lead_terminate'] as const
+export type LeadStopTool = (typeof LEAD_STOP_TOOLS)[number]
+// A parked lead reopens as a lead only within this time of its park: its saved lead grant, rewritten at the park, lasts HINT_MAX_AGE_MS (30 days).
+export const UNPARK_MAX_MS = 28 * 24 * HOUR_MS
+
+// The person's dialogs before a lead stop. Each names the lead, its repo, its short session id (and the pid, for a force stop) and what happens to the session.
+const leadWho = (lead: string, repo: string, sid: string) => `lead ${lead} in ${folderName(repo)} (${sid.slice(0, 8)}`
+export const PARK_YES = 'Park'
+export const REOPEN_YES = 'Reopen'
+export const parkLeadQuestion = (lead: string, repo: string, sid: string) =>
+  `Park ${leadWho(lead, repo, sid)})? Once it confirms it is idle, its session stops and its tab closes. The conversation and its lead grant are kept: lead_unpark reopens it within 28 days.`
+export const unparkLeadQuestion = (lead: string, repo: string, sid: string) =>
+  `Reopen parked ${leadWho(lead, repo, sid)})? Its saved conversation opens in a new panel and becomes the lead again.`
+export const retireLeadQuestion = (lead: string, repo: string, sid: string) =>
+  `Retire ${leadWho(lead, repo, sid)})? It must confirm first (idle, its report signed). Once its session has stopped, its record and saved lead grant are removed.`
+export function removeLeadQuestion(lead: string, repo: string, parked: boolean, home?: string): string {
+  const head = `Remove lead ${lead}'s record in ${homePath(repo, home)}? It has no live session. Its saved lead grant goes too.`
+  return parked ? `${head} It is parked: its saved conversation is no longer reachable from callboard.` : head
+}
+export function terminateLeadQuestion(lead: string, repo: string, sid: string, pid: number, liveLanes: number): string {
+  const lanes = liveLanes === 0 ? '' : ` Its ${liveLanes} live lane${liveLanes === 1 ? '' : 's'} keep${liveLanes === 1 ? 's' : ''} running.`
+  return `Force stop ${leadWho(lead, repo, sid)}, pid ${pid})? It ends at once, even mid-task.${lanes} Its saved lead grant is removed, and its record once no lane names it.`
+}
+
+// What the stop tools answer.
+export const parkedLeadText = (name: string, pid: number) =>
+  `lead ${name} parked: SIGTERM sent to process ${pid}. The tab closes; the conversation and its lead grant are kept. lead_unpark ${name} reopens it within 28 days.`
+export const parkUnmarkedLeadText = (name: string, pid: number, code: string) =>
+  `lead ${name} stopped: SIGTERM sent to process ${pid}. The conversation is kept, but its record could not be marked parked (${code}), so lead_unpark cannot reopen it. Tell the person: they can resume that conversation by hand.`
+export const reopenedLeadText = (name: string, sid: string) =>
+  `lead ${name} reopened as session ${sid}. It restores its lead grant and its conductor within a few seconds. Then call lead_resume; if it answers no-live-session or not-a-lead, wait 10 seconds and retry once.`
+export const alreadyLiveLeadText = (name: string, sid: string) => `lead ${name} is already live as session ${sid}. Its parked mark is cleared. Next: lead_resume.`
+// outcome: removed (record and keys gone), kept (a force stop of a lead that lane records still name: keys gone, the record stays with no session), alive (the
+// session outlived its signal: nothing removed), unremoved (the record write failed; code says why). keyKept: a saved key could not be deleted.
+export function stoppedLeadText(verb: 'retire' | 'terminate', name: string, pid: number, outcome: 'removed' | 'kept' | 'alive' | { unremoved: string }, keyKept = false): string {
+  const done = verb === 'retire' ? 'retired' : 'terminated'
+  const kept = keyKept ? ' Its saved lead grant could not be deleted (lead-key-kept): a resume of that conversation by hand may restore it as a lead.' : ''
+  if (outcome === 'removed') return `lead ${name} ${done} and removed: SIGTERM sent to process ${pid}. Its record and saved lead grant are gone; its .archive/${name}/ folder stays.${kept}`
+  if (outcome === 'kept')
+    return `lead ${name} ${done}: SIGTERM sent to process ${pid}. Its saved lead grant is gone. Lane records still name it, so its record stays with no session and holds the name: its lanes stay in your list, and lead_retire removes the record once they are gone.${kept}`
+  if (outcome === 'alive') return `lead ${name} ${done}: SIGTERM sent to process ${pid}, but the session was still running ${(STOP_POLLS * STOP_POLL_MS) / 1000} seconds later, so nothing was removed. Call lead_${verb} again if it does not end.`
+  return `lead ${name} ${done}: SIGTERM sent to process ${pid}. Its record could not be removed (${outcome.unremoved}); call lead_retire to remove it.${kept}`
+}
+export const afterSignalFailedLeadText = (verb: 'retire' | 'park' | 'terminate', name: string, pid: number): string =>
+  `lead ${name}: SIGTERM sent to process ${pid}, but the call failed afterwards, so what became of its record is not known. Call lane_list to see it.`
+export const removedLeadNoSessionText = (name: string, keyKept = false): string =>
+  `lead ${name} removed: it had no live session. Its record and saved lead grant are gone; its .archive/${name}/ folder stays.${keyKept ? ' Its saved lead grant could not be deleted (lead-key-kept).' : ''}`
+// A refusal that names the lanes it is about (at most four, then a count).
+export function namedLanes(why: string, names: string[]): string {
+  const ok = names.filter((n) => NAME_RE.test(n))
+  if (ok.length === 0) return why
+  const shown = ok.slice(0, 4).join(', ')
+  return `${why} Lanes: ${shown}${ok.length > 4 ? ` and ${ok.length - 4} more` : ''}.`
 }
