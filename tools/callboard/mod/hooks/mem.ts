@@ -114,7 +114,9 @@ export const laneBriefed = new Map<string, string>()
 // ---- the lead's watch on its own lane list ----
 // cur: the hash of the store file as last read; told: the hash the lead has been told about (or was dropped); seen: the hash at the lead's last lane tool call.
 // name: the lead's name that cur was hashed under; last: the store as read for it (rehashed when the name changes).
-export type Watch = { path: string; sig?: string; name?: string; last?: { state: string; text: string }; cur: string; told: string; seen: string }
+// kind `lanes` is a lead's watch on its repo's store file (path). Kind `leads` is a conductor's watch on the leads it owns: it has no path, and cur is the hash
+// of c.leadWatchText over the lead records, looked at with the conductor's reach refresh and at its own lane tool calls.
+export type Watch = { kind: 'lanes' | 'leads'; path?: string; sig?: string; name?: string; last?: { state: string; text: string }; cur: string; told: string; seen: string }
 export const watch = new Map<string, Watch>()
 export const laneNotices = new Map<string, number[]>()
 export const cappedLogged = new Set<string>()
@@ -127,6 +129,8 @@ export const usageWriting = new Map<string, Promise<boolean>>()
 
 // A store write of the lead's own (lane_create, a retire or terminate that removes a lane) is in flight: the tick leaves the list alone until watchOwn has taken the new state as known.
 export const ownWriting = new Map<string, number>()
+// Bumped at the start and the end of each such write by a conductor: a look of its owned leads that began before a bump read the state from before the write.
+export const ownGen = new Map<string, number>()
 
 // One registration at a time per session: a /callboard lead after a timed-out one waits for the same registration instead of starting a second.
 export const leadToolsInFlight = new Map<string, Promise<void>>()
@@ -207,6 +211,9 @@ export const rebindBusy = new Set<string>()
 // the lead idle 20 min since its last turn ended or its last prompt. Only then are reports read (signed done drops gone and quiet), and attentionNotice sends.
 // A read that fails (lanes, registry, off) is no observation at all, never "all gone".
 export const laneObs = new Map<string, Map<string, c.LaneObs>>()
+// The same for a conductor and the leads it owns (c.observeLead), by the conductor's session id, then the lead's name (names are one machine-wide space). Kept apart from laneObs, which a
+// conductor's lane tool calls also write.
+export const leadObs = new Map<string, Map<string, c.LaneObs>>()
 export const obsAt = new Map<string, number>()
 export const attnTold = new Map<string, Set<string>>()
 export const attnCapped = new Set<string>()

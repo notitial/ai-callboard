@@ -2,7 +2,7 @@ import { expect, test } from 'claude-code/testing'
 import { LEAD_RECORDS_UNREADABLE, MANAGER_LEAD_NO, MANAGER_LEAD_YES, REASON_TEXT, leadWhy, managerLeadQuestion, orderLeadText } from '../hooks/core'
 import { h, NO, PROMPTS_DIR, PS_TABLE, ROOT, SID, YES, LEADRECDIR, extraStat, leadFiles, longTest, submitted } from './harness'
 import { ledgerRows } from './answer-fixtures'
-import { APISID, CSESS, LEADPATH, LEADSID, MGR_SESS, MIN, OTHERLEAD, PIN, APP2, ckLane, condOn, idleFor, leadFileText, leadRecsJson, leadReg, mgrAt, ownedBy, putLeadRecs, putStore, TURN } from './fixtures'
+import { APISID, CSESS, LEADPATH, LEADSID, MGR_SESS, MIN, OTHERLEAD, PIN, APP2, ckLane, condOn, idleFor, leadFileText, leadRecsJson, leadReg, mgrAt, noNote, ownedBy, putLeadRecs, putStore, TURN } from './fixtures'
 
 // ---- the lead tools (ADR 0007), the caller's side: lead_resume and lead_compact ----
 // The conductor is this session (SID in COND, over ../app and ../app2); the lead LEAD is session LEADSID (pid 4242) in PIN, with its presence file. `owned` adds
@@ -101,7 +101,7 @@ test('the conductor\'s lane_compact with the name of a lead it owns is lead_comp
   await conductor($, on, argv, { owned: false })
   expect(await deny($, { tool: 'mcp__callboard__lane_compact', lane: 'LEAD' })).toContain('lane_compact refused: unknown-lead')
   ownedBy(SID, { leadSid: LEADSID })
-  expect((await $.tool.call({ tool: 'mcp__callboard__lane_compact', lane: 'LEAD' } as any)).result).toBe('cue compact acted for lead LEAD.')
+  expect(noNote((await $.tool.call({ tool: 'mcp__callboard__lane_compact', lane: 'LEAD' } as any)).result)).toBe('cue compact acted for lead LEAD.')
   expect(cues(argv)).toBe(1)
   expect((await $.tool.call({ tool: 'mcp__callboard__lane_compact', lane: 'API' } as any)).result).toBe('cue compact acted for lane API.')
 })

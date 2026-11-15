@@ -413,6 +413,9 @@ export const h = {
   leadDeleteHang: undefined,
   // Hangs the next read of a saved lead grant, once.
   leadGetHang: undefined,
+  // Hangs the next read of an owner binding, once; ownerGetHit counts the reads that reached the hang.
+  ownerGetHang: undefined,
+  ownerGetHit: 0,
   draftNow: '',
   lockOwnerWritten: undefined,
   lockOwnerFails: false,
@@ -570,6 +573,8 @@ function resetPluginState() {
   h.storeDeleteFails = false
   h.leadDeleteHang = undefined
   h.leadGetHang = undefined
+  h.ownerGetHang = undefined
+  h.ownerGetHit = 0
   h.leadMvDelayMs = 0
   h.store = new Map()
 }
@@ -805,6 +810,14 @@ export function engine(on0: any, argvSeen: string[][], stdins: string[] = [], cl
       h.leadGetHang = undefined
       return gate.then(() => ({ value: over() ? undefined : h.store.get(e.key) }))
     }
+    if (h.ownerGetHang && String(e.key).startsWith('owner:')) {
+      const gate = h.ownerGetHang
+      h.ownerGetHang = undefined
+      h.ownerGetHit++
+      // The value is the one there was when the read began: a write that lands during the hang does not change what it returns.
+      const before = over() ? undefined : h.store.get(e.key)
+      return gate.then(() => ({ value: before }))
+    }
     return { value: over() ? undefined : h.store.get(e.key) }
   })
   on('store.set', (_: any, e: any) => {
@@ -894,7 +907,7 @@ export function engine(on0: any, argvSeen: string[][], stdins: string[] = [], cl
     }
     if (a[0] === '/usr/bin/shasum' && h.shaFailsFor?.(typeof e.init?.stdin === 'string' ? e.init.stdin : '')) return ok('', 1)
     if (a[0] === '/usr/bin/shasum' && h.recShaFails && typeof e.init?.stdin === 'string' && e.init.stdin.startsWith('LABLANE\n')) return ok('', 1)
-    if (a[0] === '/usr/bin/shasum') return ok(`${typeof e.init?.stdin === 'string' && (e.init.stdin.startsWith('LABLANE\n') || e.init.stdin.startsWith('lead-record\n') || /^(ok|bad|absent)\n/.test(e.init.stdin) || e.init.stdin.includes('\nadopted\n')) ? fakeSha(e.init.stdin) : e.init?.stdin === '/Users/x/code/app2' ? 'b'.repeat(64) : e.init?.stdin === '/Users/x/code/cond' ? 'c'.repeat(64) : e.init?.stdin === '/data/x/work' ? 'd'.repeat(64) : 'a'.repeat(64)}  -\n`)
+    if (a[0] === '/usr/bin/shasum') return ok(`${typeof e.init?.stdin === 'string' && (e.init.stdin.startsWith('LABLANE\n') || e.init.stdin.startsWith('lead-record\n') || e.init.stdin.startsWith('lead-watch\n') || /^(ok|bad|absent)\n/.test(e.init.stdin) || e.init.stdin.includes('\nadopted\n')) ? fakeSha(e.init.stdin) : e.init?.stdin === '/Users/x/code/app2' ? 'b'.repeat(64) : e.init?.stdin === '/Users/x/code/cond' ? 'c'.repeat(64) : e.init?.stdin === '/data/x/work' ? 'd'.repeat(64) : 'a'.repeat(64)}  -\n`)
     if (a[0] === '/usr/bin/install') installed.add(a[a.length - 1])
     if (a[0] === '/usr/bin/tee' && a[1] === '--' && typeof e.init?.stdin === 'string') teeTexts.set(a[2], e.init.stdin)
     const last = a[a.length - 1]

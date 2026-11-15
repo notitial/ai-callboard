@@ -122,15 +122,26 @@ export async function bindingOf($: any, leadSid: string): Promise<c.OwnerBinding
 // (a force-stopped lead kept for its lanes) is bound only by the proof its force stop left (c.keptKey): the same repo, hash, conductor and name. A hash that
 // could not be made is not a match.
 export async function boundTo($: any, r: c.OwnerRec): Promise<boolean> {
+  return (await boundState($, r)) === 'bound'
+}
+
+// boundTo with a failed read (the store or the hash) told from a real mismatch: a caller that keeps what it saw last takes 'error' as no look at all.
+export async function boundState($: any, r: c.OwnerRec): Promise<'bound' | 'unbound' | 'error'> {
+  const read = (key: string) => (async () => $.store.get(key))().then((v: unknown) => ({ v }), () => undefined)
   if (r.rec.sid === undefined) {
     const hash = await sha($, c.leadRecordText(r.repo, r.rec)).catch(() => '')
-    if (!hash) return false
-    const p = c.parseKeptProof(await (async () => $.store.get(c.keptKey(hash, r.rec.name)))().catch(() => undefined))
-    return !!p && p.repo === r.repo && p.rec === hash && p.conductorSid === r.rec.conductorSid && p.name === r.rec.name
+    if (!hash) return 'error'
+    const got = await read(c.keptKey(hash, r.rec.name))
+    if (!got) return 'error'
+    const p = c.parseKeptProof(got.v)
+    return !!p && p.repo === r.repo && p.rec === hash && p.conductorSid === r.rec.conductorSid && p.name === r.rec.name ? 'bound' : 'unbound'
   }
-  const b = await bindingOf($, r.rec.sid)
-  if (!b || b.repo !== r.repo || b.conductorSid !== r.rec.conductorSid) return false
-  return b.rec === (await sha($, c.leadRecordText(r.repo, r.rec)).catch(() => ''))
+  const got = await read(`${c.OWNER_PREFIX}${r.rec.sid}`)
+  if (!got) return 'error'
+  const b = c.parseOwnerBinding(got.v)
+  if (!b || b.repo !== r.repo || b.conductorSid !== r.rec.conductorSid) return 'unbound'
+  const hash = await sha($, c.leadRecordText(r.repo, r.rec)).catch(() => '')
+  return !hash ? 'error' : b.rec === hash ? 'bound' : 'unbound'
 }
 
 // The live owner of the lead that answers for a folder (c.ownerOf: by the lead's name, by its session id when `leadSid` is given, or the repo's only record for

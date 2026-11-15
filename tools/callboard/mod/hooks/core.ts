@@ -2165,6 +2165,17 @@ export const parseOwner = (text: string): { pid: number; procStart: string; nonc
 export const LANES_NOTICES_PER_HOUR = 12
 export const LANES_CHANGED_TEXT = `[callboard] The lanes in this repo changed. Call lane_list to see them. ${SUBMITTED_NOTE_NEVER_RECORD}`
 export const LANES_CHANGED_NOTE = '(lanes in this repo changed since your last lane tool call; call lane_list)'
+// The same pair for a conductor, about the leads it owns.
+export const LEADS_CHANGED_TEXT = `[callboard] The leads you own changed. Call lane_list to see them. ${SUBMITTED_NOTE_NEVER_RECORD}`
+export const LEADS_CHANGED_NOTE = '(the leads you own changed since your last lane tool call; call lane_list)'
+// What a conductor's watch on its leads hashes: the records that name it (`me`, its session id) in the repos it lists (`repos`), as repo, name and lead session.
+// Not the parked time, the conductor's name or the create time: a park or an unpark is the conductor's own act, while a Join, a leave, a retire and a rename
+// change the list.
+export function leadWatchText(stores: { key: string; store: LeadStore }[], me: string, repos: string[]): string {
+  const mine = stores.flatMap((s) => (repos.includes(s.store.repo) ? s.store.leads.filter((l) => l.conductorSid === me).map((l) => ({ repo: s.store.repo, name: l.name, sid: l.sid ?? '' })) : []))
+  const key = (x: { repo: string; name: string }) => `${x.repo}\n${x.name}`
+  return `lead-watch\n${JSON.stringify(mine.sort((a, b) => (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0)))}`
+}
 
 // lane_create's reply for a lane that names no lead.
 export const LANE_NO_LEAD = ' It names no lead, so any lead of this repo can reach it.'
@@ -2425,11 +2436,27 @@ export type LaneObs = { seenLive: boolean; goneN: number; goneSince?: number; at
 // starts the waiting window again; the quiet window starts again only after the lane was seen not idle twice in a row. A statusUpdatedAt missing or ahead gives
 // none. Gone needs a lane that was live: a lane by its record's sid (written at bind, cleared at a deliberate stop).
 export function observeLane(prev: LaneObs | undefined, l: Lane, entries: RegEntry[], selfSid: string, now: number): LaneObs {
-  const o: LaneObs = { seenLive: prev?.seenLive ?? false, goneN: 0 }
   const one = laneSession(entries, l, selfSid)
-  if (one.ok) {
+  return observeRow(prev, one.ok ? one.entry : one.reason === 'no-live-session' && l.sid !== undefined ? 'gone' : undefined, now)
+}
+// The same observation of a lead record, for its owning conductor. The lead's session is the one live row whose session id is the record's (never a row
+// that only carries its name); a record with no session id, or an id two rows carry, gives no trigger. liveLane: a lane of the lead has a live session, so an
+// idle lead is waiting for it: its quiet window starts only once no lane is live.
+export function observeLead(prev: LaneObs | undefined, r: LeadRec, entries: RegEntry[], now: number, liveLane: boolean): LaneObs {
+  const rows = r.sid === undefined ? [] : entries.filter((x) => x.sessionId === r.sid)
+  const o = observeRow(prev, r.sid === undefined || rows.length > 1 ? undefined : (rows[0] ?? 'gone'), now)
+  if (liveLane) {
+    delete o.quietSince
+    delete o.heldQuiet
+  }
+  return o
+}
+// row: the session's live row, 'gone' when it has none and had one, undefined when it cannot be told (no trigger).
+function observeRow(prev: LaneObs | undefined, row: RegEntry | 'gone' | undefined, now: number): LaneObs {
+  const o: LaneObs = { seenLive: prev?.seenLive ?? false, goneN: 0 }
+  if (row !== undefined && row !== 'gone') {
     o.seenLive = true
-    const e = one.entry
+    const e = row
     o.sid = e.sessionId
     const at = e.statusUpdatedAt
     if (typeof at !== 'number' || at > now) return o
@@ -2448,7 +2475,7 @@ export function observeLane(prev: LaneObs | undefined, l: Lane, entries: RegEntr
     }
     return o
   }
-  if (one.reason !== 'no-live-session' || l.sid === undefined) return o
+  if (row === undefined) return o
   o.goneN = (prev?.goneN ?? 0) + 1
   o.goneSince = prev?.goneSince ?? now
   return o
@@ -2481,6 +2508,19 @@ export function checkinText(items: AttentionItem[]): string | undefined {
   const more = ok.length > ATTENTION_MAX ? `; and ${ok.length - ATTENTION_MAX} more` : ''
   return `[callboard] Check-in: some lanes may need you. ${shown.join('; ')}${more}. Call lane_list and look at each. ${SUBMITTED_NOTE_NEVER_RECORD}`
 }
+// The owning conductor's check-in on its leads: the same fixed form, lead names through NAME_RE only.
+export const LEAD_ATTENTION_PART: Record<'gone' | 'prompt' | 'quiet', string> = {
+  gone: 'session gone, report not signed done',
+  prompt: 'waiting on a prompt for over 5 min',
+  quiet: 'quiet for 30 min with no live lane, report not signed done',
+}
+export function leadCheckinText(items: AttentionItem[]): string | undefined {
+  const ok = items.filter((i) => NAME_RE.test(i.lane) && hasCode(LEAD_ATTENTION_PART, i.code))
+  if (ok.length === 0) return undefined
+  const shown = ok.slice(0, ATTENTION_MAX).map((i) => `\`${i.lane}\` (${LEAD_ATTENTION_PART[i.code as keyof typeof LEAD_ATTENTION_PART]})`)
+  const more = ok.length > ATTENTION_MAX ? `; and ${ok.length - ATTENTION_MAX} more` : ''
+  return `[callboard] Check-in: some of your leads may need you. ${shown.join('; ')}${more}. Call lane_list and look at each. ${SUBMITTED_NOTE_NEVER_RECORD}`
+}
 // Signed done for a check-in: the report's last non-empty line is `status: done <sid>`, the record's sid when it has one, else any session id. Unlike
 // retireRefusal it needs no turn mark and ignores recency (a lane that signed and worked on still reads done).
 export function reportSigned(text: string, sid?: string): boolean {
@@ -2505,7 +2545,7 @@ export const CHECKIN_NOT_PERSON = 'Only you can pause check-ins: type /callboard
 export const CHECKIN_ON_TEXT = 'Check-ins are on again in this session.'
 export const CHECKIN_UNSAVED = 'The check-in pause could not be saved. Nothing changed.'
 // A pause outside a lead is not stored; an end of a pause while the machine-wide switch is off says so.
-export const CHECKIN_NOT_LEAD = 'Check-ins are for a lead or manager, and this session is neither. Nothing changed.'
+export const CHECKIN_NOT_LEAD = 'Check-ins are for a lead, conductor or manager, and this session is none of them. Nothing changed.'
 export const CHECKIN_ON_BUT_OFF = 'Check-ins are on again in this session, but off on this Mac: /callboard config checkin on turns them on.'
 const minsLeft = (until: number, now: number) => Math.ceil((until - now) / 60_000)
 export const checkinPausedText = (until: number, now: number): string => `Check-ins paused in this session for ${minsLeft(until, now)} min.`
