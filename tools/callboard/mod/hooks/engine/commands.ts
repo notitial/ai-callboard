@@ -903,11 +903,13 @@ export async function grantLead($: any, sid: string, code: c.OriginCode, busy: (
         leadEpoch.set(sid, epochOf(sid) + 1)
         laneObs.delete(sid)
         attnTold.delete(sid)
-        // The record and binding name the old repo: a lead that moves leaves its conductor, and the person joins one for the new folder.
-        await ownerLeave($, sid, 'off').catch(() => undefined)
       }
       grants.set(sid, c.leadGrant(pinned))
-      return epochOf(sid)
+      const epoch = epochOf(sid)
+      // The record and binding name the old repo: a lead that moves leaves its conductor, and the person joins one for the new folder. This runs after the
+      // grant is set, so nothing is awaited between the last off check and the set; an off typed meanwhile moves the epoch, which the caller compares.
+      if (oldPin !== undefined && oldPin !== pinned) await ownerLeave($, sid, 'off').catch(() => undefined)
+      return epoch
     },
     afterPresence: async () => {
       await watchInit($, sid).catch(logFail($, sid, 'lane-watch'))

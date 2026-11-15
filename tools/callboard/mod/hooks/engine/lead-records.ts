@@ -198,7 +198,7 @@ export async function ownerWrite($: any, sid: string, a: { repo: string; name: s
   const w = await editLeadRecs($, key, async (st) => {
     const no = refusal(st)
     return no ? { no } : { store: { repo: a.repo, leads: [...(st?.leads ?? []), rec] } }
-  })
+  }).catch(() => ({ no: 'store-write', wrote: true as const }))
   if ('no' in w) {
     // The file was replaced but does not show the record: it may be there, with nothing bound to it. It is taken out again.
     if (w.wrote) await dropOwn($, key, sid)
