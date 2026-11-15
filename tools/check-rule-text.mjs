@@ -1,5 +1,5 @@
-// Checks that rules/callboard.md quotes the callboard mod's fixed texts exactly: the keepalive text, the prompt notice and
-// the opener of each of the four compaction nudges. A session matches those turns against the rule, so a drifted word
+// Checks that rules/callboard.md quotes the callboard mod's fixed texts exactly: the keepalive text, the prompt notice, the
+// opener and the closing line of the PR notice, and the opener of each of the four compaction nudges. A session matches those turns against the rule, so a drifted word
 // would make it treat a real turn as an ordinary message.
 //   node tools/check-rule-text.mjs
 // Exit 0 when every quote matches, 1 with one line per mismatch, 2 when a file cannot be read. Needs node 22.18 or later,
@@ -12,11 +12,12 @@ import { fileURLToPath } from 'node:url'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const hooks = join(root, 'tools/callboard/mod/hooks')
-let rule, core, prompts
+let rule, core, prompts, prWatch
 try {
   rule = readFileSync(join(root, 'rules/callboard.md'), 'utf8')
   core = await import(join(hooks, 'core.ts'))
   prompts = await import(join(hooks, 'prompts.ts'))
+  prWatch = await import(join(hooks, 'pr-watch.ts'))
 } catch (e) {
   console.error(`cannot load: ${e.message}`)
   process.exit(2)
@@ -27,6 +28,10 @@ const quoted = (text) => rule.includes('`' + text + '`')
 
 if (!quoted(core.KEEPALIVE_TEXT)) problems.push('rules/callboard.md does not quote KEEPALIVE_TEXT exactly')
 if (!quoted(prompts.PROMPT_NOTICE_TEXT)) problems.push('rules/callboard.md does not quote PROMPT_NOTICE_TEXT exactly')
+// The PR notice: the rule quotes how it opens and its closing line.
+const PR_OPENER = '[callboard] PR notice.'
+if (!prWatch.PR_NOTICE_HEAD.startsWith(`${PR_OPENER} `) || !quoted(PR_OPENER)) problems.push('rules/callboard.md does not quote the opener of PR_NOTICE_HEAD exactly')
+if (!quoted(prWatch.PR_NOTICE_TAIL)) problems.push('rules/callboard.md does not quote PR_NOTICE_TAIL exactly')
 
 // The nudge section lists each opener as a backquoted line that starts with [callboard]; a trailing " ..." marks where the quote stops.
 const nudgeSection = rule.split('## The compaction nudge')[1]?.split('\n## ')[0] ?? ''
@@ -45,4 +50,4 @@ if (problems.length) {
   for (const p of problems) console.error(p)
   process.exit(1)
 }
-console.log(`rules/callboard.md matches the mod: keepalive, prompt notice, ${openers.length} nudge openers`)
+console.log(`rules/callboard.md matches the mod: keepalive, prompt notice, PR notice, ${openers.length} nudge openers`)
