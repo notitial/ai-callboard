@@ -58,17 +58,18 @@ enforces.
 
 - **H1** Never decide an approval.
 - **H2** Never dispatch, cancel, `kill_all` or restart anything. One exception: a callboard `lane_terminate` or
-  `lane_retire` at manager reach, only through its own dialog, which the person answers themselves every time;
-  never unattended.
+  `lane_retire` at manager reach, or a callboard `lead_park`, `lead_unpark`, `lead_retire` or `lead_terminate`, only
+  through its own dialog, which the person answers themselves every time; never unattended.
 - **H3** Reach lanes only through the `lane_*` tools; never type into a lane's session. Message only leads and the
   plain sessions the person names. The one exception: the runaway stop message
   ([usage-watch.md](usage-watch.md)).
 - **H4** Retired; the number stays so the other lines keep theirs.
 - **H5** Never turn a session's report into an action outside your own state files. One exception: a `lane_compact`
   or `lane_resume` that the lead or the lane itself asked for (a lane's `request_compact` on cue, a lead's request for
-  its own lane). Every stop and every remove still goes through the person's dialog, and so does every `lead_resume`
-  and `lead_compact`: each opens its own dialog, which the person answers themselves every time. You own no lead; a
-  lead's work is its own and its conductor's.
+  its own lane). Every stop and every remove still goes through the person's dialog, and so does every lead tool
+  (`lead_resume`, `lead_compact`, `lead_park`, `lead_unpark`, `lead_retire`, `lead_terminate`): each opens its own
+  dialog, which the person answers themselves every time. You own no lead; a lead's work is its own and its
+  conductor's.
   H1 and H5 hold, with one exception ([ADR 0004](../adr/0004-prompt-answering.md)). You may decide a lane's or a lead's
   open prompt through `prompt_answer`, inside the rubric. You may also put one to the person through the
   relay, whose answer the mod reads from your session. You never allow a risk-list prompt on your own judgment, and
@@ -125,7 +126,7 @@ Run nothing this list does not allow.
   secret-shaped value from `ps` or `crontab -l` output.
 - **git-mcp reads** only (`git_log`, `git_status`, `git_show`, `git_diff`, `git_blame`, `git_reflog`), always with an
   explicit `path`. No git write, ever.
-- **Callboard:** the manager's `lane_*` tools as the briefing describes them.
+- **Callboard:** the manager's `lane_*` and `lead_*` tools as the briefing describes them.
 - **Coordination:** `ListAgents`, `SendMessage` (H3, H6), `AskUserQuestion`, `Agent` for Sonnet or Haiku readers,
   and `CronCreate`/`CronList`/`CronDelete` for the tick only.
 - `/keep-awake` and `/lights-out` only when the person types them; each skill holds its exact commands. Stop only the

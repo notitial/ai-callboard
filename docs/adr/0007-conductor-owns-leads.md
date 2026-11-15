@@ -152,6 +152,13 @@ lead itself asked for it" above. The conductor's own powers are unchanged (retir
 dialog). The code for this ships with the lead tools; the text lands first so the ADR says one thing from the first code
 step on.*
 
+*Amended 2026-11-15 (the lead stop tools): the manager also has `lead_park` and `lead_unpark`, so its four lead stop
+tools are `lead_park`, `lead_unpark`, `lead_retire` and `lead_terminate`. It owns no lead and acts on any lead only
+through the tool's own dialog, which the person answers themselves every time; never unattended. A park still needs
+the lead's own mod to confirm, as for its conductor, so a lead takes `park` as well as `resume`, `compact` and
+`retire` from a trusted manager. The table's manager column reads `yes, behind its dialog` for `lead_park` and
+`lead_unpark`. H2's exception in ADR 0001 names all four.*
+
 **Target checks.** Before any dialog or cue, after the dialog, and right before the signal, each time from a fresh read:
 the record's session id is the target session's; the target holds a live lead presence file for exactly the record's
 repo (a check that cannot be made refuses); for a conductor, the record's conductor is the caller's own session and the
@@ -291,7 +298,7 @@ Each carries a dated line pointing here; they apply as each step is built.
 
 - **ADR 0001:** the manager's tools gain the four `lead_*` tools above; H2's exception for a stop covers `lead_retire`
   and `lead_terminate` too, each behind its own dialog, never unattended; H3, H5 and the closed list of what it may run
-  follow.
+  follow. *Amended 2026-11-15: the exception names `lead_park`, `lead_unpark`, `lead_retire` and `lead_terminate`.*
 - **ADR 0002:** the levels table (a conductor reaches its leads and their lanes); the conductor section ("cannot stop a
   lead", "no check-ins", the lead's side naming any trusted conductor, the dialog text); the manager's stops, which
   refuse a presence holder except a lead targeted by `lead_retire` or `lead_terminate`; the cue rule of a lane whose

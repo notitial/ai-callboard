@@ -59,7 +59,11 @@ export async function leadTarget($: any, e: unknown, sid: string, name: unknown,
     return { t: by, start }
   }
   const r = hit.rec
-  if (g.level === 'conductor' && !(await boundTo($, r))) return no('record-changed', c.leadWhy('record-changed'))
+  // A record with no session and no proof of its owner reaches nothing, but its own conductor may still remove it (lead_retire, the sidless call). So may it a
+  // record whose session has no live registry row (a panel closed without /callboard off): the lead's binding may be gone with it, and a removal gives no reach.
+  // The remove path checks again that the session is not live.
+  const removable = opts.sidless === true && (r.rec.sid === undefined || !base.live.some((row) => row.j.sessionId === r.rec.sid))
+  if (g.level === 'conductor' && !removable && !(await boundTo($, r))) return no('record-changed', c.leadWhy('record-changed'))
   if (r.rec.sid === undefined && opts.sidless !== true) return no('no-live-session', c.leadWhy('no-live-session'))
   if (r.rec.sid === sid) return no('self', c.reasonWhy('self'))
   return { t: { name: r.rec.name, sid: r.rec.sid, repo: r.repo, key: r.key, rec: r }, start }

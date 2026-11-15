@@ -165,7 +165,7 @@ test('manager tools: lane_list and lane_resume reach lanes in every repo; every 
   expect((await $.tool.call(mgrCall('resume', 'LABLANE'))).result).toBe('cue resume acted for lane LABLANE.')
   expect((await $.tool.call(mgrCall('resume', 'API'))).result).toBe('cue resume acted for lane API.')
   for (const verb of ['create', 'open', 'rename', 'start', 'park', 'unpark'])
-    expect(JSON.stringify(await $.tool.call(mgrCall(verb, 'API'))), verb).toContain('the manager may only list, resume, compact, force stop and retire lanes, and resume and compact leads.')
+    expect(JSON.stringify(await $.tool.call(mgrCall(verb, 'API'))), verb).toContain(REASON_TEXT['manager-tool'])
   expect(argv.filter((a) => a[0] === '/bin/mv' && a[a.length - 1].startsWith(`${ROOT}/cue/`)).length).toBe(2)
 })
 
@@ -441,8 +441,8 @@ test('a lead takes a compact cue only while a live manager with a reserved name 
   expect(logged(stdins)).toContain('requested:on-cue-lead')
   await $.turn.complete(TURN as any)
   expect(logged(stdins)).toContain('armed:on-cue')
-  // The manager's resume is taken (test/lead-cues.test.ts); the lane verbs are not.
-  for (const [ino, verb] of [[92, 'retire'], [93, 'park'], [94, 'start']] as const) expect(await cue(ino, `${verb}\n`)).toBe(`${verb} refused not-eligible ${ino}\n`)
+  // The manager's resume, park and retire are taken (test/lead-cues.test.ts); a lane verb is not.
+  expect(await cue(94, 'start\n')).toBe('start refused not-eligible 94\n')
   expect(seen.compacted).toBe(false)
   // No manager, or one whose registry name is not reserved: refused.
   h.sessions = { ...leadSelfReg(), ...mgrRow('LEAD2') }

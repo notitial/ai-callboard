@@ -140,7 +140,7 @@ export const leadToolsInFlight = new Map<string, Promise<void>>()
 export const managerSeen = new Map<string, { at: number; live: boolean; conductors?: string[] }>()
 export const managerSeenBusy = new Map<string, object>()
 
-// The manager's five lane tools, declared at its grant, then the three prompt tools (eight in all, c.MANAGER_TOOLS). The handlers are the lead's (leadBase refuses every other lane tool at manager level).
+// The manager's five lane tools and six lead tools, declared at its grant, then the three prompt tools (fourteen in all, c.MANAGER_TOOLS). The handlers are the lead's (leadBase refuses every other lane tool at manager level).
 export const managerDeclared = new Set<string>()
 
 // Lead cue calls to one target go one at a time inside this process (a lead can issue parallel tool calls); they share one answer file.

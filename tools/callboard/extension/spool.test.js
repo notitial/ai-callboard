@@ -11,7 +11,7 @@ const FOLDER = '/work/repo/lab'
 const PARKED = [{ name: 'LAB', folder: FOLDER, repo: '/work/repo', sid: SID }]
 
 // `onLoad` runs while the lane list is read: after the request file was looked at and before it is claimed, the window a competing window or a swap can use.
-function world({ lanes = [{ name: 'LAB', folder: FOLDER }], ws = [FOLDER], openLane, openLead, reopenLane, now, closeFails, uid, onLoad, liveInRepo, home } = {}) {
+function world({ lanes = [{ name: 'LAB', folder: FOLDER }], leads, ws = [FOLDER], openLane, openLead, reopenLane, now, closeFails, uid, onLoad, liveInRepo, home } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cb-spool-'))
   fs.chmodSync(dir, 0o700)
   const opened = []
@@ -26,6 +26,10 @@ function world({ lanes = [{ name: 'LAB', folder: FOLDER }], ws = [FOLDER], openL
       if (lanes instanceof Error) throw lanes
       return lanes
     },
+    ...(leads === undefined ? {} : { loadLeads: async () => {
+      if (leads instanceof Error) throw leads
+      return leads
+    } }),
     openLane: openLane ?? (async (f) => {
       opened.push(f)
       return SID
@@ -882,4 +886,137 @@ test('a lead request replaced by another file between the read and the claim is 
   }
   assert.deepEqual(w.opened, [])
   assert.equal(w.result('LEAD-A'), 'error bad-request\n')
+})
+
+const { readLeadStores, allLeads } = require('./spool.js')
+const LREPO = '/work/repo'
+const LEAD = { name: 'LEAD-A', folder: LREPO, repo: LREPO, sid: SID, lead: true, parked: Date.now() }
+
+test('a reopen for a parked lead whose record names that sid reopens it in the window that holds its repo', async () => {
+  const w = world({ lanes: [], leads: [LEAD], ws: [LREPO] })
+  const f = w.putReopen('LEAD-A')
+  assert.deepEqual(await w.spool.scan(), [['LEAD-A', 'reopened']])
+  assert.deepEqual(w.reopened, [SID])
+  assert.equal(w.result('LEAD-A'), `ok ${SID}\n`)
+  assert.equal(fs.existsSync(f), false)
+})
+
+test('a lead reopen with another sid or a record with no sid is sid-mismatch; another window\'s repo is left in place', async () => {
+  const other = '2a1b2c3d-0000-4000-8000-123456789abc'
+  const a = world({ lanes: [], leads: [LEAD], ws: [LREPO] })
+  a.putReopen('LEAD-A', `${other}\n`)
+  assert.deepEqual(await a.spool.scan(), [['LEAD-A', 'sid-mismatch']])
+  assert.equal(a.result('LEAD-A'), 'error sid-mismatch\n')
+  const { sid, ...noSid } = LEAD
+  const b = world({ lanes: [], leads: [noSid], ws: [LREPO] })
+  b.putReopen('LEAD-A')
+  assert.deepEqual(await b.spool.scan(), [['LEAD-A', 'sid-mismatch']])
+  assert.deepEqual(b.reopened, [])
+  const c = world({ lanes: [], leads: [LEAD], ws: ['/work/other'] })
+  const f = c.putReopen('LEAD-A')
+  assert.deepEqual(await c.spool.scan(), [['LEAD-A', 'not-mine']])
+  assert.equal(fs.existsSync(f), true)
+  assert.equal(c.result('LEAD-A'), undefined)
+})
+
+test('a lead reopen needs a parked mark at most 28 days old, as the mod does', async () => {
+  const { parked, ...live } = LEAD
+  const cases = [
+    [live, 'no parked mark'],
+    [{ ...LEAD, parked: Date.now() - 28 * 24 * 3_600_000 - 60_000 }, 'parked more than 28 days ago'],
+    [{ ...LEAD, parked: Date.now() + 60_000 }, 'parked in the future'],
+  ]
+  for (const [lead, why] of cases) {
+    const w = world({ lanes: [], leads: [lead], ws: [LREPO] })
+    w.putReopen('LEAD-A')
+    assert.deepEqual(await w.spool.scan(), [['LEAD-A', 'not-parked']], why)
+    assert.equal(w.result('LEAD-A'), 'error not-parked\n', why)
+    assert.deepEqual(w.reopened, [], why)
+  }
+})
+
+test('a lane of exactly that name comes before a lead record; a lane of the name in another letter case makes it unknown-lane; a lead is never opened by an open request', async () => {
+  const both = world({ lanes: [{ name: 'lead-a', folder: `${LREPO}/x`, repo: LREPO, sid: SID }], leads: [LEAD], ws: [LREPO, `${LREPO}/x`] })
+  both.putReopen('LEAD-A')
+  assert.deepEqual(await both.spool.scan(), [['LEAD-A', 'unknown-lane']])
+  assert.equal(both.result('LEAD-A'), 'error unknown-lane\n')
+  assert.deepEqual(both.reopened, [])
+  const LANESID = '4a1b2c3d-0000-4000-8000-123456789abc'
+  const lane = world({ lanes: [{ name: 'LEAD-A', folder: LREPO, repo: LREPO, sid: LANESID }], leads: [LEAD], ws: [LREPO] })
+  lane.putReopen('LEAD-A', `${LANESID}\n`)
+  assert.deepEqual(await lane.spool.scan(), [['LEAD-A', 'reopened']], 'the lane reopens, whatever the lead record says')
+  assert.deepEqual(lane.reopened, [LANESID])
+  const leadAsk = world({ lanes: [{ name: 'LEAD-A', folder: LREPO, repo: LREPO, sid: LANESID }], leads: [LEAD], ws: [LREPO] })
+  leadAsk.putReopen('LEAD-A')
+  assert.deepEqual(await leadAsk.spool.scan(), [['LEAD-A', 'sid-mismatch']], "the lead's session id does not match the lane")
+  assert.deepEqual(leadAsk.reopened, [])
+  const open = world({ lanes: [], leads: [LEAD], ws: [LREPO] })
+  open.put('LEAD-A')
+  assert.deepEqual(await open.spool.scan(), [['LEAD-A', 'unknown-lane']])
+  assert.deepEqual(open.opened, [])
+  const broken = world({ lanes: [], leads: new Error('boom'), ws: [LREPO] })
+  broken.putReopen('LEAD-A')
+  assert.deepEqual(await broken.spool.scan(), [['LEAD-A', 'lanes-file']])
+  assert.equal(broken.result('LEAD-A'), 'error lanes-file\n')
+})
+
+test('readLeadStores reads a lead record as the mod does and refuses the whole file for one bad record', async () => {
+  const w = storeWorld()
+  const C = '3a1b2c3d-0000-4000-8000-123456789abc'
+  const rec = { name: 'LEAD-A', createdAt: 1, how: 'made', conductorSid: C, conductorName: 'COND', nonce: 'a'.repeat(32), sid: SID, parked: 5 }
+  const good = { repo: w.repo, leads: [rec] }
+  w.put(good)
+  assert.deepEqual(await readLeadStores(w.dir), [{ name: 'LEAD-A', folder: w.repo, repo: w.repo, store: `${w.key}.json`, sid: SID, parked: 5 }])
+  const two = { ...rec, name: 'LEAD-B', sid: undefined, parked: undefined, how: 'joined', nonce: undefined }
+  w.put({ repo: w.repo, leads: [rec, JSON.parse(JSON.stringify(two))] })
+  assert.deepEqual((await readLeadStores(w.dir)).map((l) => [l.name, 'sid' in l]), [['LEAD-A', true], ['LEAD-B', false]])
+  const bad = [
+    ['an unknown key', { ...good, leads: [{ ...rec, extra: 1 }] }],
+    ['an unknown top-level key', { ...good, lanes: [] }],
+    ['a bad how', { ...good, leads: [{ ...rec, how: 'stolen' }] }],
+    ['a bad conductor sid', { ...good, leads: [{ ...rec, conductorSid: 'x' }] }],
+    ['a bad conductor name', { ...good, leads: [{ ...rec, conductorName: 'a b' }] }],
+    ['a nonce on a joined lead', { ...good, leads: [{ ...rec, how: 'joined' }] }],
+    ['a nonce that is not 32 hex', { ...good, leads: [{ ...rec, nonce: 'z'.repeat(32) }] }],
+    ['parked without a sid', { ...good, leads: [{ ...rec, sid: undefined }] }],
+    ['a bad sid', { ...good, leads: [{ ...rec, sid: SID.toUpperCase() }] }],
+    ['a reserved name', { ...good, leads: [{ ...rec, name: 'MANAGER_' }] }],
+    ['a name twice in another case', { ...good, leads: [rec, { ...rec, name: 'lead-a', sid: undefined, parked: undefined }] }],
+    ['a sid twice', { ...good, leads: [rec, { ...rec, name: 'LEAD-B' }] }],
+    ['too many records', { ...good, leads: Array.from({ length: 17 }, (_, i) => ({ ...rec, name: `L${i}`, sid: undefined, parked: undefined })) }],
+    ['no createdAt', { ...good, leads: [{ ...rec, createdAt: 'x' }] }],
+  ]
+  for (const [why, obj] of bad) {
+    w.put(JSON.parse(JSON.stringify(obj)))
+    assert.deepEqual(await readLeadStores(w.dir), [], why)
+  }
+  w.put(good, { mode: 0o640 })
+  assert.deepEqual(await readLeadStores(w.dir), [], 'group readable')
+  fs.rmSync(path.join(w.dir, `${w.key}.json`))
+  w.put(good, { name: `${'b'.repeat(64)}.json` })
+  assert.deepEqual(await readLeadStores(w.dir), [], 'the file name is not the sha of the repo')
+  fs.rmSync(path.join(w.dir, `${'b'.repeat(64)}.json`))
+  w.put(good)
+  fs.rmSync(path.join(w.repo, '.git'), { recursive: true })
+  assert.deepEqual(await readLeadStores(w.dir), [], 'not a git root')
+  gitDir(w.repo)
+  assert.deepEqual(await readLeadStores(w.dir, { home: w.repo }), [], 'the repo is the home folder')
+  fs.chmodSync(w.dir, 0o755)
+  assert.deepEqual(await readLeadStores(w.dir), [], 'the folder is not private')
+})
+
+test('allLeads drops a lead whose name is in two record files, and a missing folder is no leads', async () => {
+  const a = storeWorld()
+  const C = '3a1b2c3d-0000-4000-8000-123456789abc'
+  const rec = { name: 'LEAD-A', createdAt: 1, how: 'joined', conductorSid: C, sid: SID }
+  a.put({ repo: a.repo, leads: [rec] })
+  assert.deepEqual(await allLeads({ recordDir: a.dir }), [{ name: 'LEAD-A', folder: a.repo, repo: a.repo, lead: true, sid: SID }])
+  const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'cb-repo-')))
+  const repo2 = path.join(base, 'work', 'two')
+  fs.mkdirSync(repo2, { recursive: true })
+  gitDir(repo2)
+  a.put({ repo: repo2, leads: [{ ...rec, name: 'lead-a', sid: undefined }] }, { name: `${crypto.createHash('sha256').update(repo2).digest('hex')}.json` })
+  assert.equal((await readLeadStores(a.dir)).length, 2)
+  assert.deepEqual(await allLeads({ recordDir: a.dir }), [])
+  assert.deepEqual(await allLeads({ recordDir: path.join(a.dir, 'none') }), [])
 })

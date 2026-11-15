@@ -4,6 +4,7 @@
 // folder is a workspace folder of this window, then writes <LANE>.result (`ok <sid>` or `error <code>`).
 // A conductor's lead_open writes <NAME>.lead (ADR 0006): no lane record exists, so the request names the repo, and this window
 // opens a panel only when that repo is its first workspace folder, answering on <NAME>.result the same way.
+// lead_unpark writes <NAME>.reopen for a parked lead: the name is found in the lead records (~/.claude/callboard/lead-records), and the lead's repo is its folder.
 // Every file is a filter: any process of the same user can write here, so the limits below do not rely on the file.
 
 const fsp = require('node:fs/promises')
@@ -30,6 +31,9 @@ const OPEN_BUDGET_MS = 60_000
 const LIVE_PER_REPO = 8
 const STORE_MAX_BYTES = 16_384
 const STORE_MAX_LANES = 16
+// How long after its park a lead can be reopened (the mod's UNPARK_MAX_MS), and the records one lead-record file may hold (the mod's LEAD_STORE_MAX).
+const LEAD_UNPARK_MAX_MS = 28 * 24 * 3_600_000
+const LEAD_STORE_MAX = 16
 
 const clean = (p) => typeof p === 'string' && /^\/[\x21-\x7e]*$/.test(p) && !p.split('/').some((s) => s === '..' || s === '.') && p.length < 512 && !p.includes('//')
 
@@ -121,7 +125,59 @@ async function allLanes({ storeDir, uid, home } = {}) {
   return out
 }
 
-function createSpool({ dir, uid = process.getuid(), home = os.homedir(), loadLanes, openLane, openLead = openLane, closeLane, reopenLane, workspaceFolders, liveInRepo, now = Date.now }) {
+// The leads conductors own (ADR 0007): one file per repo in the user's own lead-records folder, named by the sha-256 of the repo's real path, read with the
+// rules readStores uses and parsed by the mod's parseLeadStore rules: only the keys a record may carry, a name of the lane grammar that is not reserved, how
+// `made` or `joined`, the conductor's session id, a conductor name of the lane grammar, a 32-hex nonce only on a made lead, sid a session id, parked only with
+// a sid, and no two records of one name (in any letter case) or one sid. One bad record refuses the whole file. A lead's folder is its repo.
+const LEAD_KEYS = ['name', 'createdAt', 'how', 'conductorSid', 'conductorName', 'nonce', 'sid', 'parked']
+async function readLeadStores(dir, { uid = process.getuid(), home = os.homedir() } = {}) {
+  const d = await fsp.lstat(dir).catch(() => undefined)
+  if (!d || !d.isDirectory() || d.uid !== uid || (d.mode & 0o777) !== 0o700) return []
+  const out = []
+  const names = (await fsp.readdir(dir).catch(() => [])).filter((n) => /^[0-9a-f]{64}\.json$/.test(n)).sort().slice(0, 64)
+  for (const n of names) {
+    const text = await readOwned(path.join(dir, n), uid, { modeBad: (mode) => (mode & 0o777) !== 0o600, max: STORE_MAX_BYTES })
+    if (text === undefined || text.length > STORE_MAX_BYTES) continue
+    let j
+    try {
+      j = JSON.parse(text)
+    } catch {
+      continue
+    }
+    if (!j || typeof j !== 'object' || Array.isArray(j) || Object.keys(j).some((k) => k !== 'repo' && k !== 'leads')) continue
+    if (!clean(j.repo) || j.repo.length < 2 || !Array.isArray(j.leads) || j.leads.length > LEAD_STORE_MAX) continue
+    if (pinRefusal(j.repo, home) !== undefined) continue
+    if (crypto.createHash('sha256').update(j.repo).digest('hex') !== n.slice(0, -5)) continue
+    if ((await fsp.realpath(j.repo).catch(() => '')) !== j.repo) continue
+    if (!(await gitRoot(j.repo, uid))) continue
+    const seen = []
+    const bad = j.leads.some((l) => {
+      if (!l || typeof l !== 'object' || Array.isArray(l) || Object.keys(l).some((k) => !LEAD_KEYS.includes(k))) return true
+      if (typeof l.name !== 'string' || !NAME_RE.test(l.name) || reservedHit(l.name) || !Number.isFinite(l.createdAt)) return true
+      if ((l.how !== 'made' && l.how !== 'joined') || typeof l.conductorSid !== 'string' || !SID_RE.test(l.conductorSid)) return true
+      if (l.conductorName !== undefined && (typeof l.conductorName !== 'string' || !NAME_RE.test(l.conductorName))) return true
+      if (l.nonce !== undefined && (l.how !== 'made' || typeof l.nonce !== 'string' || !/^[0-9a-f]{32}$/.test(l.nonce))) return true
+      if (l.sid !== undefined && (typeof l.sid !== 'string' || !SID_RE.test(l.sid))) return true
+      if (l.parked !== undefined && (!Number.isFinite(l.parked) || l.sid === undefined)) return true
+      if (seen.some((x) => x.name.toUpperCase() === l.name.toUpperCase() || (l.sid !== undefined && x.sid === l.sid))) return true
+      seen.push(l)
+      return false
+    })
+    if (bad) continue
+    for (const l of j.leads) out.push({ name: l.name, folder: j.repo, repo: j.repo, store: n, ...(l.sid !== undefined ? { sid: l.sid } : {}), ...(l.parked !== undefined ? { parked: l.parked } : {}) })
+  }
+  return out
+}
+
+// The leads from the record files. A lead whose name (in any letter case) is in more than one file is dropped.
+async function allLeads({ recordDir, uid, home } = {}) {
+  const leads = await readLeadStores(recordDir, { uid, home })
+  const files = new Map()
+  for (const l of leads) files.set(l.name.toUpperCase(), new Set([...(files.get(l.name.toUpperCase()) ?? []), l.store]))
+  return leads.filter((l) => files.get(l.name.toUpperCase()).size === 1).map((l) => ({ name: l.name, folder: l.folder, repo: l.repo, lead: true, ...(l.sid !== undefined ? { sid: l.sid } : {}), ...(l.parked !== undefined ? { parked: l.parked } : {}) }))
+}
+
+function createSpool({ dir, uid = process.getuid(), home = os.homedir(), loadLanes, loadLeads = async () => [], openLane, openLead = openLane, closeLane, reopenLane, workspaceFolders, liveInRepo, now = Date.now }) {
   let seq = 0
   let busy = false
   const lastOpen = new Map()
@@ -194,18 +250,23 @@ function createSpool({ dir, uid = process.getuid(), home = os.homedir(), loadLan
 
   // The three lane request kinds in this order: look, the lane list, the lane, the window's folder, take. It returns { code } for the refusal to give back, or
   // { lane, body, t }. answers: a refusal for the lane list or an unknown lane is also answered on <LANE>.result; a close request answers nothing.
-  async function claim(name, ext, maxBytes, answers) {
+  // leads (a reopen only): a name no lane carries, in any letter case, may be a lead's, from the lead records, with its repo as the folder. A lane of exactly
+  // that name comes first, so a lead record never blocks a lane's reopen; the request's session id must still match what was found.
+  async function claim(name, ext, maxBytes, answers, { leads = false } = {}) {
     const f = await look(name, ext, maxBytes)
     if (f.code) return f
     let lanes
+    let leadList = []
     try {
       lanes = await loadLanes()
+      if (leads) leadList = await loadLeads()
     } catch {
       await drop(f.file)
       if (answers) await writeResult(name, 'error lanes-file\n')
       return { code: 'lanes-file' }
     }
-    const lane = lanes.find((l) => l.name === name)
+    const laneNamed = lanes.some((l) => l.name.toUpperCase() === name.toUpperCase())
+    const lane = lanes.find((l) => l.name === name) ?? (laneNamed ? undefined : leadList.find((l) => l.name === name))
     if (!lane) {
       await drop(f.file)
       if (answers) await writeResult(name, 'error unknown-lane\n')
@@ -337,11 +398,12 @@ function createSpool({ dir, uid = process.getuid(), home = os.homedir(), loadLan
     return closeLane({ sid: m[1], pid, name }) ? 'closing' : 'bad-request'
   }
 
-  // A reopen request, <LANE>.reopen, written by lane_unpark: one line, the session id of the lane's saved conversation. The lane's store record must name
-  // that very id, and the window must hold the lane folder as its first folder. The same rate limits as an open; answered on
+  // A reopen request, <LANE>.reopen, written by lane_unpark (or <NAME>.reopen by lead_unpark): one line, the session id of the saved conversation. The lane's
+  // store record, or for a lead its lead record, must name that very id, and the window must hold the lane folder (a lead's repo) as its first folder. A lead's
+  // record must also be parked, at most LEAD_UNPARK_MAX_MS ago (the mod's limit; not-parked otherwise). The same rate limits as an open; answered on
   // <LANE>.result with `ok <sid>` or `error <code>`.
   async function handleReopen(name) {
-    const got = await claim(name, 'reopen', 64, true)
+    const got = await claim(name, 'reopen', 64, true, { leads: true })
     if (got.code) return got.code
     const { lane, body, t } = got
     const m = typeof body === 'string' ? /^([0-9a-f-]{36})\n$/.exec(body) : null
@@ -352,6 +414,10 @@ function createSpool({ dir, uid = process.getuid(), home = os.homedir(), loadLan
     if (lane.sid !== m[1]) {
       await writeResult(name, 'error sid-mismatch\n')
       return 'sid-mismatch'
+    }
+    if (lane.lead && !(Number.isFinite(lane.parked) && t - lane.parked >= -MAX_SKEW_MS && t - lane.parked <= LEAD_UNPARK_MAX_MS)) {
+      await writeResult(name, 'error not-parked\n')
+      return 'not-parked'
     }
     const adm = await admit(name, lane, t)
     if (adm.code) return adm.code
@@ -406,4 +472,4 @@ function createSpool({ dir, uid = process.getuid(), home = os.homedir(), loadLan
   return { scan, handle, handleClose, handleReopen, handleLead, start }
 }
 
-module.exports = { createSpool, readStores, allLanes, REQUEST_TEXT }
+module.exports = { createSpool, readStores, allLanes, readLeadStores, allLeads, REQUEST_TEXT }

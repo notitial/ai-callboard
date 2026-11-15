@@ -554,8 +554,8 @@ for (const level of LEVELS) {
 const PROMPT = ['prompt_list', 'prompt_answer', 'prompt_escalate']
 const DECLARED = {
   lead: ['lane_rename', 'lane_start', 'lane_resume', 'lane_compact', 'lane_terminate', 'lane_retire', 'lane_park', 'lane_create', 'lane_open', 'lane_unpark', 'lane_list', ...PROMPT],
-  conductor: ['lane_list', 'lane_compact', 'lane_terminate', 'lead_open', 'lead_resume', 'lead_compact', ...PROMPT],
-  manager: ['lane_list', 'lane_resume', 'lane_compact', 'lane_terminate', 'lane_retire', 'lead_resume', 'lead_compact', ...PROMPT],
+  conductor: ['lane_list', 'lane_compact', 'lane_terminate', 'lead_open', 'lead_resume', 'lead_compact', 'lead_park', 'lead_unpark', 'lead_retire', 'lead_terminate', ...PROMPT],
+  manager: ['lane_list', 'lane_resume', 'lane_compact', 'lane_terminate', 'lane_retire', 'lead_resume', 'lead_compact', 'lead_park', 'lead_unpark', 'lead_retire', 'lead_terminate', ...PROMPT],
 }
 const LANE_VERBS = ['lane_list', 'lane_start', 'lane_resume', 'lane_compact', 'lane_park', 'lane_unpark', 'lane_terminate', 'lane_retire', 'lane_create', 'lane_open', 'lane_rename']
 const REFUSED_BY_LEVEL = {

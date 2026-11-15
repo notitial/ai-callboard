@@ -1,5 +1,5 @@
 import { expect } from 'claude-code/testing'
-import { conductorFileText, folderName, leadRecordText, JOIN_NONE, LANES_CHANGED_TEXT, LANES_CHANGED_NOTE, reboundToast, KEEPALIVE_TEXT } from '../hooks/core'
+import { conductorFileText, folderName, keptKey, leadRecordText, JOIN_NONE, LANES_CHANGED_TEXT, LANES_CHANGED_NOTE, reboundToast, KEEPALIVE_TEXT } from '../hooks/core'
 import type { LeadRec } from '../hooks/core'
 import { h, AUTO_OWN, GOOD, LANESDIR, LEADRECDIR, NO, PS_TABLE, ROOT, SID, T0, TOOL, YES, condFiles, engine, extraStat, fakeSha, laneSeed, leadFiles, quiet, repoKey, resultFiles, storeFiles, submitted } from './harness'
 import type { Trace } from './harness'
@@ -605,6 +605,12 @@ export const leadRecsJson = (repo = PIN): { repo: string; leads: LeadRec[] } => 
 export function bindOwner(leadSid: string, conductorSid: string, name: string, repo = PIN): void {
   const rec = leadRecsJson(repo).leads.find((l) => l.name === name)!
   h.store.set(`owner:${leadSid}`, { repo, rec: fakeSha(leadRecordText(repo, rec)), conductorSid, at: T0 })
+}
+// The owner proof of a record kept with no session (the record named `name` in the repo's file), as the stop that kept it writes it: without it the record is unbound.
+export function keptOwner(name: string, repo = PIN): void {
+  const rec = leadRecsJson(repo).leads.find((l) => l.name === name)!
+  const hash = fakeSha(leadRecordText(repo, rec))
+  h.store.set(keptKey(hash, name), { repo, rec: hash, conductorSid: rec.conductorSid, at: T0, name })
 }
 // "This lead is owned by that conductor": the record (added to the repo's file) and the lead's binding to it. Lead LEAD of this session in PIN unless said.
 export function ownedBy(conductorSid: string, o: { name?: string; leadSid?: string; repo?: string } = {}): void {

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// callboard prompt-audit [--since DATE] [--root DIR] [--projects DIR] [--json]
+// callboard prompt-audit [--since DATE] [--root DIR] [--projects DIR] [--records DIR] [--json]
 // Read-only audit of prompt answering (ADR 0004, "Rollout, off switch and audit"): one table of every request, the anomalies
 // that must stay empty, what is deliberately not an anomaly, and wait counts. Nothing here writes: it never creates, edits,
 // renames, removes or touches a file, and it follows no symlink inside the folders it reads. Convenience only: every real
@@ -23,6 +23,9 @@
 //   lead-owner code (made | joined | left | off), hash, repo, lane (the lead's name then, for reading only), target (the lead's session id), by (the conductor's session id; made, joined), was (the conductor it left; left, off), nonce (made)   a lead's conductor changed (ADR 0007); written before the record changes
 //   lead-resume hash, repo, lane (the lead's name), by, target (the lead's session id), tier (conductor | manager), dialog (yes | none)   a lead tool sent a
 //              resume cue; written before the cue, so a row with no cue after it is a refused or failed send
+//   lead-stop  the lead-resume fields (target absent for a record no session carried) and code (park | unpark | retire | terminate | remove)   a lead tool parked,
+//              reopened, retired, force-stopped or removed a lead; written before the action
+// The lead records (--records, default the lead-records folder beside the prompts folder; read only, each file whole) are checked against the lead-owner rows (rule i).
 //   answered / returned rows of a question's answer carry code: "answer", opt (the chosen option's index, as a string) and lh (the first 16 hex of SHA-256(id + "\n" + label), the label redacted
 //              and trimmed); the labels themselves are in prompts/questions-YYYY-MM.jsonl, { t, id, lane, repo, tier, by, header, question, options, label, via? }
 //   answered / returned rows of the person's own answer carry via: "person", short and by = the relaying tier's session id (no prompt_answer call exists for them)
@@ -67,7 +70,7 @@ const QUESTION_DAYS = 90
 const LABEL_MAX = 256
 
 const ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
-const KINDS = new Set(['requested', 'answered', 'escalated', 'dropped', 'returned', 'superseded', 'expired-denied', 'off', 'abandoned', 'dialog', 'not-judgeable', 'no-tier', 'answering-on', 'answering-off', 'relayed', 'relay-lost', 'relay-left', 'relay-late', 'deny-unclear', 'lead-offer', 'lead-offer-void', 'lead-grant', 'lead-owner', 'lead-resume'])
+const KINDS = new Set(['requested', 'answered', 'escalated', 'dropped', 'returned', 'superseded', 'expired-denied', 'off', 'abandoned', 'dialog', 'not-judgeable', 'no-tier', 'answering-on', 'answering-off', 'relayed', 'relay-lost', 'relay-left', 'relay-late', 'deny-unclear', 'lead-offer', 'lead-offer-void', 'lead-grant', 'lead-owner', 'lead-resume', 'lead-stop'])
 const FIELDS = ['code', 'id', 'lane', 'repo', 'tool', 'pattern', 'hash', 'tier', 'why', 'nonce', 'tuid', 'by', 'via', 'short', 'opt', 'lh', 'target', 'was', 'dialog']
 const ENDS = new Set(['returned', 'superseded', 'expired-denied', 'off', 'abandoned'])
 // A `dropped` row with one of these codes is a decision the hook refused as forged or wrong: an anomaly. The others are ordinary.
@@ -951,7 +954,80 @@ function buildRelay({ rows, groups, inRange, qById }, tx) {
   return { relayCounts, relayedList }
 }
 
-export function audit({ root, projects, since, now = Date.now(), projectsExplicit = false, transcriptBudget = TRANSCRIPT_TOTAL_MAX_BYTES, transcriptLineMax = TRANSCRIPT_LINE_MAX }) {
+// i. lead tools and lead stops (ADR 0007). A conductor's lead-resume or lead-stop row needs that conductor to own the lead then: the newest lead-owner row of the
+// same repo hash and lead (target) at or before it is a made or joined row by that conductor. A lead-stop row with no target (a record no session
+// carried) is not judged for its owner. A force stop always asks the person, and so does every call of the manager: such a row whose dialog is not yes is
+// flagged. Each lead record that names a session must have, as the newest lead-owner row of its repo hash and that session, a made or joined row by
+// its conductor; the name is not compared, so a rename (which writes no row) raises no flag, and a record with no session is skipped.
+const OWNER_CODES = new Set(['made', 'joined'])
+function ownerRowAt(rows, hash, target, ms) {
+  let last
+  for (const r of rows) if (r.kind === 'lead-owner' && r.hash === hash && r.target === target && r.ms <= ms && (!last || r.ms >= last.ms)) last = r
+  return last
+}
+function ruleLeadStops({ rows, flag, inRange }) {
+  for (const r of rows) {
+    if ((r.kind !== 'lead-stop' && r.kind !== 'lead-resume') || !inRange(r.ms)) continue
+    const what = `${r.kind}${r.code !== undefined ? ` ${r.code}` : ''} row of ${r.lane ?? '?'} (${r.t})`
+    if (r.tier === 'conductor' && r.target !== undefined) {
+      const o = ownerRowAt(rows, r.hash, r.target, r.ms)
+      if (!o || !OWNER_CODES.has(o.code) || o.by !== r.by) flag('i', `${r.kind}-not-owner`, `the ${what} by conductor ${r.by ?? '?'}: the lead's newest lead-owner row before it does not give it that conductor`, { t: r.t })
+    }
+    if (((r.kind === 'lead-stop' && r.code === 'terminate') || r.tier === 'manager') && r.dialog !== 'yes') flag('i', `${r.kind}-no-dialog`, `the ${what} by ${r.tier ?? '?'} ${r.by ?? '?'} has no yes from the person's dialog`, { t: r.t })
+  }
+}
+function ruleLeadOwnerLogged({ rows, flag }, recs) {
+  if (!recs) return
+  for (const { key, leads } of recs) {
+    for (const l of leads) {
+      if (typeof l.sid !== 'string') continue
+      const o = ownerRowAt(rows, key, l.sid, Infinity)
+      if (!o || !OWNER_CODES.has(o.code) || o.by !== l.conductorSid) flag('i', 'lead-owner-unlogged', `lead record ${l.name} (repo ${key.slice(0, 8)}, session ${l.sid}) names conductor ${l.conductorSid} with no lead-owner row giving it that conductor`)
+    }
+  }
+}
+
+// The lead record files of a folder, read only: each <sha-256>.json a regular file (no link followed), at most RECORD_MAX_BYTES, parsed whole; a file that cannot be
+// read or parsed is a problem. undefined: the folder is not there or not a folder: rule i's record check is then not run, and the summary line says so (a
+// folder named with --records is a problem as well).
+const RECORD_MAX_BYTES = 64 * 1024
+const RECORD_FILES_MAX = 1000
+function readLeadRecords(dir, explicit, problems) {
+  let real
+  let entries
+  try {
+    real = realpathSync(dir)
+    if (!lstatSync(real).isDirectory()) throw new Error('not a directory')
+    entries = list(real)
+  } catch {
+    if (explicit) problems.push(`--records ${dir}: not a readable folder; the lead records were not checked`)
+    return undefined
+  }
+  const out = []
+  for (const d of entries.filter((x) => /^[0-9a-f]{64}\.json$/.test(x.name)).sort((a, b) => (a.name < b.name ? -1 : 1)).slice(0, RECORD_FILES_MAX)) {
+    if (!d.isFile()) {
+      problems.push(`lead records: ${d.name}: ${d.isSymbolicLink() ? 'a symlink' : 'not a regular file'}, not read`)
+      continue
+    }
+    let text = ''
+    try {
+      eachLine(join(real, d.name), { maxLine: RECORD_MAX_BYTES, maxFileBytes: RECORD_MAX_BYTES }, (line) => (text += line))
+    } catch (e) {
+      problems.push(`lead records: ${d.name}: ${e instanceof AuditError ? e.code : e.message}, not read`)
+      continue
+    }
+    const j = parseObj(text)
+    const leads = Array.isArray(j?.leads) ? j.leads : undefined
+    if (!leads || !leads.every((l) => l && typeof l === 'object' && typeof l.name === 'string' && typeof l.conductorSid === 'string' && (l.sid === undefined || typeof l.sid === 'string'))) {
+      problems.push(`lead records: ${d.name}: not a lead record file, not read`)
+      continue
+    }
+    out.push({ key: d.name.slice(0, -5), leads })
+  }
+  return out
+}
+
+export function audit({ root, projects, since, now = Date.now(), projectsExplicit = false, records, recordsExplicit = false, transcriptBudget = TRANSCRIPT_TOTAL_MAX_BYTES, transcriptLineMax = TRANSCRIPT_LINE_MAX }) {
   const problems = []
   const notes = []
   let rootReal
@@ -1017,6 +1093,9 @@ export function audit({ root, projects, since, now = Date.now(), projectsExplici
   ruleAnsweringOn(ctx)
   const files = ruleStaleRequestFiles(ctx, rootReal, entries)
   ruleClosedWithoutRow(ctx, files)
+  ruleLeadStops(ctx)
+  const recs = readLeadRecords(records ?? join(rootReal, '..', 'lead-records'), recordsExplicit, problems)
+  ruleLeadOwnerLogged(ctx, recs)
   const { tx, txRan } = loadTranscripts({ projects, projectsExplicit, since, notes, problems, transcriptBudget, transcriptLineMax })
   const { hookBacked, hookAllowOther, hookDenies } = ruleHookDecisions(ctx, tx)
   ruleLeadCalls(ctx, tx, txRan)
@@ -1028,7 +1107,7 @@ export function audit({ root, projects, since, now = Date.now(), projectsExplici
   return {
     root: rootReal,
     since: since === undefined ? null : new Date(since).toISOString(),
-    scanned: { ledgerFiles, rows: rows.length, requests: table.length, transcriptFiles: tx.scanned, transcriptDecisions: tx.decisions.length, requestFiles: files.requestFiles },
+    scanned: { ledgerFiles, rows: rows.length, requests: table.length, transcriptFiles: tx.scanned, transcriptDecisions: tx.decisions.length, requestFiles: files.requestFiles, leadRecordFiles: recs ? recs.length : null },
     table,
     anomalies,
     notAnomalies: {
@@ -1062,7 +1141,7 @@ export function render(rep) {
   const out = []
   out.push(`prompt audit: ${rep.root}${rep.since ? `, since ${rep.since}` : ''}`)
   const s = rep.scanned
-  out.push(`ledger files ${s.ledgerFiles}, rows ${s.rows}, requests ${s.requests}; transcript files ${s.transcriptFiles}, hook/user decisions seen ${s.transcriptDecisions}; request files ${s.requestFiles}`)
+  out.push(`ledger files ${s.ledgerFiles}, rows ${s.rows}, requests ${s.requests}; transcript files ${s.transcriptFiles}, hook/user decisions seen ${s.transcriptDecisions}; request files ${s.requestFiles}; ${s.leadRecordFiles === null ? 'lead records not checked (no folder)' : `lead record files ${s.leadRecordFiles}`}`)
   out.push('', 'REQUESTS')
   if (rep.table.length === 0) out.push('(none)')
   else {
@@ -1123,7 +1202,7 @@ export function render(rep) {
 }
 
 // ---- command line ----
-const USAGE = 'usage: prompt-audit.mjs [--since DATE] [--root DIR] [--projects DIR] [--json]'
+const USAGE = 'usage: prompt-audit.mjs [--since DATE] [--root DIR] [--projects DIR] [--records DIR] [--json]'
 function parseArgs(argv, env = process.env) {
   const cfg = env.CLAUDE_CONFIG_DIR && env.CLAUDE_CONFIG_DIR !== '' ? env.CLAUDE_CONFIG_DIR : join(homedir(), '.claude')
   const o = { root: join(cfg, 'callboard', 'prompts'), projects: join(cfg, 'projects'), since: undefined, json: false }
@@ -1138,6 +1217,10 @@ function parseArgs(argv, env = process.env) {
     else if (a === '--projects') {
       o.projects = val()
       o.projectsExplicit = true
+    }
+    else if (a === '--records') {
+      o.records = val()
+      o.recordsExplicit = true
     }
     else if (a === '--since') {
       const v = val()

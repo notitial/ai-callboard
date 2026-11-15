@@ -365,7 +365,7 @@ export function applyCheck(a: ApplyIn): ApplyOut {
 }
 
 // ---- the ledger: machine-wide, one JSON row per line, no input text ----
-export type RowKind = 'requested' | 'answered' | 'escalated' | 'dropped' | 'returned' | 'superseded' | 'expired-denied' | 'off' | 'abandoned' | 'dialog' | 'not-judgeable' | 'no-tier' | 'answering-on' | 'answering-off' | 'relayed' | 'relay-lost' | 'relay-left' | 'relay-late' | 'deny-unclear' | 'lead-offer' | 'lead-offer-void' | 'lead-grant' | 'lead-owner' | 'lead-resume'
+export type RowKind = 'requested' | 'answered' | 'escalated' | 'dropped' | 'returned' | 'superseded' | 'expired-denied' | 'off' | 'abandoned' | 'dialog' | 'not-judgeable' | 'no-tier' | 'answering-on' | 'answering-off' | 'relayed' | 'relay-lost' | 'relay-left' | 'relay-late' | 'deny-unclear' | 'lead-offer' | 'lead-offer-void' | 'lead-grant' | 'lead-owner' | 'lead-resume' | 'lead-stop'
 // A `lead-owner` row (ADR 0007), written before the lead record changes: code made | joined | left | off, hash the repo's key, repo, lane the lead's name at the
 // time (for reading only), target the lead's session id, by the conductor's session id (made, joined), was the conductor the lead left (left, off), nonce (made).
 // cap and target: set on an `answered` and a `returned` row of a comment that starts the review command (claudeCap), so the standing comment cap can be counted.
