@@ -1246,7 +1246,7 @@ test('stuck lanes: the conductor force stops (asks, removes) an attached lane no
   const argv: string[][] = []
   await condOn($, on, [], { argv })
   putStore([ckLane({ sid: APISID }), GONE_ATT('ATT', { leadName: 'old-aa' })])
-  expect(JSON.stringify(await $.tool.call(mgrCall('retire', 'ATT')))).toContain('the conductor may only list lanes, compact leads and lanes, force stop a lane, open a lead, and resume and compact the leads it owns.')
+  expect(JSON.stringify(await $.tool.call(mgrCall('retire', 'ATT')))).toContain('the conductor may only list lanes, compact leads and lanes, force stop a lane, open a lead, and resume, compact, park, unpark, retire and force stop the leads it owns.')
   h.askAnswer = NO
   expect(JSON.stringify(await $.tool.call(mgrCall('terminate', 'ATT')))).toContain('the person did not confirm')
   expect(h.lastQuestion).toBe('Remove lane ATT in ~/code/app? It has no live session.')
