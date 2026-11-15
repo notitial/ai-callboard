@@ -407,3 +407,34 @@ longTest('a claim left with no offer goes once it is ten minutes old, not before
   expect(await open($, `ok ${NEWSID}\n`)).toContain('is on as session')
   expect(offers()).toEqual([])
 })
+
+// The text the brief's last write carried: the temporary file moved onto BRIEF.md, as tee wrote it.
+const briefText = (argv: string[][]) => {
+  const mv = mvs(argv, `${PIN}/.archive/LEAD-N/BRIEF.md`).at(-1)
+  return mv === undefined ? undefined : teeTexts.get(mv.find((x) => x.endsWith('.tmp')) ?? '')
+}
+
+longTest('lead_open with job: true writes the job brief; the offer carries no flag and keeps its keys', async ($, on) => {
+  const argv: string[][] = []
+  await conductor($, on, argv)
+  const p = $.tool.call(call({ job: true }))
+  await h.clock!.advance(500)
+  const offer = offers().find((k) => k.endsWith('.json'))
+  const seen = offer === undefined ? undefined : pfs.get(offer)?.text
+  h.openResult = `ok ${NEWSID}\n`
+  await h.clock!.advance(500)
+  expect(JSON.stringify(await p)).toContain('lead LEAD-N is on as session 12345678')
+  expect(seen).toBeDefined()
+  expect(Object.keys(JSON.parse(seen!))).toEqual(['v', 'name', 'repo', 'model', 'conductor', 'at', 'nonce'])
+  expect(seen).not.toContain('job')
+  expect(briefText(argv)).toBe(c.leadJobBriefText('LEAD-N', 'Do the work.'))
+})
+
+longTest('lead_open with job: false or no job writes the plain brief, and a job that is not a boolean is refused before any write', async ($, on) => {
+  const argv: string[][] = []
+  await conductor($, on, argv)
+  expect(await open($, undefined, { job: 'yes' })).toContain(REASON_TEXT['bad-job'])
+  wroteNothing(argv)
+  expect(await open($, `ok ${NEWSID}\n`, { job: false })).toContain('is on as session')
+  expect(briefText(argv)).toBe(c.leadBriefText('LEAD-N', 'Do the work.'))
+})

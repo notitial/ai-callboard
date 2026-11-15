@@ -5,6 +5,8 @@ import * as c from './core.ts'
 import { sessionEnd, promptCompose } from './engine/grants.ts'
 import { leadVerbCall, laneCreateCall, laneOpenCall, laneUnparkCall, laneListCall, stopVerbCall, stopVerbFailed } from './engine/lanes.ts'
 import { leadOpenCall } from './engine/lead-open.ts'
+import { leadToolCall } from './engine/lead-tools.ts'
+import { leadStopCall, leadStopFailed } from './engine/lead-stops.ts'
 import { TOOL, requestCompactCall, turnComplete, promptSubmit, turnStart, postToolHook, postCompact } from './engine/compaction.ts'
 import { sessionStart } from './engine/tick.ts'
 import { commandRun } from './engine/commands.ts'
@@ -16,6 +18,9 @@ export const register: Register = (on) => {
   on('session.start', sessionStart).catch(($, e, next) => next(e))
 
   on('command.run', { command: 'callboard' }, ($, e) => commandRun($, e)).catch(() => ({ text: 'Callboard hit an error. Run /callboard status.' }))
+
+  // /rest is /callboard rest: the same handler, with its arguments dropped.
+  on('command.run', { command: 'rest' }, ($, e) => commandRun($, { ...e, args: 'rest' })).catch(() => ({ text: 'Callboard hit an error. Run /callboard status.' }))
 
   on('tool.call', { tool: `mcp__callboard__${TOOL}` }, requestCompactCall).catch(() => ({ deny: 'callboard: request_compact failed closed.' }))
 
@@ -31,6 +36,12 @@ export const register: Register = (on) => {
 
   on('tool.call', { tool: 'mcp__callboard__lane_list' }, laneListCall).catch(() => ({ deny: 'lane_list failed closed.' }))
   on('tool.call', { tool: 'mcp__callboard__lead_open' }, leadOpenCall).catch(() => ({ deny: 'lead_open failed closed.' }))
+  for (const tool of c.LEAD_TOOLS) {
+    on('tool.call', { tool: `mcp__callboard__${tool}` }, ($, e, next) => leadToolCall($, e, next, tool)).catch(() => ({ deny: `${tool} failed closed.` }))
+  }
+  for (const tool of c.LEAD_STOP_TOOLS) {
+    on('tool.call', { tool: `mcp__callboard__${tool}` }, ($, e, next) => leadStopCall($, e, next, tool)).catch(($, e, next) => leadStopFailed($, e, next, tool))
+  }
 
   on('tool.call', { tool: 'mcp__callboard__prompt_list' }, promptListCall).catch(() => ({ deny: 'prompt_list failed closed.' }))
   on('tool.call', { tool: 'mcp__callboard__prompt_answer' }, promptAnswerCall).catch(() => ({ deny: 'prompt_answer failed closed.' }))

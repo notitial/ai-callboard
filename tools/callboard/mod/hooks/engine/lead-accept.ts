@@ -14,6 +14,7 @@ import { heldNo } from './levels.ts'
 import { ledgerAdd, ledgerRowsFor } from './answer-hook.ts'
 import { promptLinkOnce } from './answer-tiers.ts'
 import { grantLead } from './commands.ts'
+import { ownerWrite, ownerLeave } from './lead-records.ts'
 
 // The wait for the registry to carry the new name, in 1 s tries.
 const NAME_TRIES = 5
@@ -215,5 +216,25 @@ export async function leadAccept(
   const baseline = await bounded(Promise.resolve($.session.turns()))
   if (baseline === undefined) toast($, c.leadNotStartedToast(offer.name, repo))
   else leadStarts.set(sid, { name: offer.name, repo, brief: c.briefPath(repo, offer.name), turns: baseline, until: (await $.clock.now()) + c.LEAD_START_GIVE_UP_MS })
-  return answer('ok', modelOk ? undefined : c.LEAD_MODEL_UNSET)
+  // The lead's record and binding (ADR 0007), after the grant and with a time limit: the conductor waits for the answer. A write that fails or runs out of
+  // time never undoes the grant: the lead is on with no conductor, the answer says so, and the person assigns one with /callboard lead join.
+  const rowsNow = await bounded(registryEntries($))
+  const condName = rowsNow ? c.laneLeadOf(rowsNow.map((r) => r.j), offer.conductor.sid)?.name : undefined
+  const writing = ownerWrite($, sid, { repo, name: offer.name, how: 'made', conductorSid: offer.conductor.sid, ...(condName !== undefined ? { conductorName: condName } : {}), nonce })
+  let own = await withTimeout($, writing, c.OWNER_WRITE_TIMEOUT_MS).then((r) => (r === 'timeout' ? undefined : r), () => undefined)
+  if (own === undefined) {
+    // A write that lands after the answer was given is taken back: the answer said there is no conductor, so none may be left behind.
+    void writing.then((r) => ('ok' in r ? ownerLeave($, sid, 'off') : undefined)).catch(() => undefined)
+  } else if ('ok' in own && (grants.get(sid)?.level !== 'lead' || (offSeq.get(sid) ?? 0) !== x.seq)) {
+    // An /callboard off typed while the write ran: the person's off wins, and the record and binding just written go.
+    await ownerLeave($, sid, 'off').catch(() => undefined)
+    own = { no: 'off-meanwhile' }
+  }
+  const ownerOk = own !== undefined && 'ok' in own
+  if (!ownerOk) {
+    await logq($, sid, 'error', `owner-unset ${own === undefined ? 'timeout' : c.hasText(own.no) ? own.no : 'other'}`)
+    toast($, c.OWNER_UNSET_TOAST)
+  }
+  const note = c.leadOkNote(!modelOk, !ownerOk)
+  return answer('ok', note === '-' ? undefined : note)
 }

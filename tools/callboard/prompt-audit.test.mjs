@@ -126,6 +126,34 @@ test('g: two grants of one repo within an hour are an anomaly; another repo, or 
   assert.deepEqual(rules(run(f3)), [])
 })
 
+const LEADSID = 'a1b2c3d4-0000-4000-8000-123456789abc'
+const OWNER = (code, at, o = {}) => R('lead-owner', BASE + at, { hash: H('c'), repo: '/Users/x/api', lane: 'LEAD-A', target: LEADSID, by: SID, ...o, code })
+
+test('h: a made row after its own lead-grant, a joined row, and a leave then a join are no anomaly; the rows are counted', () => {
+  const fx = fixture()
+  ledger(fx, [ON(), ...clean(), OFFER(N1, 1000), GRANT(N1, 2000), OWNER('made', 2500, { nonce: N1 }), OWNER('left', 3000, { was: SID }), OWNER('joined', 4000), OWNER('off', 5000, { was: SID }), OWNER('joined', 6000)])
+  const rep = run(fx)
+  assert.deepEqual(rules(rep), [])
+  assert.equal(rep.counts.rowsByKind['lead-owner'], 5)
+})
+
+test('h: a made row with no earlier lead-grant of its repo, nonce and conductor is an anomaly', () => {
+  for (const rows of [[OWNER('made', 2500, { nonce: N1 })], [OFFER(N1, 1000), GRANT(N1, 2000), OWNER('made', 2500, { nonce: N2 })], [OFFER(N1, 1000), GRANT(N1, 2000), OWNER('made', 2500, { nonce: N1, by: 'b1b2c3d4-0000-4000-8000-123456789abc' })], [OFFER(N1, 1000), GRANT(N1, 3000), OWNER('made', 2500, { nonce: N1 })], [OFFER(N1, 1000), GRANT(N1, 2000), OWNER('made', 2500, { nonce: N1, target: 'd1b2c3d4-0000-4000-8000-123456789abc' })]]) {
+    const fx = fixture()
+    ledger(fx, [ON(), ...clean(), ...rows])
+    assert.ok(rules(run(fx)).includes('lead-owner-made-without-grant'), JSON.stringify(rules(run(fx))))
+  }
+})
+
+test('h: a lead given a conductor twice with no leave between is an anomaly; another lead or another repo is not', () => {
+  const fx = fixture()
+  ledger(fx, [ON(), ...clean(), OWNER('joined', 1000), OWNER('joined', 2000)])
+  assert.deepEqual(rules(run(fx)), ['lead-owner-twice'])
+  const f2 = fixture()
+  ledger(f2, [ON(), ...clean(), OWNER('joined', 1000), OWNER('joined', 2000, { target: 'd1b2c3d4-0000-4000-8000-123456789abc' }), OWNER('joined', 3000, { hash: H('d') })])
+  assert.deepEqual(rules(run(f2)), [])
+})
+
 test('a: a returned row with no answered row is an anomaly', () => {
   const fx = fixture()
   const rows = clean().filter((r) => r.kind !== 'answered')
@@ -1283,4 +1311,94 @@ test('the audit reads an id as the mod writes it, and hashes a label by the mod\
   const ours = /const labelHash = [^\n]*update\((`[^`]+`)\)\.digest\('hex'\)(\.slice\(0, 16\))/.exec(mine)
   assert.ok(theirs && ours, 'both label hashes were found')
   assert.deepEqual(ours.slice(1), theirs.slice(1))
+})
+
+// ---- i. lead tools and lead stops (ADR 0007) ----
+const LSID = 'a1b2c3d4-0000-4000-8000-123456789abc'
+const IOWNER = (code, at, by = SID, extra = {}) => R('lead-owner', BASE + at, { code, hash: H('c'), repo: '/Users/x/api', lane: 'LEAD-A', target: LSID, by, ...extra })
+const LEADROW = (kind, at, f = {}) => R(kind, BASE + at, { hash: H('c'), repo: '/Users/x/api', lane: 'LEAD-A', by: SID, target: LSID, tier: 'conductor', dialog: 'none', ...f })
+const STOP = (code, at, f = {}) => LEADROW('lead-stop', at, { code, ...f })
+const RESUME = (at, f = {}) => LEADROW('lead-resume', at, f)
+function records(fx, key, leads, repo = '/Users/x/api') {
+  const dir = join(fx.d, 'lead-records')
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, `${key}.json`), JSON.stringify({ repo, leads }))
+  return dir
+}
+
+test('i: a conductor\'s lead rows need it to own the lead by the newest lead-owner row at or before them; a row with no lead session is not judged', () => {
+  const fx = fixture()
+  ledger(fx, [ON(), IOWNER('joined', 0), STOP('park', 1000), RESUME(2000), STOP('terminate', 3000, { dialog: 'yes' })])
+  assert.deepEqual(rules(run(fx)), [])
+  assert.equal(run(fx).counts.rowsByKind['lead-stop'], 2)
+  const other = uid(77)
+  for (const [rows, want] of [
+    [[STOP('retire', 1000)], ['lead-stop-not-owner']],
+    [[IOWNER('joined', 0, other), RESUME(1000)], ['lead-resume-not-owner']],
+    [[IOWNER('joined', 0), IOWNER('left', 500, undefined, { was: SID }), STOP('park', 1000)], ['lead-stop-not-owner']],
+    [[STOP('park', 1000), IOWNER('joined', 2000)], ['lead-stop-not-owner']],
+    [[IOWNER('joined', 0, SID, { hash: H('d') }), STOP('park', 1000)], ['lead-stop-not-owner']],
+    [[STOP('remove', 1000, { target: undefined })], []],
+  ]) {
+    const f = fixture()
+    ledger(f, [ON(), ...rows])
+    assert.deepEqual(rules(run(f)), want, rows.map((r) => `${r.kind} ${r.code ?? ''}`).join(', '))
+  }
+})
+
+test('i: a force stop, and every lead row of the manager, needs a yes from the person\'s dialog', () => {
+  for (const [row, want] of [
+    [STOP('terminate', 1000), ['lead-stop-no-dialog']],
+    [STOP('terminate', 1000, { dialog: 'yes' }), []],
+    [STOP('retire', 1000), []],
+    [STOP('park', 1000, { tier: 'manager' }), ['lead-stop-no-dialog']],
+    [STOP('unpark', 1000, { tier: 'manager', dialog: 'yes' }), []],
+    [STOP('remove', 1000, { tier: 'manager', target: undefined }), ['lead-stop-no-dialog']],
+    [RESUME(1000, { tier: 'manager' }), ['lead-resume-no-dialog']],
+    [RESUME(1000, { tier: 'manager', dialog: 'yes' }), []],
+  ]) {
+    const f = fixture()
+    ledger(f, [ON(), IOWNER('joined', 0), row])
+    assert.deepEqual(rules(run(f)), want, JSON.stringify(row))
+  }
+})
+
+test('i: each lead record with a session needs a lead-owner row giving it its conductor; a rename and a record with no session raise nothing', () => {
+  const fx = fixture()
+  ledger(fx, [ON(), IOWNER('joined', 0)])
+  assert.equal(run(fx).scanned.leadRecordFiles, null)
+  assert.match(render(run(fx)), /lead records not checked \(no folder\)/)
+  records(fx, H('c'), [
+    { name: 'RENAMED', createdAt: 1, how: 'made', conductorSid: SID, sid: LSID },
+    { name: 'KEPT', createdAt: 1, how: 'joined', conductorSid: uid(78) },
+  ])
+  const rep = run(fx)
+  assert.equal(rep.scanned.leadRecordFiles, 1)
+  assert.deepEqual(rules(rep), [])
+  assert.match(render(rep), /lead record files 1/)
+  records(fx, H('c'), [{ name: 'LEAD-A', createdAt: 1, how: 'made', conductorSid: uid(77), sid: LSID }])
+  assert.deepEqual(rules(run(fx)), ['lead-owner-unlogged'])
+  records(fx, H('c'), [{ name: 'LEAD-A', createdAt: 1, how: 'made', conductorSid: SID, sid: LSID }])
+  records(fx, H('d'), [{ name: 'LEAD-B', createdAt: 1, how: 'made', conductorSid: SID, sid: uid(79) }])
+  assert.deepEqual(rules(run(fx)), ['lead-owner-unlogged'])
+  ledger(fx, [ON(), IOWNER('joined', 0), IOWNER('left', 500, undefined, { was: SID })])
+  rmSync(join(fx.d, 'lead-records', `${H('d')}.json`))
+  assert.deepEqual(rules(run(fx)), ['lead-owner-unlogged'])
+})
+
+test('i: --records that cannot be read is a problem (exit 2); a linked or broken record file is a problem, never a pass', () => {
+  const fx = fixture()
+  ledger(fx, [ON()])
+  const missing = join(fx.d, 'nope')
+  assert.match(run(fx, { records: missing, recordsExplicit: true }).problems.join('\n'), /--records/)
+  const cli = spawnSync(process.execPath, [SCRIPT, '--root', fx.root, '--projects', fx.projects, '--records', missing], { encoding: 'utf8' })
+  assert.equal(cli.status, 2)
+  const dir = records(fx, H('c'), [])
+  writeFileSync(join(dir, `${H('e')}.json`), 'not json')
+  symlinkSync(join(dir, `${H('c')}.json`), join(dir, `${H('f')}.json`))
+  const rep = run(fx)
+  assert.equal(rep.scanned.leadRecordFiles, 1)
+  const p = rep.problems.join('\n')
+  assert.match(p, /e{64}\.json: not a lead record file/)
+  assert.match(p, /f{64}\.json: a symlink/)
 })

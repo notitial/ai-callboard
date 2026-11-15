@@ -91,7 +91,6 @@ import {
   leadHere,
   managerTrusted,
   managersLive,
-  conductorsTrusted,
   pinOf,
   conductorReach,
   conductorsLive,
@@ -99,12 +98,16 @@ import {
   reservedGet,
   findLead,
 } from './grants.ts'
+import { loadLeadRecords, boundTo, ownerLive, ownOwner, leadNameHeld } from './lead-records.ts'
 import { briefOnce, epochOf } from './levels.ts'
 import { dropRequest, doCompact, isEligible, leadNudge, busyAgents, backgroundShells, counts, bump, interactive, saveHint } from './compaction.ts'
 import { ensureTimer } from './tick.ts'
 import { getLane, getLastTurn, getRequest, getSeen, setLane } from '../state.ts'
 import { usageReadings } from './usage.ts'
 import { leadAccept } from './lead-accept.ts'
+import { leadCue } from './lead-cues.ts'
+import { leadCompactTo } from './lead-tools.ts'
+import { recordViews } from './lead-records.ts'
 
 const stopCallKey = (sid: string, verb: string, lane: unknown) => `${sid}\n${verb}\n${String(lane)}`
 
@@ -443,6 +446,17 @@ export async function reportLaneOf($: any, sid: string): Promise<c.Lane | undefi
   return l
 }
 
+// Whose report a session signs: a bound lane's, else for a lead grant with a usable name its own `<pin>/.archive/<NAME>/REPORT.md` (the name the rename tick
+// keeps in the grant; reportStat and readReport read only the name and the repo).
+export async function reportTargetOf($: any, sid: string): Promise<c.Lane | undefined> {
+  const l = await reportLaneOf($, sid)
+  if (l) return l
+  const g = grants.get(sid)
+  const pin = pinOf(sid)
+  if (g?.level !== 'lead' || pin === undefined || !c.NAME_RE.test(g.name)) return undefined
+  return { name: g.name, repo: pin, folder: pin, brief: '' }
+}
+
 // A cue `rename <name>` from a session that is no lane yet: the session is renamed to the record's name and bound to it, with every check before the rename.
 async function birthRename(
   $: any,
@@ -571,28 +585,17 @@ export async function handle($: any, sid: string, cue: c.Cue, answer: Answer, cu
     if (!rec.repo) return refuse('no-lead')
     if (!(await leadHere($, await sessionRoot($), rec.repo, rec.leadName, reg))) {
       // With no live lead, the verbs a manager may send (resume, compact, retire) are taken while a live manager passes every
-      // presence check and has a reserved registry name (managerTrusted), and the verbs a conductor may send (compact) while a live conductor that lists the
-      // lane's repo passes conductorsTrusted. A filter, not proof: any writer of the cue folder can send the cue then.
+      // presence check and has a reserved registry name (managerTrusted), and the verbs a conductor may send (compact) while the lane's lead has a live owner
+      // (ownerLive: its record names a trusted conductor and its lead is bound to it). A filter, not proof: any writer of the cue folder can send the cue then.
       const byManager = c.MANAGER_CUE_VERBS.includes(cue.verb)
       const byConductor = c.CONDUCTOR_CUE_VERBS.includes(cue.verb)
       const live = byManager || byConductor ? await reg() : undefined
       if (!live) return refuse('no-lead')
-      if (!(byManager && (await managerTrusted($, live, sid))) && !(byConductor && (await conductorsTrusted($, live, sid, rec.repo)).length > 0)) return refuse('no-lead')
+      if (!(byManager && (await managerTrusted($, live, sid))) && !(byConductor && (await ownerLive($, live, sid, rec.repo, c.laneLeadKey(rec)).catch(() => undefined)) !== undefined)) return refuse('no-lead')
     }
   }
-  // A session holding a lead grant takes one verb, compact, and only while a live manager file of another session passes every presence
-  // check and the registry names that session with a reserved name (c.managerNameOf); it acts only on an on-cue request of its own, and is never nudged. A
-  // filter, not proof: any writer of the cue folder can send the cue while a manager is live; the request is the lead's own.
-  if (!bound && grants.get(sid)?.level === 'lead') {
-    if (cue.verb !== 'compact') return refuse('not-eligible')
-    const live = await reg()
-    if (!live) return refuse('registry-unreadable')
-    // A trusted conductor that lists the lead's repo also qualifies (conductorsTrusted).
-    if (!(await managerTrusted($, live, sid)) && (await conductorsTrusted($, live, sid, pinOf(sid))).length === 0) return refuse('not-eligible')
-    const req = (await getRequest($)).value as Request | null | undefined
-    if (!req || req.viaLead !== true || req.mode !== 'on-cue' || req.phase !== 'armed') return refuse('no-request')
-    return compactOwn(req)
-  }
+  // A session holding a lead grant: its own rules (engine/lead-cues.ts), from its owner or a trusted manager only.
+  if (!bound && grants.get(sid)?.level === 'lead') return leadCue($, sid, cue, { now, reg, refuse, hold, answer, compactOwn })
   if (!(await isEligible($))) return refuse('not-eligible')
   if (cue.verb === 'compact') {
     const req = (await getRequest($)).value as Request | null | undefined
@@ -914,11 +917,29 @@ export async function rebindTick($: any, sid: string) {
 const SUBAGENT = ['subagent', 'for the main agent only.'] as const
 export async function leadBase($: any, e: unknown, sid: string) {
   if ((e as { agentId?: string }).agentId !== undefined) return { err: SUBAGENT }
-  // The manager has eight tools (c.MANAGER_TOOLS: five lane tools and the three prompt tools); every other lane tool refuses it, declared or not.
+  // The manager has fourteen tools (c.MANAGER_TOOLS: five lane tools, six lead tools and the three prompt tools); every other lane tool refuses it, declared or not.
   if (grantOf(sid)?.level === 'manager' && !c.MANAGER_TOOLS.includes(String((e as { tool?: unknown }).tool))) return { err: ['manager-tool', c.REASON_TEXT['manager-tool']] as const }
-  // The conductor has seven (c.CONDUCTOR_TOOLS: three lane tools, lead_open and the three prompt tools).
+  // The conductor has thirteen (c.CONDUCTOR_TOOLS: three lane tools, lead_open, six lead tools and the three prompt tools).
   if (grantOf(sid)?.level === 'conductor' && !c.CONDUCTOR_TOOLS.includes(String((e as { tool?: unknown }).tool))) return { err: ['conductor-tool', c.REASON_TEXT['conductor-tool']] as const }
   return leadCore($, sid)
+}
+
+// The leads a conductor owns in its pins: each record of a pinned repo that names this conductor and whose lead is bound to it. undefined: the records could not
+// be read (logged), which is not the same as owning nothing.
+async function ownedLeads($: any, sid: string, pins: string[]): Promise<c.Owned[] | undefined> {
+  const stores = await loadLeadRecords($)
+  if (typeof stores === 'string') {
+    await logq($, sid, 'error', 'lead-records-unreadable')
+    return undefined
+  }
+  const out: c.Owned[] = []
+  for (const s of stores) {
+    if (!pins.includes(s.store.repo)) continue
+    for (const rec of s.store.leads) {
+      if (rec.conductorSid === sid && (await boundTo($, { key: s.key, repo: s.store.repo, rec }))) out.push({ repo: s.store.repo, name: rec.name, sole: s.store.leads.length === 1, ...(rec.sid !== undefined ? { sid: rec.sid } : {}) })
+    }
+  }
+  return out
 }
 
 export async function leadCore($: any, sid: string) {
@@ -939,7 +960,10 @@ export async function leadCore($: any, sid: string) {
     const now = grantOf(sid)
     if (now?.level !== 'conductor' || ('no' in reach && reach.no === 'off')) return { err: ['off', 'the lead tools are off. Ask the person to turn them on.'] as const }
     if ('no' in reach) return { err: ['conductor-list', c.REASON_TEXT['conductor-list']] as const }
-    g = { ...now, pins: reach.pins }
+    // What it owns is read now too, from the lead records: a read that cannot be made is refused, never an empty reach.
+    const owns = await ownedLeads($, sid, reach.pins)
+    if (owns === undefined) return { err: ['store-unreadable', c.LEAD_RECORDS_UNREADABLE] as const }
+    g = { ...now, pins: reach.pins, owns }
   }
   // A lane this read finds live counts as seen live for the check-in's gone.
   const seen = laneObs.get(sid)
@@ -950,12 +974,13 @@ export async function leadCore($: any, sid: string) {
   return { lanes, live, g }
 }
 
-// Who is live above a lead (pin: its repo, for the conductors that list it) or a conductor (no pin): conductorsTrusted and managersLive, no new trust logic.
+// Who is live above a lead (its owner, from its binding) or a conductor (no owner above it): ownOwner and managersLive, no new trust logic.
 // A manager counts as the cues count it: its file passed the checks and the registry gives it a name. A manager look that could not be made (an unverified entry) is
-// 'error', never `none`; conductorsTrusted gives nothing when its look fails, so a failed conductor look reads as no conductor.
-async function layerAbove($: any, live: RegRow[], sid: string, pin: string | undefined): Promise<c.LayerAbove> {
+// 'error', never `none`; an owner look that fails (records unreadable, record changed, owner not live) reads as no conductor.
+async function layerAbove($: any, live: RegRow[], sid: string, lead: boolean): Promise<c.LayerAbove> {
   try {
-    const conductors = pin === undefined ? [] : (await conductorsTrusted($, live, sid, pin)).map((x) => x.name)
+    const own = lead ? await ownOwner($, sid, live) : undefined
+    const conductors = typeof own === 'object' ? [own.name] : []
     const found = await managersLive($, live, sid)
     if (found.some((m) => m.unverified === true)) return 'error'
     const managers = found.flatMap((m) => (m.name !== undefined ? [m.name] : []))
@@ -978,9 +1003,11 @@ export async function laneTable($: any, sid: string) {
   // The figure columns read the live lanes' files, the lead's own in its own list, and the leads' in a conductor's or the manager's list; any read that fails leaves a row at no reading.
   const wanted = [...(base.g.level === 'lead' ? [sid] : []), ...lanes.map((l) => { const one = c.laneSession(entries, l, ''); return one.ok ? one.entry.sessionId : '' }), ...leads.map((x) => x.sid ?? '')]
   const usage = await usageReadings($, wanted.flatMap((sid) => entries.filter((e) => e.sessionId === sid)), now).catch(() => new Map<string, c.UsageReading>())
-  // The layer above: a lead's trusted conductors and its live manager, a conductor's live manager; the manager has none. The same lookups the cues use.
-  const above = base.g.level === 'manager' ? undefined : await layerAbove($, base.live, sid, base.g.level === 'lead' ? pinOf(sid) : undefined)
-  const text = c.laneListText(lanes, entries, now, { level: base.g.level, name: base.g.name, self: sid, conductors, leads, usage, above })
+  // The layer above: a lead's owning conductor and its live manager, a conductor's live manager; the manager has none. The same lookups the cues use.
+  const above = base.g.level === 'manager' ? undefined : await layerAbove($, base.live, sid, base.g.level === 'lead')
+  // The manager's list groups the leads by the conductor their record names.
+  const records = base.g.level === 'manager' ? await recordViews($).catch(() => undefined) : undefined
+  const text = c.laneListText(lanes, entries, now, { level: base.g.level, name: base.g.name, self: sid, conductors, leads, usage, above, ...(records ? { records } : {}) })
   return { text }
 }
 
@@ -993,23 +1020,6 @@ async function leadPrep($: any, e: unknown, sid: string) {
   const pick = c.leadLane(base.lanes, base.g, (e as { lane?: unknown }).lane)
   if (!pick.ok) return { err: [pick.reason, c.reasonWhy(pick.reason)] as const }
   return { lane: pick.lane, entries: base.live.flatMap((r) => (typeof r.j.sessionId === 'string' ? [regEntry(r)] : [])) }
-}
-
-// The live lead whose registry name (c.leadNameOf) is the tool's lane argument, in any repo, never this session. undefined: no live lead
-// carries it (the caller goes on to the lanes). A lane record of the same name refuses lane-or-lead: lane and lead names follow the same rules (NAME_RE, not
-// reserved), so the two can meet, and neither is taken over the other.
-async function leadByName($: any, e: unknown, sid: string): Promise<{ sid: string; name: string } | { err: readonly [string, string] } | undefined> {
-  const name = (e as { lane?: unknown }).lane
-  if (typeof name !== 'string' || !c.NAME_RE.test(name)) return undefined
-  const base = await leadBase($, e, sid)
-  if ('err' in base) return { err: base.err }
-  const rows = base.live.map((r) => r.j)
-  const leads = (await leadsFor($, base.live, undefined)).filter((x) => x.sid !== sid && c.leadNameOf(rows, x.sid) === name)
-  if (leads.length === 0) return undefined
-  if (leads.length > 1 || base.lanes.some((l) => l.name === name)) return { err: ['lane-or-lead', c.reasonWhy('lane-or-lead')] }
-  // A conductor compacts only a lead of its repos.
-  if (base.g.level === 'conductor' && !base.g.pins.includes(leads[0].repo)) return { err: ['other-repo', c.reasonWhy('other-repo')] }
-  return { sid: leads[0].sid, name }
 }
 
 // ---- /callboard lane: an existing session becomes a lane of the lead that runs in its repo ----
@@ -1144,16 +1154,11 @@ export async function leadVerbCall($: any, e: any, next: any, verb: (typeof c.LE
       // A rename and a start get the longer deadline: the session needs its next tick, then settles its turn count or sets its model, and the wait for it to register counts too.
       const slow = verb === 'rename' || verb === 'start'
       const deadline = (await $.clock.now()) + (slow ? c.LANE_CUE_DEADLINE_MS : c.RESULT_DEADLINE_MS)
-      // The manager's lane_compact may name a live lead by its session name, in any repo (leadByName).
-      // The conductor's too, for a lead of its repos.
+      // The manager's and the conductor's lane_compact with a lead's name is lead_compact (engine/lead-tools.ts): a lead the conductor owns, any lead for the
+      // manager behind the person's dialog.
       if (verb === 'compact' && (grantOf(sid)?.level === 'manager' || grantOf(sid)?.level === 'conductor')) {
-        const ld = await leadByName($, e, sid)
-        if (ld && 'err' in ld) return no(...ld.err)
-        if (ld) {
-          const sent = await cueExchange($, sid, ld.name, ld.sid, 'compact', deadline, no)
-          if (sent) return sent
-          return { result: `cue compact acted for lead ${ld.name}.` }
-        }
+        const ld = await leadCompactTo($, e, sid, no, next)
+        if (ld) return ld
       }
       let prep = await leadPrep($, e, sid)
       if ('err' in prep) return no(...prep.err)
@@ -1172,9 +1177,10 @@ export async function leadVerbCall($: any, e: any, next: any, verb: (typeof c.LE
         if (verb === 'rename' && to.reason === 'no-live-session') return no(to.reason, c.renameNoSessionText(prep.entries, prep.lane, sid, (e as { sid: string }).sid, await $.clock.now()))
         return no(to.reason, c.reasonWhy(to.reason))
       }
-      // A lead's lane_compact never cues a session that holds a live presence file (another lead carrying the lane's name),
-      // as leadByName's lane-or-lead; a file whose check could not be made counts (fail closed).
-      if (verb === 'compact' && (grantOf(sid)?.level === 'lead' || grantOf(sid)?.level === 'conductor')) {
+      // No lane_compact (a lead's, a conductor's or the manager's) cues a session that holds a live presence file (a lead carrying the lane's name in some
+      // letter case), as lead_compact's lane-or-lead: a lead is reached only through the lead tools, the manager's behind the person's dialog. A file whose check
+      // could not be made counts (fail closed).
+      if (verb === 'compact') {
         const live = await registryEntries($)
         if (!live) return no('registry-unreadable', c.reasonWhy('registry-unreadable'))
         if (await presenceHeld($, live, to.sid)) return no('lane-or-lead', c.reasonWhy('lane-or-lead'))
@@ -1259,6 +1265,10 @@ export async function laneCreateCall($: any, e: any, next: any) {
         if (!reg) return { no: 'registry-unreadable', why: c.REASON_TEXT['registry-unreadable'] }
         // Any letter case: a lane `alpha` beside lead `Alpha` would make c.leadNameOf void the lead's name and strand its lanes.
         if (reg.some((x) => typeof x.j.name === 'string' && x.j.name.toLowerCase() === r.lane.name.toLowerCase())) return { no: 'name-in-use', why: 'name-in-use: a live session already carries that name.' }
+        // A lead record keeps its name while its lead is parked or kept with no session: a lane of that name would block both reopens.
+        const held = await leadNameHeld($, sid, r.lane.name, false)
+        if (held === true) return { no: 'name-in-use', why: 'name-in-use: a lead record holds that name.' }
+        if (held !== false) return { no: held, why: c.reasonWhy(held) }
         // The record names this lead by its registry name now, so only it reaches the lane. A lead that had a name at its grant (the cached one) and has
         // none now is refused, so its lane is not made legacy by a passing clash; so is one with no name beside another live lead of the repo, whose
         // legacy lane that lead would reach too. A lone lead that never had a name makes a legacy lane, reachable by any lead of the repo.
@@ -1464,7 +1474,7 @@ export async function stopVerbCall($: any, e: any, next: any, verb: (typeof c.ST
       const selfRows = prep.entries.filter((x) => x.sessionId === sid)
       const selfPid = selfRows.length === 1 ? selfRows[0].pid : undefined
       // At manager reach, before any dialog and again after it: a record that names a session must name this one, and the
-      // session must hold no live presence file (a lead, a conductor or the manager may carry a lane's name: leadByName guards only lane_compact).
+      // session must hold no live presence file (a lead, a conductor or the manager may carry a lane's name: leadCompactTo guards only lane_compact).
       const targetNo = async (lane: c.Lane, t: c.RegEntry) => {
         // A conductor's stop takes the manager's wide path.
         if (level === 'lead') return undefined

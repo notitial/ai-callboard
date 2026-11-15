@@ -66,6 +66,11 @@ never parks or unparks a lead. H3 and the closed list under "Limits are conventi
 and H5's exception covers a `lead_compact` on the lead's own request and a `lead_resume` the lead itself asked for. The
 role file and the callboard briefing change with it when those tools ship.
 
+*2026-11-15 ([ADR 0007](0007-conductor-owns-leads.md), the person's scope): the manager also gets `lead_park` and
+`lead_unpark`, and every one of its six lead tools, resume and compact included, runs only behind the person's dialog,
+every time, never unattended. This replaces the lines above that keep park and unpark away from it and let a
+`lead_compact` or `lead_resume` through on the lead's own request; H5's exception for a lead has no such case.*
+
 **The hard line.** The role file carries it, and the callboard briefing carries H2 word for word:
 - **H1** Never decide an approval.
 - **H2** Never dispatch, cancel, `kill_all` or restart anything. One exception: a callboard `lane_terminate` or
@@ -73,6 +78,11 @@ role file and the callboard briefing change with it when those tools ship.
   never unattended.
   *2026-11-15 ([ADR 0007](0007-conductor-owns-leads.md), proposed): the exception also covers `lead_terminate` and
   `lead_retire` at manager reach, each through its own dialog on the same terms.*
+  *Amended 2026-11-15 ([ADR 0007](0007-conductor-owns-leads.md), the lead stop tools): the exception names
+  `lead_park`, `lead_unpark`, `lead_retire` and `lead_terminate`. The briefing and the role file now read: "One
+  exception: a callboard `lane_terminate` or `lane_retire` at manager reach, or a callboard `lead_park`, `lead_unpark`,
+  `lead_retire` or `lead_terminate`, only through its own dialog, which the person answers themselves every time;
+  never unattended."*
 - **H3** Reach lanes only through the `lane_*` tools; never type into a lane's session. Message only leads and the
   plain sessions the person names, never a dispatched worker. The one exception: the runaway stop message below.
 - **H4** Never write under the dispatch spool, or any file a dispatch tool reads.

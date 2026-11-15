@@ -10,6 +10,7 @@ import { leadsFor, cfgReadStrict, reservedGet, ownWrite } from './grants.ts'
 import { leadTool, leadBase, openExchange } from './lanes.ts'
 import { ledgerAdd, ledgerRowsFor, promptNewId } from './answer-hook.ts'
 import { promptLinkOnce } from './answer-tiers.ts'
+import { loadLeadRecords } from './lead-records.ts'
 
 // The conductors that have an open running, by session id, and the names those opens carry (lower case): held until the offer is gone.
 const opening = new Set<string>()
@@ -43,7 +44,7 @@ export async function leadOpenCall($: any, e: any, next: any) {
 }
 
 async function openLead($: any, e: any, sid: string, base: { live: RegRow[]; lanes: c.Lane[]; g: c.Grant }, no: (reason: string, why: string) => Promise<{ deny: string }>) {
-  const a = c.leadOpenArgs({ repo: e.repo, name: e.name, task: e.task, model: e.model })
+  const a = c.leadOpenArgs({ repo: e.repo, name: e.name, task: e.task, model: e.model, job: e.job })
   if (!a.ok) return no(a.reason, c.reasonWhy(a.reason))
   const p = await where($)
   if (!p) return no('no-paths', 'no-paths')
@@ -55,6 +56,10 @@ async function openLead($: any, e: any, sid: string, base: { live: RegRow[]; lan
   // The name, in any letter case: no live session, no lane record (or lead stamp) and no request in the open folder carries it. A result file left over is no request.
   const lower = a.name.toLowerCase()
   if (base.live.some((r) => typeof r.j.name === 'string' && r.j.name.toLowerCase() === lower) || base.lanes.some((l) => l.name.toLowerCase() === lower || l.leadName?.toLowerCase() === lower)) return no('name-in-use', c.reasonWhy('name-in-use'))
+  // A lead record of any repo holds its name too (a record kept for its lanes keeps it). A read that failed is not "free".
+  const recs = await loadLeadRecords($)
+  if (typeof recs === 'string') return no('store-unreadable', c.reasonWhy('store-unreadable'))
+  if (recs.some((s) => s.store.leads.some((l) => l.name.toLowerCase() === lower))) return no('name-in-use', c.reasonWhy('name-in-use'))
   const waiting = ((await $.fs.list(`${p.root}/open`).catch(() => [])) as { name: string }[]).some((f) => f.name.toLowerCase().startsWith(`${lower}.`) && !f.name.toLowerCase().endsWith('.result'))
   if (waiting) return no('name-in-open', c.reasonWhy('name-in-open'))
   // One live lead per repo, whoever made it; an unreadable file counts as a failure.
@@ -111,7 +116,9 @@ async function openLead($: any, e: any, sid: string, base: { live: RegRow[]; lan
   }
   if ('deny' in r) return r
   // The panel is open. The brief comes first: with none the new lead has nothing to read, so no cue goes and the offer is voided. None of what follows throws out.
-  const wb = await writeBrief($, p.uid, c.briefPath(repo, a.name), c.leadBriefHead(a.name), c.leadBriefText(a.name, a.task)).catch(() => 'brief-write')
+  // A job (job: true) gets the job paragraph before its task; the offer, the record and everything after are the same as for any lead.
+  const brief = a.job ? c.leadJobBriefText(a.name, a.task) : c.leadBriefText(a.name, a.task)
+  const wb = await writeBrief($, p.uid, c.briefPath(repo, a.name), c.leadBriefHead(a.name), brief).catch(() => 'brief-write')
   if (wb) return fail('brief-write', c.leadNotGrantedText(a.name, r.sid, `its brief could not be written (${wb}).`))
   // The nonce is kept for conductorGrantCheck: a grant that names this conductor and carries a nonce it never offered is told to the person.
   const kept = (condOffers.get(sid) ?? []).filter((o) => now - o.at < c.COND_OFFERS_KEEP_MS)
@@ -141,7 +148,7 @@ async function openLead($: any, e: any, sid: string, base: { live: RegRow[]; lan
   }
   if (out.outcome === 'ok') {
     await rmF($, [offer, `${p.root}/offers/${key}.claim`])
-    return { result: c.leadOpenedText(a.name, r.sid, out.reason === c.LEAD_MODEL_UNSET) }
+    return { result: c.leadOpenedText(a.name, r.sid, out.reason === c.LEAD_MODEL_UNSET || out.reason === c.LEAD_BOTH_UNSET, out.reason === c.LEAD_OWNER_UNSET || out.reason === c.LEAD_BOTH_UNSET) }
   }
   // A refusal that names no reason (the panel's own tick failed) is as unclear as no answer: nothing is taken back.
   if (out.outcome === 'refused' && out.reason === 'other') return { result: c.leadNoAnswerText(a.name, r.sid) }

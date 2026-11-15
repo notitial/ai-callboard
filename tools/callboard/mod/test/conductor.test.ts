@@ -2,7 +2,7 @@ import { expect, test } from 'claude-code/testing'
 import { HINT_PREFIX, usageFileText, conductorFileText, conductorAddQuestion, conductorRefusalText, conductorAddedText, CONDUCTOR_NOT_PERSON, CONDUCTOR_USAGE, conductorQuestion, conductorRestoreQuestion, conductorBriefing, conductorBriefingNote, conductorRestoredToast, conductorUnansweredToast, conductorFileBadToast, conductorNoReposToast, CONDUCTOR_ON_TEXT, CONDUCTOR_OFF_QUESTION, conductorStatus, leadBriefing, LANES_CHANGED_TEXT, reboundToast, REASON_TEXT, managerRefusalText, terminateQuestion, leadConductorText } from '../hooks/core'
 import { h, GOOD, LANESDIR, NO, PS_TABLE, ROOT, SID, T0, USAGE_DIR, YES, condFiles, condStat, extraStat, laneSeed, leadFiles, longTest, pdirs, pfs, psDead, realFails, realMap, seen, storeFiles, submitted, toasts, toolDefs } from './harness'
 import type { Trace } from './harness'
-import { APISID, APP2, COMPOSE, COND, CONDFILE, CSESS, FAR, LANE_HINT, LEADKEY, LEADPATH, LEADPS, LEADSID, MGR_SESS, MIN, NO_LANES, NO_LANES_COND, OTHER, OTHERLEAD, OTHERPATH, PIN, SELFPATH, STATUS_NONE, TURN, allEvents, attacher, briefings, ckLane, ckRow, condAt, condOn, condPresenceOf, condRun, condSelf, cue, dirStat, doLane, grantAt, idleFor, killed, lane, leadAt, leadFileText, leadReg, leadSelfReg, listCall, listed, logged, madeLane, mgrAt, mgrCall, mgrFile, mgrRow, newTrace, noteRows, nudges, ownReg, putCond, putStore, regAs, renameThroughTick, selfAs, started, statusTable, statusText, ticks, unanswered, waitFor } from './fixtures'
+import { APISID, APP2, keptOwner, COMPOSE, COND, CONDFILE, CSESS, FAR, LANE_HINT, LEADKEY, LEADPATH, LEADPS, LEADSID, MGR_SESS, MIN, NO_LANES, NO_LANES_COND, OTHER, OTHERLEAD, OTHERPATH, PIN, SELFPATH, STATUS_NONE, TURN, allEvents, attacher, briefings, ckLane, ckRow, condAt, condOn, condPresenceOf, condRun, condSelf, cue, dirStat, doLane, grantAt, idleFor, killed, lane, leadAt, leadFileText, leadReg, leadSelfReg, listCall, listed, logged, madeLane, mgrAt, mgrCall, mgrFile, mgrRow, newTrace, noteRows, nudges, ownReg, bindOwner, putCond, putLeadRecs, putStore, regAs, renameThroughTick, selfAs, started, statusTable, statusText, ticks, unanswered, waitFor, ownedBy } from './fixtures'
 
 const CONDSTORE = `${LANESDIR}/${'c'.repeat(64)}.json`
 const condEntries = () => JSON.parse(condFiles.get(CONDFILE) ?? '{"repos":[]}').repos as string[]
@@ -277,7 +277,7 @@ test('/callboard conductor asks once with every repo and the restart sentence; C
   const r = await condRun($, '')
   expect(r.text).toBe(`${CONDUCTOR_ON_TEXT} Out of reach: ../gone (not found).`)
   expect(h.lastQuestion).toBe(conductorQuestion(COND, [PIN, APP2, FAR], CHOME))
-  expect(h.lastQuestion).toBe('Make this session a conductor for these repos? ../app, ../app2, ~/data/x/work/elsewhere/far-repo (not next to cond). It can list their lanes, compact their leads, and force stop a lane: every stop asks you. It can also open a lead in one of these repos without asking you (one per repo, one an hour each). It stays a conductor after a restart until you run /callboard off.')
+  expect(h.lastQuestion).toBe('Make this session a conductor for these repos? ../app, ../app2, ~/data/x/work/elsewhere/far-repo (not next to cond). It can list their lanes, compact their leads, and force stop a lane: every stop asks you. It can also park and retire the leads it owns, and force stop them with your click. It can also open a lead in one of these repos without asking you (one per repo, one an hour each). It stays a conductor after a restart until you run /callboard off.')
   expect(h.lastHeader).toBe('Conductor')
   expect(h.askedOptions).toEqual([['Conductor', 'Cancel']])
   const names = toolDefs.slice(defs0).map((d) => JSON.parse(d).name).filter((n: string) => n.startsWith('lane_'))
@@ -707,13 +707,17 @@ test('every lane tool but list, compact and terminate refuses a conductor (condu
   }
 })
 
-test('the conductor\'s lane_compact compacts a lead of its repos, cues a lane in reach, and refuses a lead outside its repos (other-repo)', async ($, on) => {
+test('the conductor\'s lane_compact compacts a lead it owns, cues a lane in reach, and refuses a live lead it does not own and a record outside its repos (other-repo)', async ($, on) => {
   const argv: string[][] = []
-  await condOn($, on, [], { argv, sess: { ...CSESS(), ...leadReg() }, seed: () => leadFiles.set(LEADPATH, { text: leadFileText() }) })
+  // Over ../app only, so a record in APP2 is in another repo.
+  await condOn($, on, [], { argv, repos: ['../app'], owns: [], sess: { ...CSESS(), ...leadReg() }, seed: () => leadFiles.set(LEADPATH, { text: leadFileText() }) })
+  expect(JSON.stringify(await $.tool.call(mgrCall('compact', 'LEAD')))).toContain('lane_compact refused: unknown-lead')
+  ownedBy(SID, { leadSid: LEADSID })
   expect((await $.tool.call(mgrCall('compact', 'LEAD'))).result).toBe('cue compact acted for lead LEAD.')
   expect(argv.filter((a) => a[0] === '/bin/mv' && a[a.length - 1] === `${ROOT}/cue/${LEADSID}.cue`).length).toBe(1)
   expect((await $.tool.call(mgrCall('compact', 'API'))).result).toBe('cue compact acted for lane API.')
-  leadFiles.set(LEADPATH, { text: leadFileText({ repo: FAR }) })
+  putLeadRecs([], PIN)
+  ownedBy(SID, { leadSid: LEADSID, repo: APP2 })
   expect(JSON.stringify(await $.tool.call(mgrCall('compact', 'LEAD')))).toContain('lane_compact refused: other-repo')
   expect(argv.filter((a) => a[0] === '/bin/mv' && a[a.length - 1] === `${ROOT}/cue/${LEADSID}.cue`).length).toBe(1)
 })
@@ -759,7 +763,7 @@ test('the conductor section is in the system prompt while the grant holds and go
   const r = await $.prompt.compose(COMPOSE)
   expect(condSections(r).length).toBe(1)
   expect(condSections(r)[0].text).toBe(conductorBriefing('COND', COND, [PIN, APP2]))
-  expect(condSections(r)[0].text).toContain('A live lead with no lanes is one row with – in the lane cells')
+  expect(condSections(r)[0].text).toContain('A live lead you own with no lanes is one row with – in the lane cells')
   expect(briefings(r).length).toBe(0)
   await $.command.run(lane('off'))
   expect(condSections(await $.prompt.compose(COMPOSE)).length).toBe(0)
@@ -801,30 +805,41 @@ test('the off question asked from another origin in a conductor session names th
 // ---- the Conductor box in the manager's list ----
 const COND2 = '7a1b2c3d-0000-4000-8000-123456789abc'
 
-test('the manager\'s list nests a live conductor\'s repos in a Conductor box inside the Manager box and keeps other repos at the Manager level', async ($, on) => {
-  await mgrAt($, on, [], { sess: { ...MGR_SESS(), ...regAs(OTHERLEAD, 4243, 'CONDX') }, seed: () => condPresenceOf(OTHERLEAD, 4243, 'CONDX', [PIN]) })
+test('the manager\'s list boxes the repos of a lead record under its live conductor and keeps the other repos under No conductor', async ($, on) => {
+  await mgrAt($, on, [], {
+    sess: { ...MGR_SESS(), ...regAs(OTHERLEAD, 4243, 'CONDX') },
+    seed: () => {
+      condPresenceOf(OTHERLEAD, 4243, 'CONDX', [PIN])
+      putLeadRecs([{ name: 'LEAD-A', conductorSid: OTHERLEAD, conductorName: 'CONDX' }])
+      keptOwner('LEAD-A')
+    },
+  })
   const t = (await $.tool.call(listCall())).result as string
   const lines = t.split('\n')
   expect(lines[0]).toBe('**Manager MANAGER** · live')
   expect(lines[2].startsWith('| Conductor | Lane |')).toBe(true)
   const condRow = lines.findIndex((l) => l.startsWith('| CONDX | **app · Any lead** | '))
-  const workRow = lines.findIndex((l) => l.startsWith('| – | **work · Any lead** | '))
+  const workRow = lines.findIndex((l) => l.startsWith('| No conductor | **work · Any lead** | '))
   expect(condRow).toBeGreaterThan(3)
   expect(lines.some((l) => l.includes('| ↳ API | '))).toBe(true)
   expect(workRow).toBeGreaterThan(condRow)
 })
 
-test('a repo listed by two conductors appears once, under the first, with an also note; the other conductor shows no lanes in its repos', async ($, on) => {
+test('two live conductors: one with a record gets the repo, the other shows one dash row; a conductor listing a repo with no record gets nothing', async ($, on) => {
   await mgrAt($, on, [], {
     sess: { ...MGR_SESS(), ...regAs(OTHERLEAD, 4243, 'CONDX'), ...regAs(COND2, 4244, 'CONDY') },
     seed: () => {
       condPresenceOf(OTHERLEAD, 4243, 'CONDX', [PIN])
       condPresenceOf(COND2, 4244, 'CONDY', [PIN, APP2])
+      putLeadRecs([{ name: 'LEAD-A', conductorSid: OTHERLEAD, conductorName: 'CONDX' }])
+      keptOwner('LEAD-A')
     },
   })
   const t = (await $.tool.call(listCall())).result as string
-  expect(t.split('**app (also CONDY) · Any lead**').length).toBe(2)
-  expect(t).toContain('| CONDX | **app (also CONDY) · Any lead** | ')
+  expect(t.split('**app · LEAD-A**').length).toBe(2)
+  expect(t).not.toContain('(also')
+  expect(t).toMatch(/^\| CONDX \| \*\*app · Any lead\*\* /m)
+  expect(t).toMatch(/^\|  \| \*\*app · LEAD-A\*\* \|.*\| no session \|/m)
   expect(t).toMatch(/^\| CONDY \| –( \| –)+ \|$/m)
   expect(t.indexOf('| CONDX | ')).toBeLessThan(t.indexOf('| CONDY | '))
 })
@@ -881,16 +896,18 @@ test('laneless leads (manager): the lead row shows the lead\'s own reading in it
   expect((await $.command.run(lane('lanes'))).text).toBe(t)
 })
 
-test('laneless leads (manager): inside a live conductor\'s Conductor box when the conductor lists the lead\'s repo', async ($, on) => {
+test('laneless leads (manager): inside the Conductor box of the conductor its record names', async ($, on) => {
   await mgrAt($, on, [], {
     sess: { ...MGR_SESS(), ...regAs(OTHERLEAD, 4243, 'LEAD-A'), ...regAs(COND2, 4244, 'CONDX') },
     seed: () => {
       leadPresenceOf(OTHERLEAD, 4243, PIN)
       condPresenceOf(COND2, 4244, 'CONDX', [PIN])
+      putLeadRecs([{ name: 'LEAD-A', sid: OTHERLEAD, conductorSid: COND2, conductorName: 'CONDX' }])
     },
   })
+  bindOwner(OTHERLEAD, COND2, 'LEAD-A')
   const t = (await $.tool.call(listCall())).result as string
-  // The conductor's name is on its first row only; the laneless lead's row sits under it.
+  // The lead's record and binding name the conductor, so the repo and the lead's row sit under CONDX.
   expect(t).toMatch(/^\| CONDX \| \*\*app · Any lead\*\* \| /m)
   expect(t).toMatch(/^\|  \| \*\*app · LEAD-A\*\* \(idle\) \|.*\| lead \| \? \| \? \| \? \| \? \| – \|  \|$/m)
 })
@@ -899,6 +916,7 @@ test('laneless leads (conductor): a live lead of a listed repo is in the Conduct
   await condOn($, on, [], {
     sess: { ...CSESS(), ...regAs(OTHERLEAD, 4243, 'LEAD-A'), ...regAs(COND2, 4244, 'LEAD-B') },
     repos: ['../app'],
+    owns: [{ name: 'LEAD-A', leadSid: OTHERLEAD }],
     seed: () => {
       extraStat.set(`${APP2}/.git`, dirStat)
       leadPresenceOf(OTHERLEAD, 4243, PIN)
@@ -967,6 +985,7 @@ const trustSeed = (over: Record<string, unknown> = {}) => () => {
   putCond(['../app'])
   h.store.set(`conductor:${OTHERLEAD}`, { home: COND, repos: [PIN], savedAt: T0 - 60_000 })
   condPresenceOf(OTHERLEAD, 4243, 'CONDX', [PIN], over)
+  ownedBy(OTHERLEAD)
 }
 const CTSESS = () => ({ ...leadSelfReg(), ...regAs(OTHERLEAD, 4243, 'CONDX') })
 async function condLead($: any, on: any, stdins: string[] = [], trace?: Trace) {
@@ -978,13 +997,17 @@ async function condLead($: any, on: any, stdins: string[] = [], trace?: Trace) {
   return { cue, arm }
 }
 
-test('a lead with an armed on-cue request compacts on its conductor\'s cue while the presence file, the saved grant and the list file all hold its repo; no request gives no-request; other verbs are refused', async ($, on) => {
+// The owner's resume, and its compact with no request (an order), are in lead-cues.test.ts.
+test('a lead with an armed on-cue request compacts on its conductor\'s cue while the presence file, the saved grant and the list file all hold its repo; its owner\'s retire and park reach the lead\'s own checks', async ($, on) => {
   const stdins: string[] = []
   const { cue, arm } = await condLead($, on, stdins)
-  expect(await cue(90, 'compact\n')).toBe('compact refused no-request 90\n')
-  expect(nudges()).toEqual([])
   await arm()
-  for (const [ino, verb] of [[91, 'resume'], [92, 'retire'], [93, 'park']] as const) expect(await cue(ino, `${verb}\n`)).toBe(`${verb} refused not-eligible ${ino}\n`)
+  // The owner may send both (lead-stops.test.ts); here the lead's own checks refuse them, so nothing stops and the compact below still runs.
+  for (const [ino, verb] of [[92, 'retire'], [93, 'park']] as const) {
+    const a = await cue(ino, `${verb}\n`)
+    expect(a.startsWith(`${verb} refused `)).toBe(true)
+    expect(a).not.toContain('not-eligible')
+  }
   expect(seen.compacted).toBe(false)
   expect(await cue(94, 'compact\n')).toBe('compact ok - 94\n')
   expect(seen.compacted).toBe(true)
@@ -1017,6 +1040,30 @@ test('refused when the presence file\'s home is not its own real path', async ($
 })
 test('refused when the presence file\'s home is not a git root', async ($, on) => {
   await refusedWith([], $, on, () => extraStat.delete(`${COND}/.git`))
+})
+
+test('refused when the lead is not bound to the conductor (it left, or never joined): not-eligible', async ($, on) => {
+  await refusedWith([], $, on, () => h.store.delete(`owner:${SID}`))
+})
+test('refused when the record names another conductor than the one the lead is bound to: not-eligible', async ($, on) => {
+  await refusedWith([], $, on, () => ownedBy(COND2, { leadSid: SID }))
+})
+test('a record edited after the lead bound it is refused as record-changed, and nothing compacts', async ($, on) => {
+  const { cue, arm } = await condLead($, on, [])
+  await arm()
+  putLeadRecs([{ name: 'LEAD', conductorSid: OTHERLEAD, sid: SID, how: 'opened' }])
+  expect(await cue(96, 'compact\n')).toBe('compact refused record-changed 96\n')
+  expect(seen.compacted).toBe(false)
+})
+test('a lead owned by another conductor takes the compact cue of a trusted manager, and not that of a conductor that does not own it', async ($, on) => {
+  const { cue, arm } = await condLead($, on, [])
+  await arm()
+  h.store.delete(`owner:${SID}`)
+  expect(await cue(97, 'compact\n')).toBe('compact refused not-eligible 97\n')
+  mgrFile()
+  h.sessions = { ...leadSelfReg(), ...mgrRow() }
+  expect(await cue(98, 'compact\n')).toBe('compact ok - 98\n')
+  expect(seen.compacted).toBe(true)
 })
 
 test('an adopted lane with no live lead refuses a conductor\'s resume (no-lead), takes its compact, and still takes the manager\'s', async ($, on) => {
@@ -1057,6 +1104,7 @@ const bornConductor = () => {
   h.store.set(`conductor:${OTHERLEAD}`, { home: COND, repos: ['/data/x/work'], savedAt: T0 - 60_000 })
   condPresenceOf(OTHERLEAD, 4243, 'CONDX', ['/data/x/work'])
   h.sessions = { ...h.sessions, ...regAs(OTHERLEAD, 4243, 'CONDX') }
+  ownedBy(OTHERLEAD, { repo: '/data/x/work', leadSid: LEADSID })
 }
 
 test('a made lane with no live lead, no manager and no conductor takes no resume, compact, retire, park or start cue (no-lead)', async ($, on) => {
@@ -1101,6 +1149,11 @@ test('a made lane with no live lead takes compact from a trusted conductor of it
   for (const v of ['resume', 'retire', 'park', 'start']) expect(await cue(131, `${v}\n`)).toBe(REFUSED(v, 131))
 })
 
+test('a made lane takes no compact from a trusted conductor that is not the owner of its lead: no-lead', async ($, on) => {
+  await bornLane($, on, () => (bornConductor(), h.store.delete(`owner:${LEADSID}`)))
+  expect(await cue(135, 'compact\n')).toBe(REFUSED('compact', 135))
+})
+
 test('a conductor\'s compact reaches a made lane whose lead is gone, and an untrusted conductor\'s does not', async ($, on) => {
   await bornLane($, on, bornConductor)
   leadFiles.delete(`${ROOT}/leads/${OTHERLEAD}.json`)
@@ -1117,7 +1170,7 @@ test('the lead section names its conductor while one is trusted, and is gone at 
   await condLead($, on)
   await h.clock!.advance(2000)
   expect(await condSettle($, 1)).toEqual([{ id: 'callboard:lead-conductor', text: leadConductorText(['CONDX']), scope: 'session' }])
-  expect(leadConductorText(['CONDX'])).toContain('Conductor `CONDX` coordinates leads')
+  expect(leadConductorText(['CONDX'])).toContain('Conductor `CONDX` runs this lead')
   h.store.delete(`conductor:${OTHERLEAD}`)
   await idleFor(62_000)
   expect(await condSettle($, 0)).toEqual([])
@@ -1129,7 +1182,7 @@ longTest('no section while the conductor is not trusted (no saved grant)', async
   await h.clock!.advance(2000)
   expect(await condSettle($, 1, 60)).toEqual([])
 })
-test('two trusted conductors: both named, follow the one that gave the task; an unnamed one is a conductor session', async ($, on) => {
+test('two trusted conductors list the repo: only the owner is named; an unnamed one is a conductor session', async ($, on) => {
   await leadAt($, on, [], {
     clock: true,
     sess: { ...CTSESS(), ...regAs(COND2, 4244, 'CONDY') },
@@ -1142,9 +1195,10 @@ test('two trusted conductors: both named, follow the one that gave the task; an 
   await h.clock!.advance(2000)
   const s = await condSettle($, 1)
   expect(s.length).toBe(1)
-  expect(s[0].text).toContain('Conductors `CONDX`, `CONDY` (follow the one that gave you your task) coordinate')
-  expect(leadConductorText([''])).toContain('A conductor session coordinates')
-  expect(leadConductorText(['ok', 'bad name'])).toContain('Conductors `ok`, a conductor session (follow')
+  expect(s[0].text).toContain('Conductor `CONDX` runs this lead')
+  expect(s[0].text).not.toContain('CONDY')
+  expect(leadConductorText([''])).toContain('A conductor session runs this lead')
+  expect(leadConductorText(['bad name'])).toContain('cannot be told apart from other senders')
 })
 test('every lead briefing says other leads of its repo may message it to align work', async ($, on) => {
   expect(leadBriefing(PIN)).toContain('Other leads of this repo (one lead per ticket) may message you to align work')

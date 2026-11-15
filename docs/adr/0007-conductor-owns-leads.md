@@ -118,6 +118,14 @@ Facts that bound the options:
 - **A lead the person makes by hand.** After the person's `Lead` click in a repo that a live conductor reaches, the mod
   asks "Which conductor runs this lead?", listing those conductors and "None for now". A dismissal is "None for now":
   the lead stays unowned until the person types `/callboard lead join`.
+- *Amended 2026-11-15 (the person's scope): **assign, never move.** The Join and the question after a `Lead` click only
+  assign a lead that has no conductor. A lead that has one is refused (`already-owned`), whether its conductor is live or
+  gone, and nothing moves a lead from one conductor to another; the person who types `lead leave` and then `lead join`
+  does it in two steps of their own, each with its own ledger row. An assigned lead is exactly like one the conductor
+  opened. So "Moving a lead" above no longer holds; the dialog names the conductor being chosen, never an old one, and
+  says a lead is assigned once. "One writer of ownership" and "The session id and a rename" read "creates a record" where
+  they say "creates a record or changes its conductor", and "Target checks" reads "a `leave` while a call waits ends the
+  call with `grant-changed`" where it names a Join.*
 
 ### The lead tools
 
@@ -136,6 +144,20 @@ and its own mod's confirmation are the gate. The residual this leaves is under C
 
 The conductor still never creates, opens, starts, resumes, parks or retires a **lane** (`conductor-tool`), and its
 `lane_terminate` on a lead's name still refuses `target-is-lead`. The manager still has no park or unpark.
+
+*Amended 2026-11-15 (the person's scope): **the manager owns nothing and always asks.** The manager may resume, compact,
+park, unpark, retire or force stop any lead, each only behind the person's dialog, every time, never unattended. This
+replaces "the subset it has over lanes", "the manager still has no park or unpark" and the manager column's "yes, when the
+lead itself asked for it" above. The conductor's own powers are unchanged (retire with no dialog, terminate behind the
+dialog). The code for this ships with the lead tools; the text lands first so the ADR says one thing from the first code
+step on.*
+
+*Amended 2026-11-15 (the lead stop tools): the manager also has `lead_park` and `lead_unpark`, so its four lead stop
+tools are `lead_park`, `lead_unpark`, `lead_retire` and `lead_terminate`. It owns no lead and acts on any lead only
+through the tool's own dialog, which the person answers themselves every time; never unattended. A park still needs
+the lead's own mod to confirm, as for its conductor, so a lead takes `park` as well as `resume`, `compact` and
+`retire` from a trusted manager. The table's manager column reads `yes, behind its dialog` for `lead_park` and
+`lead_unpark`. H2's exception in ADR 0001 names all four.*
 
 **Target checks.** Before any dialog or cue, after the dialog, and right before the signal, each time from a fresh read:
 the record's session id is the target session's; the target holds a live lead presence file for exactly the record's
@@ -188,6 +210,11 @@ session and no lanes, is drawn too. Display only.
   Nothing is written without the click. A ledger that cannot be read asks nothing and logs it once. A conductor that
   restarted as a new conversation does not match its rows.
 - **Every other lead** stays unowned until the person types `/callboard lead join` in it.
+- *Amended 2026-11-15 (the person's scope): **no questions for existing leads, no migration.** The person starts from a
+  setup with no leads, so nothing is asked and nothing is read from the ledger to find an opener: the first bullet above
+  is not built, and step 2 of "Built in steps" goes with it. A lead with no record is unowned until the person assigns it
+  with `/callboard lead join`. The risk-list bullet under Consequences drops "the questions for existing leads", "What
+  stays as the guard" drops "every record made for an existing lead", and the `lead-owner` codes below drop `migrated`.*
 - **No stopgap.** An unowned lead is never treated as owned by the one conductor that lists its repo. From the step
   that ships routing, a lead not yet joined has no conductor tier and no conductor reaches its lanes; the manager still
   does. The order below joins the leads before that step, so the gap covers only leads still unjoined then.
@@ -201,6 +228,7 @@ session and no lanes, is drawn too. Display only.
    for existing leads, the ownership ledger rows and the manager's table. Nothing routes by ownership yet, so it can be
    set up and seen first.
 2. The person answers the questions and joins the remaining leads.
+   *Amended 2026-11-15: the questions for existing leads are not built, and step 2 is gone.*
 3. Routing: tiers, the lead's conductor section, cue acceptance, the lane fallback, the reach narrowing and the removal
    of the cap.
 4. The lead tools, with the lead briefing's sign-off, the order for a lead, the extension's reopen of a lead record
@@ -215,6 +243,11 @@ Ledger rows, each written before its action: `lead-owner` (made, joined, left or
 session id; nonce), `lead-stop` (verb, caller and target session id, dialog yes or none) and `lead-resume` (caller
 session id). The audit flags a stop or resume by a session that was not the record's owner or a manager at the time,
 and a record change with no `lead-owner` row.
+
+*Amended 2026-11-15: the audit identifies a lead by its session id and compares only the conductor, so the sentence reads
+"a change of a record's conductor with no `lead-owner` row"; a rename changes no conductor, writes no row and raises no
+flag. `migrated` is not a code. A `lead-owner` row carries `target` (the lead's session id), `by` (the conductor, for
+made and joined) and `was` (the conductor a lead left, for left and off).*
 
 ## Consequences
 
@@ -265,7 +298,7 @@ Each carries a dated line pointing here; they apply as each step is built.
 
 - **ADR 0001:** the manager's tools gain the four `lead_*` tools above; H2's exception for a stop covers `lead_retire`
   and `lead_terminate` too, each behind its own dialog, never unattended; H3, H5 and the closed list of what it may run
-  follow.
+  follow. *Amended 2026-11-15: the exception names `lead_park`, `lead_unpark`, `lead_retire` and `lead_terminate`.*
 - **ADR 0002:** the levels table (a conductor reaches its leads and their lanes); the conductor section ("cannot stop a
   lead", "no check-ins", the lead's side naming any trusted conductor, the dialog text); the manager's stops, which
   refuse a presence holder except a lead targeted by `lead_retire` or `lead_terminate`; the cue rule of a lane whose

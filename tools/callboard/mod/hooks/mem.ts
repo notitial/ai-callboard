@@ -142,7 +142,7 @@ export const leadToolsInFlight = new Map<string, Promise<void>>()
 export const managerSeen = new Map<string, { at: number; live: boolean; conductors?: string[] }>()
 export const managerSeenBusy = new Map<string, object>()
 
-// The manager's five lane tools, declared at its grant, then the three prompt tools (eight in all, c.MANAGER_TOOLS). The handlers are the lead's (leadBase refuses every other lane tool at manager level).
+// The manager's five lane tools and six lead tools, declared at its grant, then the three prompt tools (fourteen in all, c.MANAGER_TOOLS). The handlers are the lead's (leadBase refuses every other lane tool at manager level).
 export const managerDeclared = new Set<string>()
 
 // Lead cue calls to one target go one at a time inside this process (a lead can issue parallel tool calls); they share one answer file.
@@ -224,8 +224,8 @@ export const leadlessSeen = new Map<string, Map<string, { at: number; leads: c.L
 // What each orderer (lead, conductor or manager) ordered: lane session id to { lane name, time of the first order }, in module memory (lost with the session or a reload,
 // then no notice). Once a minute, an order older than c.ORDER_MS is looked up in $.store: the lane's own stamp (c.ORDER_PREFIX + its session id) is still there only if
 // no compaction began (orderSpend), so only then, and only while the lane's session is live, the orderer gets one fixed notice, and the stamp goes. Nothing is
-// stopped: the notice sends the orderer to the person.
-export const orders = new Map<string, Map<string, { lane: string; at: number }>>()
+// stopped: the notice sends the orderer to the person. kind 'lead': the target is a lead (lead_compact), told with c.orderLeadText.
+export const orders = new Map<string, Map<string, { lane: string; at: number; kind?: 'lead' }>>()
 export const orderChecked = new Map<string, number>()
 export const orderBusy = new Set<string>()
 
@@ -296,3 +296,10 @@ export const offerSweptAt = new Map<string, number>()
 // conductorGrantCheck: when a conductor last read the ledger for grants in its name, and the grants (by nonce) it has already told the person about.
 export const grantCheckedAt = new Map<string, number>()
 export const grantTold = new Map<string, Set<string>>()
+
+// ---- a lead's conductor (engine/lead-records.ts) ----
+// When a bound lead last looked at its own record, and the leads whose changed record is already logged (once, until it matches again or the lead leaves).
+export const ownerLooked = new Map<string, number>()
+export const ownerFlagged = new Set<string>()
+// A lead's rename whose new name is taken: the `old\ncur` pair the person was already told about, so the toast comes once per pair.
+export const renameRefused = new Map<string, string>()

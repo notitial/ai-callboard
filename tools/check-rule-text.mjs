@@ -31,13 +31,14 @@ if (!quoted(prompts.PROMPT_NOTICE_TEXT)) problems.push('rules/callboard.md does 
 // The nudge section lists each opener as a backquoted line that starts with [callboard]; a trailing " ..." marks where the quote stops.
 const nudgeSection = rule.split('## The compaction nudge')[1]?.split('\n## ')[0] ?? ''
 const openers = [...nudgeSection.matchAll(/^ {2}- `(\[callboard\] [^`]*?)(?: \.\.\.)?`/gm)].map((m) => m[1])
-if (openers.length !== core.NUDGE_KINDS.length) problems.push(`rules/callboard.md lists ${openers.length} nudge openers, the mod has ${core.NUDGE_KINDS.length} nudge kinds`)
-const texts = core.NUDGE_KINDS.map((kind) => core.nudgeText(kind))
+// The order (kind lead) has a second wording for a session holding a lead grant, told by its conductor.
+const texts = [...core.NUDGE_KINDS.map((kind) => core.nudgeText(kind)), core.nudgeText('lead', core.CONFIG_DEFAULTS, 'lead')]
+if (openers.length !== texts.length) problems.push(`rules/callboard.md lists ${openers.length} nudge openers, the mod has ${texts.length} nudge texts`)
 for (const opener of openers) {
   if (texts.filter((t) => t.startsWith(opener)).length !== 1) problems.push(`no nudge text starts with the quoted opener: ${opener}`)
 }
-for (const [i, kind] of core.NUDGE_KINDS.entries()) {
-  if (!openers.some((o) => texts[i].startsWith(o))) problems.push(`the ${kind} nudge has no quoted opener in rules/callboard.md`)
+for (const [i, text] of texts.entries()) {
+  if (!openers.some((o) => text.startsWith(o))) problems.push(`the ${core.NUDGE_KINDS[i] ?? 'lead (to a lead)'} nudge has no quoted opener in rules/callboard.md`)
 }
 
 if (problems.length) {

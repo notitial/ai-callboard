@@ -206,6 +206,23 @@ test('/callboard rest: no ping and no cache nudge in this gap, logged once; a re
   expect(pings().length).toBe(2)
 })
 
+test('/rest is /callboard rest: the same answer and the same quiet gap, from any origin, with any arguments ignored', async ($, on) => {
+  const stdins: string[] = []
+  await warm($, on, stdins)
+  await advanceQuiet(10 * MIN)
+  expect((await $.command.run({ command: 'rest', args: '', origin: { kind: 'plugin', name: 'x' } } as any)).text).toBe(REST_TEXT)
+  await advanceQuiet(45 * MIN)
+  expect(pings()).toEqual([])
+  expect(kaLog(stdins)).toEqual(['keepalive-skipped:rest'])
+  await realTurn($, 'back')
+  await advanceQuiet(50 * MIN)
+  expect(pings()).toEqual([KEEPALIVE_TEXT])
+  await ownTurn($, KEEPALIVE_TEXT)
+  await h.clock!.advance(10_000)
+  expect((await $.command.run({ command: 'rest', args: 'lead', origin: PERSON } as any)).text).toBe(REST_TEXT)
+  expect(helpText()).toContain('/rest')
+})
+
 test('keepalive: after a restart (the session state is gone) nothing is pinged until a turn has been seen to end', async ($, on) => {
   const stdins: string[] = []
   const trace = newTrace()

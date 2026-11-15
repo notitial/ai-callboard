@@ -1,8 +1,8 @@
 {
   "name": "callboard-panels",
   "displayName": "Callboard Panels",
-  "description": "Opens, reopens and closes Claude Code lane panels for the callboard mod, and opens a new lead's panel for a conductor, so a lead session can run its lanes in this window.",
-  "version": "1.3.3",
+  "description": "Opens, reopens and closes Claude Code lane panels for the callboard mod, and opens or reopens a lead's panel for a conductor, so a lead session can run its lanes in this window.",
+  "version": "1.4.0",
   "publisher": "notitial",
   "icon": "icon.png",
   "galleryBanner": { "color": "#101d22", "theme": "dark" },

@@ -2,7 +2,7 @@ import { expect, test } from 'claude-code/testing'
 import { refusalText, LANES_CHANGED_NOTE, OFF_QUESTION, offLeavesLane, LEAD_YES, LEAD_NO, RESTORE_YES, RESTORE_NO, REASON_TEXT, OFF_NOTHING } from '../hooks/core'
 import { h, NO, ROOT, SID, T0, YES, extraStat, gitFiles, gitNoHead, laneSeed, leadFiles, longTest, realFails, realMap, resultFiles, statErr, storeFiles, toasts, toolDefs } from './harness'
 import type { Trace } from './harness'
-import { ATTACHED, LANES, LEADKEY, LEADPATH, LEADPS, LEADSID, LEAD_LANES, MFOLDER, OTHER, OTHERLEAD, PIN, REG, REGFILE, RESULT, SELFPATH, STATUS_NONE, STORE_LANE, USAGE, allEvents, attRec, attacher, callCreate, created, creator, cue, cueSession, dirStat, doLane, drive, dropRec, grantAt, lane, laneTarget, lead, leadAt, leadCall, leadFileText, leadReg, leadSelfReg, listCall, logged, newTrace, notices, ownReg, pause, putStore, rebinder, rebinds, recOf, renameThroughTick, started, statusTable, statusText, storeLaneNames, tickTwice, ticks } from './fixtures'
+import { ATTACHED, LANES, LEADKEY, LEADPATH, LEADPS, LEADSID, LEAD_LANES, MFOLDER, OTHER, OTHERLEAD, PIN, REG, REGFILE, RESULT, SELFPATH, STATUS_NONE, STORE_LANE, USAGE, allEvents, attRec, attacher, callCreate, created, creator, cue, cueSession, dirStat, doLane, drive, dropRec, grantAt, lane, laneTarget, lead, leadAt, leadCall, leadFileText, leadReg, leadSelfReg, selfAs, listCall, logged, newTrace, notices, ownReg, pause, putStore, rebinder, rebinds, recOf, renameThroughTick, started, statusTable, statusText, storeLaneNames, tickTwice, ticks } from './fixtures'
 
 test('the lead scope is the cwd at the grant, not the live cwd', async ($, on) => {
   await lead($, on, [])
@@ -69,7 +69,7 @@ test('off from the prompt or phone needs no dialog; off from anything else asks 
   for (const a of ['Deny', 'Cancel', '']) {
     h.askAnswer = a
     expect((await $.command.run(lane('off', { kind: 'plugin', name: 'x' }))).text).toContain('Cancelled. Nothing changed.')
-    expect((await $.command.run(lane('status'))).text).toBe(statusTable(['Lane', 'NONE'], ['Lead', 'ON'], ['Check-ins', 'ON']))
+    expect((await $.command.run(lane('status'))).text).toBe(statusTable(['Lane', 'NONE'], ['Lead', 'ON'], ['Conductor', 'none: /callboard lead join'], ['Check-ins', 'ON']))
   }
   h.askAnswer = YES
   expect((await $.command.run(lane('off', { kind: 'peer' }))).text).toBe('Lead is now off.')
@@ -773,6 +773,33 @@ test('a saved grant beside another live lead with no usable name is not restored
   expect(await statusText($)).toContain('| Lead | OFF |')
   expect(leadLogs(stdins)).toEqual(['lead-restore-rejected:other-lead-unnamed'])
   expect(toasts).toContain('Lead not restored: another lead in this repo has no usable name; it must /rename first, or be turned off. Run /callboard lead.')
+  expect(h.store.has(LEADKEY)).toBe(true)
+})
+
+// A reopened panel (lead_unpark) gets its registry name a few ticks after session.start; beside another lead it has none yet.
+const besideLeadA = () => {
+  h.sessions = { ...selfAs('LEAD B'), '4243.json': leadReg({ sessionId: OTHERLEAD, pid: 4243, name: 'LEADA' })['4242.json'] }
+  leadFiles.set(`${ROOT}/leads/${OTHERLEAD}.json`, { text: leadFileText({ sid: OTHERLEAD, pid: 4243 }) })
+}
+
+test('a lead restore beside another lead whose own name lands late is tried again from the tick, and restores once the name is there', async ($, on) => {
+  const stdins: string[] = []
+  await leadRestarter($, on, stdins, { seed: besideLeadA })
+  await ticks(3)
+  expect(leadLogs(stdins)).toEqual([])
+  expect(await statusText($)).toContain('| Lead | OFF |')
+  h.sessions = { ...selfAs('LEADB'), '4243.json': leadReg({ sessionId: OTHERLEAD, pid: 4243, name: 'LEADA' })['4242.json'] }
+  await ticks(2)
+  expect(await statusText($)).toContain('| Lead | ON |')
+  expect(logged(stdins)).toContain('lead-restored:')
+})
+
+test('a lead restore whose name never lands in 15 ticks: no lead, the key kept, logged and told once', async ($, on) => {
+  const stdins: string[] = []
+  await leadRestarter($, on, stdins, { seed: besideLeadA })
+  await ticks(17)
+  expect(leadLogs(stdins)).toEqual(['lead-restore-rejected:lead-needs-name'])
+  expect(toasts.filter((t: string) => t.startsWith('Lead not restored'))).toEqual(['Lead not restored: ' + REASON_TEXT['lead-needs-name'].replace(/\.$/, '') + '. Run /callboard lead.'])
   expect(h.store.has(LEADKEY)).toBe(true)
 })
 

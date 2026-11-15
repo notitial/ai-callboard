@@ -285,6 +285,11 @@ export type Request = {
 }
 export const requestText = (r: Request): string => JSON.stringify(r)
 
+// The lead name a request hands to the owner lookup (c.ownerOf): a lane's lead by name; '' when the lane's lead is known but has no name (no record can name it, so no
+// other lead's record is taken for it); undefined for a lane that names no lead (the repo's only record). A lead's own request is looked up by its session id too;
+// its name here is its own.
+export const tierLead = (q: Pick<Request, 'level' | 'lane' | 'leadName' | 'leadSid'>): string | undefined => (q.level === 'lead' ? (q.lane ?? '') : q.leadSid !== undefined ? '' : q.leadName)
+
 // `answer` is a question's decision: the zero-based index of the chosen option and its label as the tier read it (redacted, trimmed). It goes with decision 'answer' only.
 export type Decision = { id: string; inputHash: string; decision: 'allow' | 'deny' | 'answer'; why: string; by: { level: string; sid: string; name: string }; via?: 'person'; at: number; nonce: string; answer?: { index: number; label: string } }
 const ANSWER_LABEL_MAX = 200
@@ -360,11 +365,14 @@ export function applyCheck(a: ApplyIn): ApplyOut {
 }
 
 // ---- the ledger: machine-wide, one JSON row per line, no input text ----
-export type RowKind = 'requested' | 'answered' | 'escalated' | 'dropped' | 'returned' | 'superseded' | 'expired-denied' | 'off' | 'abandoned' | 'dialog' | 'not-judgeable' | 'no-tier' | 'answering-on' | 'answering-off' | 'relayed' | 'relay-lost' | 'relay-left' | 'relay-late' | 'deny-unclear' | 'lead-offer' | 'lead-offer-void' | 'lead-grant'
+export type RowKind = 'requested' | 'answered' | 'escalated' | 'dropped' | 'returned' | 'superseded' | 'expired-denied' | 'off' | 'abandoned' | 'dialog' | 'not-judgeable' | 'no-tier' | 'answering-on' | 'answering-off' | 'relayed' | 'relay-lost' | 'relay-left' | 'relay-late' | 'deny-unclear' | 'lead-offer' | 'lead-offer-void' | 'lead-grant' | 'lead-owner' | 'lead-resume' | 'lead-stop'
+// A `lead-owner` row (ADR 0007), written before the lead record changes: code made | joined | left | off, hash the repo's key, repo, lane the lead's name at the
+// time (for reading only), target the lead's session id, by the conductor's session id (made, joined), was the conductor the lead left (left, off), nonce (made).
 // cap and target: set on an `answered` and a `returned` row of a comment that starts the review command (claudeCap), so the standing comment cap can be counted.
 // by: the session id of the lead that answered (on `answered` and `returned`, so the apply and the audit can bind a decision file to its row); tuid: the call's tool_use_id (on `returned`).
+// dialog (a `lead-resume` row): 'yes' when the person's dialog said yes before the cue (the manager's calls), 'none' when no dialog is asked (a conductor's).
 // opt, lh (a question's `answer` rows, code 'answer'): the chosen option's index as a string, and the first 16 hex of SHA-256(id + "\n" + label); no label text. Strings, since the audit drops a row with another type.
-export type LedgerRow = { t: string; kind: RowKind; code?: string; id?: string; lane?: string; repo?: string; tool?: string; pattern?: string; hash?: string; tier?: string; why?: string; nonce?: string; cap?: CapKind; target?: string; by?: string; tuid?: string; via?: 'person'; short?: string; opt?: string; lh?: string }
+export type LedgerRow = { t: string; kind: RowKind; code?: string; id?: string; lane?: string; repo?: string; tool?: string; pattern?: string; hash?: string; tier?: string; why?: string; nonce?: string; cap?: CapKind; target?: string; by?: string; tuid?: string; via?: 'person'; short?: string; opt?: string; lh?: string; was?: string; dialog?: 'yes' | 'none' }
 export function ledgerLine(row: LedgerRow): string {
   const r: LedgerRow = { ...row }
   if (r.why !== undefined) r.why = capBytes(redact(r.why).replace(/[\r\n]+/g, ' '), WHY_MAX).text

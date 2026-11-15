@@ -1,5 +1,5 @@
 import { expect } from 'claude-code/testing'
-import { conductorFileText, folderName, leadRecordText, LANES_CHANGED_TEXT, LANES_CHANGED_NOTE, reboundToast, KEEPALIVE_TEXT } from '../hooks/core'
+import { conductorFileText, folderName, keptKey, leadRecordText, JOIN_NONE, LANES_CHANGED_TEXT, LANES_CHANGED_NOTE, reboundToast, KEEPALIVE_TEXT } from '../hooks/core'
 import type { LeadRec } from '../hooks/core'
 import { h, AUTO_OWN, GOOD, LANESDIR, LEADRECDIR, NO, PS_TABLE, ROOT, SID, T0, TOOL, YES, condFiles, engine, extraStat, fakeSha, laneSeed, leadFiles, quiet, repoKey, resultFiles, storeFiles, submitted } from './harness'
 import type { Trace } from './harness'
@@ -10,7 +10,7 @@ export const events = (stdins: string[]) => allEvents(stdins).filter((e) => e.ev
 
 export const PERSON = { kind: 'composer' } as const
 // The usage line, which /callboard on gets too.
-export const USAGE = 'Use /callboard help, lanes, status, lead, lane [NAME], escalation [off], manager or off. Run /callboard help for the full list.'
+export const USAGE = 'Use /callboard help, lanes, status, lead, lead join, lane [NAME], escalation [off], manager or off. Run /callboard help for the full list.'
 export const lane = (args: string, origin: unknown = PERSON) => ({ command: 'callboard', args, origin }) as any
 export const statusText = async ($: any) => (await $.command.run(lane('status'))).text as string
 
@@ -117,7 +117,14 @@ export async function lead($: any, on: any, stdins: string[], opts: { repo?: str
 export async function grantAt($: any, cwd: string) {
   h.callerCwd = cwd === '/data/x/work/lab' ? '/data/x/work' : cwd
   h.askAnswer = YES
-  await $.command.run(lane('lead'))
+  // A live conductor makes the grant ask which one runs the lead (ADR 0007); a grant that is not about that picks None for now.
+  const prev = h.askScript
+  h.askScript = async (q: string, opts: string[]) => (opts.includes(JOIN_NONE) ? JOIN_NONE : prev ? prev(q, opts) : opts[0])
+  try {
+    await $.command.run(lane('lead'))
+  } finally {
+    h.askScript = prev
+  }
   h.callerCwd = cwd
 }
 
@@ -551,13 +558,16 @@ export const putCond = (repos: string[]) => {
 }
 // The conductor (SID in COND) with lane API in PIN's store (session APISID) and LABLANE of /data/x/work (session OTHER), granted over ../app and ../app2.
 export const CSESS = (over: Record<string, unknown> = {}) => ({ ...condSelf(over), ...cueSession(APISID, 'API', `${PIN}/api`, { pid: 4500 }), ...cueSession(OTHER, 'LABLANE', '/data/x/work/lab', { pid: 4600 }) })
-export async function condOn($: any, on: any, stdins: string[] = [], opts: { clock?: boolean; sess?: Record<string, string>; seed?: () => void; argv?: string[][]; trace?: Trace; repos?: string[] } = {}) {
+// owns: the leads of PIN this conductor (SID) owns, each with its record and its lead's binding (ownedBy); by default LEAD (session LEADSID), the lead the legacy lane
+// API of PIN follows. `[]` is a conductor that lists the repos and owns nothing.
+export async function condOn($: any, on: any, stdins: string[] = [], opts: { clock?: boolean; sess?: Record<string, string>; seed?: () => void; argv?: string[][]; trace?: Trace; repos?: string[]; owns?: { name?: string; leadSid?: string; repo?: string }[] } = {}) {
   await condAt($, on, stdins, {
     clock: opts.clock,
     argv: opts.argv,
     trace: opts.trace,
     sess: opts.sess ?? CSESS(),
     seed: () => {
+      for (const o of opts.owns ?? [{}]) ownedBy(SID, { name: 'LEAD', leadSid: LEADSID, ...o })
       putStore([ckLane({ sid: APISID })])
       extraStat.set(`${PIN}/api`, dirStat)
       extraStat.set(`${PIN}/api/BRIEF.md`, fileStat)
@@ -596,6 +606,12 @@ export function bindOwner(leadSid: string, conductorSid: string, name: string, r
   const rec = leadRecsJson(repo).leads.find((l) => l.name === name)!
   h.store.set(`owner:${leadSid}`, { repo, rec: fakeSha(leadRecordText(repo, rec)), conductorSid, at: T0 })
 }
+// The owner proof of a record kept with no session (the record named `name` in the repo's file), as the stop that kept it writes it: without it the record is unbound.
+export function keptOwner(name: string, repo = PIN): void {
+  const rec = leadRecsJson(repo).leads.find((l) => l.name === name)!
+  const hash = fakeSha(leadRecordText(repo, rec))
+  h.store.set(keptKey(hash, name), { repo, rec: hash, conductorSid: rec.conductorSid, at: T0, name })
+}
 // "This lead is owned by that conductor": the record (added to the repo's file) and the lead's binding to it. Lead LEAD of this session in PIN unless said.
 export function ownedBy(conductorSid: string, o: { name?: string; leadSid?: string; repo?: string } = {}): void {
   const repo = o.repo ?? PIN
@@ -604,4 +620,6 @@ export function ownedBy(conductorSid: string, o: { name?: string; leadSid?: stri
   const had = storeFiles.has(leadRecFile(repo)) ? leadRecsJson(repo).leads.filter((l) => l.name !== name) : []
   putLeadRecs([...had, { name, conductorSid, sid: leadSid }], repo)
   bindOwner(leadSid, conductorSid, name, repo)
+  // A lead other than this session keeps its saved lead grant: the start sweep drops the binding of a session that has none.
+  if (leadSid !== SID) h.store.set(`lead:${leadSid}`, { pin: repo, savedAt: T0 })
 }
