@@ -524,7 +524,7 @@ test('prompts: a lead\'s system prompt carries the prompt section with the rubri
   expect(s[0].text).toBe(prm.LEAD_PROMPT_BRIEFING)
   expect(s[0].scope).toBe('session')
   expect(s[0].text).toContain(prm.RUBRIC)
-  expect(r.sections.find((x: any) => x.id === 'callboard:lead').text).toBe(leadBriefing(PIN))
+  expect(r.sections.find((x: any) => x.id === 'callboard:lead').text).toBe(leadBriefing(PIN, SID))
   expect((await $.prompt.compose({ ...COMPOSE, tools: ['Read'] })).sections.filter((x: any) => x.id === prm.LEAD_PROMPTS_ID).length).toBe(0)
   expect((await $.prompt.compose({ ...COMPOSE, traits: ['teammate'] })).sections.filter((x: any) => x.id === prm.LEAD_PROMPTS_ID).length).toBe(0)
 })
