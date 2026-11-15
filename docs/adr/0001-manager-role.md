@@ -66,6 +66,11 @@ never parks or unparks a lead. H3 and the closed list under "Limits are conventi
 and H5's exception covers a `lead_compact` on the lead's own request and a `lead_resume` the lead itself asked for. The
 role file and the callboard briefing change with it when those tools ship.
 
+*2026-11-15 ([ADR 0007](0007-conductor-owns-leads.md), the person's scope): the manager also gets `lead_park` and
+`lead_unpark`, and every one of its six lead tools, resume and compact included, runs only behind the person's dialog,
+every time, never unattended. This replaces the lines above that keep park and unpark away from it and let a
+`lead_compact` or `lead_resume` through on the lead's own request; H5's exception for a lead has no such case.*
+
 **The hard line.** The role file carries it, and the callboard briefing carries H2 word for word:
 - **H1** Never decide an approval.
 - **H2** Never dispatch, cancel, `kill_all` or restart anything. One exception: a callboard `lane_terminate` or

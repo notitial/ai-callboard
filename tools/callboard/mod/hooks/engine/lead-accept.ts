@@ -14,6 +14,7 @@ import { heldNo } from './levels.ts'
 import { ledgerAdd, ledgerRowsFor } from './answer-hook.ts'
 import { promptLinkOnce } from './answer-tiers.ts'
 import { grantLead } from './commands.ts'
+import { ownerWrite } from './lead-records.ts'
 
 // The wait for the registry to carry the new name, in 1 s tries.
 const NAME_TRIES = 5
@@ -215,5 +216,16 @@ export async function leadAccept(
   const baseline = await bounded(Promise.resolve($.session.turns()))
   if (baseline === undefined) toast($, c.leadNotStartedToast(offer.name, repo))
   else leadStarts.set(sid, { name: offer.name, repo, brief: c.briefPath(repo, offer.name), turns: baseline, until: (await $.clock.now()) + c.LEAD_START_GIVE_UP_MS })
-  return answer('ok', modelOk ? undefined : c.LEAD_MODEL_UNSET)
+  // The lead's record and binding (ADR 0007), after the grant and with a time limit: the conductor waits for the answer. A write that fails or runs out of
+  // time never undoes the grant: the lead is on with no conductor, the answer says so, and the person assigns one with /callboard lead join.
+  const rowsNow = await bounded(registryEntries($))
+  const condName = rowsNow ? c.laneLeadOf(rowsNow.map((r) => r.j), offer.conductor.sid)?.name : undefined
+  const own = await bounded(ownerWrite($, sid, { repo, name: offer.name, how: 'made', conductorSid: offer.conductor.sid, ...(condName !== undefined ? { conductorName: condName } : {}), nonce }))
+  const ownerOk = own !== undefined && 'ok' in own
+  if (!ownerOk) {
+    await logq($, sid, 'error', `owner-unset ${own === undefined ? 'timeout' : c.hasText(own.no) ? own.no : 'other'}`)
+    toast($, c.OWNER_UNSET_TOAST)
+  }
+  const note = c.leadOkNote(!modelOk, !ownerOk)
+  return answer('ok', note === '-' ? undefined : note)
 }

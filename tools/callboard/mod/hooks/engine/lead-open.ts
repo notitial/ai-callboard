@@ -10,6 +10,7 @@ import { leadsFor, cfgReadStrict, reservedGet } from './grants.ts'
 import { leadTool, leadBase, openExchange } from './lanes.ts'
 import { ledgerAdd, ledgerRowsFor, promptNewId } from './answer-hook.ts'
 import { promptLinkOnce } from './answer-tiers.ts'
+import { loadLeadRecords } from './lead-records.ts'
 
 // The conductors that have an open running, by session id, and the names those opens carry (lower case): held until the offer is gone.
 const opening = new Set<string>()
@@ -54,6 +55,10 @@ async function openLead($: any, e: any, sid: string, base: { live: RegRow[]; lan
   // The name, in any letter case: no live session, no lane record (or lead stamp) and no request in the open folder carries it. A result file left over is no request.
   const lower = a.name.toLowerCase()
   if (base.live.some((r) => typeof r.j.name === 'string' && r.j.name.toLowerCase() === lower) || base.lanes.some((l) => l.name.toLowerCase() === lower || l.leadName?.toLowerCase() === lower)) return no('name-in-use', c.reasonWhy('name-in-use'))
+  // A lead record of any repo holds its name too (a record kept for its lanes keeps it). A read that failed is not "free".
+  const recs = await loadLeadRecords($)
+  if (typeof recs === 'string') return no('store-unreadable', c.reasonWhy('store-unreadable'))
+  if (recs.some((s) => s.store.leads.some((l) => l.name.toLowerCase() === lower))) return no('name-in-use', c.reasonWhy('name-in-use'))
   const waiting = ((await $.fs.list(`${p.root}/open`).catch(() => [])) as { name: string }[]).some((f) => f.name.toLowerCase().startsWith(`${lower}.`) && !f.name.toLowerCase().endsWith('.result'))
   if (waiting) return no('name-in-open', c.reasonWhy('name-in-open'))
   // One live lead per repo, whoever made it; an unreadable file counts as a failure.
@@ -140,7 +145,7 @@ async function openLead($: any, e: any, sid: string, base: { live: RegRow[]; lan
   }
   if (out.outcome === 'ok') {
     await rmF($, [offer, `${p.root}/offers/${key}.claim`])
-    return { result: c.leadOpenedText(a.name, r.sid, out.reason === c.LEAD_MODEL_UNSET) }
+    return { result: c.leadOpenedText(a.name, r.sid, out.reason === c.LEAD_MODEL_UNSET || out.reason === c.LEAD_BOTH_UNSET, out.reason === c.LEAD_OWNER_UNSET || out.reason === c.LEAD_BOTH_UNSET) }
   }
   // A refusal that names no reason (the panel's own tick failed) is as unclear as no answer: nothing is taken back.
   if (out.outcome === 'refused' && out.reason === 'other') return { result: c.leadNoAnswerText(a.name, r.sid) }

@@ -3,9 +3,11 @@
 // never "no records"; a record counts for routing only while its lead is bound to it and its conductor passes the lead's conductor checks.
 import * as c from '../core.ts'
 import { where, statR, sha, real, gitRoot, logq } from './base.ts'
-import { readStoreFile, editStore } from './store.ts'
+import { readStoreFile, editStore, loadLanes, registryEntries } from './store.ts'
 import type { RegRow } from './store.ts'
-import { conductorTrustedSid } from './grants.ts'
+import { conductorTrustedSid, conductorsReaching, homeOf } from './grants.ts'
+import { ledgerAdd } from './answer-hook.ts'
+import { ownerLooked, ownerFlagged } from '../mem.ts'
 
 export type LeadRecs = { key: string; store: c.LeadStore }[]
 
@@ -159,4 +161,188 @@ export async function ownOwner($: any, sid: string, live: RegRow[]): Promise<Own
   const r = { key: s.key, repo: b.repo, rec }
   if (!(await boundTo($, r))) return 'record-changed'
   return trustedOwner($, live, sid, r)
+}
+
+// ---- the writers of ownership: the lead's own session only (the accept, the person's Join, leave and off, a rename) ----
+const sameName = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCase()
+
+// Gives a lead its conductor, once: the `lead-owner` ledger row, then the record under the record lock (with this session's id in that same write), then the
+// binding last, so a half-done write is never obeyed (a record with no binding routes nothing). It only assigns: a lead that has a binding or a record is
+// refused `already-owned`, and so is a name another record holds (`name-in-use`) and a 17th record (`lead-record-cap`). Those are checked before the ledger
+// row and again under the lock. A write that fails after the row gets a closing `left` row, so the ledger never shows an owner the lead does not have.
+export async function ownerWrite($: any, sid: string, a: { repo: string; name: string; how: 'made' | 'joined'; conductorSid: string; conductorName?: string; nonce?: string }): Promise<{ ok: true } | { no: string }> {
+  const key = await keyOf($, a.repo).catch(() => undefined)
+  if (!key) return { no: 'sha-failed' }
+  const now = await $.clock.now()
+  const rec: c.LeadRec = { name: a.name, createdAt: now, how: a.how, conductorSid: a.conductorSid, ...(a.conductorName !== undefined ? { conductorName: a.conductorName } : {}), ...(a.how === 'made' && a.nonce !== undefined ? { nonce: a.nonce } : {}), sid }
+  const hash = await sha($, c.leadRecordText(a.repo, rec)).catch(() => undefined)
+  if (!hash) return { no: 'sha-failed' }
+  const refusal = (st: c.LeadStore | undefined): string | undefined => {
+    if (st && st.repo !== a.repo) return 'store-repo'
+    const leads = st?.leads ?? []
+    if (leads.some((l) => l.sid === sid)) return 'already-owned'
+    if (leads.some((l) => sameName(l.name, a.name))) return 'name-in-use'
+    return leads.length >= c.LEAD_STORE_MAX ? 'lead-record-cap' : undefined
+  }
+  if (await bindingOf($, sid)) return { no: 'already-owned' }
+  const seen = await loadLeadRecordsFor($, a.repo)
+  if (typeof seen === 'string') return { no: seen }
+  const before = refusal(seen.find((x) => x.store.repo === a.repo)?.store)
+  if (before) return { no: before }
+  const row = { kind: 'lead-owner' as const, hash: key, repo: a.repo, lane: a.name, target: sid }
+  if (!(await ledgerAdd($, { ...row, code: a.how, by: a.conductorSid, ...(rec.nonce !== undefined ? { nonce: rec.nonce } : {}) }).catch(() => false))) return { no: 'ledger-write' }
+  const undone = async (no: string): Promise<{ no: string }> => {
+    await ledgerAdd($, { ...row, code: 'left', was: a.conductorSid }).catch(() => false)
+    return { no }
+  }
+  const w = await editLeadRecs($, key, async (st) => {
+    const no = refusal(st)
+    return no ? { no } : { store: { repo: a.repo, leads: [...(st?.leads ?? []), rec] } }
+  })
+  if ('no' in w) {
+    // The file was replaced but does not show the record: it may be there, with nothing bound to it. It is taken out again.
+    if (w.wrote) await dropOwn($, key, sid)
+    return undone(w.no)
+  }
+  const binding: c.OwnerBinding = { repo: a.repo, rec: hash, conductorSid: a.conductorSid, at: now }
+  const set = await (async () => $.store.set(`${c.OWNER_PREFIX}${sid}`, binding))().then(() => true).catch(() => false)
+  if (!set || !(await bindingOf($, sid))) {
+    if ((await dropOwn($, key, sid)) !== undefined) await dropOwn($, key, sid)
+    await logq($, sid, 'error', 'owner-binding-failed')
+    return undone('store-write')
+  }
+  return { ok: true }
+}
+
+// Removes the record that names this session from one repo's file. undefined: it is gone (or was never there); else the code of the edit that failed.
+async function dropOwn($: any, key: string, sid: string): Promise<string | undefined> {
+  const w = await editLeadRecs($, key, async (st) => (st?.leads.some((l) => l.sid === sid) ? { store: { repo: st.repo, leads: st.leads.filter((l) => l.sid !== sid) } } : { skip: true })).catch(() => ({ no: 'store-write' }))
+  return 'no' in w ? w.no : undefined
+}
+
+// Ends a lead's tie to its conductor (the person's `lead leave`, `/callboard off`, a lead grant that ends). The binding goes first, so nothing is obeyed from
+// then on; then a `lead-owner` row (a failed ledger write is logged and does not block leaving); then every record that names this session, in any repo, so a
+// record left by an earlier failed removal goes too. A record of the same name that names another session is left alone. had: there was a binding or a record.
+// kept: a record could not be removed (the code); it stays an orphan that routes nothing until the next leave.
+export async function ownerLeave($: any, sid: string, why: 'left' | 'off'): Promise<{ had: boolean; kept?: string }> {
+  const b = await bindingOf($, sid)
+  const hadKey = b !== undefined || (await (async () => $.store.get(`${c.OWNER_PREFIX}${sid}`))().catch(() => undefined)) !== undefined
+  const all = await loadLeadRecords($)
+  const mine = typeof all === 'string' ? [] : all.flatMap((s) => s.store.leads.filter((l) => l.sid === sid).map((rec) => ({ key: s.key, repo: s.store.repo, rec })))
+  if (hadKey) await (async () => $.store.delete(`${c.OWNER_PREFIX}${sid}`))().catch(() => logq($, sid, 'error', 'owner-binding-kept'))
+  if (!b && mine.length === 0) return { had: false, ...(typeof all === 'string' ? { kept: all } : {}) }
+  let kept: string | undefined = typeof all === 'string' ? all : undefined
+  const rows = mine.length > 0 ? mine.map((m) => ({ hash: m.key, repo: m.repo, lane: m.rec.name, was: m.rec.conductorSid })) : b ? [{ hash: await keyOf($, b.repo).catch(() => ''), repo: b.repo, was: b.conductorSid }] : []
+  for (const r of rows) {
+    if (!(await ledgerAdd($, { kind: 'lead-owner', code: why, target: sid, ...r }).catch(() => false))) await logq($, sid, 'error', 'owner-ledger-write')
+  }
+  for (const m of mine) kept = (await dropOwn($, m.key, sid)) ?? kept
+  if (kept !== undefined) await logq($, sid, 'error', `owner-record-kept ${c.hasText(kept) ? kept : 'other'}`)
+  ownerLooked.delete(sid)
+  ownerFlagged.delete(sid)
+  return { had: true, ...(kept !== undefined ? { kept } : {}) }
+}
+
+// The live conductors a lead of `repo` may be given to: each lists exactly that repo and passes the lead's conductor checks; no cap, since the person picks.
+export async function joinCands($: any, live: RegRow[], sid: string, repo: string): Promise<{ sid: string; name?: string; home: string }[]> {
+  return conductorsReaching($, live, sid, (r) => r === repo, undefined, { cap: false })
+}
+
+// Whether a name is held by a lane record, or by a lead record of any repo that does not name `sid` (with or without a session of its own: a record kept for
+// its lanes keeps its name). A string that is not a boolean is a refusal code: a read that failed is "unknown", so the caller refuses.
+export async function leadNameHeld($: any, sid: string, name: string, withLanes = true): Promise<boolean | string> {
+  const recs = await loadLeadRecords($)
+  if (typeof recs === 'string') return recs
+  if (recs.some((s) => s.store.leads.some((l) => l.sid !== sid && sameName(l.name, name)))) return true
+  if (!withLanes) return false
+  const lanes = await loadLanes($)
+  if (typeof lanes === 'string') return lanes
+  return lanes.some((l) => sameName(l.name, name))
+}
+
+// A bound lead's look at its own record, at most once a minute: when the record of the binding's repo that names this session is missing or no longer hashes
+// to the binding, `owner-record-changed` is logged once. It repairs nothing: ownOwner answers record-changed and the person leaves and joins again.
+const OWNER_LOOK_MS = 60_000
+export async function ownerTick($: any, sid: string): Promise<void> {
+  const now = await $.clock.now()
+  if (now - (ownerLooked.get(sid) ?? -OWNER_LOOK_MS) < OWNER_LOOK_MS) return
+  ownerLooked.set(sid, now)
+  const b = await bindingOf($, sid)
+  if (!b) {
+    ownerFlagged.delete(sid)
+    return
+  }
+  const stores = await loadLeadRecordsFor($, b.repo)
+  if (typeof stores === 'string') return
+  const s = stores.find((x) => x.store.repo === b.repo)
+  const rec = s?.store.leads.find((l) => l.sid === sid)
+  if (s && rec && (await boundTo($, { key: s.key, repo: b.repo, rec }))) {
+    ownerFlagged.delete(sid)
+    return
+  }
+  if (ownerFlagged.has(sid)) return
+  ownerFlagged.add(sid)
+  await logq($, sid, 'error', 'owner-record-changed')
+}
+
+// A bound lead's new registry name moves into its record: one write under the record lock that sets the name on the record naming this session. The binding
+// is neither read for its content nor written (the name is in neither the hash nor the binding), so a move that fails leaves the lead bound under its old name
+// and the next look tries again. 'none': no binding, so there is nothing to move. A name a lane record or another lead record holds is refused `name-in-use`.
+export async function ownerRename($: any, sid: string, cur: string): Promise<'moved' | 'none' | { no: string }> {
+  const b = await bindingOf($, sid)
+  if (!b) return 'none'
+  const held = await leadNameHeld($, sid, cur)
+  if (held !== false) return { no: held === true ? 'name-in-use' : held }
+  const key = await keyOf($, b.repo).catch(() => undefined)
+  if (!key) return { no: 'sha-failed' }
+  const w = await editLeadRecs($, key, async (st) => {
+    const own = st?.leads.find((l) => l.sid === sid)
+    if (!st || !own) return { no: 'record-changed' }
+    if (st.leads.some((l) => l.sid !== sid && sameName(l.name, cur))) return { no: 'name-in-use' }
+    if (own.name === cur) return { skip: true }
+    return { store: { repo: st.repo, leads: st.leads.map((l) => (l.sid === sid ? { ...l, name: cur } : l)) } }
+  })
+  return 'no' in w ? { no: w.no } : 'moved'
+}
+
+// A Join's plan from what is true now (c.joinPlan): the registry, the lead's usable name, the candidates, the records and the names in use. leadName and
+// home come back with the plan so the caller can tell the person's dialog what it showed and compare it after the click.
+export async function joinPlanNow($: any, sid: string, repo: string, want: string | undefined, pick: string | undefined): Promise<{ plan: c.JoinPlan; leadName?: string; home?: string }> {
+  const live = await registryEntries($)
+  if (!live) return { plan: { no: 'registry-unreadable' } }
+  const leadName = c.leadNameOf(live.map((r) => r.j), sid)
+  const recs = await loadLeadRecords($)
+  if (typeof recs === 'string') return { plan: { no: recs } }
+  const owned = (await bindingOf($, sid)) !== undefined || recs.some((s) => s.store.leads.some((l) => l.sid === sid))
+  let nameClash = false
+  if (leadName !== undefined && !owned) {
+    const held = await leadNameHeld($, sid, leadName)
+    if (typeof held === 'string') return { plan: { no: held } }
+    nameClash = held
+  }
+  const cands = await joinCands($, live, sid, repo)
+  const p = await where($)
+  const plan = c.joinPlan({ leadName, want, pick, cands, owned, nameClash, recordCount: recs.find((s) => s.store.repo === repo)?.store.leads.length ?? 0 })
+  return { plan, ...(leadName !== undefined ? { leadName } : {}), ...(p ? { home: homeOf(p) } : {}) }
+}
+
+// The Conductor row of /callboard status in a lead: its binding, and whether the conductor is live and passes the checks (c.ownerStatus).
+export async function ownerStatusNow($: any, sid: string): Promise<string> {
+  const b = await bindingOf($, sid)
+  if (!b) return c.ownerStatus(undefined)
+  const live = await registryEntries($)
+  if (!live) return c.ownerStatus({ sid: b.conductorSid, gone: true })
+  const o = await ownOwner($, sid, live)
+  if (o === undefined) return c.ownerStatus({ sid: b.conductorSid, gone: true })
+  return c.ownerStatus(typeof o === 'string' ? o : { ...(o.name ? { name: o.name } : {}), sid: o.sid, gone: false })
+}
+
+// Every lead record as the manager's table draws it, with whether its lead is bound to it. undefined: the records could not be read (the table then has no
+// owner boxes, which is "unknown", not "no records").
+export async function recordViews($: any): Promise<c.RecordView[] | undefined> {
+  const all = await loadLeadRecords($)
+  if (typeof all === 'string') return undefined
+  const out: c.RecordView[] = []
+  for (const s of all) for (const rec of s.store.leads) out.push({ repo: s.store.repo, rec, bound: await boundTo($, { key: s.key, repo: s.store.repo, rec }) })
+  return out
 }

@@ -25,7 +25,7 @@ import {
   laneBrief,
   mem,
 } from '../mem.ts'
-import { logq, where, askOnce, timedOut, log, pickLead, ask, sha, withTimeout, toast, logFail } from './base.ts'
+import { logq, where, askOnce, timedOut, log, pickLead, pickFrom, ask, sha, withTimeout, toast, logFail } from './base.ts'
 import type { Asked } from './base.ts'
 import { editStore, registryEntries, keptLanes, loadLanes } from './store.ts'
 import {
@@ -68,6 +68,7 @@ import {
   sidClearAll,
 } from './lanes.ts'
 import type { Bound, Plan } from './lanes.ts'
+import { ownerWrite, joinCands, ownerLeave, bindingOf, joinPlanNow, ownerStatusNow } from './lead-records.ts'
 import { restoreFromHint, saveHint, bump, isEligible, dropRequest } from './compaction.ts'
 import { ensureTimer } from './tick.ts'
 import { epochOf, heldNo, holdsOf, levelSave } from './levels.ts'
@@ -275,6 +276,119 @@ async function laneCommand($: any, sid: string, code: c.OriginCode, arg: c.Comma
   } finally {
     laneBinding.delete(sid)
   }
+}
+
+// ---- /callboard lead join [CONDUCTOR] and lead leave (ADR 0007) ----
+// The person's own commands, typed in the lead. A Join only assigns: the same checks run before the question and again after the click, and a lead that has a
+// conductor is refused. The write itself is ownerWrite (the ledger row, the record, the binding).
+
+// The Join's last step, shared with the question after a Lead click: every check again, then the write. off-meanwhile when the person turned callboard off, or the grant
+// ended, while the question was open; the write that landed in the meantime is then undone.
+async function joinWrite($: any, sid: string, repo: string, cand: c.JoinCand, shownName: string | undefined, seq: number, epoch: number): Promise<{ ok: true } | { no: string }> {
+  const ended = () => (offSeq.get(sid) ?? 0) !== seq || grants.get(sid)?.level !== 'lead' || epochOf(sid) !== epoch
+  if ((offSeq.get(sid) ?? 0) !== seq) return { no: 'off-meanwhile' }
+  if (ended()) return { no: 'changed' }
+  const again = await joinPlanNow($, sid, repo, undefined, cand.sid)
+  if ('no' in again.plan) return { no: again.plan.no }
+  const now = 'cand' in again.plan ? again.plan.cand : undefined
+  if (!now || now.sid !== cand.sid || now.name !== cand.name || now.home !== cand.home || again.leadName === undefined || again.leadName !== shownName) return { no: 'changed' }
+  const w = await ownerWrite($, sid, { repo, name: again.leadName, how: 'joined', conductorSid: cand.sid, conductorName: cand.name })
+  if ('no' in w) return w
+  if (ended()) {
+    await ownerLeave($, sid, 'off').catch(() => undefined)
+    return { no: 'off-meanwhile' }
+  }
+  return { ok: true }
+}
+
+async function leadJoinCommand($: any, sid: string, code: c.OriginCode, arg: 'lead-leave' | { leadJoin: string | undefined }, busy: () => Promise<{ text: string }>): Promise<{ text: string }> {
+  const refuse = async (reason: string) => {
+    await log($, sid, 'refused', reason)
+    return { text: c.joinRefusalText(reason) }
+  }
+  if (!c.originIsPerson(code)) {
+    await log($, sid, 'refused', `join-origin:${code}`)
+    return { text: c.joinRefusalText('join-origin') }
+  }
+  const repo = pinOf(sid)
+  if (grants.get(sid)?.level !== 'lead' || repo === undefined) return refuse('not-lead')
+  if (arg === 'lead-leave') {
+    const r = await ownerLeave($, sid, 'left')
+    if (!r.had) return refuse(r.kept ?? 'no-owner')
+    toast($, c.LEFT_TOAST)
+    return { text: c.leftText(r.kept) }
+  }
+  const seq = offSeq.get(sid) ?? 0
+  const epoch = epochOf(sid)
+  const first = await joinPlanNow($, sid, repo, arg.leadJoin, undefined)
+  if ('no' in first.plan) return refuse(first.plan.no)
+  if (dialogOpen.has(sid)) return busy()
+  dialogOpen.add(sid)
+  let cand: c.JoinCand
+  let r: Asked
+  try {
+    if ('choices' in first.plan) {
+      const choices = first.plan.choices
+      const picked = await pickFrom($, c.JOIN_PICK_QUESTION, choices.map((x) => c.joinLabel(x, first.home)), c.HEADER.join)
+      if (picked === 'timed-out') return { text: `Nothing changed: ${await timedOut($, sid)}.` }
+      if (picked === 'error' || 'extra' in picked) {
+        await log($, sid, 'refused', 'join-not-confirmed')
+        return { text: 'Cancelled. Nothing changed.' }
+      }
+      const p = await joinPlanNow($, sid, repo, arg.leadJoin, choices[picked.index].sid)
+      if (!('cand' in p.plan)) return refuse('no' in p.plan ? p.plan.no : 'changed')
+      cand = p.plan.cand
+    } else cand = first.plan.cand
+    r = await ask($, c.joinQuestion(first.leadName as string, repo, cand, first.home), c.JOIN_YES, c.JOIN_NO, c.HEADER.join)
+  } finally {
+    dialogOpen.delete(sid)
+  }
+  if (r === 'timed-out') return { text: `Nothing changed: ${await timedOut($, sid)}.` }
+  if (r !== 'yes') {
+    await log($, sid, 'refused', 'join-not-confirmed')
+    return { text: 'Cancelled. Nothing changed.' }
+  }
+  const w = await joinWrite($, sid, repo, cand, first.leadName, seq, epoch)
+  if ('no' in w) return refuse(w.no)
+  await log($, sid, 'owner-joined', cand.name)
+  toast($, c.joinedToast(first.leadName as string, cand))
+  return { text: c.joinedText(first.leadName as string, cand) }
+}
+
+// The question after a Lead click: which conductor runs this lead, or none for now. Only for the person's own command and only for a lead that was just granted
+// and has no conductor. It is one dialog: the pick is the click, and it names the conductor with its folder and short id. Anything but a pick changes nothing.
+async function leadClickQuestion($: any, sid: string, res: { text: string; code?: string }): Promise<{ text: string; code?: string }> {
+  const repo = pinOf(sid)
+  if (grants.get(sid)?.level !== 'lead' || repo === undefined) return res
+  const seq = offSeq.get(sid) ?? 0
+  const epoch = epochOf(sid)
+  if ((await bindingOf($, sid)) !== undefined) return res
+  const first = await joinPlanNow($, sid, repo, undefined, undefined)
+  if ('no' in first.plan) {
+    if (first.plan.no !== 'lead-needs-name') return res
+    // The hint is only worth giving when a conductor is live to join once the lead has a name.
+    const live = await registryEntries($)
+    const some = live ? (await joinCands($, live, sid, repo)).length > 0 : false
+    return some ? { ...res, text: `${res.text}${c.JOIN_NOT_ASKED_NAME}` } : res
+  }
+  const list = 'cand' in first.plan ? [first.plan.cand] : first.plan.choices
+  if (dialogOpen.has(sid)) return res
+  dialogOpen.add(sid)
+  let picked: Awaited<ReturnType<typeof pickFrom>>
+  try {
+    picked = await pickFrom($, c.JOIN_PICK_QUESTION, list.map((x) => c.joinLabel(x, first.home)), c.HEADER.join, c.JOIN_NONE)
+  } finally {
+    dialogOpen.delete(sid)
+  }
+  if (typeof picked === 'string' || 'extra' in picked) return { ...res, text: `${res.text}${c.JOIN_NOT_PICKED}` }
+  const w = await joinWrite($, sid, repo, list[picked.index], first.leadName, seq, epoch)
+  if ('no' in w) {
+    await log($, sid, 'refused', w.no)
+    return { ...res, text: `${res.text}\n${c.joinRefusalText(w.no)}` }
+  }
+  await log($, sid, 'owner-joined', list[picked.index].name)
+  toast($, c.joinedToast(first.leadName as string, list[picked.index]))
+  return { ...res, text: `${res.text}\n${c.joinedText(first.leadName as string, list[picked.index])}` }
 }
 
 // ---- /callboard manager [NAME] ----
@@ -740,7 +854,7 @@ export async function grantLead($: any, sid: string, code: c.OriginCode, busy: (
   await reservedGet($, sid, true)
   const named = await secondLeadNo($, sid, pinned)
   if (named !== undefined) return nameNo(named)
-  return grantDialog($, sid, LEAD, {
+  const res = await grantDialog($, sid, LEAD, {
     question: c.askedFrom(c.leadQuestion(pinned), code),
     yes: c.LEAD_YES,
     no: c.LEAD_NO,
@@ -799,8 +913,11 @@ export async function grantLead($: any, sid: string, code: c.OriginCode, busy: (
     toast: o.toast,
     briefArg: pinned,
     after: () => nameGrant($, sid),
-    text: 'Lead is on from your next prompt.\nOnly a force stop asks you.',
+    text: c.LEAD_ON_TEXT,
   })
+  // The question after the click: only the person's own command, and only when the grant was just made (its text), never the accept's silent grant.
+  if (o.silent || !c.originIsPerson(code) || res.code !== undefined || res.text !== c.LEAD_ON_TEXT) return res
+  return leadClickQuestion($, sid, res)
 }
 
 export async function commandRun($: any, e: any) {
@@ -820,6 +937,13 @@ export async function commandRun($: any, e: any) {
   if (typeof arg === 'object' && 'config' in arg) return configCommand($, sid, code, arg.config)
   if (typeof arg === 'object' && 'checkin' in arg) return checkinCommand($, sid, code, arg.checkin)
   if (typeof arg === 'object' && 'reserve' in arg) return reserveCommand($, sid, code, arg.reserve)
+  if (arg === 'lead-leave' || (typeof arg === 'object' && 'leadJoin' in arg)) {
+    await logq($, sid, 'command', `lead-join:${code}`)
+    return leadJoinCommand($, sid, code, arg, async () => {
+      await log($, sid, 'refused', `busy:lead-join:${code}`)
+      return { text: 'A callboard question is already open. Answer it first.' }
+    })
+  }
   const verb = typeof arg === 'string' ? arg : 'manager' in arg ? 'manager' : 'conductor' in arg ? 'conductor' : 'lane'
   const busy = async () => {
     await log($, sid, 'refused', `busy:${verb}:${code}`)
@@ -863,6 +987,7 @@ export async function commandRun($: any, e: any) {
   const saved: LevelDesc[] = []
   let rebindWas = false
   let rebindLane: string | undefined
+  let ownerOff: Awaited<ReturnType<typeof ownerLeave>> | undefined
   if (arg === 'off') {
     offSeq.set(sid, (offSeq.get(sid) ?? 0) + 1)
     was = [MANAGER, CONDUCTOR, LEAD].find((d) => d.isOn(sid))
@@ -879,6 +1004,8 @@ export async function commandRun($: any, e: any) {
         if (d.pending.has(sid) || (got !== undefined && got !== 'timeout')) saved.push(d)
       }
     }
+    // The conductor tie goes first, while the lead's name and pin are still known; a session that is no lead any more may still hold a left-behind binding.
+    ownerOff = await ownerLeave($, sid, 'off').catch(() => undefined)
     if (!(await leadDrop($, sid))) leadKept = true
     if (!(await managerForget($, sid))) leadKept = true
   }
@@ -893,7 +1020,8 @@ export async function commandRun($: any, e: any) {
   const laneLead: [string, string][] = bound ? [["This lane's lead", c.laneStatusLead(laneBrief.get(sid), bound.name)]] : []
   if (arg === 'status') {
     const esc: [string, string][] = [['Escalation', pr.escalationStatus(await escalationNow($), await promptsOff($))]]
-    return { text: c.statusTableText([['Lane', bound ? bound.name : 'NONE'], grantPart, ...ckStatus, ...laneLead, ...esc]) }
+    const ownerRow: [string, string][] = gs?.level === 'lead' ? [['Conductor', await ownerStatusNow($, sid)]] : []
+    return { text: c.statusTableText([['Lane', bound ? bound.name : 'NONE'], grantPart, ...ownerRow, ...ckStatus, ...laneLead, ...esc]) }
   }
   if (arg === 'off') {
     // A recorded nudge and an open grant go too. Off does not opt out of nudges: a later turn past the level records a new one.
@@ -934,6 +1062,7 @@ export async function commandRun($: any, e: any) {
       rebindTo !== undefined ? `Lane ${rebindTo} will not rebind automatically.` : '',
       loose?.ok && loose.name !== undefined ? `Lane ${loose.name} no longer names this session.` : '',
       reqDone === 'dropped' ? 'Its compaction request was dropped.' : reqDone === 'no-resume' ? 'The compaction under way will not resume the work.' : '',
+      ownerOff?.had ? (ownerOff.kept !== undefined ? c.offOwnerKept(ownerOff.kept) : c.OFF_OWNER_REMOVED).trim() : '',
     ].filter((x) => x !== '').join(' ')
     return { text: `${did || c.OFF_NOTHING}${bound ? c.STOPPABLE_BY_NAME(bound.name) : ''}${bound && d.sidKept ? c.SID_KEPT(bound.name) : ''}${loose && !loose.ok && loose.name ? c.SID_KEPT(loose.name) : ''}${leadKept ? ([CONDUCTOR, MANAGER].find((l) => l === was || saved.includes(l)) ?? LEAD).kept : ''}` }
   }
