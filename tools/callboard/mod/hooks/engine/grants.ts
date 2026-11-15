@@ -470,6 +470,7 @@ async function leadRestoreTry($: any, me: string, hint: c.LeadHint): Promise<str
   if (cwd === 'timeout' || typeof cwd !== 'string') return 'cwd-unreadable'
   if (cwd !== hint.pin) {
     await $.store.delete(`${c.LEAD_HINT_PREFIX}${me}`)
+    void goGrantorOff($, me).catch(() => undefined)
     return void (await reject('wrong-folder'))
   }
   // A lane is never a lead too (the rebind refuses a lead in turn); a read that does not answer counts as a binding.

@@ -20,21 +20,26 @@ export const GO_MAX_HOURS = 48
 export const GO_DIALOG_MS = 10 * 60_000
 // go_request calls that reach the dialog, per session and hour.
 export const GO_REQUESTS_PER_HOUR = 6
-// Go files read on one look at the folder, and how long a file is kept after its go ended.
+// Go files read on one look at the folder, and how long a file is kept past the longest a go can last, counted from when it was written.
 export const GO_SCAN_MAX = 64
-export const GO_KEEP_MS = 35 * 24 * HOUR_MS
+export const GO_KEEP_MS = 7 * 24 * HOUR_MS
 export const GO_NAME_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.json$/
 const NONCE_RE = /^[0-9a-f]{32}$/
 const HASH_RE = /^[0-9a-f]{64}$/
 
-// by: the session the go was given in (the only level today is a lead), its registry name then ('' for a lead with none) and its repo. covered: the sessions the
+// by: the session the go was given in (always a lead), its registry name then ('' for a lead with none) and its repo. covered: the sessions the
 // dialog listed, by the name and session id the person saw. text: the exact description the person was shown.
 export type Go = { v: 1; id: string; by: { level: 'lead'; sid: string; name: string; repo: string }; at: number; ends: number; text: string; covered: { name: string; sid: string }[]; nonce: string }
 
-// Why a description is refused, or undefined: empty, too long, or holding a control character other than newline and tab or an invisible format character (the
-// rule of a lane's task text).
+// Characters a person cannot see in the dialog: every format character, the variation selectors, the Hangul fillers, private-use and unassigned code points and
+// the line and paragraph separators.
+const GO_HIDDEN_RE = /[\p{Cf}\p{Co}\p{Cn}\p{Zl}\p{Zp}\u{fe00}-\u{fe0f}\u{e0100}-\u{e01ef}\u115f\u1160\u3164\uffa0]/u
+// A line that starts like the fence go_status puts around the text.
+const GO_FENCE_RE = /^[ \t]*(<<<|>>>)/m
+// Why a description is refused, or undefined: empty, too long, with space at its start or end, holding a control character other than newline and tab (the rule
+// of a lane's task text) or a character the person cannot see, or holding a line that starts with the fence marks.
 export function goTextNo(text: unknown): 'bad-text' | undefined {
-  return typeof text === 'string' && text.trim() !== '' && text === text.trim() && bytes(text) <= GO_TEXT_MAX && !TEXT_BAD_RE.test(text) ? undefined : 'bad-text'
+  return typeof text === 'string' && text.trim() !== '' && text === text.trim() && bytes(text) <= GO_TEXT_MAX && !TEXT_BAD_RE.test(text) && !GO_HIDDEN_RE.test(text) && !GO_FENCE_RE.test(text) ? undefined : 'bad-text'
 }
 
 // The file's text: the keys in one fixed order, so the bytes the hash covers are the same for the same go.
@@ -138,6 +143,7 @@ export function goQuestion(q: { name: string; covered: string[]; ends: string; t
 }
 
 export const GO_LATE_TOAST = 'Too late: no go was recorded. The go dialog had timed out.'
+export const GO_END_FAILED_TOAST = 'Callboard could not end the goes this lead gave. Type /callboard go off to end them.'
 export const GO_TIMED_OUT_TOAST = 'The go dialog timed out. No go was recorded; a click on it now does nothing.'
 export const goReadToast = (lane: string | undefined, id: string): string => `${lane !== undefined && NAME_RE.test(lane) ? lane : 'A session'} now works under your go ${goShort(id)}.`
 
@@ -147,11 +153,12 @@ export const GO_REFUSE: Record<string, string> = {
   'not-lead': "a go is given in a lead's session. A lane, or any session a go only covers, cannot give, widen or extend one.",
   manager: 'the manager gives no go and passes none on.',
   conductor: "a go is given in a lead's session.",
-  'bad-text': `the text must be 1 to ${GO_TEXT_MAX} bytes of plain text saying what the work is, with no control characters other than newline and tab.`,
+  'bad-text': `the text must be 1 to ${GO_TEXT_MAX} bytes of plain text saying what the work is, with no space or newline at its start or end no control or invisible characters other than newline and tab, and no line starting with <<< or >>>.`,
   rate: `at most ${GO_REQUESTS_PER_HOUR} go dialogs an hour. Tell the person; they can type /callboard go themselves.`,
   busy: 'a callboard question is already open. Ask again once the person has answered it.',
   guard: 'callboard cannot keep a go while the protected-paths guard is missing',
   'too-many': `more than ${GO_COVERED_MAX} lanes to list.`,
+  full: `${GO_SCAN_MAX} go files are kept already. They are removed ${GO_MAX_HOURS / 24 + GO_KEEP_MS / (24 * HOUR_MS)} days after they were written; tell the person.`,
   'store-unreadable': 'the lane records could not be read.',
   cancelled: 'the person did not give the go. Do not ask again unless they tell you to.',
   'timed-out': 'the dialog timed out after 10 minutes; no go was recorded.',
@@ -170,6 +177,7 @@ export function goGivenText(g: Go, ends: string): string {
 
 // go_status: no go, with the reason when there is one to give, or each go that covers the caller. The description is framed as data the person approved.
 export const GO_NONE = 'No go covers this session.'
+export const GO_UNCONFIRMED = 'A go may cover this session, but callboard could not record that you read it. Call go_status again once; if it says the same, tell the person.'
 export const goNoneText = (why?: string): string => (why === undefined ? `${GO_NONE} Risk-list work needs the person's own go: ask them once, with one AskUserQuestion.` : `${GO_NONE} ${why}`)
 export function goStatusText(goes: Go[]): string {
   if (goes.length === 0) return goNoneText()
@@ -187,7 +195,8 @@ export function goStatusText(goes: Go[]): string {
 // The end of a lane_create and a lane_start result: whether a live go covers the lane.
 export const goTail = (g: Go | undefined, ends?: string): string => (g ? ` A go covers this lane: ${goShort(g.id)}, ends ${ends ?? iso(g.ends)}.` : ' No go covers this lane: call go_request before it starts risk-list work.')
 
-// /callboard go: with no argument (or `list`) the live goes; `off` or `off SHORT` ends them; `TEXT` or `for N h TEXT` asks the person for one.
+// /callboard go: with no argument (or `list`) the live goes; `off` or `off SHORT` ends them; `TEXT` or `for N h TEXT` asks the person for one (`for` sets the
+// end only when a number follows it; any other text starting with it is the text).
 export type GoOp = 'list' | 'bad' | { off: string | undefined } | { give: string; hours: number }
 export function parseGoArgs(rest: string | undefined): GoOp {
   const a = (rest ?? '').trim()
@@ -198,7 +207,7 @@ export function parseGoArgs(rest: string | undefined): GoOp {
     return m ? { off: m[1] } : 'bad'
   }
   const f = /^for (\d{1,3}) ?h(?: ([^]*))?$/.exec(a)
-  if (a === 'for' || a.startsWith('for ')) {
+  if (/^for \d/.test(a)) {
     if (!f || f[2] === undefined) return 'bad'
     const hours = Number(f[1])
     return hours >= 1 && hours <= GO_MAX_HOURS ? { give: f[2], hours } : 'bad'

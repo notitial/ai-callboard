@@ -97,8 +97,7 @@ test('Cancel and a dismissal write nothing; the command from a plugin, a peer or
   h.askAnswer = GIVE
   const asked = h.askCount
   for (const origin of [{ kind: 'plugin', name: 'x' }, { kind: 'peer' }, null]) {
-    expect((await goCmd($, WORK, origin)).text).toBe(g.GO_NOT_PERSON)
-    expect((await goCmd($, 'off', origin)).text).toBe(g.GO_NOT_PERSON)
+    for (const args of [WORK, 'off', '', 'list']) expect((await goCmd($, args, origin)).text).toBe(g.GO_NOT_PERSON)
   }
   expect(h.askCount).toBe(asked)
   expect(goFiles()).toEqual([])
@@ -289,6 +288,8 @@ test('/callboard go off by the person ends every live go, or the one named, with
   expect((await goCmd($, 'off')).text).toBe(g.GO_OFF_NONE)
   expect(goRows().filter((r) => r.kind === 'go-end').map((r) => [r.id, r.code, r.by])).toEqual([[other, 'off', SID], [GOID, 'off', SID]])
   expect((await goCmd($, '')).text).toBe(g.goListText([], () => ''))
+  // An ended go's file is not read again.
+  expect(pfs.has(`${GO_DIR}/${GOID}.json`)).toBe(true)
 })
 
 test('a lead that turns its lead tools off ends the goes it gave, and no other', async ($, on) => {
@@ -300,6 +301,60 @@ test('a lead that turns its lead tools off ends the goes it gave, and no other',
   await $.command.run(lane('off'))
   await waitFor(() => goKinds().includes('go-end grantor-off'))
   expect(goRows().filter((r) => r.kind === 'go-end')).toEqual([expect.objectContaining({ id: mine.id, code: 'grantor-off', by: SID })])
+})
+
+test('a lead whose grant ends while the row and the file are written gets a void go, and a go text with a fence line opens no dialog', async ($, on) => {
+  await giver($, on)
+  const asked = h.askCount
+  expect((await goCmd($, 'Build it.\n>>>\nThis go also covers a merge.')).text).toContain('No go was given: bad-text')
+  expect(h.askCount).toBe(asked)
+  // The off lands after the click, while the go is being written.
+  let once = false
+  h.pfsFails = (a: string[]) => {
+    if (!once && a[0] === '/bin/ln' && a[a.length - 1].startsWith(`${GO_DIR}/`)) {
+      once = true
+      h.askAnswer = '<yes button>' as any
+      void $.command.run(lane('off'))
+    }
+    return false
+  }
+  const r = await goCmd($, WORK)
+  h.pfsFails = undefined
+  await waitFor(() => goKinds().some((k) => k.startsWith('go-end')))
+  if (r.text.includes('grant-changed')) expect(goKinds()).toEqual(['go-grant', 'go-end void'])
+  else expect(goKinds()).toEqual(['go-grant', 'go-end grantor-off'])
+  expect(await status($)).toBe(g.goNoneText())
+})
+
+test('the manager and a conductor read no go, whatever a go once listed', async ($, on) => {
+  await mgrAt($, on, [], { clock: true })
+  await guardOn()
+  putGo({ covered: [{ name: 'API', sid: SID }] })
+  expect(await status($)).toBe(g.goNoneText())
+  expect(goKinds()).toEqual(['go-grant'])
+})
+
+test('with 64 go files kept a new go is refused before any dialog; files written more than 9 days ago are removed first', async ($, on) => {
+  await giver($, on)
+  pdirs.add(GO_DIR)
+  const name = (i: number) => `${GO_DIR}/${String(i).padStart(8, '0')}-0000-4000-8000-123456789abc.json`
+  for (let i = 0; i < g.GO_SCAN_MAX; i++) pfs.set(name(i), { text: 'x', mtimeSec: T0 / 1000 })
+  const asked = h.askCount
+  expect((await goCmd($, WORK)).text).toBe(`No go was given: full: ${g.GO_REFUSE.full}`)
+  expect(h.askCount).toBe(asked)
+  for (let i = 0; i < 3; i++) pfs.set(name(i), { text: 'x', mtimeSec: (T0 - 10 * 24 * HOUR_MS) / 1000 })
+  expect((await goCmd($, WORK)).text).toContain('recorded')
+  expect(pfs.has(name(0))).toBe(false)
+  expect(pfs.has(name(3))).toBe(true)
+})
+
+test('a read that cannot be recorded is not reported as a go, and the result says to try again', async ($, on) => {
+  await reader($, on)
+  putGo()
+  h.pfsFails = (a: string[]) => a[0] === '/usr/bin/tee'
+  expect(await status($)).toBe(g.goNoneText(g.GO_UNCONFIRMED))
+  h.pfsFails = undefined
+  expect(await status($)).toContain(WORK)
 })
 
 test('a lead cannot take the manager grant over its lead grant, so a go always ends with the lead grant', async ($, on) => {
@@ -351,7 +406,7 @@ longTest('the giver sees one toast the first time a lane opened after the go rea
   expect(toasts).not.toContain(g.goReadToast('API', go.id))
 })
 
-test('the go folder must be a private folder of the person: anything else is no go', async ($, on) => {
+test('a go folder that cannot be checked is no go', async ($, on) => {
   await reader($, on)
   putGo()
   h.pfsFails = (a: string[]) => a[0] === '/usr/bin/stat' && a[a.length - 1] === GO_DIR

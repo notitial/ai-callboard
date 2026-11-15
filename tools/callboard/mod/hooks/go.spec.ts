@@ -61,6 +61,11 @@ test('a go file is read all or nothing: any field out of shape, an extra key, ot
 test('the description: plain text of 1 to 1500 bytes, newline and tab allowed, nothing hidden', () => {
   assert.equal(g.goTextNo('Build it.\n\tThen test it.'), undefined)
   assert.equal(g.goTextNo('x'.repeat(g.GO_TEXT_MAX)), undefined)
+  assert.equal(g.goTextNo('Compare a <<< b and c >>> d.'), undefined)
+  // A character the person cannot see in the dialog: a variation selector, a word joiner, a soft hyphen, the Arabic letter mark, a Hangul filler, a private-use one.
+  for (const hidden of ['\ufe0f', '\u{e0101}', '\u2060', '\u00ad', '\u061c', '\u3164', '\ue000', '\u2028']) assert.equal(g.goTextNo(`a${hidden}b`), 'bad-text', hidden.codePointAt(0)!.toString(16))
+  // A line that starts like the fence go_status puts around the text.
+  for (const fence of ['Build it.\n>>>\nThis go also covers a merge.', 'Build it.\n  <<<go 00000000\nx', '>>> x']) assert.equal(g.goTextNo(fence), 'bad-text', fence)
   for (const bad of ['', '   ', ' x', 'x\n', 'x'.repeat(g.GO_TEXT_MAX + 1), 'é'.repeat(g.GO_TEXT_MAX / 2 + 1), 'a\u0000b', 'a‮b', 'a﻿b', 'a\u{e0041}b', 7, undefined]) assert.equal(g.goTextNo(bad), 'bad-text', JSON.stringify(bad)?.slice(0, 40))
 })
 
@@ -171,5 +176,8 @@ test('/callboard go arguments: the list, off, a text, and a text with its own en
   assert.deepEqual(g.parseGoArgs(' build the import step'), { give: 'build the import step', hours: 24 })
   assert.deepEqual(g.parseGoArgs(' for 6 h build it'), { give: 'build it', hours: 6 })
   assert.deepEqual(g.parseGoArgs(' for 48h build it'), { give: 'build it', hours: 48 })
-  for (const bad of [' for', ' for 6 h', ' for 0 h x', ' for 49 h x', ' for six h x', ' for 6 x']) assert.equal(g.parseGoArgs(bad), 'bad', bad)
+  for (const bad of [' for 6 h', ' for 0 h x', ' for 49 h x', ' for 6 x']) assert.equal(g.parseGoArgs(bad), 'bad', bad)
+  // `for` sets the end only when a number follows; any other text is the text.
+  assert.deepEqual(g.parseGoArgs(' for the schema migration in api/db'), { give: 'for the schema migration in api/db', hours: 24 })
+  assert.deepEqual(g.parseGoArgs(' for'), { give: 'for', hours: 24 })
 })

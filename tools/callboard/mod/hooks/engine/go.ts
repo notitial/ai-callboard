@@ -48,14 +48,15 @@ async function goesLive($: any, opts: { guard?: boolean } = {}): Promise<Found[]
   if (names === 'unreadable') return { no: 'unreadable' }
   const all = new Set(names.map((n) => n.name))
   const out: Found[] = []
-  for (const name of [...all].filter((n) => g.GO_NAME_RE.test(n)).sort().slice(0, g.GO_SCAN_MAX)) {
+  // A go whose end was marked is over: its file is not read again.
+  for (const name of [...all].filter((n) => g.GO_NAME_RE.test(n) && !all.has(`${n.slice(0, -5)}.ended`)).sort().slice(0, g.GO_SCAN_MAX)) {
     const r = await readSmallR($, `${goDir(p)}/${name}`, p.uid, g.GO_FILE_MAX)
     if (r.state !== 'ok') continue
     const go = g.parseGo(r.text)
     if (!go || `${go.id}.json` !== name) continue
     const now = await $.clock.now()
     if (now >= go.ends) {
-      if (!all.has(`${go.id}.ended`) && (await promptLinkOnce($, `${goDir(p)}/${go.id}.ended`, 'expired\n')) === 'ok') await ledgerAdd($, { kind: 'go-end', id: go.id, code: 'expired' })
+      if ((await promptLinkOnce($, `${goDir(p)}/${go.id}.ended`, 'expired\n')) === 'ok') await ledgerAdd($, { kind: 'go-end', id: go.id, code: 'expired' })
       continue
     }
     const rows = await ledgerRowsFor($, p, `"id":"${go.id}"`)
@@ -66,10 +67,12 @@ async function goesLive($: any, opts: { guard?: boolean } = {}): Promise<Found[]
   return out
 }
 
-// Go files (and their marks) whose go ended more than GO_KEEP_MS ago are removed, at each new go; the number left, or undefined when the folder cannot be listed.
+// Go files (and their marks) written longer ago than the longest a go can last plus GO_KEEP_MS are removed, at each new go; the number left, or undefined when
+// the folder cannot be listed.
 async function goPrune($: any, p: Paths, now: number): Promise<number | undefined> {
   const names = await goNames($, p)
-  if (names === 'absent' || names === 'unreadable') return undefined
+  if (names === 'absent') return 0
+  if (names === 'unreadable') return undefined
   const old = names.filter((n) => typeof n.mtimeMs === 'number' && now - n.mtimeMs > g.GO_MAX_HOURS * c.HOUR_MS + g.GO_KEEP_MS && (g.GO_NAME_RE.test(n.name) || /^[0-9a-f-]{36}\.ended$/.test(n.name)))
   if (old.length > 0) await rmF($, old.map((n) => `${goDir(p)}/${n.name}`))
   const gone = new Set(old.map((n) => n.name))
@@ -118,6 +121,9 @@ async function goGive($: any, sid: string, text: unknown, hours: number, author:
   const covered = base.lanes.flatMap((l) => (c.inReach(base.g, l) && typeof l.sid === 'string' && c.SID_RE.test(l.sid) && l.sid !== sid ? [{ name: l.name, sid: l.sid }] : []))
   if (covered.length > g.GO_COVERED_MAX) return { no: 'too-many' }
   const opened = await $.clock.now()
+  // Old files go first, so the count is of the ones still kept; a folder that is not there yet holds none.
+  const held = await goPrune($, p, opened)
+  if (held !== undefined && held >= g.GO_SCAN_MAX) return { no: 'full' }
   if (capped) {
     const times = goAsked.get(sid) ?? []
     if (!c.noticeAllowed(times, opened, g.GO_REQUESTS_PER_HOUR)) return { no: 'rate' }
@@ -143,6 +149,11 @@ async function goGive($: any, sid: string, text: unknown, hours: number, author:
   if ((await promptLinkOnce($, `${goDir(p)}/${go.id}.json`, body)) !== 'ok') {
     await ledgerAdd($, { kind: 'go-end', id: go.id, code: 'void' })
     return { no: 'go-write' }
+  }
+  // The grant may have gone while the row and the file were written: such a go is ended at once.
+  if (grantOf(sid)?.level !== 'lead' || epochOf(sid) !== epoch) {
+    await ledgerAdd($, { kind: 'go-end', id: go.id, code: 'void' })
+    return { no: 'grant-changed' }
   }
   watchOf(sid, at)
   await logq($, sid, 'go-given', g.goShort(go.id))
@@ -171,24 +182,35 @@ export async function goRequestCall($: any, e: any) {
 }
 
 // go_status: the goes that cover the calling session, read fresh. The first read of a go by a session writes its `go-read` row before the go is reported; a row
-// that cannot be written leaves that go unreported. The session a go was given in reads it with no row.
+// that cannot be written leaves that go unreported, and the result says so when no other go covers the session. The session a go was given in reads it with no row.
 export async function goStatusCall($: any, _e: any) {
   const sid = await $.session.id()
+  // The manager and a conductor are not in the chain, whatever a go once listed.
+  const level = grantOf(sid)?.level
+  if (level === 'manager' || level === 'conductor') return { result: g.goNoneText() }
   const found = await goesLive($)
   if ('no' in found) return { result: g.goNoneText(found.no === 'guard' ? `Callboard reports no go while the protected-paths guard is missing: ${found.why}. Tell the person.` : 'The go records could not be read. Tell the person.') }
   if (found.length === 0) return { result: g.goNoneText() }
   const lanes = await loadLanes($)
   if (typeof lanes === 'string') return { result: g.goNoneText('The lane records could not be read. Tell the person.') }
   const mine: g.Go[] = []
+  let unrecorded = 0
   for (const f of found) {
     const cover = g.goCovers(f.go, sid, lanes)
     if (cover === undefined) continue
     if (cover !== 'grantor' && !f.rows.some((r) => r.kind === 'go-read' && r.by === sid)) {
       const lane = lanes.find((l) => l.sid === sid)?.name
-      if (!(await ledgerAdd($, { kind: 'go-read', id: f.go.id, by: sid, code: cover, ...(lane !== undefined ? { lane } : {}) }))) continue
+      if (!(await ledgerAdd($, { kind: 'go-read', id: f.go.id, by: sid, code: cover, ...(lane !== undefined ? { lane } : {}) }))) {
+        unrecorded++
+        continue
+      }
       await logq($, sid, 'go-read', g.goShort(f.go.id))
     }
     mine.push(f.go)
+  }
+  if (mine.length === 0 && unrecorded > 0) {
+    await logq($, sid, 'error', 'go-read-unrecorded')
+    return { result: g.goNoneText(g.GO_UNCONFIRMED) }
   }
   return { result: g.goStatusText(mine) }
 }
@@ -208,25 +230,37 @@ export async function goTailFor($: any, sid: string, laneSid?: string): Promise<
   }
 }
 
-// A lead that stops being one (/callboard off, a grant taken back) ends the goes it gave: one `go-end` row each. Its panel closing, parking or crashing ends none.
+// A lead that stops being one (/callboard off, a grant taken back, a saved grant refused at a restart) ends the goes it gave: one `go-end` row each. Its panel closing, parking or crashing ends none.
+// Rows that could not be written, or goes that could not be read, are told to the person, who can end them with /callboard go off.
 export async function goGrantorOff($: any, sid: string): Promise<void> {
+  goWatch.delete(sid)
   const found = await goesLive($, { guard: false })
-  if ('no' in found) return
-  for (const f of found) if (f.go.by.sid === sid && (await ledgerAdd($, { kind: 'go-end', id: f.go.id, code: 'grantor-off', by: sid }))) await logq($, sid, 'go-ended', g.goShort(f.go.id))
+  let failed = 'no' in found
+  if (!('no' in found)) {
+    for (const f of found) {
+      if (f.go.by.sid !== sid) continue
+      if (await ledgerAdd($, { kind: 'go-end', id: f.go.id, code: 'grantor-off', by: sid })) await logq($, sid, 'go-ended', g.goShort(f.go.id))
+      else failed = true
+    }
+  }
+  if (failed) {
+    await logq($, sid, 'error', 'go-end-failed')
+    toast($, g.GO_END_FAILED_TOAST)
+  }
 }
 
-// /callboard go: the list (any origin, read-only), off (the person's own; it only narrows, and ends one go or all of them, from any session) and the dialog
-// (the person's own, in a lead's session, with the text they typed).
+// /callboard go, the person's own command (their prompt or the phone): the list, off (it ends one go or all of them, from any session) and the dialog (in a
+// lead's session, with the text they typed).
 export async function goCommand($: any, sid: string, code: c.OriginCode, op: g.GoOp): Promise<{ text: string }> {
   if (op === 'bad') return { text: g.GO_USAGE }
+  if (!c.originIsPerson(code)) {
+    await logq($, sid, 'refused', `go-not-person:${code}`)
+    return { text: g.GO_NOT_PERSON }
+  }
   if (op === 'list') {
     const found = await goesLive($)
     if ('no' in found) return { text: found.no === 'guard' ? `No go counts while the protected-paths guard is missing: ${found.why}.` : 'The go records could not be read.' }
     return { text: g.goListText(found.map((f) => f.go), when) }
-  }
-  if (!c.originIsPerson(code)) {
-    await logq($, sid, 'refused', `go-not-person:${code}`)
-    return { text: g.GO_NOT_PERSON }
   }
   if ('off' in op) {
     const found = await goesLive($, { guard: false })

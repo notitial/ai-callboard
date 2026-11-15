@@ -1036,7 +1036,7 @@ function readLeadRecords(dir, explicit, problems) {
   return out
 }
 
-// j. the go (ADR 0009). A go counts only while its file and its go-grant row agree. A go file with no go-grant row carrying the hash of its bytes was not written by
+// j. the go (ADR 0009). A go counts only while its file and its go-grant row agree. A go file with no go-grant row carrying its session and the hash of its bytes was not written by
 // the person's click (go-file-no-row). A go-grant row whose end is still ahead, with no go-end row and no file, is a go the ledger says is live and no session can
 // read (go-row-no-file). Each go of the range is listed with the text the person approved (from its file, while that is kept) and the sessions that read it.
 const GO_FILE_MAX_BYTES = 8192
@@ -1061,7 +1061,9 @@ function readGoFiles(dir, explicit, problems) {
     return undefined
   }
   const out = []
-  for (const d of entries.filter((x) => x.name.endsWith('.json') && ID_RE.test(x.name.slice(0, -5))).sort((a, b) => (a.name < b.name ? -1 : 1)).slice(0, GO_FILES_MAX)) {
+  const named = entries.filter((x) => x.name.endsWith('.json') && ID_RE.test(x.name.slice(0, -5))).sort((a, b) => (a.name < b.name ? -1 : 1))
+  if (named.length > GO_FILES_MAX) problems.push(`goes: ${named.length} go files, only the first ${GO_FILES_MAX} were read`)
+  for (const d of named.slice(0, GO_FILES_MAX)) {
     const id = d.name.slice(0, -5)
     if (!d.isFile()) {
       problems.push(`goes: ${d.name}: ${d.isSymbolicLink() ? 'a symlink' : 'not a regular file'}, not read`)
@@ -1086,7 +1088,7 @@ function readGoFiles(dir, explicit, problems) {
         closeSync(fd)
       }
       const j = parseObj(buf.toString('utf8'))
-      out.push({ id, hash: createHash('sha256').update(buf).digest('hex'), text: j && j.id === id && typeof j.text === 'string' ? j.text : undefined })
+      out.push({ id, hash: createHash('sha256').update(buf).digest('hex'), by: typeof j?.by?.sid === 'string' ? j.by.sid : undefined, text: j && j.id === id && typeof j.text === 'string' ? j.text : undefined })
     } catch (e) {
       problems.push(`goes: ${d.name}: ${e instanceof AuditError ? e.message : (e.code ?? e.message)}, not read`)
     }
@@ -1098,7 +1100,7 @@ function ruleGoes({ rows, flag, inRange, now }, files) {
   const list = []
   if (files) {
     for (const f of files) {
-      if (!grants.some((r) => r.id === f.id && r.hash === f.hash)) flag('j', 'go-file-no-row', `go file ${f.id}.json has no go-grant row carrying the hash of its bytes: no click of the person wrote it`)
+      if (!grants.some((r) => r.id === f.id && r.hash === f.hash && r.by === f.by)) flag('j', 'go-file-no-row', `go file ${f.id}.json has no go-grant row carrying its session and the hash of its bytes: no click of the person wrote it`)
     }
   }
   for (const r of grants) {

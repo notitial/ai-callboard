@@ -65,7 +65,7 @@ import { promptNoticeTick } from './answer-tiers.ts'
 import { usageFlush } from './usage.ts'
 import { leadStartTick, offerSweep, conductorGrantCheck } from './lead-start.ts'
 import { ownerTick } from './lead-records.ts'
-import { goWatchDue, goWatchTick } from './go.ts'
+import { goWatchDue, goWatchTick, goGrantorOff } from './go.ts'
 import { getRequest, getSeen, setInteractive, setRequest, setSeen } from '../state.ts'
 
 const RESUME_TTL_MS = 120_000
@@ -268,7 +268,7 @@ async function tick($: any) {
       // The deadline of an order, for a lead, a conductor or the manager; once a minute, and only while the session has an order out.
       if (await orderDue($, s).catch(() => false)) bgStep($, s, orderBusy, 'order', () => orderTick($, s, submitsAtStart))
       // A lead's look at who read its goes, once a minute: a lane opened after the click is told to the person the first time it reads one.
-      if (!goBusy.has(s) && goWatchDue(s, await $.clock.now())) bgStep($, s, goBusy, 'go-watch', () => goWatchTick($, s))
+      if (!goBusy.has(s) && goWatchDue(s, await Promise.resolve($.clock.now()).catch(() => NaN))) bgStep($, s, goBusy, 'go-watch', () => goWatchTick($, s))
     }
     mem.isTicking = false
   }
@@ -336,6 +336,7 @@ export async function sessionStart($: any, e: any, next: any) {
         if (!p) await log($, me, 'lead-restore-rejected', 'error')
         else if (!h) {
           await $.store.delete(`${c.LEAD_HINT_PREFIX}${me}`)
+          void goGrantorOff($, me).catch(() => undefined)
           await log($, me, 'lead-restore-rejected', 'invalid')
         } else await leadRestore($, me, h, 0)
       }

@@ -1449,6 +1449,9 @@ test('j: a go file with no go-grant row, or whose bytes do not hash to its row, 
   assert.deepEqual(rules(run(fx)), [])
   goFile(fx, GOID, { text: 'Anything at all.' })
   assert.deepEqual(rules(run(fx)), ['go-file-no-row'])
+  // A row of another session than the file names.
+  ledger(fx, [ON(), GOGRANT(GOID, goFile(fx, GOID), { by: uid(55) })])
+  assert.deepEqual(rules(run(fx)), ['go-file-no-row'])
 })
 
 test('j: a go-grant row with its end ahead, no go-end row and no file is an anomaly; an ended or expired one is not', () => {
