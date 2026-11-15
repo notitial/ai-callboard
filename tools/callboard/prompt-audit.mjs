@@ -6,7 +6,7 @@
 // limit lives in the mod. Exit 0: no anomalies. 1: anomalies. 2: usage error, an unreadable root, or a ledger file that could
 // not be read (an audit that missed a ledger file proves nothing, so it never exits 0).
 //
-// The ledger rows it reads (prompts.ts, LedgerRow): { t, kind, code?, id?, lane?, repo?, tool?, pattern?, hash?, tier?, why?, nonce?, opt?, lh? }.
+// The ledger rows it reads (prompts.ts, LedgerRow): { t, kind, code?, id?, lane?, repo?, tool?, pattern?, hash?, tier?, why?, nonce?, opt?, lh?, dialog? }.
 //   requested  id, nonce, lane, repo, tool, pattern, hash, tier     the hook asked a tier
 //   answered   id, nonce (the requested row's), code allow|deny, by (the answering lead's session id), tier, why, lane, repo, tool, pattern, hash
 //              a tier decided (written by prompt_answer)
@@ -21,6 +21,8 @@
 //   lead-offer hash, repo, lane, nonce, by   a conductor's lead_open wrote an offer (hash: the repo's sha-256); lead-offer-void hash, nonce, code   it ended with no grant
 //   lead-grant hash, repo, lane, nonce, by, target   the new panel (target) made itself a lead from that offer; written before the grant, so a failure after it is followed by a lead-offer-void of the nonce
 //   lead-owner code (made | joined | left | off), hash, repo, lane (the lead's name then, for reading only), target (the lead's session id), by (the conductor's session id; made, joined), was (the conductor it left; left, off), nonce (made)   a lead's conductor changed (ADR 0007); written before the record changes
+//   lead-resume hash, repo, lane (the lead's name), by, target (the lead's session id), tier (conductor | manager), dialog (yes | none)   a lead tool sent a
+//              resume cue; written before the cue, so a row with no cue after it is a refused or failed send
 //   answered / returned rows of a question's answer carry code: "answer", opt (the chosen option's index, as a string) and lh (the first 16 hex of SHA-256(id + "\n" + label), the label redacted
 //              and trimmed); the labels themselves are in prompts/questions-YYYY-MM.jsonl, { t, id, lane, repo, tier, by, header, question, options, label, via? }
 //   answered / returned rows of the person's own answer carry via: "person", short and by = the relaying tier's session id (no prompt_answer call exists for them)
@@ -65,8 +67,8 @@ const QUESTION_DAYS = 90
 const LABEL_MAX = 256
 
 const ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
-const KINDS = new Set(['requested', 'answered', 'escalated', 'dropped', 'returned', 'superseded', 'expired-denied', 'off', 'abandoned', 'dialog', 'not-judgeable', 'no-tier', 'answering-on', 'answering-off', 'relayed', 'relay-lost', 'relay-left', 'relay-late', 'deny-unclear', 'lead-offer', 'lead-offer-void', 'lead-grant', 'lead-owner'])
-const FIELDS = ['code', 'id', 'lane', 'repo', 'tool', 'pattern', 'hash', 'tier', 'why', 'nonce', 'tuid', 'by', 'via', 'short', 'opt', 'lh', 'target', 'was']
+const KINDS = new Set(['requested', 'answered', 'escalated', 'dropped', 'returned', 'superseded', 'expired-denied', 'off', 'abandoned', 'dialog', 'not-judgeable', 'no-tier', 'answering-on', 'answering-off', 'relayed', 'relay-lost', 'relay-left', 'relay-late', 'deny-unclear', 'lead-offer', 'lead-offer-void', 'lead-grant', 'lead-owner', 'lead-resume'])
+const FIELDS = ['code', 'id', 'lane', 'repo', 'tool', 'pattern', 'hash', 'tier', 'why', 'nonce', 'tuid', 'by', 'via', 'short', 'opt', 'lh', 'target', 'was', 'dialog']
 const ENDS = new Set(['returned', 'superseded', 'expired-denied', 'off', 'abandoned'])
 // A `dropped` row with one of these codes is a decision the hook refused as forged or wrong: an anomaly. The others are ordinary.
 const DROP_ANOMALY = new Set(['no-answered-row', 'id', 'hash', 'nonce', 'by-sid', 'kind', 'answer'])

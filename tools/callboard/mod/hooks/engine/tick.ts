@@ -51,7 +51,6 @@ import {
   failRequest,
   dropRequest,
   requestOk,
-  isEligible,
   doCompact,
   cmpCutTick,
   saveHint,
@@ -127,8 +126,9 @@ async function requestStep($: any, sid: string) {
       }
     }
     if (req && req.phase === 'armed' && (req.mode === 'now' || req.ordered === true)) {
-      // A request made under the nudge grant keeps its way through every later step (it is the session's own, and only the mod's nudge granted it).
-      if (!(req.viaNudge === true || (await isEligible($)))) await dropRequest($, sid, 'not-eligible')
+      // A request made under the nudge grant keeps its way through every later step (it is the session's own, and only the mod's nudge granted it), and so does a
+      // lead's own on-cue request that an order from its conductor made ordered.
+      if (!(await requestOk($, sid, req))) await dropRequest($, sid, 'not-eligible')
       else {
         const done = await withTimeout($, doCompact($, sid, req, false), ACTION_TIMEOUT_MS)
         if (done === 'timeout') await log($, sid, 'error', 'tick-timeout')

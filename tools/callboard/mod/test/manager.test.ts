@@ -165,7 +165,7 @@ test('manager tools: lane_list and lane_resume reach lanes in every repo; every 
   expect((await $.tool.call(mgrCall('resume', 'LABLANE'))).result).toBe('cue resume acted for lane LABLANE.')
   expect((await $.tool.call(mgrCall('resume', 'API'))).result).toBe('cue resume acted for lane API.')
   for (const verb of ['create', 'open', 'rename', 'start', 'park', 'unpark'])
-    expect(JSON.stringify(await $.tool.call(mgrCall(verb, 'API'))), verb).toContain('the manager may only list, resume, compact, force stop and retire lanes.')
+    expect(JSON.stringify(await $.tool.call(mgrCall(verb, 'API'))), verb).toContain('the manager may only list, resume, compact, force stop and retire lanes, and resume and compact leads.')
   expect(argv.filter((a) => a[0] === '/bin/mv' && a[a.length - 1].startsWith(`${ROOT}/cue/`)).length).toBe(2)
 })
 
@@ -414,14 +414,16 @@ test('manager lane_terminate and lane_retire of a live lane remove its record to
   expect(noArchiveRm(argv)).toBe(true)
 })
 
-test('the manager\'s lane_compact names a live lead by its session name, in any repo; a lane of the same name refuses lane-or-lead; other verbs never reach a lead', async ($, on) => {
+test('the manager\'s lane_compact names a live lead by its session name, in any repo, after the person\'s dialog; a lane of the same name refuses lane-or-lead; other verbs never reach a lead', async ($, on) => {
   const argv: string[][] = []
   await mgrAt($, on, [], { argv, sess: { ...MGR_SESS({ name: 'MANAGER' }), ...leadReg() }, seed: () => leadFiles.set(LEADPATH, { text: leadFileText() }) })
+  const asked = h.askCount
   expect((await $.tool.call(mgrCall('compact', 'LEAD'))).result).toBe('cue compact acted for lead LEAD.')
+  expect(h.askCount).toBe(asked + 1)
   expect(argv.filter((a) => a[0] === '/bin/mv' && a[a.length - 1] === `${ROOT}/cue/${LEADSID}.cue`).length).toBe(1)
   for (const verb of ['resume', 'terminate', 'retire']) expect(JSON.stringify(await $.tool.call(mgrCall(verb, 'LEAD'))), verb).toContain('unknown-lane')
   putStore([ckLane({ sid: APISID }), madeLane('LEAD')])
-  expect(JSON.stringify(await $.tool.call(mgrCall('compact', 'LEAD')))).toContain('lane_compact refused: lane-or-lead: a lane and a live lead both carry that name')
+  expect(JSON.stringify(await $.tool.call(mgrCall('compact', 'LEAD')))).toContain('lane_compact refused: lane-or-lead: a lane and a lead, or two leads, carry that name')
   expect(argv.filter((a) => a[0] === '/bin/mv' && a[a.length - 1] === `${ROOT}/cue/${LEADSID}.cue`).length).toBe(1)
 })
 
@@ -430,7 +432,7 @@ test('a lead with no manager grant cannot compact another lead by name', async (
   expect(JSON.stringify(await $.tool.call(mgrCall('compact', 'OTHERLEAD')))).toContain('unknown-lane')
 })
 
-test('a lead takes a compact cue only while a live manager with a reserved name runs, only for its own on-cue request; any other verb is refused', async ($, on) => {
+test('a lead takes a compact cue only while a live manager with a reserved name runs, only for its own on-cue request; any verb but resume is refused', async ($, on) => {
   const stdins: string[] = []
   await leadAt($, on, stdins, { clock: true, sess: { ...leadSelfReg(), ...mgrRow() }, seed: () => mgrFile() })
   expect(await cue(90, 'compact\n')).toBe('compact refused no-request 90\n')
@@ -439,7 +441,8 @@ test('a lead takes a compact cue only while a live manager with a reserved name 
   expect(logged(stdins)).toContain('requested:on-cue-lead')
   await $.turn.complete(TURN as any)
   expect(logged(stdins)).toContain('armed:on-cue')
-  for (const [ino, verb] of [[91, 'resume'], [92, 'retire'], [93, 'park'], [94, 'start']] as const) expect(await cue(ino, `${verb}\n`)).toBe(`${verb} refused not-eligible ${ino}\n`)
+  // The manager's resume is taken (test/lead-cues.test.ts); the lane verbs are not.
+  for (const [ino, verb] of [[92, 'retire'], [93, 'park'], [94, 'start']] as const) expect(await cue(ino, `${verb}\n`)).toBe(`${verb} refused not-eligible ${ino}\n`)
   expect(seen.compacted).toBe(false)
   // No manager, or one whose registry name is not reserved: refused.
   h.sessions = { ...leadSelfReg(), ...mgrRow('LEAD2') }
@@ -575,6 +578,18 @@ test('a lead\'s lane_compact never cues a session that holds a live lead presenc
   leadFiles.set(otherLead, { text: JSON.stringify({ sid: OTHER, pid: 4500, procStart: LEADPS, repo: PIN }) })
   expect(JSON.stringify(await $.tool.call(mgrCall('compact', 'API')))).toContain('lane_compact refused: lane-or-lead: ')
   leadFiles.delete(otherLead)
+  expect((await $.tool.call(mgrCall('compact', 'API'))).result).toBe('cue compact acted for lane API.')
+})
+
+test('the manager\'s lane_compact never cues a lane\'s session that holds a live lead presence file (lane-or-lead), and asks nothing', async ($, on) => {
+  await mgrAt($, on)
+  const asked = h.askCount
+  // The session carrying lane API (APISID, pid 4500) is a live lead too.
+  const apiLead = `${ROOT}/leads/${APISID}.json`
+  leadFiles.set(apiLead, { text: JSON.stringify({ sid: APISID, pid: 4500, procStart: LEADPS, repo: PIN }) })
+  expect(JSON.stringify(await $.tool.call(mgrCall('compact', 'API')))).toContain('lane_compact refused: lane-or-lead: ')
+  expect(h.askCount).toBe(asked)
+  leadFiles.delete(apiLead)
   expect((await $.tool.call(mgrCall('compact', 'API'))).result).toBe('cue compact acted for lane API.')
 })
 

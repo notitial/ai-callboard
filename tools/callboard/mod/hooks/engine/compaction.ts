@@ -46,7 +46,7 @@ import {
 import { registryOf, idleCheck, regOnce, loadLanes, registryEntries, noAnswer } from './store.ts'
 import type { Reg, Answer } from './store.ts'
 import { homeOf, LEAD_RESTORE_TRIES, regEntry, cfgGet, leadBusy } from './grants.ts'
-import { reportLaneOf, reportStat, retireReportCheck, sessionRoot, undoLate, detach, keepLaneFacts, briefLane } from './lanes.ts'
+import { reportLaneOf, reportTargetOf, reportStat, retireReportCheck, sessionRoot, undoLate, detach, keepLaneFacts, briefLane } from './lanes.ts'
 import type { Bound } from './lanes.ts'
 import { ensureTimer } from './tick.ts'
 import { promptDone, promptRelayPost, promptAskingClear, promptRelayTurnEnd } from './answer-hook.ts'
@@ -78,9 +78,10 @@ export async function isEligible($: any): Promise<boolean> {
   return (await getLane($)).value != null
 }
 // Whether a stored request may still run its way: one the nudge or the session itself granted, a bound lane's, or a lead's own on-cue
-// request while it still holds a lead grant (the manager's compact cue acts on it).
+// request while it still holds a lead grant (a compact cue acts on it). requestCompactCall marks viaLead only on an on-cue request, so viaLead on
+// any other mode is not a lead's own.
 export async function requestOk($: any, sid: string, req: Request): Promise<boolean> {
-  return req.viaNudge === true || (req.viaLead === true && grants.get(sid)?.level === 'lead') || (await isEligible($))
+  return req.viaNudge === true || (req.viaLead === true && req.mode === 'on-cue' && grants.get(sid)?.level === 'lead') || (await isEligible($))
 }
 
 // $.store is a file any same-uid process can write, so this is a hint only (ADR 0002): it is read back only after the person runs
@@ -193,7 +194,7 @@ async function markTurn($: any, sid: string) {
     const at = await $.clock.now()
     let size: number | null = null
     try {
-      const l = await reportLaneOf($, sid)
+      const l = await reportTargetOf($, sid)
       if (l) {
         const st = await reportStat($, l)
         size = 'no' in st ? (st.gone ? -1 : null) : st.f.size
@@ -336,7 +337,8 @@ export async function nudgeTick($: any, sid: string) {
   if ((await setNudgeDue($, null, { ifVersion: read.version })).isSet === false) return
   await bump($, (ct) => ({ ...ct, lastNudgeMs: now, lastNudgeKind: kind!, nudgeTimes: c.pushRecent(ct.nudgeTimes ?? [], now) }))
   await setNudgedAt($, now)
-  const sent = await withTimeout($, submitOwn($, c.nudgeText(kind!, await cfgGet($, sid)), false).then(() => 'ok' as const, () => 'failed' as const), ACTION_TIMEOUT_MS)
+  // The order's text names who gave it: a lead's conductor, a lane's lead.
+  const sent = await withTimeout($, submitOwn($, c.nudgeText(kind!, await cfgGet($, sid), grants.get(sid)?.level), false).then(() => 'ok' as const, () => 'failed' as const), ACTION_TIMEOUT_MS)
   if (sent === 'failed') await setNudgedAt($, null)
   if (sent === 'failed') turnKind.delete(sid)
   await log($, sid, sent === 'ok' ? 'nudged' : sent === 'timeout' ? 'nudge-unconfirmed' : 'nudge-failed', kind!)
@@ -722,8 +724,9 @@ export async function requestCompactCall($: any, e: any, next: any) {
     return { deny: "request_compact is not enabled for this session: mode on-cue needs a lane, mode now a person's session." }
   }
   const ct = await counts($)
-  // An on-cue request within c.ORDER_MS of an order from the lane's lead is ordered: it passes the context floor and counts as cued (the tick compacts it).
-  const ordered = gate === 'eligible' && v.req.mode === 'on-cue' && c.orderFresh((await getOrderedAt($)).value, now)
+  // An on-cue request within c.ORDER_MS of an order from the lane's lead, or the lead's conductor, is ordered: it passes the context floor and counts as cued
+  // (the tick compacts it).
+  const ordered = (gate === 'eligible' || gate === 'lead') && v.req.mode === 'on-cue' && c.orderFresh((await getOrderedAt($)).value, now)
   const early = c.compactAllowed(ct, (await $.session.usage()).context.tokens ?? 0, now, ordered)
   if (early) {
     await log($, sid, 'refused', early)

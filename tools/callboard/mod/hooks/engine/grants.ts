@@ -135,7 +135,7 @@ export const LEAD: LevelDesc = {
   offText: 'Lead is now off.',
   kept: c.LEAD_KEPT,
   noteKey: (pin) => pin,
-  note: (_sid, pin) => c.leadBriefingNote(pin),
+  note: (sid, pin) => c.leadBriefingNote(pin, sid),
   noteErr: 'lead-briefing',
   notYes: 'person-or-no',
   presenceFirst: false,
@@ -861,12 +861,15 @@ export async function managerSeenStep($: any, sid: string) {
 export async function managerTools($: any, sid: string) {
   if (managerDeclared.has(sid)) return
   const lane = { type: 'object', properties: { lane: { type: 'string' } }, required: ['lane'] }
+  const lead = { type: 'object', properties: { lead: { type: 'string' } }, required: ['lead'] }
   const tools: [string, string, unknown][] = [
     ['lane_list', 'List every lane on this Mac, as one table (a plain header line, then one row per lane with its lead, repo folder name, session and waiting columns; a lead no live session carries is marked not live): each lane, its folder when it is outside the repo root, whether a live session carries its name or it is parked, and how many minutes it has waited on a prompt.', { type: 'object', properties: {} }],
     ['lane_resume', "Cue a lane's session to resume from its own notes. The session applies its own limits. lane: the lane name.", lane],
-    ['lane_compact', "Ask a lane's session to compact: at once if it asked for that with request_compact on-cue, otherwise it orders the lane to compact (it asks on-cue, whatever its context size, and compacts at the end of its turn). lane: the lane name, or the session name of a live lead; a lead compacts only when it asked with request_compact on-cue, and is never nudged.", lane],
+    ['lane_compact', "Ask a lane's session to compact: at once if it asked for that with request_compact on-cue, otherwise it orders the lane to compact (it asks on-cue, whatever its context size, and compacts at the end of its turn). lane: the lane name, or the name of a lead (then it works as lead_compact, the person's dialog included).", lane],
     ['lane_terminate', "Stop a lane's session with SIGTERM, whatever it is doing. Every stop asks the person: they confirm in a dialog that names the lane, its repo, the session and the pid. Once the session has stopped, the lane's record is deleted too (the .archive/<LANE> folder and report stay). A lane with no live session is removed directly. lane: the lane name.", lane],
     ['lane_retire', "Stop a lane's session once it confirms it can end: idle, empty prompt box, no background agents or shells, and its report signed done. Every stop asks the person: they confirm in a dialog first, then the lane must confirm. The call itself waits up to 40 seconds for the idle time, so call it right after the lane's last turn; if it still refuses not-idle, wait the seconds it names and try once, never in a loop. Once the session has stopped, the lane's record is deleted too (the .archive/<LANE> folder and signed report stay). A lane with no live session is removed directly, with no signed report. Retire is final. lane: the lane name.", lane],
+    ['lead_resume', `Cue a lead's session to resume from its own notes: it gets one fixed turn and continues only work already authorised. Every call asks the person first: they confirm in a dialog that names the lead, its repo and its session. The lead must be idle with an empty prompt box, and takes at most ${c.RESUME_PER_HOUR} resumes an hour. lead: the lead's name.`, lead],
+    ['lead_compact', `Ask a lead's session to compact. Every call asks the person first, in a dialog that names the lead, its repo and its session. The lead compacts at once if it asked for that with request_compact on-cue; with no request of its own it is ordered to compact only while its conductor is live (it asks on-cue, whatever its context size), and otherwise refuses no-request. lead: the lead's name.`, lead],
   ]
   for (const [name, description, inputSchema] of tools) await $.tool.register({ name, description, inputSchema })
   await promptToolsRegister($)
@@ -1086,6 +1089,7 @@ export async function orderTick($: any, sid: string, submitsAtStart: number) {
   // A lane whose session is gone (stopped, retired) cannot comply: no notice. A registry that cannot be read is not "gone".
   const live = await registryEntries($)
   const owed: c.AttentionItem[] = []
+  const leadsOwed = new Set<string>()
   for (const [toSid, o] of mine) {
     if (now < o.at || now - o.at > c.ORDER_STALE_MS || (live && !live.some((r) => r.j.sessionId === toSid))) mine.delete(toSid)
     else if (now - o.at >= c.ORDER_MS) {
@@ -1096,25 +1100,29 @@ export async function orderTick($: any, sid: string, submitsAtStart: number) {
       else {
         // A newer order of the lane (the orderer ordered again) restarts the 15 minutes.
         if (at > o.at) o.at = at
-        if (now - o.at >= c.ORDER_MS) owed.push({ lane: o.lane, code: 'ordered', since: o.at })
+        if (now - o.at >= c.ORDER_MS) {
+          owed.push({ lane: o.lane, code: 'ordered', since: o.at })
+          if (o.kind === 'lead') leadsOwed.add(o.lane)
+        }
       }
     }
   }
   if (owed.length === 0) return
   const told = attnTold.get(sid) ?? new Set<string>()
   attnTold.set(sid, told)
-  await attentionNotice($, sid, owed, submitsAtStart, ep, undefined, {
-    render: (items) => c.orderText(items.map((i) => i.lane)),
-    label: 'order-notice',
-    sent: async (items) => {
-      for (const i of items) {
-        const hit = [...mine].find(([, o]) => o.lane === i.lane && o.at === i.since)
-        if (!hit) continue
-        mine.delete(hit[0])
-        await $.store.delete(`${c.ORDER_PREFIX}${hit[0]}`).catch(() => undefined)
-      }
-    },
-  })
+  const sent = async (items: c.AttentionItem[]) => {
+    for (const i of items) {
+      const hit = [...mine].find(([, o]) => o.lane === i.lane && o.at === i.since)
+      if (!hit) continue
+      mine.delete(hit[0])
+      await $.store.delete(`${c.ORDER_PREFIX}${hit[0]}`).catch(() => undefined)
+    }
+  }
+  // Lanes and leads get a notice each, in their own words; in the rare minute with both, the second waits for a later tick (one submit per tick).
+  const lanes = owed.filter((i) => !leadsOwed.has(i.lane))
+  const leads = owed.filter((i) => leadsOwed.has(i.lane))
+  if (lanes.length > 0) await attentionNotice($, sid, lanes, submitsAtStart, ep, undefined, { render: (items) => c.orderText(items.map((i) => i.lane)), label: 'order-notice', sent })
+  if (leads.length > 0) await attentionNotice($, sid, leads, submitsAtStart, ep, undefined, { render: (items) => c.orderLeadText(items.map((i) => i.lane)), label: 'order-notice', sent })
 }
 
 // The shared attention notice: the caller owns timing and pause, this owns the mechanical gates. One notice per key; the hourly cap is
@@ -1538,15 +1546,18 @@ export async function conductorReach($: any, sid: string): Promise<{ pins: strin
 }
 
 // ---- the conductor grant by dialog, its saved grant and restore, its tools ----
-// The conductor's four tools (three lane tools and lead_open), declared at its grant, then the three prompt tools (seven in all, c.CONDUCTOR_TOOLS). The handlers are the lead's (leadBase refuses every other lane tool at conductor level).
+// The conductor's six tools (three lane tools, lead_open and the two lead tools), declared at its grant, then the three prompt tools (nine in all, c.CONDUCTOR_TOOLS). The handlers are the lead's (leadBase refuses every other lane tool at conductor level).
 async function conductorTools($: any, sid: string) {
   if (conductorDeclared.has(sid)) return
   const lane = { type: 'object', properties: { lane: { type: 'string' } }, required: ['lane'] }
+  const lead = { type: 'object', properties: { lead: { type: 'string' } }, required: ['lead'] }
   const tools: [string, string, unknown][] = [
     ['lane_list', "List your leads and their lanes, as one table under a Conductor header line (one row per lane with its lead, repo folder name, session and waiting columns; a lead no live session carries is marked not live): each lane of a lead you own, its folder when it is outside the repo root, whether a live session carries its name or it is parked, and how many minutes it has waited on a prompt. A lead you own with no lanes is one row with – in the lane cells.", { type: 'object', properties: {} }],
-    ['lane_compact', "Ask a session to compact. lane: the session name of a live lead you own (it compacts only when it asked with request_compact on-cue, and is never nudged), or a lane of one of your leads (at once if it asked on-cue, otherwise it is ordered to compact).", lane],
+    ['lane_compact', "Ask a session to compact. lane: a lane of one of your leads (at once if it asked on-cue, otherwise it is ordered to compact), or the session name of a live lead you own (then it works as lead_compact).", lane],
     ['lane_terminate', "Stop a lane of a lead you own with SIGTERM, whatever it is doing. Every stop asks the person: they confirm in a dialog that names the lane, its repo, the session and the pid. Once the session has stopped, the lane's record is deleted too (the .archive/<LANE> folder and report stay). A lane with no live session is removed directly. lane: the lane name. A lead cannot be stopped.", lane],
     ['lead_open', "Open a panel for a new lead in one of your repos, write the task to its brief (<repo>/.archive/<NAME>/BRIEF.md) and make it the lead without asking the person. The repo must be one of yours with no live lead, and no open may be running, one succeeded in the last hour, or three been tried in the last hour. The person sees a toast. repo: the repo's absolute path. name: the new lead's name. task: the brief text, as for lane_create. model: opus, sonnet, haiku or fable (default as lane_create); the new lead is set to it.", { type: 'object', properties: { repo: { type: 'string' }, name: { type: 'string' }, task: { type: 'string' }, model: { type: 'string' } }, required: ['repo', 'name', 'task'] }],
+    ['lead_resume', `Cue a lead you own to resume from its own notes: it gets one fixed turn and continues only work already authorised. It must be idle with an empty prompt box, and takes at most ${c.RESUME_PER_HOUR} resumes an hour. lead: the lead's name.`, lead],
+    ['lead_compact', `Ask a lead you own to compact: at once if it asked for that with request_compact on-cue, otherwise it is ordered to compact (it asks on-cue, whatever its context size, and compacts at the end of its turn). If it has not asked within ${c.ORDER_MS / 60_000} minutes, you are told. lead: the lead's name.`, lead],
   ]
   for (const [name, description, inputSchema] of tools) await $.tool.register({ name, description, inputSchema })
   await promptToolsRegister($)
@@ -1864,7 +1875,7 @@ export async function promptCompose($: any, e: any, next: any) {
   const setSection = (id: string, text: string | undefined) => {
     sections = [...sections.filter((x) => x.id !== id), ...(text !== undefined ? [{ id, text, scope: 'session' as const }] : [])]
   }
-  if (gated) setSection(c.LEAD_BRIEFING_ID, c.leadBriefing(pin))
+  if (gated) setSection(c.LEAD_BRIEFING_ID, c.leadBriefing(pin, sid))
   if (gated) setSection(c.LEAD_MANAGER_ID, leadManager ? c.LEAD_MANAGER_TEXT : undefined)
   // ADR 0004: the lead's prompt section, beside the briefing (whose approved text is left alone).
   if (gated) setSection(pr.LEAD_PROMPTS_ID, grants.get(sid)?.level === 'lead' ? pr.LEAD_PROMPT_BRIEFING : undefined)
@@ -1879,4 +1890,14 @@ export async function promptCompose($: any, e: any, next: any) {
   }
   if (laneText !== undefined) setSection(c.LANE_BRIEFING_ID, laneText)
   return { ...out, sections }
+}
+
+// A lead tool's check b (engine/lead-tools.ts): the session holds a fresh lead presence file, passing presenceCheck, whose repo is exactly `repo`. 'error' when
+// the folder fails its rules or the check could not be made (fail closed).
+export async function leadPresence($: any, live: RegRow[], sid: string, repo: string): Promise<'ok' | 'no' | 'error'> {
+  const d = await presenceNames($)
+  if (d === 'error') return 'error'
+  if (d === 'none' || !d.names.includes(sid)) return 'no'
+  const f = await presenceCheck($, d.p, live, sid, (x) => x.level === 'lead' && x.repo === repo)
+  return f === 'error' ? 'error' : f === 'no' ? 'no' : 'ok'
 }

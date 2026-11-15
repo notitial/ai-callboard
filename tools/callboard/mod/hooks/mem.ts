@@ -219,8 +219,8 @@ export const leadlessSeen = new Map<string, Map<string, { at: number; leads: c.L
 // What each orderer (lead, conductor or manager) ordered: lane session id to { lane name, time of the first order }, in module memory (lost with the session or a reload,
 // then no notice). Once a minute, an order older than c.ORDER_MS is looked up in $.store: the lane's own stamp (c.ORDER_PREFIX + its session id) is still there only if
 // no compaction began (orderSpend), so only then, and only while the lane's session is live, the orderer gets one fixed notice, and the stamp goes. Nothing is
-// stopped: the notice sends the orderer to the person.
-export const orders = new Map<string, Map<string, { lane: string; at: number }>>()
+// stopped: the notice sends the orderer to the person. kind 'lead': the target is a lead (lead_compact), told with c.orderLeadText.
+export const orders = new Map<string, Map<string, { lane: string; at: number; kind?: 'lead' }>>()
 export const orderChecked = new Map<string, number>()
 export const orderBusy = new Set<string>()
 

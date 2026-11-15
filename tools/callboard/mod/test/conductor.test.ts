@@ -707,13 +707,17 @@ test('every lane tool but list, compact and terminate refuses a conductor (condu
   }
 })
 
-test('the conductor\'s lane_compact compacts a lead of its repos, cues a lane in reach, and refuses a lead outside its repos (other-repo)', async ($, on) => {
+test('the conductor\'s lane_compact compacts a lead it owns, cues a lane in reach, and refuses a live lead it does not own and a record outside its repos (other-repo)', async ($, on) => {
   const argv: string[][] = []
-  await condOn($, on, [], { argv, sess: { ...CSESS(), ...leadReg() }, seed: () => leadFiles.set(LEADPATH, { text: leadFileText() }) })
+  // Over ../app only, so a record in APP2 is in another repo.
+  await condOn($, on, [], { argv, repos: ['../app'], owns: [], sess: { ...CSESS(), ...leadReg() }, seed: () => leadFiles.set(LEADPATH, { text: leadFileText() }) })
+  expect(JSON.stringify(await $.tool.call(mgrCall('compact', 'LEAD')))).toContain('lane_compact refused: unknown-lead')
+  ownedBy(SID, { leadSid: LEADSID })
   expect((await $.tool.call(mgrCall('compact', 'LEAD'))).result).toBe('cue compact acted for lead LEAD.')
   expect(argv.filter((a) => a[0] === '/bin/mv' && a[a.length - 1] === `${ROOT}/cue/${LEADSID}.cue`).length).toBe(1)
   expect((await $.tool.call(mgrCall('compact', 'API'))).result).toBe('cue compact acted for lane API.')
-  leadFiles.set(LEADPATH, { text: leadFileText({ repo: FAR }) })
+  putLeadRecs([], PIN)
+  ownedBy(SID, { leadSid: LEADSID, repo: APP2 })
   expect(JSON.stringify(await $.tool.call(mgrCall('compact', 'LEAD')))).toContain('lane_compact refused: other-repo')
   expect(argv.filter((a) => a[0] === '/bin/mv' && a[a.length - 1] === `${ROOT}/cue/${LEADSID}.cue`).length).toBe(1)
 })
@@ -991,13 +995,12 @@ async function condLead($: any, on: any, stdins: string[] = [], trace?: Trace) {
   return { cue, arm }
 }
 
-test('a lead with an armed on-cue request compacts on its conductor\'s cue while the presence file, the saved grant and the list file all hold its repo; no request gives no-request; other verbs are refused', async ($, on) => {
+// The owner's resume, and its compact with no request (an order), are in lead-cues.test.ts.
+test('a lead with an armed on-cue request compacts on its conductor\'s cue while the presence file, the saved grant and the list file all hold its repo; retire and park are refused', async ($, on) => {
   const stdins: string[] = []
   const { cue, arm } = await condLead($, on, stdins)
-  expect(await cue(90, 'compact\n')).toBe('compact refused no-request 90\n')
-  expect(nudges()).toEqual([])
   await arm()
-  for (const [ino, verb] of [[91, 'resume'], [92, 'retire'], [93, 'park']] as const) expect(await cue(ino, `${verb}\n`)).toBe(`${verb} refused not-eligible ${ino}\n`)
+  for (const [ino, verb] of [[92, 'retire'], [93, 'park']] as const) expect(await cue(ino, `${verb}\n`)).toBe(`${verb} refused not-eligible ${ino}\n`)
   expect(seen.compacted).toBe(false)
   expect(await cue(94, 'compact\n')).toBe('compact ok - 94\n')
   expect(seen.compacted).toBe(true)
