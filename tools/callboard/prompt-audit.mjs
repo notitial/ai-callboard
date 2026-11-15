@@ -17,6 +17,7 @@
 //   relayed    id, code (the relaying tier's level), short (the first 8 hex of the id), by (its session id)   the top tier took the request to the person
 //   relay-lost id?, code (not-asked | gone | ...), short, by, tier   the relay did not reach the person; the request is open to the tiers again
 //   relay-left id, short, by, tier   the person dismissed or answered something else; relay-late short, by, code (closed | decided)   an answer after the request ended
+//   relay-closed id, short, by, tier   the mod withdrew the tier's relay question: its request had closed elsewhere while the question was open
 //   deny-unclear   a deny whose reason the cleaner-command rule found too vague to judge
 //   lead-offer hash, repo, lane, nonce, by   a conductor's lead_open wrote an offer (hash: the repo's sha-256); lead-offer-void hash, nonce, code   it ended with no grant
 //   lead-grant hash, repo, lane, nonce, by, target   the new panel (target) made itself a lead from that offer; written before the grant, so a failure after it is followed by a lead-offer-void of the nonce
@@ -70,7 +71,7 @@ const QUESTION_DAYS = 90
 const LABEL_MAX = 256
 
 const ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
-const KINDS = new Set(['requested', 'answered', 'escalated', 'dropped', 'returned', 'superseded', 'expired-denied', 'off', 'abandoned', 'dialog', 'not-judgeable', 'no-tier', 'answering-on', 'answering-off', 'relayed', 'relay-lost', 'relay-left', 'relay-late', 'deny-unclear', 'lead-offer', 'lead-offer-void', 'lead-grant', 'lead-owner', 'lead-resume', 'lead-stop'])
+const KINDS = new Set(['requested', 'answered', 'escalated', 'dropped', 'returned', 'superseded', 'expired-denied', 'off', 'abandoned', 'dialog', 'not-judgeable', 'no-tier', 'answering-on', 'answering-off', 'relayed', 'relay-lost', 'relay-left', 'relay-late', 'relay-closed', 'deny-unclear', 'lead-offer', 'lead-offer-void', 'lead-grant', 'lead-owner', 'lead-resume', 'lead-stop'])
 const FIELDS = ['code', 'id', 'lane', 'repo', 'tool', 'pattern', 'hash', 'tier', 'why', 'nonce', 'tuid', 'by', 'via', 'short', 'opt', 'lh', 'target', 'was', 'dialog']
 const ENDS = new Set(['returned', 'superseded', 'expired-denied', 'off', 'abandoned'])
 // A `dropped` row with one of these codes is a decision the hook refused as forged or wrong: an anomaly. The others are ordinary.
@@ -926,12 +927,12 @@ function buildCounts({ rows, inRange, table, waits }) {
 function buildRelay({ rows, groups, inRange, qById }, tx) {
   // The tier rows that are not anomalies, counted by kind (and by code where one is recorded): what happened to the requests that went to the person, and the cleaner-command denies.
   const relayCounts = {}
-  for (const k of ['relayed', 'relay-lost', 'relay-left', 'relay-late', 'expired-denied', 'deny-unclear']) {
+  for (const k of ['relayed', 'relay-lost', 'relay-left', 'relay-late', 'relay-closed', 'expired-denied', 'deny-unclear']) {
     const mine = rows.filter((r) => r.kind === k && inRange(r.ms))
     const codes = {}
-    // A relay-left row names the tier that asked in `tier` (it carries no code); the other kinds keep their code.
+    // A relay-left and a relay-closed row name the tier that asked in `tier` (they carry no code); the other kinds keep their code.
     for (const r of mine) {
-      const key = (k === 'relay-left' ? r.tier : r.code) ?? '(none)'
+      const key = (k === 'relay-left' || k === 'relay-closed' ? r.tier : r.code) ?? '(none)'
       codes[key] = (codes[key] ?? 0) + 1
     }
     relayCounts[k] = { n: mine.length, codes }

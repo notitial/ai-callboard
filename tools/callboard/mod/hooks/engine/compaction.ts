@@ -21,6 +21,7 @@ import {
   rebound,
   noticeTimes,
   relayAskedTurn,
+  relayHolds,
   own,
   unrealOwn,
   mem,
@@ -785,6 +786,7 @@ export async function turnComplete($: any, e: any, next: any) {
     promptMidFallback(sid)
     // A turn that ended has no question open: the tier is no longer asking (a dismissal that fired no hook of its own).
     const askedThisTurn = relayAskedTurn.delete(sid)
+    relayHolds.delete(sid)
     const wasAsking = (await promptAskingClear($, sid).catch(() => false)) || askedThisTurn
     // The question cannot outlive the turn: one still unanswered was dismissed without a hook of its own (probed: the person's X fires neither PostToolUseFailure nor
     // PermissionDenied, and the model only reads "Denied by user"). Its relay is left, so the wait ends and the dialog stays with the person.

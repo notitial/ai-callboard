@@ -2,7 +2,7 @@ import { expect, test } from 'claude-code/testing'
 import * as prm from '../hooks/prompts'
 import { h, PROMPTS_DIR, ROOT, SID, T0, leadFiles, longTest, pdirs, pfs, psFail } from './harness'
 import { APISID, LEADSID, TURN } from './fixtures'
-import { APIQ, CNDT, GONE, LDIR, LEDGER_FILE, OFF_FILE, PDIR, QASK, QIN, SHORT, THASH, TID, TID2, addCondT, answerCall, answerer, asConductor, askPost, at, beneathHooks, byCond, byMgr, callOf, decFile, decOf, decideBy, handDecision, ledgerRows, noFiles, pcall, putFile, putFileAt, putQ, putRelay, putRelayT, readReq, refusal, relayQ, reqFiles, rowKinds, runRequest, said, stop, tier } from './answer-fixtures'
+import { APIQ, CNDT, GONE, LDIR, LEDGER_FILE, OFF_FILE, PDIR, QASK, QIN, SHORT, THASH, TID, TID2, addCondT, answerCall, answerer, asConductor, askPost, askRelay, at, beneathHooks, byCond, byMgr, callOf, decFile, decOf, decideBy, handDecision, holdRelay, ledgerRows, noFiles, pcall, putFile, putFileAt, putQ, putRelay, putRelayT, readReq, refusal, relayQ, reqFiles, rowKinds, runRequest, said, stop, tier } from './answer-fixtures'
 import type { Ans } from './answer-fixtures'
 
 longTest('prompts hook: a pass-up file does not end the wait; the lead\'s later decision is dropped, the wait goes on to the 20-minute deny', async ($, on) => {
@@ -227,7 +227,7 @@ test('prompts light link: a decision whose ledger row cannot be written is taken
 test('prompts asked mark: a Relay question raises no request; its PermissionRequest marks the relay asked and the tier asking, and the question\'s end clears the asking file', async ($, on) => {
   await relayFixture($, on)
   const q = relayQ(TID)
-  const r = await $.classic.PermissionRequest({ tool_name: 'AskUserQuestion', tool_input: { questions: [q] } } as any)
+  const r = await askRelay($, [q])
   expect(r ?? {}).toEqual({})
   expect(pfs.has(`${LDIR()}/${TID}.asked`)).toBe(true)
   expect(pfs.has(`${PROMPTS_DIR}/asking/${SID}`)).toBe(true)
@@ -239,10 +239,10 @@ test('prompts asked mark: a Relay question raises no request; its PermissionRequ
 test('prompts asked mark: a question of any other kind, or for a relay of another tier, marks nothing', async ($, on) => {
   await relayFixture($, on)
   pfs.delete(`${LDIR()}/${TID}.asked`)
-  await $.classic.PermissionRequest({ tool_name: 'AskUserQuestion', tool_input: { questions: [relayQ(TID, 'x', 'Plan')] } } as any)
+  await askRelay($, [relayQ(TID, 'x', 'Plan')])
   putQ({ id: TID2 })
   putRelayT(byMgr, TID2)
-  await $.classic.PermissionRequest({ tool_name: 'AskUserQuestion', tool_input: { questions: [relayQ(TID2)] } } as any)
+  await askRelay($, [relayQ(TID2)])
   expect([...pfs.keys()].filter((k) => k.endsWith('.asked') || k.includes('/asking/'))).toEqual([])
 })
 
@@ -251,7 +251,7 @@ test('prompts asked mark: a conductor\'s and the manager\'s relay question is ma
   await asConductor($, on)
   putQ({ ...APIQ, leadName: undefined })
   putFile(`${TID}.relay.json`, JSON.stringify({ id: TID, short: SHORT, by: { level: 'conductor', sid: SID, name: 'COND' }, at: T0, nonce: 'n-1' }), APISID)
-  await $.classic.PermissionRequest({ tool_name: 'AskUserQuestion', tool_input: { questions: [relayQ(TID)] } } as any)
+  await askRelay($, [relayQ(TID)])
   expect(pfs.has(`${LDIR(APISID)}/${TID}.asked`)).toBe(true)
   expect(pfs.has(`${PROMPTS_DIR}/asking/${SID}`)).toBe(true)
 })
@@ -292,7 +292,7 @@ test('prompts asked mark: a relay question that a hook beneath answered is not m
   putQ({ id: TID })
   putRelayT({ level: 'lead', sid: SID, name: 'LEAD' }, TID)
   const q = relayQ(TID)
-  await $.classic.PermissionRequest({ tool_name: 'AskUserQuestion', tool_input: { questions: [q] } } as any)
+  await askRelay($, [q])
   expect(pfs.has(`${LDIR()}/${TID}.asked`)).toBe(false)
   expect(pfs.has(`${PROMPTS_DIR}/asking/${SID}`)).toBe(false)
 })
@@ -303,7 +303,7 @@ test('prompts asked mark: a hook beneath that returns no decision still lets the
   putQ({ id: TID })
   putRelayT({ level: 'lead', sid: SID, name: 'LEAD' }, TID)
   const q = relayQ(TID)
-  await $.classic.PermissionRequest({ tool_name: 'AskUserQuestion', tool_input: { questions: [q] } } as any)
+  await askRelay($, [q])
   expect(pfs.has(`${LDIR()}/${TID}.asked`)).toBe(true)
 })
 
@@ -321,7 +321,7 @@ test('prompts asked mark: an answer spends the mark; a later question for the sa
 
 test('prompts asked mark: a turn that ends with its relay questions still open (a dismissal fires no hook) leaves each relay: the left mark and one relay-left row apiece', async ($, on) => {
   await relayFixture($, on, [TID, TID2])
-  await $.classic.PermissionRequest({ tool_name: 'AskUserQuestion', tool_input: { questions: [relayQ(TID), relayQ(TID2)] } } as any)
+  await askRelay($, [relayQ(TID), relayQ(TID2)])
   expect(pfs.has(`${LDIR()}/${TID}.asked`)).toBe(true)
   expect(pfs.has(`${LDIR()}/${TID2}.asked`)).toBe(true)
   await $.turn.complete(TURN as any)
@@ -333,9 +333,9 @@ test('prompts asked mark: a turn that ends with its relay questions still open (
 
 test('prompts asked mark: an earlier relay question dismissed in a turn whose later question was answered is still left at the turn end', async ($, on) => {
   await relayFixture($, on, [TID, TID2])
-  await $.classic.PermissionRequest({ tool_name: 'AskUserQuestion', tool_input: { questions: [relayQ(TID)] } } as any)
+  await askRelay($, [relayQ(TID)])
   const q2 = relayQ(TID2)
-  await $.classic.PermissionRequest({ tool_name: 'AskUserQuestion', tool_input: { questions: [q2] } } as any)
+  await askRelay($, [q2])
   await $.classic.PostToolUse(askPost([q2], { [q2.question]: 'Yes' }))
   expect(pfs.has(`${PROMPTS_DIR}/asking/${SID}`)).toBe(false)
   await $.turn.complete(TURN as any)
@@ -372,10 +372,104 @@ test('prompts asked mark: a relay question that ends clears the asking file even
 
 test('prompts asked mark: a turn that ends clears the tier\'s asking file', async ($, on) => {
   await relayFixture($, on)
-  await $.classic.PermissionRequest({ tool_name: 'AskUserQuestion', tool_input: { questions: [relayQ(TID)] } } as any)
+  await askRelay($, [relayQ(TID)])
   expect(pfs.has(`${PROMPTS_DIR}/asking/${SID}`)).toBe(true)
   await $.turn.complete(TURN as any)
   expect(pfs.has(`${PROMPTS_DIR}/asking/${SID}`)).toBe(false)
+})
+
+// ---- the hold: a relay question is withdrawn once a request it relays has closed elsewhere ----
+const ASKING = `${PROMPTS_DIR}/asking/${SID}`
+const closedRows = () => ledgerRows().filter((x) => x.kind === 'relay-closed')
+const denyOf = (closed: string[], open: string[] = []) => ({ decision: { behavior: 'deny', message: prm.relayWithdrawnLine(closed, open) } })
+
+for (const [name, close] of [
+  ['its request file is gone (answered in the lane, answered by a tier, expired, the lane gone)', () => { pfs.delete(`${LDIR()}/${TID}.request.json`) }],
+  ['its closed marker is there (the lane\'s dialog ended)', () => { putFile(`${TID}.done`) }],
+  ['its relay file is gone (the lane\'s wait took the relay back)', () => { pfs.delete(`${LDIR()}/${TID}.relay.json`) }],
+] as [string, () => void][]) {
+  test(`prompts hold: a relay question is withdrawn once its request has closed elsewhere, when ${name}: a deny with the fixed line, one relay-closed row, the marks cleared, no decision`, async ($, on) => {
+    await relayFixture($, on)
+    const r = await holdRelay($, [relayQ(TID)], [at(12_000, close)])
+    expect(r).toEqual(denyOf([SHORT]))
+    expect(closedRows()).toEqual([expect.objectContaining({ id: TID, short: SHORT, by: SID, tier: 'lead' })])
+    expect(rowKinds()).toEqual(['relay-closed'])
+    expect(pfs.has(`${LDIR()}/${TID}.asked`)).toBe(false)
+    expect(pfs.has(ASKING)).toBe(false)
+    expect(decFile()).toBeUndefined()
+    // The turn's end finds nothing asked: the closed relay is not left as well.
+    await $.turn.complete(TURN as any)
+    expect(rowKinds()).toEqual(['relay-closed'])
+  })
+}
+
+test('prompts hold: the person answers the relay question first: the hold ends with no deny, and the light link lands the decision as it always did', async ($, on) => {
+  await relayFixture($, on)
+  const q = relayQ(TID)
+  const r = await holdRelay($, [q], [at(12_000, async () => { await $.classic.PostToolUse(askPost([q], { [q.question]: 'Yes' })) })])
+  expect(r ?? {}).toEqual({})
+  expect(decOf()).toEqual(expect.objectContaining({ decision: 'allow', via: 'person' }))
+  expect(closedRows()).toEqual([])
+  expect(rowKinds()).toEqual(['answered allow'])
+})
+
+test('prompts hold: the request closes and the person clicks within one poll: the click wins, relay-late, no withdrawal and no decision', async ($, on) => {
+  await relayFixture($, on)
+  const q = relayQ(TID)
+  const r = await holdRelay($, [q], [at(12_000, async () => { pfs.delete(`${LDIR()}/${TID}.request.json`); await $.classic.PostToolUse(askPost([q], { [q.question]: 'Yes' })) })])
+  expect(r ?? {}).toEqual({})
+  expect(rowKinds()).toEqual(['relay-late closed'])
+  expect(decFile()).toBeUndefined()
+})
+
+test('prompts hold: two relays in one call and one closes: the whole call is withdrawn, the line names the one still open, which keeps its asked mark and can be asked again', async ($, on) => {
+  await relayFixture($, on, [TID, TID2])
+  const r = await holdRelay($, [relayQ(TID), relayQ(TID2)], [at(12_000, () => { pfs.delete(`${LDIR()}/${TID2}.request.json`) })])
+  expect(r).toEqual(denyOf([TID2.slice(0, 8)], [SHORT]))
+  expect(r.decision.message).toContain(`Still open: Relay ${SHORT}. Ask again now`)
+  expect(closedRows().map((x) => x.id)).toEqual([TID2])
+  expect(pfs.has(`${LDIR()}/${TID}.asked`)).toBe(true)
+  expect(pfs.has(`${LDIR()}/${TID2}.asked`)).toBe(false)
+  expect(pfs.has(ASKING)).toBe(false)
+  // Asked again, the open relay's answer lands.
+  const q = relayQ(TID)
+  await askRelay($, [q])
+  expect(pfs.has(ASKING)).toBe(true)
+  await $.classic.PostToolUse(askPost([q], { [q.question]: 'No' }))
+  expect(decOf().decision).toBe('deny')
+})
+
+test('prompts hold: a tier that does not ask again after a withdrawal leaves the relay still open at its turn\'s end (relay-left), as a dismissal does', async ($, on) => {
+  await relayFixture($, on, [TID, TID2])
+  await holdRelay($, [relayQ(TID), relayQ(TID2)], [at(12_000, () => { pfs.delete(`${LDIR()}/${TID2}.request.json`) })])
+  await $.turn.complete(TURN as any)
+  expect(pfs.has(`${LDIR()}/${TID}.left`)).toBe(true)
+  expect(rowKinds()).toEqual(['relay-closed', 'relay-left'])
+})
+
+test('prompts hold: the turn\'s end stops the hold (a dismissal fires no hook): no deny, and the relay is left as before', async ($, on) => {
+  await relayFixture($, on)
+  const r = await holdRelay($, [relayQ(TID)], [at(12_000, async () => { await $.turn.complete(TURN as any) })])
+  expect(r ?? {}).toEqual({})
+  expect(rowKinds()).toEqual(['relay-left'])
+})
+
+test('prompts hold: a relay-closed row that cannot be written withdraws nothing: the question stays with the person and its marks stay', async ($, on) => {
+  await relayFixture($, on)
+  h.pfsFails = (a) => a[0] === '/usr/bin/tee' && a.includes(LEDGER_FILE)
+  const r = await holdRelay($, [relayQ(TID)], [at(12_000, () => { pfs.delete(`${LDIR()}/${TID}.request.json`) })])
+  expect(r ?? {}).toEqual({})
+  expect(pfs.has(`${LDIR()}/${TID}.asked`)).toBe(true)
+  expect(pfs.has(ASKING)).toBe(true)
+})
+
+test('prompts hold: a poll that cannot wait ends the hold with no deny', async ($, on) => {
+  await relayFixture($, on)
+  h.sleepFails = true
+  const r = await $.classic.PermissionRequest({ tool_name: 'AskUserQuestion', tool_input: { questions: [relayQ(TID)] } } as any)
+  expect(r ?? {}).toEqual({})
+  expect(pfs.has(`${LDIR()}/${TID}.asked`)).toBe(true)
+  expect(rowKinds()).toEqual([])
 })
 
 for (const [name, o] of [['no asks scope', {}], ['the old asks flag', { asksOld: true }]] as [string, Ans][]) {

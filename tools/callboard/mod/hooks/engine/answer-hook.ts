@@ -2,7 +2,7 @@
 // Trust rules held here: a dialog is never answered, at answer time or at apply; no decision without a ledger row; the relay reads only the person's own answer.
 import * as c from '../core.ts'
 import * as pr from '../prompts.ts'
-import { grants, checks, openReqs, doneIds, unclosed, askingSids, relayAskedTurn, mem } from '../mem.ts'
+import { grants, checks, openReqs, doneIds, unclosed, askingSids, relayAskedTurn, relayHolds, mem } from '../mem.ts'
 import { run, MKDIR, dirOk, INSTALL, TEE, MV, rmF, where, facts, sha, statR, readSmallR, pause, RMDIR, realR, toast, withTimeout, GREP } from './base.ts'
 import { registryEntries, registryOf } from './store.ts'
 import { leadsFor, homeOf, presenceCheck } from './grants.ts'
@@ -423,18 +423,19 @@ async function promptRelayOptionsBad($: any, sid: string, input: any): Promise<s
 }
 
 // The relay question raised its PermissionRequest: the relay is marked asked (`<id>.asked` beside the request) and this tier asking (`prompts/asking/<sid>`, removed
-// at the question's end), which keeps new requests off it while its question is open.
-async function promptRelayAsked($: any, sid: string, shorts: string[]): Promise<void> {
+// at the question's end), which keeps new requests off it while its question is open. It returns the relays it marked.
+async function promptRelayAsked($: any, sid: string, shorts: string[]): Promise<{ dir: string; relay: pr.Relay }[]> {
   const p = await where($)
-  if (!p || !(await dirOk($, `${p.root}/prompts`, p.uid))) return
+  if (!p || !(await dirOk($, `${p.root}/prompts`, p.uid))) return []
   const mine = (await promptOpenRelays($, p, sid)).filter((r) => shorts.includes(r.relay.short))
-  if (mine.length === 0) return
+  if (mine.length === 0) return mine
   for (const r of mine) await promptLinkOnce($, `${r.dir}/${r.relay.id}.asked`, '{}')
   askingSids.add(sid)
   relayAskedTurn.add(sid)
   await run($, [MKDIR, '-p', '-m', '700', `${p.root}/prompts/asking`]).catch(() => undefined)
-  if (!(await dirOk($, `${p.root}/prompts/asking`, p.uid))) return
+  if (!(await dirOk($, `${p.root}/prompts/asking`, p.uid))) return mine
   await promptPut($, `${p.root}/prompts/asking/${sid}`, '{}')
+  return mine
 }
 // The asked mark is spent by the question it marked: an answer, a dismissal or a question a hook beneath answered leaves none, so the next question needs its own.
 async function promptRelayAskedClear($: any, sid: string, shorts: string[]): Promise<void> {
@@ -449,6 +450,48 @@ export async function promptRelayTurnEnd($: any, sid: string): Promise<void> {
   for (const r of await promptOpenRelays($, p, sid)) {
     if ((await statR($, `${r.dir}/${r.relay.id}.asked`)) === 'absent') continue
     if ((await promptLinkOnce($, `${r.dir}/${r.relay.id}.left`, '{}')) === 'ok') await ledgerAdd($, { kind: 'relay-left', id: r.relay.id, short: r.relay.short, by: sid, tier: r.relay.by.level })
+  }
+}
+
+// Whether a relayed request has closed: its request file or its relay file is gone, or its closed marker is there. A stat that fails says nothing (still open).
+async function promptRelayClosed($: any, r: { dir: string; relay: pr.Relay }): Promise<boolean> {
+  const at = `${r.dir}/${r.relay.id}`
+  if ((await statR($, `${at}.request.json`)) === 'absent' || (await statR($, `${at}.relay.json`)) === 'absent') return true
+  const done = await statR($, `${at}.done`)
+  return done !== 'absent' && done !== 'error'
+}
+
+// The hold: the tier's relay question is on screen and this hook stays pending beside it, as a lane's hook does beside its dialog. Each poll looks at the requests the
+// question relays. Once any of them has closed elsewhere (answered in the lane, answered by a tier, expired, the lane gone) the whole question is withdrawn: one
+// `relay-closed` row per closed relay, then a deny with one fixed line that names the relays still open, for the tier to ask again. No answer is made up and the lane's
+// request is not touched. The hold ends, answering nothing, when the question itself ends (the person's answer takes the token, as do the turn's end and a later relay
+// question; a No aborts the signal): the light link then reads the answer. Without its rows the question is not withdrawn. PostToolUse does not run after a deny
+// (probed), so the marks are cleared here: the asking file, and the asked mark of each closed relay. A relay still open keeps its mark, so a tier that does not ask
+// again leaves it at its turn's end.
+async function promptRelayHold($: any, sid: string, under: any, signal: AbortSignal, mine: { dir: string; relay: pr.Relay }[]): Promise<any> {
+  if (mine.length === 0) return under
+  const token = {}
+  relayHolds.set(sid, token)
+  const held = (): boolean => !signal.aborted && relayHolds.get(sid) === token
+  try {
+    for (;;) {
+      if (!(await pause($, pr.RELAY_WATCH_MS)) || !held()) return under
+      const closed: { dir: string; relay: pr.Relay }[] = []
+      const open: { dir: string; relay: pr.Relay }[] = []
+      for (const r of mine) ((await promptRelayClosed($, r)) ? closed : open).push(r)
+      if (closed.length === 0) continue
+      if (!held()) return under
+      for (const r of closed) if (!(await ledgerAdd($, { kind: 'relay-closed', id: r.relay.id, short: r.relay.short, by: sid, tier: r.relay.by.level }))) return under
+      // A click that landed while the rows were written wins: the light link reads it.
+      if (!held()) return under
+      relayHolds.delete(sid)
+      await rmF($, closed.map((r) => `${r.dir}/${r.relay.id}.asked`))
+      await promptAskingClear($, sid, true)
+      const message = pr.relayWithdrawnLine(closed.map((r) => r.relay.short), open.map((r) => r.relay.short))
+      return { ...(under && typeof under === 'object' ? under : {}), decision: { behavior: 'deny' as const, message } }
+    }
+  } finally {
+    if (relayHolds.get(sid) === token) relayHolds.delete(sid)
   }
 }
 
@@ -471,7 +514,8 @@ async function promptHook($: any, e: any, nextOnce: (x: any) => Promise<any>, si
   // A request left without its closing row is retried here as well as on the tick (a no-op while none is owed).
   if (unclosed.size > 0) await promptCloseTick($).catch(() => undefined)
   // 0. A tier's relay question: it is the person's already (AskUserQuestion), so it raises no request. It marks the relay asked and the tier asking,
-  // before the coverage gate, so a conductor's or the manager's question is marked too. The chain beneath runs as it always did.
+  // before the coverage gate, so a conductor's or the manager's question is marked too. The chain beneath runs as it always did, and the hook then holds the
+  // question (promptRelayHold) until it ends or a request it relays closes elsewhere.
   if (String(e.tool_name) === 'AskUserQuestion' && relayShorts(e.tool_input).length > 0) {
     // A relay question for a lane's QUESTION must offer exactly the lane's labels (the tier copies them, and a model does not copy exactly): checked before the person sees it.
     // A mismatch denies the whole call, shows no card and sets no asked mark; the tier asks again.
@@ -480,9 +524,12 @@ async function promptHook($: any, e: any, nextOnce: (x: any) => Promise<any>, si
     const under = await nextOnce(e)
     // The question is the person's only if nothing beneath answered it (a hook that does is not the person): then it is not marked asked, and an answer to it lands nothing.
     const u = (under && typeof under === 'object' ? under : {}) as { decision?: unknown; hookSpecificOutput?: { decision?: unknown } }
-    if (u.decision === undefined && u.hookSpecificOutput?.decision === undefined) await promptRelayAsked($, sid, relayShorts(e.tool_input)).catch(() => undefined)
-    else await promptRelayAskedClear($, sid, relayShorts(e.tool_input))
-    return under
+    if (u.decision !== undefined || u.hookSpecificOutput?.decision !== undefined) {
+      await promptRelayAskedClear($, sid, relayShorts(e.tool_input))
+      return under
+    }
+    const mine = await promptRelayAsked($, sid, relayShorts(e.tool_input)).catch(() => [])
+    return promptRelayHold($, sid, under, signal, mine).catch(() => under)
   }
   // 1. The switch and the session's kind. The emergency file wins over the switch.
   const cov = await promptCoverage($, sid)
@@ -883,6 +930,8 @@ export async function promptRelayPost($: any, e: any): Promise<string | undefine
   const shorts = relayShorts(qin)
   if (shorts.length === 0) return undefined
   const sid = await $.session.id()
+  // The question has ended: the hook that held it stops, and answers nothing.
+  relayHolds.delete(sid)
   const p = await where($)
   if (!c.SID_RE.test(sid) || !p) return undefined
   // The question is over, whatever the answer: this tier is free for new requests.
