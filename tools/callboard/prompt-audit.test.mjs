@@ -1405,3 +1405,15 @@ test('i: --records that cannot be read is a problem (exit 2); a linked or broken
   assert.match(p, /e{64}\.json: not a lead record file/)
   assert.match(p, /f{64}\.json: a symlink/)
 })
+
+// ---- PR notices (ADR 0010) ----
+test('pr-watch and pr-notice rows are read and counted, never anomalies, and belong to no request', () => {
+  const fx = fixture()
+  const PR = { lane: 'LANE-A', target: 'acme/api#12' }
+  ledger(fx, [ON(), R('pr-watch', BASE + 1000, { code: 'new', ...PR }), R('pr-notice', BASE + 2000, { code: 'green', tier: 'lane', target: PR.target }), R('pr-notice', BASE + 3000, { code: 'merged', tier: 'lead', ...PR }), R('pr-watch', BASE + 3000, { code: 'merged', ...PR })])
+  const rep = run(fx)
+  assert.deepEqual(rep.anomalies, [])
+  assert.deepEqual(rep.problems, [])
+  assert.equal(rep.counts.rowsByKind['pr-watch'], 2)
+  assert.equal(rep.counts.rowsByKind['pr-notice'], 2)
+})
