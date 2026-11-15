@@ -14,6 +14,7 @@ import {
   rebindBusy,
   checkinBusy,
   orderBusy,
+  prBusy,
   goneSeen,
   managerRestoreOffered,
   managerRestorePending,
@@ -62,6 +63,7 @@ import {
 import { promptCloseTick, promptSweep } from './answer-hook.ts'
 import { promptNoticeTick } from './answer-tiers.ts'
 import { usageFlush } from './usage.ts'
+import { prToolRegister, prPollDue, prPollTick, prNoticeTick } from './pr-watch.ts'
 import { leadStartTick, offerSweep, conductorGrantCheck } from './lead-start.ts'
 import { ownerTick } from './lead-records.ts'
 import { getRequest, getSeen, setInteractive, setRequest, setSeen } from '../state.ts'
@@ -258,6 +260,8 @@ async function tick($: any) {
     } catch {}
     if (nudge) {
       await nudgeTick($, sid as string).catch(logFail($, sid as string, 'nudge'))
+      // The PR notice of an idle session whose cache is hot, ahead of the ping (a tick submits at most once).
+      await prNoticeTick($, sid as string, submitsAtStart).catch(logFail($, sid as string, 'pr-notice'))
       await keepaliveTick($, sid as string, submitsAtStart).catch(logFail($, sid as string, 'keepalive'))
       // The lead check-in, after the ping, so the submits guard covers both. Only once a minute, for a lead: no timer is started on the other ticks.
       // Not awaited, so a slow observation never holds the tick (and the cue it claims); its own flag keeps one step at a time.
@@ -265,6 +269,8 @@ async function tick($: any) {
       if (await checkinDue($, s).catch(() => false)) bgStep($, s, checkinBusy, 'checkin', () => checkinTick($, s, submitsAtStart))
       // The deadline of an order, for a lead, a conductor or the manager; once a minute, and only while the session has an order out.
       if (await orderDue($, s).catch(() => false)) bgStep($, s, orderBusy, 'order', () => orderTick($, s, submitsAtStart))
+      // The PR poll, every two minutes while this session tracks a PR (a lead also looks for the trackers of its gone lanes); not awaited, as the check-in.
+      if (await prPollDue($, s).catch(() => false)) bgStep($, s, prBusy, 'pr-watch', () => prPollTick($, s))
     }
     mem.isTicking = false
   }
@@ -293,6 +299,7 @@ export async function sessionStart($: any, e: any, next: any) {
       required: ['focus', 'continuation', 'mode'],
     },
   })
+  await prToolRegister($)
   const me = await $.session.id()
   try {
     await $.command.register({ name: 'callboard', description: 'Give lead, make this session a lane, list the lanes, show status, show or change the settings, or turn lead and lane off for this session', argumentHint: 'help|lanes|status|lead|lead join [CONDUCTOR]|lead leave|lane [NAME]|escalation [off]|off' })

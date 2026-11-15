@@ -151,7 +151,9 @@ async function leadPut($: any, p: Paths, me: string, lead: string, note: pw.Note
 }
 
 const failKey = (sid: string, ref: pw.PrRef): string => `${sid} ${pw.refText(ref).toLowerCase()}`
-const watchRow = ($: any, code: string, lane: string, ref: pw.PrRef): Promise<boolean> => ledgerAdd($, { kind: 'pr-watch', code, lane, target: pw.refText(ref) }).catch(() => false)
+async function watchRow($: any, code: string, lane: string, ref: pw.PrRef): Promise<boolean> {
+  return ledgerAdd($, { kind: 'pr-watch', code, lane, target: pw.refText(ref) }).catch(() => false)
+}
 
 // One round over a tracker: the PRs whose tracking ran out, then one call per repo and what each PR's change tells. `gone`: the tracker is a lane's that has
 // no live session, polled by its lead (me), which gets every note with the lane's name; else the tracker is this session's own, and its lead gets a copy of
@@ -206,7 +208,8 @@ async function orphanRound($: any, p: Paths, me: string) {
   const dir = `${p.root}/prs`
   const files = ((await $.fs.list(dir).catch(() => [])) as { name: string; mtimeMs?: number }[]).flatMap((f) => {
     const m = pw.TRACKER_FILE_RE.exec(f.name)
-    return m && m[1] !== me ? [{ sid: m[1], mtimeMs: f.mtimeMs }] : []
+    const sid = m?.[1]
+    return sid !== undefined && sid !== me ? [{ sid, mtimeMs: f.mtimeMs }] : []
   })
   const now = await $.clock.now()
   const sweep = c.dueEvery(prGh.sweptAt, now, SWEEP_MS)
