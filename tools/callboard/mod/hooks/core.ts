@@ -1508,7 +1508,7 @@ export const REASON_TEXT: Record<string, string> = {
   // The call was cut off while it waited (its time ran out, or the person interrupted).
   abandoned: 'the call was cut off while it waited, so it stopped. No signal was sent. Retry once.',
   // And remove (with no live session, after a dialog).
-  'manager-tool': 'the manager may only list, resume, compact, force stop and retire lanes, and resume and compact leads.',
+  'manager-tool': 'the manager may only list, resume, compact, force stop and retire lanes, and resume, compact, park, unpark, retire and force stop leads.',
   'lane-or-lead': 'a lane and a live lead both carry that name, so it is not clear which one is meant. Nothing was sent.',
   'manager-holder': 'this session is the manager, so it cannot be a lane or a lead. Run /callboard off first.',
   // A session that was the manager is never made a lead; a manager's stop never reaches a lead's or a manager's session, nor a
@@ -1520,7 +1520,7 @@ export const REASON_TEXT: Record<string, string> = {
   'lane-after-manager': 'this session was the manager, so it cannot be a lane until it restarts. Make the lane in a new session.',
   // lane_retire on a lane no live session carries.
   // The conductor level.
-  'conductor-tool': 'the conductor may only list lanes, compact leads and lanes, force stop a lane, open a lead, and resume and compact the leads it owns.',
+  'conductor-tool': 'the conductor may only list lanes, compact leads and lanes, force stop a lane, open a lead, and resume, compact, park, unpark, retire and force stop the leads it owns.',
   'conductor-list': "none of the conductor's repos is in reach now (its list file is unreadable, or lists no repo it may reach). Ask the person to run /callboard conductor.",
   'not-conductor': 'lead_open is a conductor tool.',
   'config-unreadable': 'the settings could not be read, so the person\'s conductor-leads switch cannot be checked. Retry in a moment.',
@@ -2465,7 +2465,9 @@ export const MANAGER_NO = 'Cancel'
 const PROMPT_TOOLS = ['prompt_list', 'prompt_answer', 'prompt_escalate']
 // The lead tools a conductor runs on the leads it owns and the manager on any lead.
 export const LEAD_TOOLS = ['lead_resume', 'lead_compact'] as const
-export const MANAGER_TOOLS = ['lane_list', 'lane_resume', 'lane_compact', 'lane_terminate', 'lane_retire', ...LEAD_TOOLS, ...PROMPT_TOOLS].map((t) => `mcp__callboard__${t}`)
+// The lead tools that park, reopen or stop a lead's session (engine/lead-stops.ts).
+export const LEAD_STOP_TOOLS = ['lead_park', 'lead_unpark', 'lead_retire', 'lead_terminate'] as const
+export const MANAGER_TOOLS = ['lane_list', 'lane_resume', 'lane_compact', 'lane_terminate', 'lane_retire', ...LEAD_TOOLS, ...PROMPT_TOOLS, ...LEAD_STOP_TOOLS].map((t) => `mcp__callboard__${t}`)
 // The cues those tools send (terminate is a signal, not a cue); a lane with no live lead takes these from a live manager.
 export const MANAGER_CUE_VERBS: readonly Verb[] = ['resume', 'compact', 'retire']
 // The cue a conductor's tools send (it lists, compacts and force stops, never retires); a lane with no live lead takes it from a live conductor of its repo.
@@ -2692,9 +2694,9 @@ export function parseConductorHint(raw: unknown, now: number, homeDir: string): 
 }
 
 // ---- the conductor grant, its tools, its texts ----
-// The conductor's tools, as the engine names them: list, compact (a lane in reach, or a lead it owns), force stop a lane, open a lead, and resume and compact
-// the leads it owns. Never create, open, rename, start, resume, park, unpark, retire or remove a lane.
-export const CONDUCTOR_TOOLS = ['lane_list', 'lane_compact', 'lane_terminate', 'lead_open', ...LEAD_TOOLS, ...PROMPT_TOOLS].map((t) => `mcp__callboard__${t}`)
+// The conductor's tools, as the engine names them: list, compact (a lane in reach, or a lead it owns), force stop a lane, open a lead, and resume, compact,
+// park, unpark, retire and force stop the leads it owns. Never create, open, rename, start, resume, park, unpark, retire or remove a lane.
+export const CONDUCTOR_TOOLS = ['lane_list', 'lane_compact', 'lane_terminate', 'lead_open', ...LEAD_TOOLS, ...PROMPT_TOOLS, ...LEAD_STOP_TOOLS].map((t) => `mcp__callboard__${t}`)
 export const CONDUCTOR_ON_TEXT = 'Conductor is on from your next prompt.\nEvery stop asks you.'
 export const CONDUCTOR_FAILED = 'Conductor could not be set up.'
 export const CONDUCTOR_OFF_QUESTION = 'Turn conductor off for this session? Its saved conductor grant is deleted.'
@@ -2867,8 +2869,6 @@ export function liveLaneNames(lanes: Lane[], entries: RegEntry[]): string[] {
   return lanes.filter((l) => entries.some((e) => SID_RE.test(e.sessionId) && (e.name === l.name || (l.sid !== undefined && e.sessionId === l.sid)))).map((l) => l.name)
 }
 
-// The lead tools that park, reopen or stop a lead's session (engine/lead-stops.ts).
-export const LEAD_STOP_TOOLS = ['lead_park', 'lead_unpark', 'lead_retire', 'lead_terminate'] as const
 export type LeadStopTool = (typeof LEAD_STOP_TOOLS)[number]
 // A parked lead reopens as a lead only within this time of its park: its saved lead grant, rewritten at the park, lasts HINT_MAX_AGE_MS (30 days).
 export const UNPARK_MAX_MS = 28 * 24 * HOUR_MS

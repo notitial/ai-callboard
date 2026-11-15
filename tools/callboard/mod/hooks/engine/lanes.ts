@@ -916,9 +916,9 @@ export async function rebindTick($: any, sid: string) {
 const SUBAGENT = ['subagent', 'for the main agent only.'] as const
 export async function leadBase($: any, e: unknown, sid: string) {
   if ((e as { agentId?: string }).agentId !== undefined) return { err: SUBAGENT }
-  // The manager has ten tools (c.MANAGER_TOOLS: five lane tools, two lead tools and the three prompt tools); every other lane tool refuses it, declared or not.
+  // The manager has fourteen tools (c.MANAGER_TOOLS: five lane tools, six lead tools and the three prompt tools); every other lane tool refuses it, declared or not.
   if (grantOf(sid)?.level === 'manager' && !c.MANAGER_TOOLS.includes(String((e as { tool?: unknown }).tool))) return { err: ['manager-tool', c.REASON_TEXT['manager-tool']] as const }
-  // The conductor has nine (c.CONDUCTOR_TOOLS: three lane tools, lead_open, two lead tools and the three prompt tools).
+  // The conductor has thirteen (c.CONDUCTOR_TOOLS: three lane tools, lead_open, six lead tools and the three prompt tools).
   if (grantOf(sid)?.level === 'conductor' && !c.CONDUCTOR_TOOLS.includes(String((e as { tool?: unknown }).tool))) return { err: ['conductor-tool', c.REASON_TEXT['conductor-tool']] as const }
   return leadCore($, sid)
 }
@@ -986,7 +986,7 @@ export async function laneTable($: any, sid: string) {
   return { text }
 }
 
-const OBS_CLEAR_TOOLS = [...['terminate', 'retire', 'park', 'unpark', 'resume'].map((v) => `mcp__callboard__lane_${v}`), 'mcp__callboard__lead_resume']
+const OBS_CLEAR_TOOLS = [...['terminate', 'retire', 'park', 'unpark', 'resume'].map((v) => `mcp__callboard__lane_${v}`), 'mcp__callboard__lead_resume', ...c.LEAD_STOP_TOOLS.map((t) => `mcp__callboard__${t}`)]
 
 // ...then the lane's repo; an attached lane answers whichever lead holds the repo.
 async function leadPrep($: any, e: unknown, sid: string) {

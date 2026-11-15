@@ -6,6 +6,7 @@ import { sessionEnd, promptCompose } from './engine/grants.ts'
 import { leadVerbCall, laneCreateCall, laneOpenCall, laneUnparkCall, laneListCall, stopVerbCall, stopVerbFailed } from './engine/lanes.ts'
 import { leadOpenCall } from './engine/lead-open.ts'
 import { leadToolCall } from './engine/lead-tools.ts'
+import { leadStopCall, leadStopFailed } from './engine/lead-stops.ts'
 import { TOOL, requestCompactCall, turnComplete, promptSubmit, turnStart, postToolHook, postCompact } from './engine/compaction.ts'
 import { sessionStart } from './engine/tick.ts'
 import { commandRun } from './engine/commands.ts'
@@ -34,6 +35,9 @@ export const register: Register = (on) => {
   on('tool.call', { tool: 'mcp__callboard__lead_open' }, leadOpenCall).catch(() => ({ deny: 'lead_open failed closed.' }))
   for (const tool of c.LEAD_TOOLS) {
     on('tool.call', { tool: `mcp__callboard__${tool}` }, ($, e, next) => leadToolCall($, e, next, tool)).catch(() => ({ deny: `${tool} failed closed.` }))
+  }
+  for (const tool of c.LEAD_STOP_TOOLS) {
+    on('tool.call', { tool: `mcp__callboard__${tool}` }, ($, e, next) => leadStopCall($, e, next, tool)).catch(($, e, next) => leadStopFailed($, e, next, tool))
   }
 
   on('tool.call', { tool: 'mcp__callboard__prompt_list' }, promptListCall).catch(() => ({ deny: 'prompt_list failed closed.' }))
