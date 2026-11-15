@@ -64,7 +64,8 @@ and no "before X" history. History belongs in the ADRs and in git.
 ## Git Conventions
 
 - Commit titles: `<prefix>: <description>` — prefix is one of `docs` (role docs, ADRs), `feat` (new tool or skill
-  capability), `fix` (broken behavior corrected), `chore` (repo maintenance). Never a bare, unprefixed title.
+  capability), `fix` (broken behavior corrected), `refactor` (restructure with no behavior change), `test` (tests only), `ci`
+  (workflows and CI config, including Dependabot), `chore` (repo maintenance). Never a bare, unprefixed title.
 - Imperative mood, lowercase, title ≤50 characters. Specifics go in the body, not the title.
 - One commit per logical change. Squash review-churn into the commit it amends before landing.
 - Squash-merge PRs (the repo allows nothing else): the PR title, with its `(#N)`, becomes the commit title, and the
