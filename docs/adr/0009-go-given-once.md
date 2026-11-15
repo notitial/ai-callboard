@@ -34,9 +34,10 @@ Facts that bound the options:
 - The mod's dialogs and its origin check are assumed to be the person's alone. ADR 0002's probes C11 (a model cannot
   run `/callboard` with a person's origin) and C12 (a dialog is answered only by the person) are open, and they gate
   the first build.
-- A lane record names its lead: by session id when that lead created it, by name when the lane was joined. Nothing
-  rewrites the session id when a lead restarts as a new conversation. A lead record names its conductor by session id
-  (ADR 0007).
+- A lane record names its lead by session id, whether the lead made the lane or the lane was joined to it; only a
+  record written before that field existed names its lead by name alone (ADR 0002). Nothing rewrites the id when a
+  lead restarts as a new conversation: it is then dead, and the lane tools fall back as ADR 0002 describes. A lead
+  record names its conductor by session id (ADR 0007).
 - The risk list is judgment, not a floor (ADR 0004): nothing mechanical recognises risk-list work.
 
 ## Options Considered
@@ -63,6 +64,10 @@ Facts that bound the options:
   (their own prompt or the phone only), or when that session's main agent calls `go_request`, which only opens the
   dialog. `go_request` takes a text and never a duration; only the person's own command sets an end other than the
   default.
+- **The go's text** follows the rules of a lane's task text (ADR 0002): a text that is empty, too long, or holds a
+  control character other than newline and tab or an invisible format character that can hide or reorder text
+  (zero-width, bidi, byte-order mark, tag characters) is refused before any dialog opens. The text the dialog shows,
+  the text the file stores and the text `go_status` returns are the same bytes.
 - **The dialog** shows the sessions covered now, named by the mod from its records; the end; the fixed list of what a
   go never covers; and, as its last block under a fixed line naming its author, the tier's description of the work.
   Its buttons are `Cancel`, first, and `Give go`. It has its own limit of 10 minutes. A dismissal, a timeout or
@@ -82,9 +87,12 @@ Facts that bound the options:
 - **The sessions the dialog listed**, by the session ids stored in the go. For a lead these are the lanes the mod
   resolves as that lead's at that moment, the way the lane tools do. For a conductor they are the leads whose record
   names its session, and their lanes.
-- **Sessions opened later, while the go lasts**, when their record's owner is the granting session and the record's
-  own session id is the reader's: a replacement lane, a lane a covered lead creates, a lead the conductor opens. The
-  granting session is shown a toast the first time each of them reads the go.
+- **Sessions opened later, while the go lasts**: a replacement lane, a lane a covered lead creates, a lead the
+  conductor opens. The record's own session id must be the reader's, and the record's owner must be the granting
+  session or, under a conductor's go, a lead that go covers. So the chain is at most conductor, lead, lane: a lane
+  under a lead's go is one link from the granting session, a lane under a conductor's go is two. Every link is a
+  session id in a record, never a name, and each is checked fresh on every read. The granting session is shown a
+  toast the first time each later session reads the go.
 - **The granting session itself.**
 - The reader is always bound by its own session id, never by its name. The reading session's own mod checks the go's
   file and row, its end and the records, fresh, on every read. A check that cannot be made is "no go".
@@ -199,3 +207,4 @@ Each is open until run, and each needs the person at the machine.
 - **P-G3.** `go_request` from a subagent is refused.
 - **P-G4.** A go given in a conductor reaches a lead it opened and that lead's lane.
 - **P-G5.** A click after the dialog's limit records nothing and the person is told.
+- **P-G6.** A go text that holds a zero-width or tag character is refused and no dialog opens.
