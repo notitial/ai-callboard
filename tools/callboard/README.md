@@ -253,7 +253,7 @@ Two `permissions.deny` lines in your global `~/.claude/settings.json` (`Edit` on
 
 ## The lead tools
 
-`lead_resume { lead }` and `lead_compact { lead }` belong to a conductor and to the manager (ADR 0007). The target is the one lead record of that name on the Mac (`~/.claude/callboard/lead-records/`), or, for the manager only, a live lead with no record, found by its registry name and its presence file. A name that a lane and a lead, or two leads, carry is refused `lane-or-lead`.
+`lead_resume { lead }` and `lead_compact { lead }` belong to a conductor and to the manager (ADR 0007). The target is the one lead record of that name on the Mac (`~/.claude/callboard/lead-records/`), or, for the manager only, a live lead with no record, found by its registry name and its presence file. A name that a lane and a lead, or two leads, carry is refused `lane-or-lead`. No caller's `lane_compact` cues a lane's session that holds a live lead presence file (`lane-or-lead` too), so a lead is reached only through these tools.
 
 - **A conductor** reaches only a lead it owns: the record names it, the record's repo is one of its repos now, and the lead is bound to that record (`not-owner`, `other-repo`, `record-changed`; a lead with no record is `unknown-lead`; lead records that cannot be read refuse `store-unreadable`, as all its tools do). It asks you nothing.
 - **The manager** reaches any lead and asks you every time: header `Manager`, buttons `Resume` or `Compact` and `Cancel`, naming the lead, its repo folder and the first 8 characters of its session id. Cancel sends nothing. The manager owns no lead.

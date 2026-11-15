@@ -1176,9 +1176,10 @@ export async function leadVerbCall($: any, e: any, next: any, verb: (typeof c.LE
         if (verb === 'rename' && to.reason === 'no-live-session') return no(to.reason, c.renameNoSessionText(prep.entries, prep.lane, sid, (e as { sid: string }).sid, await $.clock.now()))
         return no(to.reason, c.reasonWhy(to.reason))
       }
-      // A lead's lane_compact never cues a session that holds a live presence file (another lead carrying the lane's name),
-      // as lead_compact's lane-or-lead; a file whose check could not be made counts (fail closed).
-      if (verb === 'compact' && (grantOf(sid)?.level === 'lead' || grantOf(sid)?.level === 'conductor')) {
+      // No lane_compact (a lead's, a conductor's or the manager's) cues a session that holds a live presence file (a lead carrying the lane's name in some
+      // letter case), as lead_compact's lane-or-lead: a lead is reached only through the lead tools, the manager's behind the person's dialog. A file whose check
+      // could not be made counts (fail closed).
+      if (verb === 'compact') {
         const live = await registryEntries($)
         if (!live) return no('registry-unreadable', c.reasonWhy('registry-unreadable'))
         if (await presenceHeld($, live, to.sid)) return no('lane-or-lead', c.reasonWhy('lane-or-lead'))
