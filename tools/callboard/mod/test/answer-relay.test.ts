@@ -476,6 +476,11 @@ test('prompts hold: a relay whose request had already closed when the question w
   const r = await holdRelay($, [relayQ(TID), relayQ(TID2)], [at(22_000, () => { expect(rowKinds()).toEqual([]); pfs.delete(`${LDIR()}/${TID2}.request.json`) })])
   expect(r).toEqual(denyOf([TID2.slice(0, 8)]))
   expect(closedRows().map((x) => x.id)).toEqual([TID2])
+  // The withdrawal took the mark of the relay that was closed from the start too, so the turn's end leaves nothing.
+  expect(pfs.has(`${LDIR()}/${TID}.asked`)).toBe(false)
+  await $.turn.complete(TURN as any)
+  expect(pfs.has(`${LDIR()}/${TID}.left`)).toBe(false)
+  expect(rowKinds()).toEqual(['relay-closed'])
 })
 
 test('prompts hold: a poll that cannot wait ends the hold with no deny', async ($, on) => {

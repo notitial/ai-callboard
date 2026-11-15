@@ -466,8 +466,8 @@ async function promptRelayClosed($: any, r: { dir: string; relay: pr.Relay }): P
 // `relay-closed` row per closed relay, then a deny with one fixed line that names the relays still open, for the tier to ask again. No answer is made up and the lane's
 // request is not touched. The hold ends, answering nothing, when the question itself ends (the person's answer takes the token, as do the turn's end and a later relay
 // question; a dismissal aborts the signal): the light link then reads the answer. Without its rows the question is not withdrawn: a row that cannot be written is
-// tried again at the next poll. PostToolUse does not run after a deny (probed), so the marks are cleared here: the asking file, and the asked mark of each closed
-// relay. A relay still open keeps its mark, so a tier that does not ask again leaves it at its turn's end.
+// tried again at the next poll. PostToolUse does not run after a deny (probed), so the marks are cleared here: the asking file, and the asked mark of each relay
+// of the call that is not still open. A relay still open keeps its mark, so a tier that does not ask again leaves it at its turn's end.
 async function promptRelayHold($: any, sid: string, under: any, signal: AbortSignal, asked: { dir: string; relay: pr.Relay }[]): Promise<any> {
   // A relay whose request had already closed when the question was asked is not watched (its answer is `relay-late`), so a relay file left behind, or one written by
   // hand with no request, cannot withdraw every question that names its short.
@@ -492,7 +492,8 @@ async function promptRelayHold($: any, sid: string, under: any, signal: AbortSig
       // A click that landed while the rows were written wins: the light link reads it.
       if (!held()) return under
       relayHolds.delete(sid)
-      await rmF($, closed.map((r) => `${r.dir}/${r.relay.id}.asked`))
+      // Every relay of the call that is not still open loses its mark: the ones that closed now, and the ones that had closed when the question was asked.
+      await rmF($, asked.filter((r) => !open.includes(r)).map((r) => `${r.dir}/${r.relay.id}.asked`))
       await promptAskingClear($, sid, true)
       const message = pr.relayWithdrawnLine(closed.map((r) => r.relay.short), open.map((r) => r.relay.short))
       return { ...(under && typeof under === 'object' ? under : {}), decision: { behavior: 'deny' as const, message } }
