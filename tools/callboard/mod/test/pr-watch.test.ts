@@ -219,6 +219,7 @@ const seedTracker = (over: Partial<pw.Tracker> = {}, sid = SID) => {
 }
 let noteSeq = 0
 const seedNote = (note: Partial<pw.Note>, over: { text?: string; uid?: number; mode?: string } = {}, sid = SID) => {
+  for (const d of [PRS_DIR, `${PRS_DIR}/notes`, `${PRS_DIR}/notes/${sid}`]) pdirs.add(d)
   const name = `${PRS_DIR}/notes/${sid}/${pw.noteFile(h.nowMs, ++noteSeq)}`
   pfs.set(name, { text: over.text ?? pw.noteText({ v: 1, kind: 'merged', at: h.nowMs, ...REF, ...note } as pw.Note), mtimeSec: h.nowMs / 1000, uid: over.uid, mode: over.mode })
   return name
@@ -382,6 +383,9 @@ longTest('a lead is told of its lane\'s PR with the lane named, and polls the tr
   world.set('acme/app', { 12: node(rollup('FAILURE')) })
   world.set('acme/lib', { 7: node(rollup('FAILURE')) })
   ghCalls.length = 0
+  // The lead takes a tracker over at its third look in a row that finds no live session for the lane.
+  await ticks(2 * POLL)
+  expect(ghCalls).toEqual([])
   await round()
   expect(ghCalls.map((x) => x.argv[8])).toEqual(['name=app'])
   expect(notices().slice(1)).toEqual([one('`acme/app#12` (registered by lane `API`): a check failed on aaaaaaa. Read the checks with the github tools.')])
@@ -405,4 +409,92 @@ longTest('at most 12 wakes an hour: a further note waits, logged once, and still
   expect(notices().length).toBe(pw.PR_WAKES_PER_HOUR)
   expect(logged(stdins).filter((x) => x === 'notice-capped:pr').length).toBe(1)
   expect(await midCtx($)).toEqual([one('`acme/app#99`: merged. Tracking ended.')])
+})
+
+longTest('a lead that finds the lane back, or its tracker changed, when its round ends writes nothing over it', async ($, on) => {
+  const stdins: string[] = []
+  world.clear()
+  realMap.clear()
+  postBeneath(on)
+  await person($, on, stdins)
+  await $.command.run(lane('off'))
+  laneSeed.text = LEAD_LANES('/data/x/work')
+  await $.command.run(lane('lead'))
+  h.sessions = OWN_ROW()
+  cli()
+  await $.turn.complete(TURN as any)
+  seedTracker({ lane: 'API', lead: SID }, OTHER)
+  world.set('acme/app', { 12: node(rollup('FAILURE')) })
+  const FILE = `${PRS_DIR}/${OTHER}.json`
+  // The lane comes back and renews its PR while the lead's call is out.
+  const renewed = pw.trackerText({ v: 1, sid: OTHER, lane: 'API', lead: SID, prs: [{ ...REF, at: h.nowMs + 5 * MIN, seen: SEEN }] })
+  h.gh = (argv) => {
+    pfs.set(FILE, { text: renewed, mtimeSec: h.nowMs / 1000 })
+    return hub(argv)
+  }
+  await ticks(3 * POLL + 7)
+  expect(ghCalls.length).toBe(1)
+  expect(pfs.get(FILE)!.text).toBe(renewed)
+  expect(logged(stdins).filter((x) => x.startsWith('pr-orphan'))).toEqual(['pr-orphan-yield:'])
+})
+
+longTest('an outage ends no tracking and is logged once with a fixed code; a tracker file that cannot be read is neither dropped nor replaced', async ($, on) => {
+  const stdins: string[] = []
+  await laneOn($, on, stdins)
+  seedTracker()
+  // The first read of the tracker fails: nothing is known, and a registration is refused, not started from nothing.
+  h.pfsFails = (a) => a[0] === '/usr/bin/stat' && a[a.length - 1] === TRACKER
+  world.set('acme/app', { 12: node(), 13: node() })
+  await ticks(POLL)
+  expect(said(await $.tool.call(CALL('acme', 'app', 13)))).toBe(pw.WATCH_DENY.write)
+  expect(tracker()!.prs.map((x) => x.number)).toEqual([12])
+  h.pfsFails = undefined
+  // GitHub answers for nothing during 7 rounds: nothing is given up.
+  h.gh = () => undefined
+  await ticks(7 * POLL)
+  expect(tracker()!.prs.map((x) => x.number)).toEqual([12])
+  expect(notices()).toEqual([])
+  expect(logged(stdins).filter((x) => x.startsWith('error:pr-'))).toEqual(['error:pr-look-exit'])
+  h.gh = hub
+  world.set('acme/app', { 12: node(rollup('SUCCESS')) })
+  await $.tool.call(CALL())
+  await round()
+  expect(notices()).toEqual([one('`acme/app#12`: all checks finished green on aaaaaaa.')])
+})
+
+test('a note that cannot be written leaves the PR as it was, so the next round tells it; a round with nothing new writes no file', async ($, on) => {
+  await laneOn($, on)
+  world.set('acme/app', { 12: node() })
+  let writes = 0
+  h.pfsFails = (a) => {
+    if (a[0] === '/bin/mv' && a[a.length - 1] === TRACKER) writes++
+    return a[0] === '/usr/bin/tee' && (a[2] ?? '').startsWith(`${PRS_DIR}/notes/`)
+  }
+  await $.tool.call(CALL())
+  expect(writes).toBe(1)
+  await round()
+  expect(writes).toBe(1)
+  world.set('acme/app', { 12: node(rollup('FAILURE')) })
+  await round()
+  expect(notesOf()).toEqual([])
+  expect(tracker()!.prs[0]!.seen.checks).toBe('pending')
+  expect(writes).toBe(1)
+  h.pfsFails = undefined
+  await round()
+  expect(notices()).toEqual([one('`acme/app#12`: a check failed on aaaaaaa. Read the checks with the github tools.')])
+  expect(tracker()!.prs[0]!.seen.checks).toBe('failed')
+})
+
+test('a push whose checks have not started is not reported mergeable; /callboard rest holds the wake, not the notice', async ($, on) => {
+  await laneOn($, on)
+  world.set('acme/app', { 12: node(rollup('FAILURE')) })
+  await $.tool.call(CALL())
+  world.set('acme/app', { 12: node({ headRefOid: SHA2, mergeable: 'MERGEABLE', commits: { nodes: [{ commit: { statusCheckRollup: null } }] } }) })
+  await round()
+  expect(notices()).toEqual([])
+  world.set('acme/app', { 12: node({ headRefOid: SHA2, mergeable: 'MERGEABLE', ...rollup('SUCCESS') }) })
+  await $.command.run(lane('rest'))
+  await round()
+  expect(notices()).toEqual([])
+  expect(await midCtx($)).toEqual([one('`acme/app#12`: all checks finished green on bbbbbbb.', "`acme/app#12`: GitHub reports it open, not a draft, with no conflict, no failed or running check and no blocking review. A merge is the person's, always.")])
 })

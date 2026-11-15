@@ -299,7 +299,8 @@ export async function sessionStart($: any, e: any, next: any) {
       required: ['focus', 'continuation', 'mode'],
     },
   })
-  await prToolRegister($)
+  // A failed registration leaves the rest of the start as it is: the session has no pr_watch.
+  await prToolRegister($).catch(async () => logq($, await $.session.id(), 'error', 'pr-tool-register'))
   const me = await $.session.id()
   try {
     await $.command.register({ name: 'callboard', description: 'Give lead, make this session a lane, list the lanes, show status, show or change the settings, or turn lead and lane off for this session', argumentHint: 'help|lanes|status|lead|lead join [CONDUCTOR]|lead leave|lane [NAME]|escalation [off]|off' })

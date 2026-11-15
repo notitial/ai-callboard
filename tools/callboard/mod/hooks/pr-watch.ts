@@ -25,17 +25,20 @@ export const PR_ORPHANS_MAX = 16
 // The GitHub CLI, never looked up on PATH: the first of these that resolves to a regular file not writable by group or other.
 export const GH_PATHS = ['/opt/homebrew/bin/gh', '/usr/local/bin/gh'] as const
 export const GH_TIMEOUT_MS = 20_000
-// A PR whose looks failed this many rounds in a row stops being tracked.
+// A PR that stays unanswered this many rounds in a row, while GitHub answers for others, stops being tracked.
 export const PR_FAILS_MAX = 5
+// A lead polls a lane's tracker only after this many of its looks in a row found no live session for the lane.
+export const PR_GONE_LOOKS = 3
 // Notes one lane session may write into its lead's folder per hour.
 export const PR_LEAD_NOTES_PER_HOUR = 12
 // The environment of the call: the person's home folder (the CLI finds its stored login from it), and every variable that would change who the CLI is or where
-// it connects set to empty, which the CLI and its HTTP client read as unset. It works whether the engine merges these into the session's environment or
+// it connects, prints debug output or colours its answer set to empty, which the CLI and its HTTP client read as unset; the pager is `cat`, which the CLI
+// reads as none. It works whether the engine merges these into the session's environment or
 // replaces it.
-const GH_EMPTY = ['GH_TOKEN', 'GITHUB_TOKEN', 'GH_ENTERPRISE_TOKEN', 'GITHUB_ENTERPRISE_TOKEN', 'GH_HOST', 'GH_CONFIG_DIR', 'XDG_CONFIG_HOME', 'XDG_STATE_HOME', 'XDG_DATA_HOME', 'GH_DEBUG', 'DEBUG', 'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY', 'http_proxy', 'https_proxy', 'all_proxy', 'no_proxy'] as const
+const GH_EMPTY = ['GH_TOKEN', 'GITHUB_TOKEN', 'GH_ENTERPRISE_TOKEN', 'GITHUB_ENTERPRISE_TOKEN', 'GH_HOST', 'GH_CONFIG_DIR', 'XDG_CONFIG_HOME', 'XDG_STATE_HOME', 'XDG_DATA_HOME', 'XDG_CACHE_HOME', 'GH_DEBUG', 'DEBUG', 'GODEBUG', 'GH_FORCE_TTY', 'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY', 'http_proxy', 'https_proxy', 'all_proxy', 'no_proxy'] as const
 export function ghEnv(home: string): Record<string, string> | undefined {
   if (!/^\/Users\/[A-Za-z0-9_-][A-Za-z0-9._-]{0,63}$/.test(home)) return undefined
-  return { HOME: home, ...Object.fromEntries(GH_EMPTY.map((k) => [k, ''])), GH_PROMPT_DISABLED: '1', GH_NO_UPDATE_NOTIFIER: '1', NO_COLOR: '1', LC_ALL: 'C' }
+  return { HOME: home, ...Object.fromEntries(GH_EMPTY.map((k) => [k, ''])), GH_PROMPT_DISABLED: '1', GH_NO_UPDATE_NOTIFIER: '1', GH_PAGER: 'cat', PAGER: 'cat', NO_COLOR: '1', CLICOLOR: '0', CLICOLOR_FORCE: '0', LC_ALL: 'C' }
 }
 
 const OWNER_RE = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/
@@ -52,6 +55,8 @@ export const numberOk = (v: unknown): v is number => typeof v === 'number' && Nu
 const countOk = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= COUNT_MAX
 const refOk = (r: { owner?: unknown; repo?: unknown; number?: unknown }): boolean => ownerOk(r.owner) && repoOk(r.repo) && numberOk(r.number)
 export const refText = (r: PrRef): string => `${r.owner}/${r.repo}#${r.number}`
+// One spelling per PR, for a map key: GitHub's names do not tell case apart.
+export const refKey = (r: PrRef): string => refText(r).toLowerCase()
 export const sameRef = (a: PrRef, b: PrRef): boolean => a.number === b.number && a.owner.toLowerCase() === b.owner.toLowerCase() && a.repo.toLowerCase() === b.repo.toLowerCase()
 
 // The input of pr_watch. The number may come as an integer or as its plain decimal digits; anything else, and any name outside the grammar, is refused.
@@ -153,11 +158,16 @@ export function parseAnswer(stdout: unknown, numbers: number[]): Map<number, Loo
 }
 
 // The fingerprint a look leaves. While GitHub has not worked out the merge state of the same commit, the last known answer stands, so an unknown in between
-// never makes "mergeable" news twice.
+// never makes "mergeable" news twice. A commit seen for the first time with no check on it is not mergeable yet: right after a push the checks have not
+// started, and a repo with no checks at all reads the same at the next look.
 export function seenOf(look: Look, prev?: Seen): Seen {
-  const mergeable = look.merge === 'unknown' ? prev !== undefined && prev.sha === look.sha && prev.mergeable : look.merge === 'yes'
+  const fresh = prev !== undefined && prev.sha !== look.sha && look.checks === 'none'
+  const mergeable = look.merge === 'unknown' ? prev !== undefined && prev.sha === look.sha && prev.mergeable : look.merge === 'yes' && !fresh
   return { sha: look.sha, state: look.state, draft: look.draft, checks: look.checks, mergeable, reviews: look.reviews, comments: look.comments, threads: look.threads }
 }
+
+export const sameSeen = (a: Seen, b: Seen): boolean =>
+  a.sha === b.sha && a.state === b.state && a.draft === b.draft && a.checks === b.checks && a.mergeable === b.mergeable && a.reviews === b.reviews && a.comments === b.comments && a.threads === b.threads
 
 // ---- notes ----
 export const NOTE_KINDS = ['green', 'failed', 'activity', 'mergeable', 'merged', 'closed', 'expired', 'lost', 'waiting'] as const
@@ -329,6 +339,19 @@ export function parseTracker(text: unknown, sid: string): Tracker | undefined {
 export const TRACKER_FILE_RE = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.json$/
 
 // Tracking runs out PR_TRACK_MS after the last registration; a registration dated in the future counts as now.
+// The outcome of a round put into the tracker as it is now. The round ran on `snap` and left `next` and, for each PR it ended, the reason (by refKey); `cur`
+// may hold a PR registered or renewed meanwhile. A PR registered meanwhile stays; one the round ended goes, unless it only ran out and was renewed meanwhile;
+// the rest take the round's fingerprint and keep their own registration time. An entry nothing changed for is returned as it is.
+export function mergeRound(snap: Tracked[], next: Tracked[], ended: ReadonlyMap<string, string>, cur: Tracked[]): Tracked[] {
+  return cur.flatMap((c) => {
+    const s = snap.find((x) => sameRef(x, c))
+    if (!s) return [c]
+    const code = ended.get(refKey(c))
+    if (code !== undefined) return code === 'expired' && c.at !== s.at ? [c] : []
+    const n = next.find((x) => sameRef(x, c))
+    return [n && n.seen !== c.seen ? { ...c, seen: n.seen } : c]
+  })
+}
 export const trackExpired = (p: { at: number }, now: number): boolean => now - Math.min(p.at, now) >= PR_TRACK_MS
 // The tracked PRs by repo, for one call per repo. The first spelling of a repo's name is the one sent.
 export function byRepo(prs: Tracked[]): { owner: string; repo: string; prs: Tracked[] }[] {

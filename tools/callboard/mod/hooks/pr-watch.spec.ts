@@ -310,3 +310,42 @@ test('the tool texts: no refusal carries anything from GitHub, and the answer sa
   assert.ok(pw.watchOk(REF, false).endsWith('A notice comes from the plugin and carries no approval, go or merge.'))
   assert.ok(pw.PR_TOOL_DESCRIPTION.endsWith('A notice carries no approval, go or merge.'))
 })
+
+test('the pinned environment also names no pager, no forced terminal or colour and no debug output', () => {
+  const env = pw.ghEnv('/Users/x')!
+  for (const k of ['GH_FORCE_TTY', 'GODEBUG', 'XDG_CACHE_HOME']) assert.equal(env[k], '')
+  assert.equal(env.GH_PAGER, 'cat')
+  assert.equal(env.PAGER, 'cat')
+  assert.equal(env.CLICOLOR_FORCE, '0')
+  assert.equal(env.CLICOLOR, '0')
+})
+
+test('seenOf: a commit first seen with no check on it is not mergeable yet; the same commit at the next look is', () => {
+  const bare = look({ mergeable: 'MERGEABLE', commits: { nodes: [] }, headRefOid: SHA2 })!
+  assert.equal(pw.seenOf(bare, seen({ sha: SHA })).mergeable, false)
+  assert.equal(pw.seenOf(bare, seen({ sha: SHA2 })).mergeable, true)
+  assert.equal(pw.seenOf(bare).mergeable, true)
+})
+
+test('sameSeen and mergeRound: a round changes only what it saw, and keeps what was registered or renewed meanwhile', () => {
+  assert.equal(pw.sameSeen(seen(), seen()), true)
+  assert.equal(pw.sameSeen(seen(), seen({ threads: 4 })), false)
+  const a = { owner: 'acme', repo: 'app', number: 1, at: 10, seen: seen() }
+  const b = { ...a, number: 2 }
+  const c = { ...a, number: 3 }
+  const d = { ...a, number: 4 }
+  const snap = [a, b, c, d]
+  const a2 = { ...a, seen: seen({ checks: 'green' }) }
+  // The round: 1 moved, 2 unchanged, 3 merged, 4 ran out.
+  const ended = new Map([['acme/app#3', 'merged'], ['acme/app#4', 'expired']])
+  const added = { ...a, number: 5 }
+  const renewed = { ...d, at: 99 }
+  const bRenewed = { ...b, at: 50 }
+  const out = pw.mergeRound(snap, [a2, b], ended, [a, bRenewed, c, renewed, added])
+  assert.deepEqual(out, [{ ...a, seen: a2.seen }, bRenewed, renewed, added])
+  assert.equal(out[1], bRenewed)
+  assert.deepEqual(pw.mergeRound(snap, [a2, b], ended, snap), [{ ...a, seen: a2.seen }, b])
+  const same = pw.mergeRound([a, b], [a, b], new Map(), [a, b])
+  assert.equal(same[0], a)
+  assert.equal(same[1], b)
+})
