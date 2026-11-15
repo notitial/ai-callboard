@@ -1,8 +1,8 @@
 import { expect, test } from 'claude-code/testing'
 import { REST_TEXT, helpText, LANES_CHANGED_TEXT, nudgeText, KEEPALIVE_TEXT, noticeText, configSetText, CONFIG_DEFAULTS, OFF_NOTHING } from '../hooks/core'
-import { h, GOOD, SID, engine, extraStat, laneSeed, longTest, storeFiles, submitted } from './harness'
+import { h, GOOD, SID, extraStat, laneSeed, longTest, storeFiles, submitted } from './harness'
 import type { Trace } from './harness'
-import { advanceQuiet, cue, fileStat, kaLog, lane, lead, LEAD_LANES, leadAt, logged, MIN, newTrace, notices, nudges, OWN_ROW, ownTurn, PERSON, person, pings, realTurn, REG, REGFILE, renameThroughTick, retireTarget, SELFREG, sent, started, STATUS_NONE, STOREFILE, storeText, stv, ticks, tickTwice, TURN, waitFor, warm } from './fixtures'
+import { advanceQuiet, cue, fileStat, kaLog, lane, LEAD_LANES, leadAt, logged, MIN, newTrace, notices, nudges, OWN_ROW, ownTurn, PERSON, person, pings, realTurn, REG, REGFILE, renameThroughTick, retireTarget, SELFREG, sent, STATUS_NONE, STOREFILE, storeText, stv, ticks, tickTwice, TURN, waitFor, warm } from './fixtures'
 
 longTest('keepalive: an idle session is pinged 50 minutes after its last turn ended, not at 49, and once per gap', async ($, on) => {
   const stdins: string[] = []
@@ -316,7 +316,7 @@ longTest('keepalive: pings stop 3 hours after the last real turn, logged once; a
   await advanceQuiet(50 * MIN)
   expect(sent(stdins)).toBe(3)
   expect(kaLog(stdins).filter((x) => x === 'keepalive-stopped:')).toEqual(['keepalive-stopped:'])
-  await advanceQuiet(30 * MIN)
+  await h.clock!.advance(30 * MIN)
   expect(kaLog(stdins).filter((x) => x === 'keepalive-stopped:').length).toBe(1)
   await realTurn($, 'back')
   await advanceQuiet(50 * MIN)

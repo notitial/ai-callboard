@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 import { nudgeText, compactResumeText, CONFIG_UNSAVED, CONFIG_UNREADABLE, KEEPALIVE_TEXT } from '../hooks/core'
-import { h, engine, longTest, submitted } from './harness'
+import { h, longTest, submitted } from './harness'
 import { advanceQuiet, framed, kaLog, lane, logged, MIN, newTrace, NOW, nudges, ownTurn, person, pings, realTurn, sent, sleepFor, stv, ticks, TURN, warm } from './fixtures'
 
 // ---- a ping whose submit fails or hangs, and a store call that throws ----

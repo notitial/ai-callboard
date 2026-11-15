@@ -244,7 +244,6 @@ longTest('at most 12 notices an hour: a capped change stays owed and goes out on
   expect(logged(stdins).filter((e) => e === 'notice-capped:lanes-changed').length).toBe(1)
   await tickTwice()
   expect(notices()).toBe(12)
-  h.nowMs += 3_700_000
   await advanceQuiet(3_700_000)
   await h.clock!.advance(2000)
   expect(notices()).toBe(13)
@@ -265,7 +264,6 @@ longTest('a capped change is logged once even when another line is logged in the
   const capped = () => logged(stdins).filter((e) => e === 'notice-capped:lanes-changed').length
   expect(logged(stdins)).toContain('error:presence')
   expect(capped()).toBe(1)
-  h.nowMs += 3_700_000
   await advanceQuiet(3_700_000)
   await h.clock!.advance(2000)
   expect(notices()).toBe(13)
@@ -287,7 +285,6 @@ longTest('a change capped at the hourly limit is sent once a slot frees, with no
   await h.clock!.advance(2000)
   expect(notices()).toBe(12)
   expect(logged(stdins)).toContain('notice-capped:lanes-changed')
-  h.nowMs += 3_700_000
   await advanceQuiet(3_700_000)
   await h.clock!.advance(2000)
   expect(notices()).toBe(13)

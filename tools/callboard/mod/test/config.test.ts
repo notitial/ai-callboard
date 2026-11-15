@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 import { helpText, LOG_KEEP_MS, LOG_PRUNE_MAX, LOG_MAX_BYTES, OFF_YES, OFF_NO, RESTORE_YES, RESTORE_NO, nudgeText, KEEPALIVE_TEXT, configText, configSetText, CONFIG_DEFAULTS, CONFIG_USAGE, CONFIG_NOT_PERSON, CONFIG_RESET_TEXT, OFF_NOTHING } from '../hooks/core'
 import { h, GOOD, ROOT, SID, T0, YES, engine, extraStat, laneSeed, longTest } from './harness'
-import { advanceQuiet, allEvents, events, killed, lane, LANES, lead, LEAD_LANES, leadCall, logged, MIN, newTrace, nudges, PERSON, person, pings, sent, started, STATUS_NONE, ticks, TURN, USAGE, warm } from './fixtures'
+import { advanceQuiet, allEvents, events, killed, lane, LANES, lead, LEAD_LANES, leadCall, logged, MIN, newTrace, nudges, PERSON, person, pings, started, STATUS_NONE, ticks, TURN, USAGE, warm } from './fixtures'
 
 test('/callboard on from any origin gets the usage line: no dialog, no state, no store write, no log line', async ($, on) => {
   const stdins: string[] = []
