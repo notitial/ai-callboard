@@ -16,7 +16,7 @@ It doesn't touch the terminal, any setting or the network. It reads and writes r
 ## Requirements
 
 - The **Claude Code** extension (`anthropic.claude-code`). It's declared as a dependency.
-- The **callboard mod**, loaded from your checkout of the ai-manager repo. This extension is a link into the same checkout, made by callboard's `link-extension.sh`. It isn't on the Marketplace.
+- The **callboard mod**, loaded from your checkout of the ai-manager repo. This extension is a link into the same checkout, made once by callboard's `link-extension.py`. It isn't on the Marketplace.
 
 ## Things to know
 
@@ -26,6 +26,6 @@ It doesn't touch the terminal, any setting or the network. It reads and writes r
 
 ## Updating
 
-When the version changed: quit VS Code (Cmd+Q), pull the checkout, run callboard's `link-extension.sh --apply` from a plain Terminal, then reopen VS Code. A new version keeps the same id, and the script replaces the old version's link and its entry in VS Code's `extensions.json`.
+The version is fixed, so an update is a pull of the checkout plus a window reload (Developer: Reload Window). Output > Callboard Panels shows the build the window loaded. Only a change to this folder's `package.json` needs a version bump: then quit VS Code (Cmd+Q), pull, run callboard's `link-extension.py --apply` from a plain Terminal, and reopen VS Code.
 
 More in the callboard README in the [ai-manager repo](https://github.com/notitial/ai-manager).

@@ -367,9 +367,11 @@ export function applyCheck(a: ApplyIn): ApplyOut {
 }
 
 // ---- the ledger: machine-wide, one JSON row per line, no input text ----
-export type RowKind = 'requested' | 'answered' | 'escalated' | 'dropped' | 'returned' | 'superseded' | 'expired-denied' | 'off' | 'abandoned' | 'dialog' | 'not-judgeable' | 'no-tier' | 'answering-on' | 'answering-off' | 'relayed' | 'relay-lost' | 'relay-left' | 'relay-late' | 'relay-closed' | 'deny-unclear' | 'lead-offer' | 'lead-offer-void' | 'lead-grant' | 'lead-owner' | 'lead-resume' | 'lead-stop' | 'go-grant' | 'go-end' | 'go-read'
+export type RowKind = 'requested' | 'answered' | 'escalated' | 'dropped' | 'returned' | 'superseded' | 'expired-denied' | 'off' | 'abandoned' | 'dialog' | 'not-judgeable' | 'no-tier' | 'answering-on' | 'answering-off' | 'relayed' | 'relay-lost' | 'relay-left' | 'relay-late' | 'relay-closed' | 'deny-unclear' | 'lead-offer' | 'lead-offer-void' | 'lead-grant' | 'lead-owner' | 'lead-resume' | 'lead-stop' | 'go-grant' | 'go-end' | 'go-read' | 'pr-watch' | 'pr-notice'
 // A `lead-owner` row (ADR 0007), written before the lead record changes: code made | joined | left | off, hash the repo's key, repo, lane the lead's name at the
 // time (for reading only), target the lead's session id, by the conductor's session id (made, joined), was the conductor the lead left (left, off), nonce (made).
+// A `pr-watch` row (ADR 0010): code new | renew | expired | lost | merged | closed, lane the lane's name, target owner/repo#number. A `pr-notice` row: one note
+// delivered; code the note's kind, tier the level of the session told, lane the lane's name when the note names one, target owner/repo#number.
 // cap and target: set on an `answered` and a `returned` row of a comment that starts the review command (claudeCap), so the standing comment cap can be counted.
 // by: the session id of the lead that answered (on `answered` and `returned`, so the apply and the audit can bind a decision file to its row); tuid: the call's tool_use_id (on `returned`).
 // dialog (a `lead-resume` row): 'yes' when the person's dialog said yes before the cue (the manager's calls), 'none' when no dialog is asked (a conductor's).

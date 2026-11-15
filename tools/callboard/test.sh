@@ -16,5 +16,5 @@ if [ "${CALLBOARD_SKIP_MOD_TESTS:-}" = 1 ]; then
 else
   step "mod tests" claude plugin test mod
 fi
-step "extension link" bash test-link-extension.sh
+step "extension link" /usr/bin/python3 -I test_link_extension.py
 exit "$rc"

@@ -705,15 +705,17 @@ export async function findLead($: any, live: RegRow[], cwd: string, pick?: strin
 }
 
 // A second lead in the repo of the pin needs a usable name, and so does every other lead there (c.secondLeadRefusal). An unreadable registry refuses.
-export async function secondLeadNo($: any, sid: string, pin: string): Promise<string | undefined> {
+// `want`: the NAME the person typed for this session, judged in place of its current name.
+export async function secondLeadNo($: any, sid: string, pin: string, want?: string): Promise<string | undefined> {
   const live = await registryEntries($)
   if (!live) return 'registry-unreadable'
   const others = (await leadsFor($, live, pin, pin)).filter((x) => x.sid !== sid)
-  const refused = c.secondLeadRefusal(live.map((r) => r.j), sid, others.map((x) => x.sid))
+  const rows = live.map((r) => (want !== undefined && r.j.sessionId === sid ? { ...r.j, name: want } : r.j))
+  const refused = c.secondLeadRefusal(rows, sid, others.map((x) => x.sid))
   if (refused !== undefined) return refused
   // A name a lead record holds is not free for another session, in any repo, with or without a session of its own (a record kept for its lanes keeps its
   // name). A read that failed refuses.
-  const name = c.leadNameOf(live.map((r) => r.j), sid)
+  const name = c.leadNameOf(rows, sid)
   if (name === undefined) return undefined
   const held = await leadNameHeld($, sid, name, false)
   return held === true ? 'name-in-use' : held === false ? undefined : 'store-unreadable'
@@ -1674,7 +1676,7 @@ async function conductorTools($: any, sid: string) {
     ['lane_list', "List your leads and their lanes, as one table under a Conductor header line (one row per lane with its lead, repo folder name, session and waiting columns; a lead no live session carries is marked not live): each lane of a lead you own, its folder when it is outside the repo root, whether a live session carries its name or it is parked, and how many minutes it has waited on a prompt. A lead you own with no lanes is one row with – in the lane cells.", { type: 'object', properties: {} }],
     ['lane_compact', "Ask a session to compact. lane: a lane of one of your leads (at once if it asked on-cue, otherwise it is ordered to compact), or the session name of a live lead you own (then it works as lead_compact).", lane],
     ['lane_terminate', "Stop a lane of a lead you own with SIGTERM, whatever it is doing. Every stop asks the person: they confirm in a dialog that names the lane, its repo, the session and the pid. Once the session has stopped, the lane's record is deleted too (the .archive/<LANE> folder and report stay). A lane with no live session is removed directly. lane: the lane name. To stop a lead you own, use lead_terminate.", lane],
-    ['lead_open', "Open a panel for a new lead in one of your repos, write the task to its brief (<repo>/.archive/<NAME>/BRIEF.md) and make it the lead without asking the person. The repo must be one of yours with no live lead, and no open may be running, one succeeded in the last hour, or three been tried in the last hour. The person sees a toast. repo: the repo's absolute path. name: the new lead's name. task: the brief text, as for lane_create. model: opus, sonnet, haiku or fable (default as lane_create); the new lead is set to it. job: true for a small task the new lead does itself, with no lanes; it signs its report and stops, and you end it with lead_retire.", { type: 'object', properties: { repo: { type: 'string' }, name: { type: 'string' }, task: { type: 'string' }, model: { type: 'string' }, job: { type: 'boolean' } }, required: ['repo', 'name', 'task'] }],
+    ['lead_open', "Open a panel for a new lead in one of your repos, write the task to its brief (<repo>/.archive/<NAME>/BRIEF.md) and make it the lead without asking the person. The repo must be one of yours, and no open may be running, one succeeded in the last hour, or three been tried in the last hour. The person sees a toast. repo: the repo's absolute path. name: the new lead's name. task: the brief text, as for lane_create. model: opus, sonnet, haiku or fable (default as lane_create); the new lead is set to it. job: true for a small task the new lead does itself, with no lanes; it signs its report and stops, and you end it with lead_retire.", { type: 'object', properties: { repo: { type: 'string' }, name: { type: 'string' }, task: { type: 'string' }, model: { type: 'string' }, job: { type: 'boolean' } }, required: ['repo', 'name', 'task'] }],
     ['lead_resume', `Cue a lead you own to resume from its own notes: it gets one fixed turn and continues only work already authorised. It must be idle with an empty prompt box, and takes at most ${c.RESUME_PER_HOUR} resumes an hour. lead: the lead's name.`, lead],
     ['lead_compact', `Ask a lead you own to compact: at once if it asked for that with request_compact on-cue, otherwise it is ordered to compact (it asks on-cue, whatever its context size, and compacts at the end of its turn). If it has not asked within ${c.ORDER_MS / 60_000} minutes, you are told. lead: the lead's name.`, lead],
     ['lead_park', `Park a lead you own: its session stops and its record is marked parked, so lead_unpark can reopen the same conversation within ${c.UNPARK_MAX_MS / 86_400_000} days. The lead must be idle with an empty prompt box and no background agents or shells, no live lane may name it, and the lead confirms it can stop. The call waits up to 40 seconds for the idle time. lead: the lead's name.`, lead],

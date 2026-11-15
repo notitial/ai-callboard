@@ -100,8 +100,14 @@ export const OFFERS_DIR = '/Users/x/.claude/callboard/offers'
 // The go folder (engine/go.ts) too.
 export const GO_DIR = '/Users/x/.claude/callboard/go'
 // The person's settings file and the protected-checkout markers are private files of the test machine too (the escalation default's guard reads them).
+// The PR folder (engine/pr-watch.ts): the trackers and the owed notes, in the same file fake.
+export const PRS_DIR = '/Users/x/.claude/callboard/prs'
+// The GitHub CLI: the fixed path the mod looks at, the real file it links to, and every call made to it. h.gh answers a call; with none set the CLI exits 1.
+export const GH_LINK = '/opt/homebrew/bin/gh'
+export const GH_REAL = '/opt/homebrew/Cellar/gh/2.0.0/bin/gh'
+export const ghCalls: { argv: string[]; env: Record<string, string> | undefined; timeoutMs: unknown }[] = []
 export const SETTINGS_FILE = '/Users/x/.claude/settings.json'
-const isPromptPath = (p: unknown) => typeof p === 'string' && (p === PROMPTS_DIR || p.startsWith(`${PROMPTS_DIR}/`) || p === USAGE_DIR || p.startsWith(`${USAGE_DIR}/`) || p === OFFERS_DIR || p.startsWith(`${OFFERS_DIR}/`) || p === GO_DIR || p.startsWith(`${GO_DIR}/`) || p === SETTINGS_FILE || p.endsWith('/.protected-checkout'))
+const isPromptPath = (p: unknown) => typeof p === 'string' && (p === PROMPTS_DIR || p.startsWith(`${PROMPTS_DIR}/`) || p === USAGE_DIR || p.startsWith(`${USAGE_DIR}/`) || p === OFFERS_DIR || p.startsWith(`${OFFERS_DIR}/`) || p === GO_DIR || p.startsWith(`${GO_DIR}/`) || p === PRS_DIR || p.startsWith(`${PRS_DIR}/`) || p === SETTINGS_FILE || p.endsWith('/.protected-checkout'))
 function promptList(path: string) {
   const pre = path.endsWith('/') ? path : `${path}/`
   const names = new Map<string, { kind: string; size: number; mtimeMs: number }>()
@@ -298,6 +304,7 @@ export const h = {
   // The entries of ~/.claude/hooks (links into the toolkit's checkout, by realMap).
   hooksList: [] as string[],
   pfsFails: undefined,
+  gh: undefined as ((argv: string[]) => { stdout: string; exitCode?: number; stderr?: string; truncated?: boolean } | 'throw' | undefined) | undefined,
   // A shasum whose input (the request id, a newline and a label) the test makes fail: the label hash of a question's answer.
   shaFailsFor: undefined,
   nowMs: T0,
@@ -643,6 +650,8 @@ function resetPrompts() {
   h.hooksList = []
   h.uuidN = 0
   h.pfsFails = undefined
+  h.gh = undefined
+  ghCalls.length = 0
   h.shaFailsFor = undefined
 }
 // A list a test seeded before the engine started is written again, once the files above are clear.
@@ -898,6 +907,14 @@ export function engine(on0: any, argvSeen: string[][], stdins: string[] = [], cl
       const ms = Math.round(Number(a[1]) * 1000)
       h.nowMs += ms
       return Promise.resolve(h.fastSleep(ms)).then(() => ok(''))
+    }
+    if (a[0] === GH_REAL) {
+      ghCalls.push({ argv: a, env: e.init?.env, timeoutMs: e.init?.timeoutMs })
+      const r = h.gh?.(a)
+      // The error text and the thrown error carry a marker no log, note or result may ever hold.
+      if (r === 'throw') throw new Error('spawn failed: STDERR-MARKER')
+      if (r === undefined) return ok('', 1, 'STDERR-MARKER')
+      return { value: { exitCode: r.exitCode ?? 0, stdout: r.stdout, stderr: r.stderr ?? 'STDERR-MARKER', isStdoutTruncated: r.truncated === true, isStderrTruncated: false } }
     }
     { const pf = promptFs(a, typeof e.init?.stdin === 'string' ? e.init.stdin : undefined, h.nowMs); if (pf !== undefined) return pf }
     if (h.leadsStatRejects && a[0] === '/usr/bin/stat' && a[a.length - 1] === `${ROOT}/leads`) return Promise.reject(new Error('stat'))

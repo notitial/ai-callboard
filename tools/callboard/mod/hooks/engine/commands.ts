@@ -71,6 +71,7 @@ import type { Bound, Plan } from './lanes.ts'
 import { ownerWrite, joinCands, ownerLeave, bindingOf, joinPlanNow, ownerStatusNow } from './lead-records.ts'
 import { restoreFromHint, saveHint, bump, isEligible, dropRequest } from './compaction.ts'
 import { ensureTimer } from './tick.ts'
+import { grantNameNo } from './lead-open.ts'
 import { epochOf, heldNo, holdsOf, levelSave } from './levels.ts'
 import type { LevelDesc } from './levels.ts'
 import { ANSWERING_KEY, ledgerAdd, promptsOff, escalationNow, defaultForget } from './answer-hook.ts'
@@ -591,21 +592,43 @@ async function conductorListCommand($: any, sid: string, code: c.OriginCode, op:
   return { text: c.conductorAddedText(plan.home, plan.target, h, here) }
 }
 
+// After a lead or conductor grant that carried a NAME: the session is renamed by the tick (renameTick), as the manager's, unless it already carries the name.
+async function nameRename($: any, sid: string, name: string, grant: 'lead' | 'conductor') {
+  const mine = ((await registryEntries($).catch(() => undefined)) ?? []).filter((e) => e.j.sessionId === sid)
+  if (mine.length === 1 && mine[0].j.name === name) await log($, sid, 'rename-skipped', grant)
+  else pendingRename.set(sid, { name, until: (await $.clock.now()) + c.RENAME_PENDING_MS, grant })
+}
+
 // /callboard conductor, the grant. Any origin, as /callboard lead: the dialog is the gate the person answers, and another origin is named in its question.
 // The dialog names every repo in reach (../NAME beside the conductor repo, any other in full; nothing cut). A yes approves exactly that list for this session; the
 // file can only narrow it later. In a conductor session the command opens the dialog again only when the file names repos this session has not approved, and
 // only from the person's own prompt or phone: another origin never widens a conductor.
-async function conductorGrant($: any, sid: string, code: c.OriginCode, busy: () => Promise<{ text: string }>): Promise<{ text: string }> {
+// `want`: a NAME typed with the command (the person's own prompt or phone only, checked by the caller). It is judged before the dialog and again after the
+// click, the dialog names it, and after the grant the session is renamed to it. A session that is a conductor already is not renamed this way.
+async function conductorGrant($: any, sid: string, code: c.OriginCode, busy: () => Promise<{ text: string }>, want?: string): Promise<{ text: string }> {
   const on = () => grants.get(sid)?.level === 'conductor'
   const refuse = async (why: string, home = '', out: CondOut[] = []) => {
     await log($, sid, 'refused', why)
     return { text: `${c.conductorRefusalText(why, home, on() ? 'Conductor stays on' : 'Conductor stays off')}${c.conductorOutText(out)}` }
+  }
+  const nameNo = async (why: string) => {
+    await log($, sid, 'refused', why)
+    return { text: `Conductor stays off: ${c.grantNameText(why)}` }
+  }
+  if (want !== undefined && on()) {
+    await log($, sid, 'refused', 'conductor-name-on')
+    return { text: c.GRANT_NAME_ON('Conductor') }
   }
   const p = await where($)
   const h = p ? homeOf(p) : undefined
   const first = await conductorShowable($, sid, true)
   if ('no' in first) return refuse(first.no, first.home, first.out)
   const home = first.home
+  if (want !== undefined) {
+    await reservedGet($, sid, true)
+    const bad = await grantNameNo($, sid, want)
+    if (bad !== undefined) return nameNo(bad)
+  }
   if (on()) {
     const approved = conductorApproved.get(sid) ?? []
     if (!c.originIsPerson(code) || first.ok.every((x) => approved.includes(x))) {
@@ -614,7 +637,7 @@ async function conductorGrant($: any, sid: string, code: c.OriginCode, busy: () 
     }
   }
   const approvedNow = on() ? (conductorApproved.get(sid) ?? []) : []
-  const question = c.askedFrom(c.conductorQuestion(home, first.ok, h, on() ? first.ok.filter((x) => !approvedNow.includes(x)) : []), code)
+  const question = c.askedFrom(c.conductorQuestion(home, first.ok, h, on() ? first.ok.filter((x) => !approvedNow.includes(x)) : [], want), code)
   if (question.length > c.QUESTION_MAX) return refuse('conductor-list-too-long', home)
   let fresh!: { home: string; ok: string[] }
   return grantDialog($, sid, CONDUCTOR, {
@@ -632,6 +655,10 @@ async function conductorGrant($: any, sid: string, code: c.OriginCode, busy: () 
       if (again === 'timeout') return refuse('conductor-file-error', home)
       if ('no' in again) return refuse(again.no, again.home ?? home, again.out)
       fresh = again
+      if (want !== undefined) {
+        const bad = await withTimeout($, grantNameNo($, sid, want), c.ENGINE_CALL_TIMEOUT_MS)
+        if (bad !== undefined) return nameNo(bad === 'timeout' ? 'name-check-slow' : bad)
+      }
     },
     apply: async () => {
       // The list resolved now must be the list the dialog showed.
@@ -651,7 +678,10 @@ async function conductorGrant($: any, sid: string, code: c.OriginCode, busy: () 
     },
     onLog: ['conductor-on', code],
     briefArg: home,
-    after: () => nameGrant($, sid),
+    after: async () => {
+      if (want !== undefined) await nameRename($, sid, want, 'conductor')
+      await nameGrant($, sid)
+    },
     text: `${c.CONDUCTOR_ON_TEXT}${c.conductorOutText(first.out)}`,
   })
 }
@@ -825,6 +855,9 @@ export type LeadGrantOpts = {
   toast?: string
   extraRecheck?: () => Promise<{ text: string; code?: string } | undefined>
   extraApply?: () => Promise<{ text: string; code?: string } | undefined>
+  // A NAME typed with the command (the person's own prompt or phone only, checked by the caller): judged before the dialog and after the click, named in the
+  // question, and given to the session by a rename after the grant. A session that is a lead already is not renamed this way.
+  want?: string
 }
 type Said = { text: string; code?: string }
 
@@ -840,6 +873,11 @@ export async function grantLead($: any, sid: string, code: c.OriginCode, busy: (
   const laneHeld = async () => (await getLane($)).value != null
   const held = await heldNo($, sid, 'lead', false)
   if (held) return leadNo(held)
+  const want = o.want
+  if (want !== undefined && grants.get(sid)?.level === 'lead') {
+    await log($, sid, 'refused', 'lead-name-on')
+    return { text: c.GRANT_NAME_ON('Lead'), code: 'lead-name-on' }
+  }
   let cwd: string
   try {
     cwd = await sessionRoot($)
@@ -852,13 +890,15 @@ export async function grantLead($: any, sid: string, code: c.OriginCode, busy: (
   // With another lead in the repo, both need a usable name. Asked before the dialog and again after a yes.
   const nameNo = async (why: string) => {
     await log($, sid, 'refused', why)
-    return { text: `${grants.has(sid) ? 'Lead stays on' : 'Lead stays off'}: ${c.REASON_TEXT[why]}`, code: why }
+    return { text: `${grants.has(sid) ? 'Lead stays on' : 'Lead stays off'}: ${want === undefined ? c.REASON_TEXT[why] : c.grantNameText(why)}`, code: why }
   }
   await reservedGet($, sid, true)
-  const named = await secondLeadNo($, sid, pinned)
+  const badName = want === undefined ? undefined : await grantNameNo($, sid, want)
+  if (badName !== undefined) return nameNo(badName)
+  const named = await secondLeadNo($, sid, pinned, want)
   if (named !== undefined) return nameNo(named)
   const res = await grantDialog($, sid, LEAD, {
-    question: c.askedFrom(c.leadQuestion(pinned), code),
+    question: c.askedFrom(c.leadQuestion(pinned, want), code),
     yes: c.LEAD_YES,
     no: c.LEAD_NO,
     header: c.HEADER.lead,
@@ -876,7 +916,11 @@ export async function grantLead($: any, sid: string, code: c.OriginCode, busy: (
     recheck: async () => {
       // The engine calls held inside the mark have a time limit; a state read that does not answer counts as a lane binding.
       if ((await withTimeout($, laneHeld(), c.ENGINE_CALL_TIMEOUT_MS)) !== false) return leadNo('lane-holder')
-      const namedNow = await withTimeout($, secondLeadNo($, sid, pinned), c.ENGINE_CALL_TIMEOUT_MS)
+      if (want !== undefined) {
+        const badNow = await withTimeout($, grantNameNo($, sid, want), c.ENGINE_CALL_TIMEOUT_MS)
+        if (badNow !== undefined) return nameNo(badNow === 'timeout' ? 'name-check-slow' : badNow)
+      }
+      const namedNow = await withTimeout($, secondLeadNo($, sid, pinned, want), c.ENGINE_CALL_TIMEOUT_MS)
       if (namedNow !== undefined) return nameNo(namedNow === 'timeout' ? 'lead-check-slow' : namedNow)
       return o.extraRecheck?.()
     },
@@ -921,11 +965,21 @@ export async function grantLead($: any, sid: string, code: c.OriginCode, busy: (
     onLog: o.onLog ?? ['lead-on', ''],
     toast: o.toast,
     briefArg: pinned,
-    after: () => nameGrant($, sid),
+    after: async () => {
+      if (want !== undefined) await nameRename($, sid, want, 'lead')
+      await nameGrant($, sid)
+    },
     text: c.LEAD_ON_TEXT,
   })
   // The question after the click: only the person's own command, and only when the grant was just made (its text), never the accept's silent grant.
   if (o.silent || !c.originIsPerson(code) || res.code !== undefined || res.text !== c.LEAD_ON_TEXT) return res
+  // The question reads the session's current name, which is not NAME until the rename lands: with a NAME the person joins by hand, and is told so only when a conductor is live.
+  if (want !== undefined) {
+    const repo = pinOf(sid)
+    const live = repo === undefined || (await bindingOf($, sid)) !== undefined ? undefined : await registryEntries($)
+    const some = live && repo !== undefined ? (await joinCands($, live, sid, repo)).length > 0 : false
+    return some ? { ...res, text: `${res.text}${c.JOIN_AFTER_RENAME}` } : res
+  }
   return leadClickQuestion($, sid, res)
 }
 
@@ -955,7 +1009,7 @@ export async function commandRun($: any, e: any) {
       return { text: 'A callboard question is already open. Answer it first.' }
     })
   }
-  const verb = typeof arg === 'string' ? arg : 'manager' in arg ? 'manager' : 'conductor' in arg ? 'conductor' : 'lane'
+  const verb = typeof arg === 'string' ? arg : 'manager' in arg ? 'manager' : 'conductor' in arg ? 'conductor' : 'leadNamed' in arg ? 'lead' : 'lane'
   const busy = async () => {
     await log($, sid, 'refused', `busy:${verb}:${code}`)
     return { text: 'A callboard question is already open. Answer it first.' }
@@ -969,7 +1023,13 @@ export async function commandRun($: any, e: any) {
     const op = arg.conductor
     if (op === 'bad') return { text: c.CONDUCTOR_USAGE }
     if (op === 'grant') return conductorGrant($, sid, code, busy)
+    // A NAME is the person's own, as the list commands: from another origin it is refused with no dialog.
+    if ('grant' in op) return c.originIsPerson(code) ? conductorGrant($, sid, code, busy, op.grant) : notPerson($, sid, 'conductor-name', code, c.CONDUCTOR_NAME_NOT_PERSON)
     return conductorListCommand($, sid, code, op, busy)
+  }
+  if (typeof arg === 'object' && 'leadNamed' in arg) {
+    if (!c.originIsPerson(code)) return notPerson($, sid, 'lead-name', code, c.LEAD_NAME_NOT_PERSON)
+    return grantLead($, sid, code, busy, { want: arg.leadNamed })
   }
   // The table lane_list gives the lead, printed to the person with no model turn. Read-only: no store write, no notice, and the lanes-changed news is not marked as told.
   if (arg === 'lanes') {

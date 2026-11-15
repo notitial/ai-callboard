@@ -2,6 +2,7 @@
 // It imports no engine file, so an import cycle between engine files cannot reach a constant that is not yet initialised.
 import * as c from './core.ts'
 import * as pr from './prompts.ts'
+import type * as pw from './pr-watch.ts'
 
 export const mem = {
   isTicking: false,
@@ -187,7 +188,7 @@ export const requestFails = new Map<string, { n: number; firstMs: number }>()
 export const takenSwept = new Map<string, number>()
 
 // The rename of an attached session cannot run inside the command (the engine refuses it there), so it runs from the next tick, once.
-export const pendingRename = new Map<string, { name: string; until: number; manager?: true }>()
+export const pendingRename = new Map<string, { name: string; until: number; manager?: true; grant?: 'lead' | 'conductor' }>()
 // A new lead's start turn, held until its box is empty and it is idle (engine/lead-accept.ts sets it, leadStartTick submits it): the lead's name, repo and brief
 // path, the turn count the grant left (a person who typed meanwhile is driving), and when it is given up.
 export type LeadStart = { name: string; repo: string; brief: string; turns: number; until: number }
@@ -314,3 +315,31 @@ export const renameRefused = new Map<string, string>()
 export const goAsked = new Map<string, number[]>()
 export const goWatch = new Map<string, { since: number; at: number | undefined; told: Map<string, Set<string>> }>()
 export const goBusy = new Set<string>()
+
+// ---- PR notices (engine/pr-watch.ts, ADR 0010) ----
+// A session's own tracker as last read or written, and whether its file was looked at in this load; by tracker session, the one writer at a time.
+export const prTrack = new Map<string, pw.Tracker>()
+export const prLoaded = new Set<string>()
+export const prChain = new Map<string, Promise<void>>()
+// When a session last polled, and the poll in flight.
+export const prPollAt = new Map<string, number>()
+export const prBusy = new Set<string>()
+// Failed looks in a row, by tracker session and PR.
+export const prFails = new Map<string, number>()
+// A lead's looks in a row that found no live session for a lane whose tracker names it, by the lane's session id.
+export const prGone = new Map<string, number>()
+// A gone lane's round whose tracker write is still owed: the tracker text the round began from and the PRs after it.
+export const prHeld = new Map<string, { text: string; prs: unknown[] }>()
+// The notes owed to a session as its folder was last read, when that was, and the files already delivered (kept until they are seen gone, so a failed removal
+// never delivers one twice in this load).
+export const prPending = new Map<string, { file: string; note: pw.Note }[]>()
+export const prSpoolAt = new Map<string, number>()
+export const prDelivered = new Map<string, Set<string>>()
+// The wakes, the first looks and the notes written to a lead in the last hour; the cold stretch a lead was already told about; the cap already logged.
+export const prWakes = new Map<string, number[]>()
+export const prLooks = new Map<string, number[]>()
+export const prLeadNotes = new Map<string, number[]>()
+export const prColdTold = new Map<string, number>()
+export const prCapLogged = new Set<string>()
+// The GitHub CLI's real path as last resolved (undefined: none found), and when the folders of sessions that are gone were last swept.
+export const prGh = { path: undefined as string | undefined, at: undefined as number | undefined, sweptAt: undefined as number | undefined }

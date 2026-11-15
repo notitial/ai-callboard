@@ -32,6 +32,8 @@
 //   go-read    id, by (the reading session), code (listed | later), lane?   a covered session read the go from go_status for the first time; written before the go is reported
 // The go files (--goes, default the go folder beside the prompts folder; read only, each file whole) are checked against the go-grant rows (rule j), and each go is
 // listed with its text and the sessions that read it.
+//   pr-watch   code (new | renew | expired | lost | merged | closed), lane, target (owner/repo#number)   a lane's PR tracking began, was renewed or ended (ADR 0010)
+//   pr-notice  code (the note's kind), tier (the level of the session told), lane?, target? (owner/repo#number)   one PR note was delivered; no request of its own
 // The lead records (--records, default the lead-records folder beside the prompts folder; read only, each file whole) are checked against the lead-owner rows (rule i).
 //   answered / returned rows of a question's answer carry code: "answer", opt (the chosen option's index, as a string) and lh (the first 16 hex of SHA-256(id + "\n" + label), the label redacted
 //              and trimmed); the labels themselves are in prompts/questions-YYYY-MM.jsonl, { t, id, lane, repo, tier, by, header, question, options, label, via? }
@@ -77,7 +79,7 @@ const QUESTION_DAYS = 90
 const LABEL_MAX = 256
 
 const ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
-const KINDS = new Set(['requested', 'answered', 'escalated', 'dropped', 'returned', 'superseded', 'expired-denied', 'off', 'abandoned', 'dialog', 'not-judgeable', 'no-tier', 'answering-on', 'answering-off', 'relayed', 'relay-lost', 'relay-left', 'relay-late', 'relay-closed', 'deny-unclear', 'lead-offer', 'lead-offer-void', 'lead-grant', 'lead-owner', 'lead-resume', 'lead-stop', 'go-grant', 'go-end', 'go-read'])
+const KINDS = new Set(['requested', 'answered', 'escalated', 'dropped', 'returned', 'superseded', 'expired-denied', 'off', 'abandoned', 'dialog', 'not-judgeable', 'no-tier', 'answering-on', 'answering-off', 'relayed', 'relay-lost', 'relay-left', 'relay-late', 'relay-closed', 'deny-unclear', 'lead-offer', 'lead-offer-void', 'lead-grant', 'lead-owner', 'lead-resume', 'lead-stop', 'go-grant', 'go-end', 'go-read', 'pr-watch', 'pr-notice'])
 const FIELDS = ['code', 'id', 'lane', 'repo', 'tool', 'pattern', 'hash', 'tier', 'why', 'nonce', 'tuid', 'by', 'via', 'short', 'opt', 'lh', 'target', 'was', 'dialog', 'end']
 // The rows of a go carry the go's id, which is no request's.
 const GO_KINDS = new Set(['go-grant', 'go-end', 'go-read'])

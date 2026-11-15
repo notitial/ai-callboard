@@ -1,7 +1,7 @@
 #!/bin/bash
 # Runs every test suite under tools/ and prints one pass/fail row per suite.
 #   bash tools/test-all.sh                run all suites
-#   bash tools/test-all.sh --quick        skip the slow ones (callboard, about 3 min)
+#   bash tools/test-all.sh --quick        skip the slow ones (callboard)
 #   bash tools/test-all.sh NAME [NAME…]   run only the named suites (names are the first column)
 # A suite whose tool is missing (node, claude, python3, plutil) shows as skip, never as pass. Exit 1 if any suite fails,
 # 2 on an unknown option or suite name (checked before anything runs).
@@ -46,7 +46,7 @@ suite() {  # suite <name> <slow:0|1> <needs> <command>; needs is one or more com
 }
 
 # callboard needs node 22.18 or later, the claude CLI (claude plugin validate, claude plugin test) and
-# /usr/bin/python3 (for link-extension.sh). CALLBOARD_SKIP_MOD_TESTS=1 skips `claude plugin test mod` inside the callboard
+# /usr/bin/python3 (for link-extension.py). CALLBOARD_SKIP_MOD_TESTS=1 skips `claude plugin test mod` inside the callboard
 # suite (the slow part); the row still shows pass, so run this without it before any change to
 # tools/callboard/mod. CI does not set it.
 # rule-text needs node 22.18 or later: it checks that rules/callboard.md quotes the mod's fixed texts exactly.

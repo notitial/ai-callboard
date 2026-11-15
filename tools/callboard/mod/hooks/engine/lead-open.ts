@@ -1,22 +1,46 @@
 // lead_open: a conductor opens a panel for a new lead in one of its repos and cues it (ADR 0006). The new panel decides: it runs every check itself and makes itself the lead.
-// Trust rules held here: the repo is in the conductor's reach at the call; at most one live lead per repo and one open in flight per conductor; at most one successful
-// open and three offers per repo per hour, counted from the ledger; every check runs before the first write, and a write that fails takes back the offer and voids its row.
+// Trust rules held here: the repo is in the conductor's reach at the call; one open in flight per conductor; at most one successful
+// open and three offers per repo per hour, counted from the ledger (the bound on a conductor that loops); no cap on the live leads of a repo (the new panel's second-lead naming rule still applies at its grant); every check runs before the first write, and a write that fails takes back the offer and voids its row.
 import * as c from '../core.ts'
 import { conductorHome, condOffers } from '../mem.ts'
 import { sha, where, statR, real, logq, rmF, pause } from './base.ts'
-import { writeBrief, resultDirOk, sendCue } from './store.ts'
+import { writeBrief, resultDirOk, sendCue, registryEntries, loadLanes } from './store.ts'
 import type { RegRow } from './store.ts'
-import { leadsFor, cfgReadStrict, reservedGet, ownWrite } from './grants.ts'
+import { cfgReadStrict, reservedGet, ownWrite } from './grants.ts'
 import { leadTool, leadBase, openExchange } from './lanes.ts'
 import { ledgerAdd, ledgerRowsFor, promptNewId } from './answer-hook.ts'
 import { promptLinkOnce } from './answer-tiers.ts'
-import { loadLeadRecords } from './lead-records.ts'
+import { loadLeadRecords, leadNameHeld } from './lead-records.ts'
 
 // The conductors that have an open running, by session id, and the names those opens carry (lower case): held until the offer is gone.
 const opening = new Set<string>()
 const openingNames = new Set<string>()
 
 const TIMEOUT_WHY = 'no window answered in time. A VS Code window with the repo as its first workspace folder must run the callboard panels extension (1.3.0 or later). A panel may still appear in that folder: do not open another.'
+
+// The NAME the person typed for /callboard lead or conductor, judged the way lead_open judges a new lead's name: a code for a refusal, undefined when the name is free.
+// The shape (NAME_RE) and the reserved names first; then, in any letter case, no other live session, no lane, no lead stamp on a lane, no lead record of any repo
+// (the session's own record excepted; a lane stamp counts unless the session made or joined that lane) and no request in the open folder or in flight carries it. A store that cannot be read refuses. The caller loads the
+// machine's reserved names first (reservedGet).
+export async function grantNameNo($: any, sid: string, name: string): Promise<string | undefined> {
+  if (!c.NAME_RE.test(name)) return 'name-bad'
+  if (c.reservedHit(name)) return 'name-reserved'
+  const lower = name.toLowerCase()
+  const live = await registryEntries($)
+  if (!live) return 'registry-unreadable'
+  if (live.some((r) => r.j.sessionId !== sid && typeof r.j.name === 'string' && r.j.name.toLowerCase() === lower)) return 'name-in-use'
+  const lanes = await loadLanes($)
+  if (typeof lanes === 'string') return lanes
+  if (lanes.some((l) => l.name.toLowerCase() === lower || (l.leadName?.toLowerCase() === lower && !c.leadOwns(l, sid)))) return 'name-in-use'
+  const held = await leadNameHeld($, sid, name, false)
+  if (held === true) return 'name-in-use'
+  if (held !== false) return 'store-unreadable'
+  const p = await where($)
+  if (!p) return 'no-paths'
+  if (openingNames.has(lower)) return 'name-in-open'
+  const waiting = ((await $.fs.list(`${p.root}/open`).catch(() => [])) as { name: string }[]).some((f) => f.name.toLowerCase().startsWith(`${lower}.`) && !f.name.toLowerCase().endsWith('.result'))
+  return waiting ? 'name-in-open' : undefined
+}
 
 export async function leadOpenCall($: any, e: any, next: any) {
   return leadTool($, e, 'lead_open', async (sid, no) => {
@@ -60,13 +84,10 @@ async function openLead($: any, e: any, sid: string, base: { live: RegRow[]; lan
   const recs = await loadLeadRecords($)
   if (typeof recs === 'string') return no('store-unreadable', c.reasonWhy('store-unreadable'))
   if (recs.some((s) => s.store.leads.some((l) => l.name.toLowerCase() === lower))) return no('name-in-use', c.reasonWhy('name-in-use'))
+  // The repo's record file holds LEAD_STORE_MAX records at most: with it full the new lead would be on with no record and no conductor, so the open stops here.
+  if (recs.some((s) => s.store.repo === repo && s.store.leads.length >= c.LEAD_STORE_MAX)) return no('lead-record-cap', c.reasonWhy('lead-record-cap'))
   const waiting = ((await $.fs.list(`${p.root}/open`).catch(() => [])) as { name: string }[]).some((f) => f.name.toLowerCase().startsWith(`${lower}.`) && !f.name.toLowerCase().endsWith('.result'))
   if (waiting) return no('name-in-open', c.reasonWhy('name-in-open'))
-  // One live lead per repo, whoever made it; an unreadable file counts as a failure.
-  const errs = { error: false }
-  const leads = await leadsFor($, base.live, undefined, repo, errs)
-  if (errs.error) return no('leads-unreadable', c.reasonWhy('leads-unreadable'))
-  if (leads.length > 0) return no('lead-exists', c.reasonWhy('lead-exists'))
   // No offer or claim for the repo; an unreadable path counts as taken.
   const key = await sha($, repo)
   if (!(await resultDirOk($, p, 'offers'))) return no('unsafe-offers-dir', c.reasonWhy('unsafe-offers-dir'))
