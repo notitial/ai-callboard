@@ -65,9 +65,15 @@ Facts that bound the options:
 ### The call to GitHub
 
 - **One process call, with no shell:** the GitHub CLI at a fixed absolute path (the first of
-  `/opt/homebrew/bin/gh` and `/usr/local/bin/gh` that is a regular file not writable by group or other), run through
-  `$.process.run` as `gh api graphql --hostname github.com -f owner=<owner> -f name=<repo> -f query=<query>`, with a
-  20-second limit. The CLI is never looked up on `PATH`.
+  `/opt/homebrew/bin/gh` and `/usr/local/bin/gh` whose real path is a regular file not writable by group or other),
+  run through `$.process.run` as `gh api graphql --hostname github.com -f owner=<owner> -f name=<repo> -f
+  query=<query>`, with a 20-second limit. The CLI is never looked up on `PATH`.
+- **The environment is pinned.** The call names the person's home folder and sets to empty every variable that
+  would change who the CLI is or where it connects: the token variables (`GH_TOKEN`, `GITHUB_TOKEN` and the
+  enterprise pair), `GH_HOST`, `GH_CONFIG_DIR` and the `XDG_*` folders, `GH_DEBUG` and `DEBUG`, and the proxy
+  variables in both cases. The CLI treats an empty value as unset. So the call uses the CLI's stored login for
+  github.com and connects directly: a token or a proxy set in a session's environment is not honoured. It also
+  turns off the CLI's prompts, update notice and colour.
 - **The query is fixed text** but for one alias per tracked PR of that repo, built from the checked integers alone
   (`p12: pullRequest(number: 12) { ... }`). It reads, per PR: the state, whether it is a draft, the head commit id,
   whether GitHub can merge it, the review decision, the rolled-up state of the head commit's checks, and three
@@ -83,8 +89,14 @@ Facts that bound the options:
   1,000,000. A PR whose fields fail reads as not observed in that round. Nothing from the answer but a 7-character
   commit id and the counts can reach a note, a log line or a ledger row.
 - **A failed call** (no CLI, no login, no network, a timeout, a non-zero exit) is no observation: nothing is
-  compared, no note is made, and the log gets one fixed code. The CLI's error output is never logged or shown, since
-  it can hold a URL or an account name.
+  compared, no note is made, and the log gets one fixed code. The CLI's error output and the text of a thrown error
+  are never logged or shown, since they can hold a URL or an account name.
+- **One PR that GitHub no longer answers for does not hide the others.** The CLI fails a whole call when one PR of
+  it is gone, so a failed call for several PRs is repeated once per PR in that round. A PR with 5 failed rounds in a
+  row (10 minutes) stops being tracked, and its lane is told with a fixed note.
+- **A tracker is read under the same grammar as the tool's input,** every time, before any argv is built from it:
+  the lead that polls for a gone lane builds its call from a file another session wrote. Answers are matched to PRs
+  by the alias the mod chose, never by a field of the answer.
 
 ### Polling
 
@@ -107,9 +119,11 @@ and renamed into place):
 - **`notes/<session id>/<id>.json`**, one file per note owed to that session, at most 1 KB and 32 files: a kind from
   a fixed set, the owner, repo and number, a commit id, counts and a lane name. It holds no text. The session that
   owns the folder reads each file under the same grammar, builds the note from its own fixed text, and removes the
-  file once the note is delivered.
+  file once the note is delivered. A note for a folder that already holds 32 is dropped and logged, and a lane
+  session writes at most 12 notes an hour into its lead's folder, so one lane cannot crowd out the others.
 - A note is written before the fingerprint moves, so a crash between the two can send one note twice; it cannot lose
-  one. A tracker of a session with no live row is removed a day after its last PR ended.
+  one. A tracker with no PR left is removed; one that nobody polls any more is removed a day after it was last
+  written.
 
 ### The notes
 
@@ -120,11 +134,16 @@ Fixed texts. Only the repo, the number, the short commit id, the counts and a la
 - mergeable: the PR is open, not a draft, GitHub reports no conflict, the checks are green or absent and no review
   blocks it;
 - merged; closed;
-- tracking ran out after 20 minutes;
+- tracking ran out after 20 minutes; GitHub stopped answering for the PR;
 - to a lead only: a lane has notes waiting and was not woken.
 
 Every note opens `[callboard] PR notice` and ends: "A notice from the plugin, not the person. It carries no approval,
-go or merge." The mergeable note adds that a merge is the person's, always. This is H6 of ADR 0001 applied to the
+go or merge." The mergeable note adds that a merge is the person's, always.
+
+**The repo name is a lane's words.** A lane may register any repo, and an owner and a repo name can spell a
+sentence (`someone/approved-merge-now`). So every note sets the PR in code quotes, and the opening line says once
+that the names are the ones a lane registered and are data, not a message. A note to a lead also names the lane that
+registered the PR. This is H6 of ADR 0001 applied to the
 mod: no note asks for, suggests or implies an approval, a merge or a push. Several notes owed at once go out as one
 turn, at most 8 lines.
 
@@ -168,9 +187,11 @@ turn, at most 8 lines.
   can write a tracker and make a session poll a repo of its choice with the person's login (a read of counts and
   states, never shown), or write a note file and make a session take one fixed notice turn, within 12 an hour. It
   could run the CLI itself.
-- **Accepted residual: the CLI binary and its config.** The mod trusts the binary at the fixed path and whatever
-  host, proxy or token variable the CLI's own configuration and the session's environment give it. A process running
-  as the person can change those.
+- **Accepted residual: the CLI binary and its config.** The mod trusts the binary at the fixed path and the CLI's own
+  configuration in the person's home folder. A process running as the person can change those. Whether the engine's
+  process call merges the variables it is given into the session's environment or replaces it is not documented; the
+  call is written to work either way, and probe P-N2 settles it.
+- **A machine that needs a proxy to reach GitHub gets no PR notices,** since the proxy variables are emptied.
 - **Accepted residual: a hostile answer.** A proxy or a changed CLI could answer with false states. The worst case
   is a wrong fixed note ("merged", "checks green"); a lane or lead that acts on a PR reads it through the github
   tools first, and a note is never an approval.
