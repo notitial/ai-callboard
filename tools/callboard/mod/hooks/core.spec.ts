@@ -2280,7 +2280,7 @@ test('v14 review c1: the manager already-on text names the name that stays; the 
   assert.equal(c.REASON_TEXT['lead-after-manager'], 'this session was the manager, so it cannot be a lead until it restarts. Start the lead in a new session.')
   assert.deepEqual([...c.MANAGER_CUE_VERBS], ['resume', 'compact', 'retire'])
   assert.equal(c.LEAD_MANAGER_ID, 'callboard:lead-manager')
-  for (const s of ['request_compact', 'on-cue', 'lane_compact', 'carries approval']) assert.ok(c.LEAD_MANAGER_TEXT.includes(s), s)
+  for (const s of ['request_compact', 'on-cue', 'lead_compact', 'lead_resume', 'confirms each such call in a dialog', 'carries approval']) assert.ok(c.LEAD_MANAGER_TEXT.includes(s), s)
   assert.ok(c.managerBriefing('MANAGER').includes('- To ask any other session to compact, message that session, and only when the person asks; the callboard nudges handle the rest.\n'))
 })
 
@@ -2733,7 +2733,9 @@ test('the refusal and toast texts that name a limit are fixed word for word', ()
 })
 
 test('the manager briefing line on lane_compact names the 15 minutes the lane has to ask', () => {
-  assert.ok(c.managerBriefing('MGR').split('\n').includes("- `lane_list`: every lane, grouped by repo and by the lead each names. `lane_resume` sends a lane a resume prompt. `lane_compact` asks a lane to compact (at once if it asked on-cue, else an order: it must ask on-cue within 15 minutes, whatever its context size, or you are told and ask the person whether to `lane_terminate` it); with a live lead's session name it compacts that lead, only when the lead itself asked with `request_compact` on-cue."))
+  assert.ok(c.managerBriefing('MGR').split('\n').includes("- `lane_list`: every lane, grouped by repo and by the lead each names. `lane_resume` sends a lane a resume prompt. `lane_compact` asks a lane to compact (at once if it asked on-cue, else an order: it must ask on-cue within 15 minutes, whatever its context size, or you are told and ask the person whether to `lane_terminate` it); with a lead's session name it is `lead_compact`."))
+  assert.ok(c.managerBriefing('MGR').split('\n').includes('- `lead_resume` sends a lead a resume prompt. `lead_compact` compacts a lead that asked with `request_compact` on-cue; a lead whose owning conductor is live takes it as an order to compact, any other answers `no-request`. Each asks the person in its own dialog, which they answer themselves every time; never unattended. You own no lead: a lead\'s work is its own and its conductor\'s.'))
+  assert.ok(c.conductorBriefing('C', '/w/repo-a', []).includes('`lead_compact` compacts a lead you own (`lane_compact` with its session name is the same call): at once if it asked with `request_compact` on-cue, otherwise it is an order: the lead must ask on-cue within 15 minutes'))
 })
 
 test('startText, resumeText, COMPACT_CUT_NOTE and LANES_CHANGED_TEXT are fixed word for word', () => {
