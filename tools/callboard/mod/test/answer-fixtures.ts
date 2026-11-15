@@ -86,7 +86,7 @@ export const THASH = 'c'.repeat(64)
 export const LDIR = (sid = LANESID) => `${PROMPTS_DIR}/${sid}`
 const laneRow = (over: Record<string, unknown> = {}) => ({ '4300.json': JSON.stringify({ sessionId: LANESID, name: 'svc-api', nameSource: 'user', cwd: SVC, status: 'waiting', waitingFor: 'permission prompt', pid: 4300, procStart: LEADPS, startedAt: T0 - 3_600_000, statusUpdatedAt: T0, kind: 'interactive', ...over }) })
 export const tierSessions = (lead: Record<string, unknown> = {}, laneOver: Record<string, unknown> | null = {}) => (h.sessions = { ...leadSelfReg(lead), ...(laneOver === null ? {} : laneRow(laneOver)) })
-const reqQ = (over: Record<string, unknown> = {}) => ({ id: TID, sid: LANESID, pid: 4300, procStart: LEADPS, level: 'lane', lane: 'svc-api', leadName: 'LEAD', repo: SVC, tool: 'Bash', inputHash: THASH, raisedBy: 'rule', at: T0, expiresAt: T0 + 21 * 60_000, nonce: 'n-1', input: { command: 'ssh host uptime' }, truncated: false, ...over }) as any
+const reqQ = (over: Record<string, unknown> = {}) => ({ id: TID, sid: LANESID, pid: 4300, procStart: LEADPS, level: 'lane', lane: 'svc-api', leadName: 'LEAD', repo: SVC, tool: 'Bash', inputHash: THASH, raisedBy: 'rule', at: T0 - prm.MIN_AGE_MS, expiresAt: T0 + 21 * 60_000, nonce: 'n-1', input: { command: 'ssh host uptime' }, truncated: false, ...over }) as any
 export function putQ(over: Record<string, unknown> = {}) {
   const q = reqQ(over)
   pdirs.add(PROMPTS_DIR)

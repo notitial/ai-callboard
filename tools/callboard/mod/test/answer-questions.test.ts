@@ -166,7 +166,7 @@ test('prompts tools: prompt_list shows a question numbered inside the untrusted 
   h.store.set('answering', { scope: 'all', asks: false, asksScope: 'svc-api', savedAt: T0 })
   const t = said(await $.tool.call(pcall('prompt_list')))
   expect(t).toContain(`### ${TID}`)
-  expect(t).toContain('lane: svc-api · question · open 0 s')
+  expect(t).toContain('lane: svc-api · question · open 30 s')
   expect(t).toContain('<untrusted-input>')
   expect(t).toContain(QTEXT)
   expect(t).toContain('1. 3000: dev')

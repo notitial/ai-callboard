@@ -139,9 +139,10 @@ export async function promptStand($: any, p: { uid: number; root: string }, live
 }
 const WINDOWS_SEEN_MAX = 512
 
-// Whether a tier's window for a request has not opened. The first tier's window is the 30-second minimum itself, which the hook holds a decision for; refusing an
-// answer in it would only change what a lead sees, so only a later window refuses.
-const promptWindowShut = (q: pr.Request, s: Stand, sid: string, now: number): boolean => s.windows[sid] !== undefined && s.windows[sid] > q.at + pr.MIN_AGE_MS && now < s.windows[sid]
+// Whether a tier's window for a request has not opened. Every window is at least the 30-second minimum after the request (`tierWindows`), the first tier's included:
+// no tier is told, can list, answer, relay or pass up before then, so the person's first 30 seconds are theirs alone (the hook still holds what lands for 30 s awake).
+// A window that is missing or not a number reads as shut.
+const promptWindowShut = (s: Stand, sid: string, now: number): boolean => !(now >= s.windows[sid])
 
 // The tier's own context for the three tools: the lead steps every lead tool shares, the switch, the OFF file.
 async function promptTierCtx($: any, e: unknown, sid: string) {
@@ -229,6 +230,8 @@ async function promptListTool($: any, e: unknown): Promise<{ result: string } | 
   const now = await $.clock.now()
   const items: pr.ListItem[] = []
   const stands = new Map<string, { stand: Stand; self: pr.Tier }>()
+  // Requests in this tier's reach that are still in the person's first 30 seconds: counted, not shown.
+  let young = 0
   const open = (
     await promptRequests($, t.p, async (q, names, dir) => {
       if (names.has(`${q.id}.done`) || names.has(`${q.id}.decision.json`) || q.sid === sid) return false
@@ -236,6 +239,10 @@ async function promptListTool($: any, e: unknown): Promise<{ result: string } | 
       const self = stand.tiers.find((x) => x.sid === sid)
       // Not in reach, passed up, or blocked in its own question: not this tier's to see.
       if (!self || stand.passed[self.level] !== undefined || !stand.active.some((x) => x.sid === sid)) return false
+      if (!(now >= q.at + pr.MIN_AGE_MS)) {
+        young++
+        return false
+      }
       stands.set(q.id, { stand, self })
       return true
     })
@@ -244,10 +251,10 @@ async function promptListTool($: any, e: unknown): Promise<{ result: string } | 
     const q = f.req
     const s = stands.get(q.id)!
     const top = s.stand.top
-    const turn = pr.turnLine({ relay: s.stand.relay?.by, top: top?.sid === s.self.sid || top?.level === s.self.level, above: top, opensInSec: promptWindowShut(q, s.stand, sid, now) ? (s.stand.windows[sid] - now) / 1000 : undefined, question: q.tool === pr.QUESTION_TOOL })
+    const turn = pr.turnLine({ relay: s.stand.relay?.by, top: top?.sid === s.self.sid || top?.level === s.self.level, above: top, opensInSec: promptWindowShut(s.stand, sid, now) ? (s.stand.windows[sid] - now) / 1000 : undefined, question: q.tool === pr.QUESTION_TOOL })
     items.push({ id: q.id, lane: q.lane, tool: q.tool, repo: q.repo, raisedBy: q.raisedBy, ageSec: (now - q.at) / 1000, truncated: q.truncated, agentType: q.agentType, input: q.input, turn })
   }
-  return { result: pr.promptListText(items, { on: true, hint: await promptAnomalyHint($, t.p).catch(() => undefined) }) }
+  return { result: pr.promptListText(items, { on: true, young, hint: await promptAnomalyHint($, t.p).catch(() => undefined) }) }
 }
 
 // prompt_answer and prompt_escalate share their checks; `answer` false is the escalation: a tier that is not the top one passes the request up, the top one puts it
@@ -289,7 +296,7 @@ async function promptAnswerTool($: any, e: any, answer: boolean): Promise<{ resu
   if (answer) {
     if (pr.isDialog(q.tool)) return refuse('dialog')
     if (q.truncated && decision === 'allow') return refuse('truncated')
-    if (promptWindowShut(q, stand, sid, now)) return refuse('window')
+    if (promptWindowShut(stand, sid, now)) return refuse('window')
   }
   const cap = answer && decision === 'allow' ? pr.claudeCap(q.tool, q.input) : undefined
   if (cap && (await capOf($, t.p, cap)) !== 'ok') return refuse('cap')
@@ -325,8 +332,10 @@ async function promptAnswerTool($: any, e: any, answer: boolean): Promise<{ resu
     if (pick) return { result: `Recorded: answer ${pick.index + 1} for ${id}. The card stays open in front of the person and their click wins; your answer lands once the question has been open 30 seconds, as the offered label with "(answered by …)" after it. It is yours, not the person's, and carries no approval for anything else.` }
     return { result: `Recorded: ${decision} for ${id}. The dialog stays open in front of the person and their click wins; your answer lands once the prompt has been open 30 seconds. It is yours, not the person's, and carries no approval for anything else.` }
   }
-  // Escalation. Not the top tier: pass it up, and the next tier's window opens at once (the 30 seconds still bind).
+  // Escalation. Not the top tier: pass it up, and the next tier's window opens at once (the 30 seconds still bind). A tier passes a request up only once its own window
+  // has opened, like an answer or a relay, so the person's first 30 seconds are never skipped.
   if (self.level !== stand.top?.level) {
+    if (promptWindowShut(stand, sid, now)) return refuse('window')
     const path = `${dir}/${id}.escalate-${self.level}.json`
     const put = await promptLinkOnce($, path, pr.escalateText({ id, tier: 'up', why, at: now, level: self.level, sid }))
     if (put === 'exists') return refuse('escalated')
@@ -342,7 +351,7 @@ async function promptAnswerTool($: any, e: any, answer: boolean): Promise<{ resu
   // The top tier: the person decides. A decision already there blocks it; a truncated copy cannot be put to them.
   if (q.truncated) return refuse(isQ ? 'truncated-question' : 'truncated')
   if (names.has(`${id}.decision.json`) || (await statR($, `${dir}/${id}.decision.json`)) !== 'absent') return refuse('decided')
-  if (promptWindowShut(q, stand, sid, now)) return refuse('window')
+  if (promptWindowShut(stand, sid, now)) return refuse('window')
   const short = pr.shortOf(id)
   const path = `${dir}/${id}.relay.json`
   const put = await promptLinkOnce($, path, pr.relayText({ id, short, by: { level: self.level, sid, name }, at: now, nonce: q.nonce }))
@@ -424,8 +433,8 @@ export async function promptNoticeTick($: any, sid: string, submitsAtStart: numb
       const stand = await promptStand($, p, live, answering, o.dir, o.names, q)
       const self = stand.tiers.find((x) => x.sid === sid)
       if (!self || stand.passed[self.level] !== undefined || !stand.active.some((x) => x.sid === sid)) told.set(id, at + PROMPT_RECHECK_MS)
-      // A lead is told at once (its window is the 30-second minimum itself); a higher tier when its window opens (looked at again sooner, a pass-up opens it at once).
-      else told.set(id, self.level !== 'lead' && promptWindowShut(q, stand, sid, at) ? Math.min(stand.windows[sid], at + PROMPT_WINDOW_RECHECK_MS) : -1)
+      // Every tier is told when its window opens, the first one at 30 s too (looked at again sooner, a pass-up opens the next at once).
+      else told.set(id, promptWindowShut(stand, sid, at) ? Math.min(stand.windows[sid], at + PROMPT_WINDOW_RECHECK_MS) : -1)
     }
   }
   const mine = [...told].filter(([, v]) => v === -1).map(([id]) => id)
