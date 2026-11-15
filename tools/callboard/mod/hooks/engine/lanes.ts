@@ -158,8 +158,7 @@ export async function leadRun($: any, e: unknown, body: () => Promise<any>) {
   if (served && w) w.seen = w.told = w.cur
   const out = await body()
   // The lead acted on that lane itself (a served call that succeeded), so what the check-in saw of it starts over.
-  // A lead tool names its target by lead.
-  if (served && typeof out?.result === 'string' && OBS_CLEAR_TOOLS.includes(String((e as { tool?: unknown }).tool))) laneObs.get(sid)?.delete(String((e as { lane?: unknown; lead?: unknown }).lane ?? (e as { lead?: unknown }).lead))
+  if (served && typeof out?.result === 'string' && OBS_CLEAR_TOOLS.includes(String((e as { tool?: unknown }).tool))) laneObs.get(sid)?.delete(String((e as { lane?: unknown }).lane))
   if (!moved || !out) return out
   // A lane_list text ends in a table, so the note goes after a blank line, never on a table row.
   return typeof out.result === 'string' ? { ...out, result: `${out.result}${out.result.includes('\n| ') ? '\n\n' : ' '}${c.LANES_CHANGED_NOTE}` } : typeof out.deny === 'string' ? { ...out, deny: `${out.deny} ${c.LANES_CHANGED_NOTE}` } : out
@@ -986,7 +985,7 @@ export async function laneTable($: any, sid: string) {
   return { text }
 }
 
-const OBS_CLEAR_TOOLS = [...['terminate', 'retire', 'park', 'unpark', 'resume'].map((v) => `mcp__callboard__lane_${v}`), 'mcp__callboard__lead_resume']
+const OBS_CLEAR_TOOLS = ['terminate', 'retire', 'park', 'unpark', 'resume'].map((v) => `mcp__callboard__lane_${v}`)
 
 // ...then the lane's repo; an attached lane answers whichever lead holds the repo.
 async function leadPrep($: any, e: unknown, sid: string) {
@@ -1132,7 +1131,7 @@ export async function leadVerbCall($: any, e: any, next: any, verb: (typeof c.LE
       // The manager's and the conductor's lane_compact with a lead's name is lead_compact (engine/lead-tools.ts): a lead the conductor owns, any lead for the
       // manager behind the person's dialog.
       if (verb === 'compact' && (grantOf(sid)?.level === 'manager' || grantOf(sid)?.level === 'conductor')) {
-        const ld = await leadCompactTo($, e, sid, no)
+        const ld = await leadCompactTo($, e, sid, no, next)
         if (ld) return ld
       }
       let prep = await leadPrep($, e, sid)

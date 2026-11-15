@@ -1525,7 +1525,7 @@ export async function conductorReach($: any, sid: string): Promise<{ pins: strin
 }
 
 // ---- the conductor grant by dialog, its saved grant and restore, its tools ----
-// The conductor's four tools (three lane tools and lead_open), declared at its grant, then the three prompt tools (seven in all, c.CONDUCTOR_TOOLS). The handlers are the lead's (leadBase refuses every other lane tool at conductor level).
+// The conductor's six tools (three lane tools, lead_open and the two lead tools), declared at its grant, then the three prompt tools (nine in all, c.CONDUCTOR_TOOLS). The handlers are the lead's (leadBase refuses every other lane tool at conductor level).
 async function conductorTools($: any, sid: string) {
   if (conductorDeclared.has(sid)) return
   const lane = { type: 'object', properties: { lane: { type: 'string' } }, required: ['lane'] }
