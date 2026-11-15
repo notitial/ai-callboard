@@ -1,7 +1,9 @@
 'use strict'
 const vscode = require('vscode')
+const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
+const { buildId } = require('./build.js')
 const { createLanes } = require('./lanes.js')
 const { createSpool, allLanes, allLeads } = require('./spool.js')
 const { createRegistry } = require('./registry.js')
@@ -26,6 +28,15 @@ const primaryFolder = () => (vscode.workspace.workspaceFolders || []).slice(0, 1
 const liveIn = (repo) => (x) => x && typeof x.cwd === 'string' && (x.cwd === repo || x.cwd.startsWith(`${repo}/`)) && (!Number.isInteger(x.pid) || pidAlive(x.pid))
 
 function activate(context) {
+  // The version is fixed, so the build (the checkout's commit) tells a window that has loaded a pull from one that has not: Output > Callboard Panels.
+  // A diagnostic line must never stop the extension from starting.
+  try {
+    const log = vscode.window.createOutputChannel('Callboard Panels')
+    context.subscriptions.push(log)
+    log.appendLine(`callboard panels ${context.extension.packageJSON.version}, build ${buildId(fs.realpathSync(__dirname))}`)
+  } catch {
+    // no build line
+  }
   const lanes = createLanes({ vscode, registry, sleep: (ms) => new Promise((r) => setTimeout(r, ms)), now: Date.now,
     workspaceFolders: primaryFolder,
   })

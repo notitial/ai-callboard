@@ -47,19 +47,20 @@ start, any extension folder its `extensions.json` doesn't list, so the script al
 refuses to change anything while VS Code runs. Dry run, then apply:
 
 ```
-bash <checkout>/tools/callboard/link-extension.sh
+/usr/bin/python3 -I <checkout>/tools/callboard/link-extension.py
 ```
 
 ```
-bash <checkout>/tools/callboard/link-extension.sh --apply
+/usr/bin/python3 -I <checkout>/tools/callboard/link-extension.py --apply
 ```
 
 - It links `~/.vscode/extensions/notitial.callboard-panels-<version>` to `<checkout>/tools/callboard/extension`,
   with the version from `extension/package.json`, and writes one entry for it into
   `~/.vscode/extensions/extensions.json` (no `metadata`, which keeps VS Code from deleting through the link). It
   replaces this id's other entries, and clears this id's keys in `.obsolete`. The first old copy of each file is kept as
-  `extensions.json.callboard.bak` and `.obsolete.callboard.bak` (delete a backup to have it written again). Run it again after a version bump: it makes the new
-  link and entry and removes the old ones.
+  `extensions.json.callboard.bak` and `.obsolete.callboard.bak` (delete a backup to have it written again).
+- The extension's version stays fixed, so you run this once per machine, not at each update (see Updating). Run it
+  again only when the version is bumped: it makes the new link and entry and removes the old ones.
 - With VS Code open, the dry run says so and `--apply` refuses when something would change. A run with nothing to
   change is fine while VS Code is open. It also repairs a link that has no entry.
 - It refuses, and names the entry, when a real folder or a link to anywhere else sits under a
@@ -252,7 +253,7 @@ ai-toolkit's `/setup-claude` and `/cleanup-claude` leave everything in this guid
 - **Settings.** `/setup-claude` never alters an `env` key outside its template and never removes a deny entry or a
   custom hook, and adds ask entries without ever removing one. `/cleanup-claude` removes only entries its template
   lists. So the `CLAUDE_CODE_PLUGIN_DIRS` line, the deny and ask lines and the SessionStart hook survive both.
-- **Installed files.** Neither touches the panels extension link or the usage-watcher job. `link-extension.sh
+- **Installed files.** Neither touches the panels extension link or the usage-watcher job. `link-extension.py
   --remove --apply` takes the link and its entry off.
 
 ## 4. Start the manager
@@ -285,7 +286,7 @@ lane or a live lead carries cannot be reserved. Details: callboard README, The m
 | Origin | `git -C <checkout> remote get-url origin` | `https://github.com/notitial/ai-manager.git` |
 | Old install gone | `ls /usr/local/libexec/callboard` | No such file or directory |
 | Panels extension | `ls -l ~/.vscode/extensions \| grep callboard-panels` | one link, to `<checkout>/tools/callboard/extension` |
-| Panels entry | `bash <checkout>/tools/callboard/link-extension.sh` | it prints `already linked` and no `DRY:` line |
+| Panels entry | `/usr/bin/python3 -I <checkout>/tools/callboard/link-extension.py` | it prints `already linked` and no `DRY:` line |
 | Default load | type `! echo $CLAUDE_CODE_PLUGIN_DIRS` in a new session | `<checkout>/tools/callboard/mod` |
 | Mod loaded | type `/callboard status` in a session | it answers a status table with a `Lane` row (`NONE`) and a `Lead` row (`OFF`) or similar |
 | Reserved names | type `/callboard reserve` | the manager's name, when it is not `MANAGER`, is listed |
@@ -333,8 +334,12 @@ git -C <checkout> -c core.hooksPath=/dev/null -c core.fsmonitor=false merge --ff
 Other settings in the checkout's own config still apply (for example a `url.<base>.insteadOf` that rewrites the
 fetch), which is why the commit check and the read diff are the guard. The merge is callboard's update, and the rule
 link follows the checkout too, so a change to `tools/callboard/` or `rules/` reaches every session: never install a
-commit you haven't read. After a callboard update, when the extension's version changed: quit VS Code (Cmd+Q), merge
-as above, run `link-extension.sh --apply` in a plain Terminal, then reopen VS Code. Restart every session, and restart every conductor session before it calls `lead_open`: from extension 1.3.0 the answer to a lead open carries a nonce, which a conductor still on the older mod refuses (the panel opens, but the conductor is told the open failed). For the usage watcher, run
+commit you haven't read. After a callboard update, reload each VS Code window (Command Palette, Developer: Reload Window): the
+extension's version is fixed, so the link stays and the reload loads the new code from the checkout. Output > Callboard
+Panels shows the build it loaded (the checkout's commit). Only when `extension/package.json` itself changed
+(`activationEvents`, `engines`, `extensionDependencies`, `main`) is the version bumped, because VS Code caches the
+manifest: then quit VS Code (Cmd+Q), merge as above, run `link-extension.py --apply` in a plain Terminal, then reopen
+VS Code. Restart every session, and restart every conductor session before it calls `lead_open`: from extension 1.3.0 the answer to a lead open carries a nonce, which a conductor still on the older mod refuses (the panel opens, but the conductor is told the open failed). For the usage watcher, run
 its installer again with the new `--ref`.
 
 ## The guided way

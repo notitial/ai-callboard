@@ -1593,7 +1593,7 @@ export const REASON_TEXT: Record<string, string> = {
   'grant-unsaved': 'the lead could not refresh its saved lead grant, so it could not be reopened as a lead later. Nothing was sent; retry in a moment.',
   'not-parked': 'that lead is not parked. Nothing was sent.',
   'park-expired': 'that lead was parked more than 28 days ago, and its saved lead grant would no longer restore it. Nothing was sent. The person can resume that conversation by hand and type /callboard lead, then /callboard lead join.',
-  'lead-reopen-unknown-lane': 'the panels extension does not know lead records: it must be version 1.4.0 or later (relink it with tools/callboard/link-extension.sh). Nothing was opened.',
+  'lead-reopen-unknown-lane': 'the panels extension does not know lead records: it must be version 1.4.0 or later (reload the VS Code window after a pull, or run tools/callboard/link-extension.py once if the link is older). Nothing was opened.',
   other: 'the session refused for a reason not shown here. Check it before sending another cue.',
 }
 // Whether a table has its own entry for a code (a code such as `constructor` is not one).
@@ -1714,7 +1714,7 @@ export const REOPEN_TEXT_BY_CODE: Record<string, string> = {
 }
 
 // nonce: the nonce of the lead request this answer is for. An answer that carries a nonce must carry that one; one with none is taken too, because an extension
-// that has not been relinked yet answers a lead request with `ok <sid>` alone.
+// that has not loaded the newer code yet answers a lead request with `ok <sid>` alone.
 export function parseOpenResult(text: string, table: Record<string, string> = OPEN_TEXT_BY_CODE, nonce?: string): { ok: true; sid: string } | { ok: false; reason: string } {
   const m = /^(?:ok ([0-9a-f-]{36})(?: ([0-9a-f]{32}))?|error ([a-z-]{1,20}))\n$/.exec(text)
   if (!m) return { ok: false, reason: 'bad-result' }

@@ -103,4 +103,22 @@ and a version bump left the entry out of step.
   the entry. Settings Sync is not verified: a synced removal of an old version could unlist the extension on another
   Mac, so the docs suggest `settingsSync.ignoredExtensions` as a hand edit; the script changes no setting.
 
+## Amendment (2026-11-15): the extension's version is fixed
+
+The extension's version no longer changes with each update, and `link-extension.sh` is now `link-extension.py`, one
+Python file run with `/usr/bin/python3 -I`. This replaces the version-in-the-link-name consequence above.
+
+- **A pull plus a window reload is the update.** VS Code (checked in 1.146.0) loads an extension's code from its folder
+  at each start of the extension host, so the link into the checkout serves new code under an unchanged version. The
+  script runs once per machine.
+- **The manifest is the exception.** VS Code reuses its cached manifests (`CachedProfilesData/*/extensions.user.*.cache`)
+  while the mtime of `extensions.json` and its own build are unchanged, so a change to `package.json` is not seen
+  under a fixed version. Such a change bumps the version, and the person runs the script once more: it replaces the old
+  link and entry.
+- **Which build runs.** The extension writes `callboard panels <version>, build <commit> (<branch>)`, read from the
+  checkout's `.git` as plain files, to Output > Callboard Panels at each start.
+- **The script's checks are the same** (what it refuses, and where it writes), with two reads gone: the read of the
+  registry after the write, and the read the old write step made again after the VS Code check. The write is an atomic
+  rename of the bytes planned from one read, a moment earlier; the VS Code check refuses and never waits.
+
 *Note 2026-11-14: the six checkout `Edit` deny lines under Permission rules are no longer asked for. ai-toolkit's protected-paths hook with the `.protected-checkout` marker denies agent writes to the live checkout, so `docs/setup.md` and `/setup-manager` drop them. The two store and list-file denies stay.*
