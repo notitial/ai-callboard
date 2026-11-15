@@ -97,9 +97,11 @@ export const pdirs = new Set<string>()
 // The usage folder (usage.ts) is kept in the same file fake.
 export const USAGE_DIR = '/Users/x/.claude/callboard/usage'
 export const OFFERS_DIR = '/Users/x/.claude/callboard/offers'
+// The go folder (engine/go.ts) too.
+export const GO_DIR = '/Users/x/.claude/callboard/go'
 // The person's settings file and the protected-checkout markers are private files of the test machine too (the escalation default's guard reads them).
 export const SETTINGS_FILE = '/Users/x/.claude/settings.json'
-const isPromptPath = (p: unknown) => typeof p === 'string' && (p === PROMPTS_DIR || p.startsWith(`${PROMPTS_DIR}/`) || p === USAGE_DIR || p.startsWith(`${USAGE_DIR}/`) || p === OFFERS_DIR || p.startsWith(`${OFFERS_DIR}/`) || p === SETTINGS_FILE || p.endsWith('/.protected-checkout'))
+const isPromptPath = (p: unknown) => typeof p === 'string' && (p === PROMPTS_DIR || p.startsWith(`${PROMPTS_DIR}/`) || p === USAGE_DIR || p.startsWith(`${USAGE_DIR}/`) || p === OFFERS_DIR || p.startsWith(`${OFFERS_DIR}/`) || p === GO_DIR || p.startsWith(`${GO_DIR}/`) || p === SETTINGS_FILE || p.endsWith('/.protected-checkout'))
 function promptList(path: string) {
   const pre = path.endsWith('/') ? path : `${path}/`
   const names = new Map<string, { kind: string; size: number; mtimeMs: number }>()
@@ -907,7 +909,7 @@ export function engine(on0: any, argvSeen: string[][], stdins: string[] = [], cl
     }
     if (a[0] === '/usr/bin/shasum' && h.shaFailsFor?.(typeof e.init?.stdin === 'string' ? e.init.stdin : '')) return ok('', 1)
     if (a[0] === '/usr/bin/shasum' && h.recShaFails && typeof e.init?.stdin === 'string' && e.init.stdin.startsWith('LABLANE\n')) return ok('', 1)
-    if (a[0] === '/usr/bin/shasum') return ok(`${typeof e.init?.stdin === 'string' && (e.init.stdin.startsWith('LABLANE\n') || e.init.stdin.startsWith('lead-record\n') || e.init.stdin.startsWith('lead-watch\n') || /^(ok|bad|absent)\n/.test(e.init.stdin) || e.init.stdin.includes('\nadopted\n')) ? fakeSha(e.init.stdin) : e.init?.stdin === '/Users/x/code/app2' ? 'b'.repeat(64) : e.init?.stdin === '/Users/x/code/cond' ? 'c'.repeat(64) : e.init?.stdin === '/data/x/work' ? 'd'.repeat(64) : 'a'.repeat(64)}  -\n`)
+    if (a[0] === '/usr/bin/shasum') return ok(`${typeof e.init?.stdin === 'string' && (e.init.stdin.startsWith('LABLANE\n') || e.init.stdin.startsWith('lead-record\n') || e.init.stdin.startsWith('lead-watch\n') || e.init.stdin.startsWith('{"v":1,"id":"') || /^(ok|bad|absent)\n/.test(e.init.stdin) || e.init.stdin.includes('\nadopted\n')) ? fakeSha(e.init.stdin) : e.init?.stdin === '/Users/x/code/app2' ? 'b'.repeat(64) : e.init?.stdin === '/Users/x/code/cond' ? 'c'.repeat(64) : e.init?.stdin === '/data/x/work' ? 'd'.repeat(64) : 'a'.repeat(64)}  -\n`)
     if (a[0] === '/usr/bin/install') installed.add(a[a.length - 1])
     if (a[0] === '/usr/bin/tee' && a[1] === '--' && typeof e.init?.stdin === 'string') teeTexts.set(a[2], e.init.stdin)
     const last = a[a.length - 1]

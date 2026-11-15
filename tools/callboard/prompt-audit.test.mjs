@@ -1405,3 +1405,83 @@ test('i: --records that cannot be read is a problem (exit 2); a linked or broken
   assert.match(p, /e{64}\.json: not a lead record file/)
   assert.match(p, /f{64}\.json: a symlink/)
 })
+
+// ---- the go (ADR 0009) ----
+const GOID = uid(900)
+const goFile = (fx, id, over = {}) => {
+  const dir = join(fx.d, 'go')
+  mkdirSync(dir, { recursive: true })
+  const body = JSON.stringify({ v: 1, id, by: { level: 'lead', sid: SID, name: 'LEAD', repo: '/Users/x/api' }, at: BASE, ends: NOW + 3600_000, text: 'Build the API.', covered: [], nonce: '0'.repeat(32), ...over })
+  writeFileSync(join(dir, `${id}.json`), body)
+  return createHash('sha256').update(body).digest('hex')
+}
+const GOGRANT = (id, hash, f = {}) => R('go-grant', BASE, { id, by: SID, tier: 'lead', hash, end: iso(NOW + 3600_000), repo: '/Users/x/api', lane: 'LEAD', ...f })
+
+test('j: a go whose file and go-grant row agree raises nothing, is no request, and is listed with its text and its readers', () => {
+  const fx = fixture()
+  const hash = goFile(fx, GOID)
+  ledger(fx, [ON(), GOGRANT(GOID, hash), R('go-read', BASE + 1000, { id: GOID, by: uid(31), code: 'later', lane: 'API' })])
+  const rep = run(fx)
+  assert.deepEqual(rules(rep), [])
+  assert.equal(rep.scanned.goFiles, 1)
+  assert.equal(rep.scanned.requests, 0)
+  assert.deepEqual(rep.goes, [{ id: GOID, t: iso(BASE), by: SID, lane: 'LEAD', repo: '/Users/x/api', end: iso(NOW + 3600_000), state: 'live', text: 'Build the API.', readers: [{ t: iso(BASE + 1000), by: uid(31), lane: 'API', code: 'later' }] }])
+  const text = render(rep)
+  assert.match(text, /GOES/)
+  assert.match(text, /text: Build the API\./)
+  assert.match(text, new RegExp(`read by: API \\(${uid(31)}, later\\)`))
+  // With no go folder there are no go files, and no go section when no go was given.
+  const bare = fixture()
+  ledger(bare, [ON()])
+  assert.equal(run(bare).scanned.goFiles, 0)
+  assert.doesNotMatch(render(run(bare)), /GOES/)
+})
+
+test('j: a go file with no go-grant row, or whose bytes do not hash to its row, is an anomaly', () => {
+  const fx = fixture()
+  goFile(fx, GOID)
+  ledger(fx, [ON()])
+  assert.deepEqual(rules(run(fx)), ['go-file-no-row'])
+  ledger(fx, [ON(), GOGRANT(GOID, H('b'))])
+  assert.deepEqual(rules(run(fx)), ['go-file-no-row'])
+  const hash = goFile(fx, GOID)
+  ledger(fx, [ON(), GOGRANT(GOID, hash)])
+  assert.deepEqual(rules(run(fx)), [])
+  goFile(fx, GOID, { text: 'Anything at all.' })
+  assert.deepEqual(rules(run(fx)), ['go-file-no-row'])
+})
+
+test('j: a go-grant row with its end ahead, no go-end row and no file is an anomaly; an ended or expired one is not', () => {
+  const fx = fixture()
+  mkdirSync(join(fx.d, 'go'))
+  ledger(fx, [ON(), GOGRANT(GOID, H('a'))])
+  const rep = run(fx)
+  assert.deepEqual(rules(rep), ['go-row-no-file'])
+  assert.equal(rep.goes[0].text, null)
+  assert.match(render(rep), /text: \(no go file\)/)
+  for (const code of ['off', 'void', 'grantor-off', 'expired']) {
+    ledger(fx, [ON(), GOGRANT(GOID, H('a')), R('go-end', BASE + 5000, { id: GOID, code })])
+    const ended = run(fx)
+    assert.deepEqual(rules(ended), [], code)
+    assert.match(ended.goes[0].state, new RegExp(`^ended \\(${code},`))
+  }
+  ledger(fx, [ON(), GOGRANT(GOID, H('a'), { end: iso(NOW - 1000) })])
+  assert.deepEqual(rules(run(fx)), [])
+  assert.equal(run(fx).goes[0].state, 'ended (end time)')
+})
+
+test('j: --goes that cannot be read is a problem (exit 2); a linked go file is a problem and is not read', () => {
+  const fx = fixture()
+  ledger(fx, [ON()])
+  const missing = join(fx.d, 'nope')
+  const rep = run(fx, { goes: missing, goesExplicit: true })
+  assert.match(rep.problems.join('\n'), /--goes/)
+  assert.equal(rep.scanned.goFiles, null)
+  const cli = spawnSync(process.execPath, [SCRIPT, '--root', fx.root, '--projects', fx.projects, '--goes', missing], { encoding: 'utf8' })
+  assert.equal(cli.status, 2)
+  goFile(fx, GOID)
+  symlinkSync(join(fx.d, 'go', `${GOID}.json`), join(fx.d, 'go', `${uid(901)}.json`))
+  const linked = run(fx)
+  assert.match(linked.problems.join('\n'), /goes: .*\.json: a symlink, not read/)
+  assert.deepEqual(rules(linked), ['go-file-no-row'])
+})

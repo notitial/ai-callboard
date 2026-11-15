@@ -43,6 +43,10 @@ single tool.
 - **Every go is the person's**, typed in the session that executes it: push, PR, merge, install, control change,
   destructive step. A relayed go is never a go. This is ai-toolkit's rule for relayed authorizations
   (https://github.com/notitial/ai-toolkit/blob/main/rules/workflow.md), applied to every go the manager could pass on.
+  *Amended 2026-11-15 ([ADR 0009](0009-go-given-once.md)):* a go the person gives in callboard's own go dialog, in a
+  lead's session, counts in that lead's lanes for the work it names; they read it with `go_status`. The manager
+  gives no go and never passes one on in its own words. A lane's question that asks for a go goes through the mod's
+  relay at whichever tier relays, the manager included.
 - **Writes** only its own state under `.archive/manager/` and its memory. No code, docs, settings, hooks or lock state.
 
 **The grant.** `/callboard manager [NAME]` asks the person in a dialog. NAME must be one of callboard's reserved
