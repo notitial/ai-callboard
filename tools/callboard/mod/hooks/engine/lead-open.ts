@@ -42,7 +42,7 @@ export async function leadOpenCall($: any, e: any, next: any) {
 }
 
 async function openLead($: any, e: any, sid: string, base: { live: RegRow[]; lanes: c.Lane[]; g: c.Grant }, no: (reason: string, why: string) => Promise<{ deny: string }>) {
-  const a = c.leadOpenArgs({ repo: e.repo, name: e.name, task: e.task, model: e.model })
+  const a = c.leadOpenArgs({ repo: e.repo, name: e.name, task: e.task, model: e.model, job: e.job })
   if (!a.ok) return no(a.reason, c.reasonWhy(a.reason))
   const p = await where($)
   if (!p) return no('no-paths', 'no-paths')
@@ -110,7 +110,9 @@ async function openLead($: any, e: any, sid: string, base: { live: RegRow[]; lan
   }
   if ('deny' in r) return r
   // The panel is open. The brief comes first: with none the new lead has nothing to read, so no cue goes and the offer is voided. None of what follows throws out.
-  const wb = await writeBrief($, p.uid, c.briefPath(repo, a.name), c.leadBriefHead(a.name), c.leadBriefText(a.name, a.task)).catch(() => 'brief-write')
+  // A job (job: true) gets the job paragraph before its task; the offer, the record and everything after are the same as for any lead.
+  const brief = a.job ? c.leadJobBriefText(a.name, a.task) : c.leadBriefText(a.name, a.task)
+  const wb = await writeBrief($, p.uid, c.briefPath(repo, a.name), c.leadBriefHead(a.name), brief).catch(() => 'brief-write')
   if (wb) return fail('brief-write', c.leadNotGrantedText(a.name, r.sid, `its brief could not be written (${wb}).`))
   // The nonce is kept for conductorGrantCheck: a grant that names this conductor and carries a nonce it never offered is told to the person.
   const kept = (condOffers.get(sid) ?? []).filter((o) => now - o.at < c.COND_OFFERS_KEEP_MS)
