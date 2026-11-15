@@ -403,7 +403,7 @@ for (const [name, close] of [
   })
 }
 
-test('prompts hold: the person answers the relay question first: the hold ends with no deny, and the light link lands the decision as it always did', async ($, on) => {
+test('prompts hold: the person answers the relay question first: the hold ends with no deny, and the light link lands the decision', async ($, on) => {
   await relayFixture($, on)
   const q = relayQ(TID)
   const r = await holdRelay($, [q], [at(12_000, async () => { await $.classic.PostToolUse(askPost([q], { [q.question]: 'Yes' })) })])
@@ -447,20 +447,35 @@ test('prompts hold: a tier that does not ask again after a withdrawal leaves the
   expect(rowKinds()).toEqual(['relay-closed', 'relay-left'])
 })
 
-test('prompts hold: the turn\'s end stops the hold (a dismissal fires no hook): no deny, and the relay is left as before', async ($, on) => {
+test('prompts hold: the turn\'s end stops the hold (a dismissal fires no hook): no deny, and the relay is left', async ($, on) => {
   await relayFixture($, on)
   const r = await holdRelay($, [relayQ(TID)], [at(12_000, async () => { await $.turn.complete(TURN as any) })])
   expect(r ?? {}).toEqual({})
   expect(rowKinds()).toEqual(['relay-left'])
 })
 
-test('prompts hold: a relay-closed row that cannot be written withdraws nothing: the question stays with the person and its marks stay', async ($, on) => {
-  await relayFixture($, on)
-  h.pfsFails = (a) => a[0] === '/usr/bin/tee' && a.includes(LEDGER_FILE)
-  const r = await holdRelay($, [relayQ(TID)], [at(12_000, () => { pfs.delete(`${LDIR()}/${TID}.request.json`) })])
-  expect(r ?? {}).toEqual({})
-  expect(pfs.has(`${LDIR()}/${TID}.asked`)).toBe(true)
-  expect(pfs.has(ASKING)).toBe(true)
+test('prompts hold: while a relay-closed row cannot be written nothing is withdrawn and the marks stay; once it can, the question is withdrawn with one row per relay', async ($, on) => {
+  await relayFixture($, on, [TID, TID2])
+  let fails = 0
+  h.pfsFails = (a) => a[0] === '/usr/bin/tee' && a.includes(LEDGER_FILE) && h.nowMs - T0 < 40_000 && ++fails > 0
+  const r = await holdRelay($, [relayQ(TID), relayQ(TID2)], [
+    at(12_000, () => { pfs.delete(`${LDIR()}/${TID}.request.json`); pfs.delete(`${LDIR()}/${TID2}.request.json`) }),
+    at(30_000, () => { expect(pfs.has(`${LDIR()}/${TID}.asked`)).toBe(true); expect(pfs.has(ASKING)).toBe(true); expect(rowKinds()).toEqual([]) }),
+  ])
+  expect(fails).toBeGreaterThan(1)
+  expect(r).toEqual(denyOf([SHORT, TID2.slice(0, 8)]))
+  expect(closedRows().map((x) => x.id).sort()).toEqual([TID, TID2].sort())
+  expect(pfs.has(ASKING)).toBe(false)
+})
+
+test('prompts hold: a relay whose request had already closed when the question was asked is not watched: alone it starts no hold, and beside an open relay only that one can withdraw the call', async ($, on) => {
+  await relayFixture($, on, [TID, TID2])
+  putFile(`${TID}.done`)
+  expect((await $.classic.PermissionRequest({ tool_name: 'AskUserQuestion', tool_input: { questions: [relayQ(TID)] } } as any)) ?? {}).toEqual({})
+  expect(rowKinds()).toEqual([])
+  const r = await holdRelay($, [relayQ(TID), relayQ(TID2)], [at(22_000, () => { expect(rowKinds()).toEqual([]); pfs.delete(`${LDIR()}/${TID2}.request.json`) })])
+  expect(r).toEqual(denyOf([TID2.slice(0, 8)]))
+  expect(closedRows().map((x) => x.id)).toEqual([TID2])
 })
 
 test('prompts hold: a poll that cannot wait ends the hold with no deny', async ($, on) => {

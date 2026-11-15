@@ -50,7 +50,7 @@ import { homeOf, LEAD_RESTORE_TRIES, regEntry, cfgGet, leadBusy } from './grants
 import { reportLaneOf, reportTargetOf, reportStat, retireReportCheck, sessionRoot, undoLate, detach, keepLaneFacts, briefLane } from './lanes.ts'
 import type { Bound } from './lanes.ts'
 import { ensureTimer } from './tick.ts'
-import { promptDone, promptRelayPost, promptAskingClear, promptRelayTurnEnd } from './answer-hook.ts'
+import { promptDone, promptRelayPost, promptRelayHoldEnd, promptAskingClear, promptRelayTurnEnd } from './answer-hook.ts'
 import { promptMidTurnNotice, promptMidFallback } from './answer-tiers.ts'
 import { getCounters, getInteractive, getLane, getNudgeDue, getNudgedAt, getOrderedAt, getPingAt, getRealEnd, getRequest, getRest, getTurnEnd, setCounters, setLane, setLastTurn, setNudgeDue, setNudgedAt, setOrderedAt, setPingAt, setRealEnd, setRequest, setRest, setTurnEnd } from '../state.ts'
 
@@ -405,8 +405,9 @@ async function midTurnFallback($: any, sid: string) {
   await recordNudge($, sid, 'threshold', await $.clock.now(), read.version, false, true)
 }
 
-// The PostToolUse and PostToolUseFailure hook: the prompt answering's done mark (doneHook), then the mid-turn nudge and the lead's mid-turn prompt notice added to the result's additionalContext.
+// The PostToolUse and PostToolUseFailure hook: the end of a held relay question, the prompt answering's done mark (doneHook), then the mid-turn nudge and the lead's mid-turn prompt notice added to the result's additionalContext.
 export async function postToolHook($: any, e: any, next: any): Promise<any> {
+  await promptRelayHoldEnd($, e).catch(() => undefined)
   await promptDone($, e).catch(() => undefined)
   const r = await next(e)
   // Two texts, never one merged: the nudge, then the notice. Each path claims its own before it returns the text.

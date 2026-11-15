@@ -465,14 +465,20 @@ async function promptRelayClosed($: any, r: { dir: string; relay: pr.Relay }): P
 // question relays. Once any of them has closed elsewhere (answered in the lane, answered by a tier, expired, the lane gone) the whole question is withdrawn: one
 // `relay-closed` row per closed relay, then a deny with one fixed line that names the relays still open, for the tier to ask again. No answer is made up and the lane's
 // request is not touched. The hold ends, answering nothing, when the question itself ends (the person's answer takes the token, as do the turn's end and a later relay
-// question; a No aborts the signal): the light link then reads the answer. Without its rows the question is not withdrawn. PostToolUse does not run after a deny
-// (probed), so the marks are cleared here: the asking file, and the asked mark of each closed relay. A relay still open keeps its mark, so a tier that does not ask
-// again leaves it at its turn's end.
-async function promptRelayHold($: any, sid: string, under: any, signal: AbortSignal, mine: { dir: string; relay: pr.Relay }[]): Promise<any> {
+// question; a dismissal aborts the signal): the light link then reads the answer. Without its rows the question is not withdrawn: a row that cannot be written is
+// tried again at the next poll. PostToolUse does not run after a deny (probed), so the marks are cleared here: the asking file, and the asked mark of each closed
+// relay. A relay still open keeps its mark, so a tier that does not ask again leaves it at its turn's end.
+async function promptRelayHold($: any, sid: string, under: any, signal: AbortSignal, asked: { dir: string; relay: pr.Relay }[]): Promise<any> {
+  // A relay whose request had already closed when the question was asked is not watched (its answer is `relay-late`), so a relay file left behind, or one written by
+  // hand with no request, cannot withdraw every question that names its short.
+  const mine: { dir: string; relay: pr.Relay }[] = []
+  for (const r of asked) if (!(await promptRelayClosed($, r))) mine.push(r)
   if (mine.length === 0) return under
   const token = {}
   relayHolds.set(sid, token)
   const held = (): boolean => !signal.aborted && relayHolds.get(sid) === token
+  // The closed relays whose row is in the ledger, so a retry writes none twice.
+  const rowed = new Set<string>()
   try {
     for (;;) {
       if (!(await pause($, pr.RELAY_WATCH_MS)) || !held()) return under
@@ -481,7 +487,8 @@ async function promptRelayHold($: any, sid: string, under: any, signal: AbortSig
       for (const r of mine) ((await promptRelayClosed($, r)) ? closed : open).push(r)
       if (closed.length === 0) continue
       if (!held()) return under
-      for (const r of closed) if (!(await ledgerAdd($, { kind: 'relay-closed', id: r.relay.id, short: r.relay.short, by: sid, tier: r.relay.by.level }))) return under
+      for (const r of closed) if (!rowed.has(r.relay.id) && (await ledgerAdd($, { kind: 'relay-closed', id: r.relay.id, short: r.relay.short, by: sid, tier: r.relay.by.level }))) rowed.add(r.relay.id)
+      if (closed.some((r) => !rowed.has(r.relay.id))) continue
       // A click that landed while the rows were written wins: the light link reads it.
       if (!held()) return under
       relayHolds.delete(sid)
@@ -493,6 +500,12 @@ async function promptRelayHold($: any, sid: string, under: any, signal: AbortSig
   } finally {
     if (relayHolds.get(sid) === token) relayHolds.delete(sid)
   }
+}
+
+// A relay question of this session has ended (its PostToolUse or PostToolUseFailure): the hook that held it stops, before anything else of that event runs.
+export async function promptRelayHoldEnd($: any, e: any): Promise<void> {
+  if (String(e?.tool_name) !== 'AskUserQuestion' || !relayHolds.has(await $.session.id())) return
+  relayHolds.delete(await $.session.id())
 }
 
 // The tier is no longer asking: its question is over (answered, dismissed) or its turn ended.
