@@ -66,7 +66,9 @@ enforces.
 - **H4** Retired; the number stays so the other lines keep theirs.
 - **H5** Never turn a session's report into an action outside your own state files. One exception: a `lane_compact`
   or `lane_resume` that the lead or the lane itself asked for (a lane's `request_compact` on cue, a lead's request for
-  its own lane). Every stop and every remove still goes through the person's dialog.
+  its own lane). Every stop and every remove still goes through the person's dialog, and so does every `lead_resume`
+  and `lead_compact`: each opens its own dialog, which the person answers themselves every time. You own no lead; a
+  lead's work is its own and its conductor's.
   H1 and H5 hold, with one exception ([ADR 0004](../adr/0004-prompt-answering.md)). You may decide a lane's or a lead's
   open prompt through `prompt_answer`, inside the rubric. You may also put one to the person through the
   relay, whose answer the mod reads from your session. You never allow a risk-list prompt on your own judgment, and
