@@ -938,7 +938,7 @@ export const OFF_YES = 'Turn off'
 export const OFF_NO = 'Cancel'
 
 // The chip above each dialog (the engine allows 12 characters), so the person sees which feature is asking.
-export const HEADER = { enable: 'Callboard', lead: 'Enable Lead', restore: 'Restore Lane', stop: 'Stop Lane', attach: 'Join Lane', manager: 'Manager', conductor: 'Conductor' } as const
+export const HEADER = { enable: 'Callboard', lead: 'Enable Lead', restore: 'Restore Lane', stop: 'Stop Lane', attach: 'Join Lane', manager: 'Manager', conductor: 'Conductor', stopLead: 'Stop Lead' } as const
 
 // Where a /callboard command came from, as fixed codes and words; never a plugin's own name or text.
 export type OriginCode = 'prompt' | 'phone' | 'plugin' | 'session' | 'other'
@@ -1570,6 +1570,9 @@ export const REASON_TEXT: Record<string, string> = {
   'lead-has-live-lanes': 'that lead has lanes with a live session. Nothing was sent: a lead is parked only once its lanes are parked, retired or stopped.',
   'lead-has-lanes': 'lane records still name that lead. Nothing was sent: retire or remove its lanes first; a lead is retired only once none is left.',
   'grant-unsaved': 'the lead could not refresh its saved lead grant, so it could not be reopened as a lead later. Nothing was sent; retry in a moment.',
+  'not-parked': 'that lead is not parked. Nothing was sent.',
+  'park-expired': 'that lead was parked more than 28 days ago, and its saved lead grant would no longer restore it. Nothing was sent. The person can resume that conversation by hand and type /callboard lead, then /callboard lead join.',
+  'lead-reopen-unknown-lane': 'the panels extension does not know lead records: it must be version 1.4.0 or later (relink it with tools/callboard/link-extension.sh). Nothing was opened.',
   other: 'the session refused for a reason not shown here. Check it before sending another cue.',
 }
 // Whether a table has its own entry for a code (a code such as `constructor` is not one).
