@@ -73,6 +73,11 @@ role file and the callboard briefing change with it when those tools ship.
   never unattended.
   *2026-11-15 ([ADR 0007](0007-conductor-owns-leads.md), proposed): the exception also covers `lead_terminate` and
   `lead_retire` at manager reach, each through its own dialog on the same terms.*
+  *Amended 2026-11-15 ([ADR 0007](0007-conductor-owns-leads.md), the lead stop tools): the exception names
+  `lead_park`, `lead_unpark`, `lead_retire` and `lead_terminate`. The briefing and the role file now read: "One
+  exception: a callboard `lane_terminate` or `lane_retire` at manager reach, or a callboard `lead_park`, `lead_unpark`,
+  `lead_retire` or `lead_terminate`, only through its own dialog, which the person answers themselves every time;
+  never unattended."*
 - **H3** Reach lanes only through the `lane_*` tools; never type into a lane's session. Message only leads and the
   plain sessions the person names, never a dispatched worker. The one exception: the runaway stop message below.
 - **H4** Never write under the dispatch spool, or any file a dispatch tool reads.
