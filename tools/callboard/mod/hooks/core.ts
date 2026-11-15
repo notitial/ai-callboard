@@ -1508,7 +1508,7 @@ export const REASON_TEXT: Record<string, string> = {
   // The call was cut off while it waited (its time ran out, or the person interrupted).
   abandoned: 'the call was cut off while it waited, so it stopped. No signal was sent. Retry once.',
   // And remove (with no live session, after a dialog).
-  'manager-tool': 'the manager may only list, resume, compact, force stop and retire lanes.',
+  'manager-tool': 'the manager may only list, resume, compact, force stop and retire lanes, and resume and compact leads.',
   'lane-or-lead': 'a lane and a live lead both carry that name, so it is not clear which one is meant. Nothing was sent.',
   'manager-holder': 'this session is the manager, so it cannot be a lane or a lead. Run /callboard off first.',
   // A session that was the manager is never made a lead; a manager's stop never reaches a lead's or a manager's session, nor a
@@ -1520,7 +1520,7 @@ export const REASON_TEXT: Record<string, string> = {
   'lane-after-manager': 'this session was the manager, so it cannot be a lane until it restarts. Make the lane in a new session.',
   // lane_retire on a lane no live session carries.
   // The conductor level.
-  'conductor-tool': 'the conductor may only list lanes, compact leads and lanes, and force stop a lane.',
+  'conductor-tool': 'the conductor may only list lanes, compact leads and lanes, force stop a lane, open a lead, and resume and compact the leads it owns.',
   'conductor-list': "none of the conductor's repos is in reach now (its list file is unreadable, or lists no repo it may reach). Ask the person to run /callboard conductor.",
   'not-conductor': 'lead_open is a conductor tool.',
   'config-unreadable': 'the settings could not be read, so the person\'s conductor-leads switch cannot be checked. Retry in a moment.',
@@ -2458,7 +2458,7 @@ export const MANAGER_NO = 'Cancel'
 const PROMPT_TOOLS = ['prompt_list', 'prompt_answer', 'prompt_escalate']
 // The lead tools a conductor runs on the leads it owns and the manager on any lead.
 export const LEAD_TOOLS = ['lead_resume', 'lead_compact'] as const
-export const MANAGER_TOOLS = ['lane_list', 'lane_resume', 'lane_compact', 'lane_terminate', 'lane_retire', ...PROMPT_TOOLS].map((t) => `mcp__callboard__${t}`)
+export const MANAGER_TOOLS = ['lane_list', 'lane_resume', 'lane_compact', 'lane_terminate', 'lane_retire', ...LEAD_TOOLS, ...PROMPT_TOOLS].map((t) => `mcp__callboard__${t}`)
 // The cues those tools send (terminate is a signal, not a cue); a lane with no live lead takes these from a live manager.
 export const MANAGER_CUE_VERBS: readonly Verb[] = ['resume', 'compact', 'retire']
 // The cue a conductor's tools send (it lists, compacts and force stops, never retires); a lane with no live lead takes it from a live conductor of its repo.
@@ -2686,7 +2686,7 @@ export function parseConductorHint(raw: unknown, now: number, homeDir: string): 
 // ---- the conductor grant, its tools, its texts ----
 // The conductor's tools, as the engine names them: list, compact (a lane in reach, or a lead it owns), force stop a lane, open a lead, and resume and compact
 // the leads it owns. Never create, open, rename, start, resume, park, unpark, retire or remove a lane.
-export const CONDUCTOR_TOOLS = ['lane_list', 'lane_compact', 'lane_terminate', 'lead_open', ...PROMPT_TOOLS].map((t) => `mcp__callboard__${t}`)
+export const CONDUCTOR_TOOLS = ['lane_list', 'lane_compact', 'lane_terminate', 'lead_open', ...LEAD_TOOLS, ...PROMPT_TOOLS].map((t) => `mcp__callboard__${t}`)
 export const CONDUCTOR_ON_TEXT = 'Conductor is on from your next prompt.\nEvery stop asks you.'
 export const CONDUCTOR_FAILED = 'Conductor could not be set up.'
 export const CONDUCTOR_OFF_QUESTION = 'Turn conductor off for this session? Its saved conductor grant is deleted.'
@@ -2765,15 +2765,15 @@ export const liveCheckoutToast = (checkout: string, head: { kind: 'branch'; name
   `Callboard loads from ${checkout}, which is not on main (it is on ${head.kind === 'detached' ? 'a detached commit' : head.name !== undefined ? `branch ${head.name}` : 'another branch'}). Whatever is checked out there is live in every session.`
 
 // ---- the lead tools (ADR 0007): a conductor runs the leads it owns, the manager any lead, each manager call behind the person's dialog ----
-// The target of a lead tool: the one lead record of that name machine-wide. Refusals in order: bad-lead (not a valid name), lane-or-lead (a lane record of the name,
-// or two lead records of it, in any letter case), unknown-lead (no record), and for a conductor other-repo (the record's repo is not one of its repos now) and
-// not-owner (the record names another conductor). The manager passes any record.
+// The target of a lead tool: the one lead record of that name machine-wide. Refusals in order: bad-lead (not a valid name), unknown-lead (no record, whatever
+// lane carries the name), lane-or-lead (a lane record of the name too, or two lead records of it, in any letter case), and for a conductor other-repo (the
+// record's repo is not one of its repos now) and not-owner (the record names another conductor). The manager passes any record.
 export function leadRec(recs: { key: string; store: LeadStore }[], lanes: Lane[], g: Grant, callerSid: string, name: unknown): { ok: true; rec: OwnerRec } | { ok: false; reason: string } {
   if (typeof name !== 'string' || !NAME_RE.test(name)) return { ok: false, reason: 'bad-lead' }
   const key = name.toUpperCase()
   const hits = recs.flatMap((s) => s.store.leads.filter((l) => l.name.toUpperCase() === key).map((rec) => ({ key: s.key, repo: s.store.repo, rec })))
-  if (hits.length > 1 || lanes.some((l) => l.name.toUpperCase() === key)) return { ok: false, reason: 'lane-or-lead' }
   if (hits.length === 0) return { ok: false, reason: 'unknown-lead' }
+  if (hits.length > 1 || lanes.some((l) => l.name.toUpperCase() === key)) return { ok: false, reason: 'lane-or-lead' }
   const hit = hits[0]
   if (g.level === 'conductor') {
     if (!g.pins.includes(hit.repo)) return { ok: false, reason: 'other-repo' }
@@ -2829,6 +2829,7 @@ const LEAD_WHY: Record<string, string> = {
   'no-pid': 'the session list has no usable pid for that lead\'s session. Nothing was sent.',
   'grant-changed': "this session's grant, or the lead's record, changed while the question was open. Nothing was sent.",
   'record-changed': 'that lead\'s record changed, or its lead is no longer bound to it. Nothing was sent.',
+  'store-unreadable': 'the lead records cannot be read safely. Nothing was sent; retry in a moment.',
   'nudge-limit': `the lead was nudged in the last ${NUDGE_GAP_MS / 60_000} minutes, or already got this order.`,
   'not-interactive': 'the lead session is not an interactive session, so it cannot be ordered to compact.',
   nudged: `the lead was ordered to compact. It is told at the end of its current turn (now, if idle) and compacts itself when it asks on-cue, whatever its context size. If it has not asked within ${ORDER_MS / 60_000} minutes, you are told: then tell the person.`,

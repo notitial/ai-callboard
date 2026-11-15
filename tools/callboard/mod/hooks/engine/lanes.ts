@@ -106,6 +106,7 @@ import { getLane, getLastTurn, getRequest, getSeen, setLane } from '../state.ts'
 import { usageReadings } from './usage.ts'
 import { leadAccept } from './lead-accept.ts'
 import { leadCue } from './lead-cues.ts'
+import { leadCompactTo } from './lead-tools.ts'
 
 const stopCallKey = (sid: string, verb: string, lane: unknown) => `${sid}\n${verb}\n${String(lane)}`
 
@@ -157,7 +158,8 @@ export async function leadRun($: any, e: unknown, body: () => Promise<any>) {
   if (served && w) w.seen = w.told = w.cur
   const out = await body()
   // The lead acted on that lane itself (a served call that succeeded), so what the check-in saw of it starts over.
-  if (served && typeof out?.result === 'string' && OBS_CLEAR_TOOLS.includes(String((e as { tool?: unknown }).tool))) laneObs.get(sid)?.delete(String((e as { lane?: unknown }).lane))
+  // A lead tool names its target by lead.
+  if (served && typeof out?.result === 'string' && OBS_CLEAR_TOOLS.includes(String((e as { tool?: unknown }).tool))) laneObs.get(sid)?.delete(String((e as { lane?: unknown; lead?: unknown }).lane ?? (e as { lead?: unknown }).lead))
   if (!moved || !out) return out
   // A lane_list text ends in a table, so the note goes after a blank line, never on a table row.
   return typeof out.result === 'string' ? { ...out, result: `${out.result}${out.result.includes('\n| ') ? '\n\n' : ' '}${c.LANES_CHANGED_NOTE}` } : typeof out.deny === 'string' ? { ...out, deny: `${out.deny} ${c.LANES_CHANGED_NOTE}` } : out
@@ -914,9 +916,9 @@ export async function rebindTick($: any, sid: string) {
 const SUBAGENT = ['subagent', 'for the main agent only.'] as const
 export async function leadBase($: any, e: unknown, sid: string) {
   if ((e as { agentId?: string }).agentId !== undefined) return { err: SUBAGENT }
-  // The manager has eight tools (c.MANAGER_TOOLS: five lane tools and the three prompt tools); every other lane tool refuses it, declared or not.
+  // The manager has ten tools (c.MANAGER_TOOLS: five lane tools, two lead tools and the three prompt tools); every other lane tool refuses it, declared or not.
   if (grantOf(sid)?.level === 'manager' && !c.MANAGER_TOOLS.includes(String((e as { tool?: unknown }).tool))) return { err: ['manager-tool', c.REASON_TEXT['manager-tool']] as const }
-  // The conductor has seven (c.CONDUCTOR_TOOLS: three lane tools, lead_open and the three prompt tools).
+  // The conductor has nine (c.CONDUCTOR_TOOLS: three lane tools, lead_open, two lead tools and the three prompt tools).
   if (grantOf(sid)?.level === 'conductor' && !c.CONDUCTOR_TOOLS.includes(String((e as { tool?: unknown }).tool))) return { err: ['conductor-tool', c.REASON_TEXT['conductor-tool']] as const }
   return leadCore($, sid)
 }
@@ -984,7 +986,7 @@ export async function laneTable($: any, sid: string) {
   return { text }
 }
 
-const OBS_CLEAR_TOOLS = ['terminate', 'retire', 'park', 'unpark', 'resume'].map((v) => `mcp__callboard__lane_${v}`)
+const OBS_CLEAR_TOOLS = [...['terminate', 'retire', 'park', 'unpark', 'resume'].map((v) => `mcp__callboard__lane_${v}`), 'mcp__callboard__lead_resume']
 
 // ...then the lane's repo; an attached lane answers whichever lead holds the repo.
 async function leadPrep($: any, e: unknown, sid: string) {
@@ -993,23 +995,6 @@ async function leadPrep($: any, e: unknown, sid: string) {
   const pick = c.leadLane(base.lanes, base.g, (e as { lane?: unknown }).lane)
   if (!pick.ok) return { err: [pick.reason, c.reasonWhy(pick.reason)] as const }
   return { lane: pick.lane, entries: base.live.flatMap((r) => (typeof r.j.sessionId === 'string' ? [regEntry(r)] : [])) }
-}
-
-// The live lead whose registry name (c.leadNameOf) is the tool's lane argument, in any repo, never this session. undefined: no live lead
-// carries it (the caller goes on to the lanes). A lane record of the same name refuses lane-or-lead: lane and lead names follow the same rules (NAME_RE, not
-// reserved), so the two can meet, and neither is taken over the other.
-async function leadByName($: any, e: unknown, sid: string): Promise<{ sid: string; name: string } | { err: readonly [string, string] } | undefined> {
-  const name = (e as { lane?: unknown }).lane
-  if (typeof name !== 'string' || !c.NAME_RE.test(name)) return undefined
-  const base = await leadBase($, e, sid)
-  if ('err' in base) return { err: base.err }
-  const rows = base.live.map((r) => r.j)
-  const leads = (await leadsFor($, base.live, undefined)).filter((x) => x.sid !== sid && c.leadNameOf(rows, x.sid) === name)
-  if (leads.length === 0) return undefined
-  if (leads.length > 1 || base.lanes.some((l) => l.name === name)) return { err: ['lane-or-lead', c.reasonWhy('lane-or-lead')] }
-  // A conductor compacts only a lead of its repos.
-  if (base.g.level === 'conductor' && !base.g.pins.includes(leads[0].repo)) return { err: ['other-repo', c.reasonWhy('other-repo')] }
-  return { sid: leads[0].sid, name }
 }
 
 // ---- /callboard lane: an existing session becomes a lane of the lead that runs in its repo ----
@@ -1144,16 +1129,11 @@ export async function leadVerbCall($: any, e: any, next: any, verb: (typeof c.LE
       // A rename and a start get the longer deadline: the session needs its next tick, then settles its turn count or sets its model, and the wait for it to register counts too.
       const slow = verb === 'rename' || verb === 'start'
       const deadline = (await $.clock.now()) + (slow ? c.LANE_CUE_DEADLINE_MS : c.RESULT_DEADLINE_MS)
-      // The manager's lane_compact may name a live lead by its session name, in any repo (leadByName).
-      // The conductor's too, for a lead of its repos.
+      // The manager's and the conductor's lane_compact with a lead's name is lead_compact (engine/lead-tools.ts): a lead the conductor owns, any lead for the
+      // manager behind the person's dialog.
       if (verb === 'compact' && (grantOf(sid)?.level === 'manager' || grantOf(sid)?.level === 'conductor')) {
-        const ld = await leadByName($, e, sid)
-        if (ld && 'err' in ld) return no(...ld.err)
-        if (ld) {
-          const sent = await cueExchange($, sid, ld.name, ld.sid, 'compact', deadline, no)
-          if (sent) return sent
-          return { result: `cue compact acted for lead ${ld.name}.` }
-        }
+        const ld = await leadCompactTo($, e, sid, no)
+        if (ld) return ld
       }
       let prep = await leadPrep($, e, sid)
       if ('err' in prep) return no(...prep.err)
@@ -1173,7 +1153,7 @@ export async function leadVerbCall($: any, e: any, next: any, verb: (typeof c.LE
         return no(to.reason, c.reasonWhy(to.reason))
       }
       // A lead's lane_compact never cues a session that holds a live presence file (another lead carrying the lane's name),
-      // as leadByName's lane-or-lead; a file whose check could not be made counts (fail closed).
+      // as lead_compact's lane-or-lead; a file whose check could not be made counts (fail closed).
       if (verb === 'compact' && (grantOf(sid)?.level === 'lead' || grantOf(sid)?.level === 'conductor')) {
         const live = await registryEntries($)
         if (!live) return no('registry-unreadable', c.reasonWhy('registry-unreadable'))
@@ -1464,7 +1444,7 @@ export async function stopVerbCall($: any, e: any, next: any, verb: (typeof c.ST
       const selfRows = prep.entries.filter((x) => x.sessionId === sid)
       const selfPid = selfRows.length === 1 ? selfRows[0].pid : undefined
       // At manager reach, before any dialog and again after it: a record that names a session must name this one, and the
-      // session must hold no live presence file (a lead, a conductor or the manager may carry a lane's name: leadByName guards only lane_compact).
+      // session must hold no live presence file (a lead, a conductor or the manager may carry a lane's name: leadCompactTo guards only lane_compact).
       const targetNo = async (lane: c.Lane, t: c.RegEntry) => {
         // A conductor's stop takes the manager's wide path.
         if (level === 'lead') return undefined
