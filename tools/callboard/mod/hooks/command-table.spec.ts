@@ -96,6 +96,8 @@ test('the sample lines cover the optional and the alternative forms', () => {
 test('the first typed word of a line is read as typed: a word in another letter case fits no form', () => {
   assert.deepEqual(words('/callboard Checkin ', 'p'), [])
   assert.deepEqual(words('/callboard checkin ', 'P'), ['pause'])
+  assert.deepEqual(words('/callboard lead\n', 'j'), [])
+  assert.deepEqual(words('/callboard lead ', 'j'), ['join'])
 })
 
 test('a form is written in lower case words and upper-case values, and every first word has a row of its own', () => {

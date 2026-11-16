@@ -807,8 +807,8 @@ export type Completion = { text: string; label: string; description: string }
 // The rows the typeahead adds for the word at the cursor: draft is the text before the word, word the word so far (never empty).
 // A draft that is not /callboard followed by words gets none. A row offers its next word when the words typed so far fit it, position by position.
 export function completions(draft: string, word: string): Completion[] {
-  if (!draft.startsWith('/callboard ')) return []
-  // The parser reads the words as typed, in lower case, so an earlier word in another letter case fits no form.
+  // The parser reads one line, with the words as typed (lower case): a line break or an earlier word in another letter case fits no form.
+  if (!draft.startsWith('/callboard ') || draft.includes('\n')) return []
   const before = draft.trim().split(/\s+/).slice(1)
   const lead = word.toLowerCase()
   const out = new Map<string, Completion>()
@@ -877,7 +877,7 @@ export function parseCommandArgs(args: unknown): CommandArg | undefined {
 }
 
 // ---- this machine's reserved names ----
-// The repo reserves MANAGER only (RESERVED_NAMES). /callboard reserve NAME adds a name on this machine alone, kept in $.store under RESERVE_KEY: no lane, lead,
+// The repo reserves MANAGER only (RESERVED_NAMES). /callboard reserve add NAME (or reserve NAME) adds a name on this machine alone, kept in $.store under RESERVE_KEY: no lane, lead,
 // join or rename may then take it or a look-alike of it, and the manager may carry it. `reserve` shows the list; `reserve remove NAME` takes one off.
 // A change is the person's own (from the prompt or the phone), as /callboard config; anything else is refused with a fixed text.
 export const RESERVE_KEY = 'reserved'
@@ -888,9 +888,9 @@ function parseReserveArgs(rest: string | undefined): ReserveOp {
   if (a === '') return 'show'
   const rm = /^remove ([A-Za-z0-9_-]{1,40})$/.exec(a)
   if (rm) return { remove: rm[1] }
-  // `add NAME` and the bare NAME both add; a lone add or remove is no name.
+  // `add NAME` and the bare NAME both add; add and remove are no name, bare or after add.
   const am = /^add ([A-Za-z0-9_-]{1,40})$/.exec(a)
-  if (am) return { add: am[1] }
+  if (am) return ['add', 'remove'].includes(am[1].toLowerCase()) ? 'bad' : { add: am[1] }
   if (/^[A-Za-z0-9_-]{1,40}$/.test(a) && !['add', 'remove'].includes(a.toLowerCase())) return { add: a }
   return 'bad'
 }

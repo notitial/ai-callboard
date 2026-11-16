@@ -120,6 +120,7 @@ test('reserve: the person adds and removes a machine name; a lead may not carry 
   await beside($, on, selfAs('HARBOR'), undefined, stdins)
   expect((await $.command.run(lane('reserve'))).text).toBe(reserveShowText([]))
   expect((await $.command.run(lane('reserve HARBOR', { kind: 'plugin' }))).text).toBe(RESERVE_NOT_PERSON)
+  expect((await $.command.run(lane('reserve add HARBOR', { kind: 'plugin' }))).text).toBe(RESERVE_NOT_PERSON)
   expect(logged(stdins)).toContain('refused:reserve-not-person:plugin')
   expect(h.store.has('reserved')).toBe(false)
   expect((await $.command.run(lane('reserve MANAGER'))).text).toMatch(/built in/)
