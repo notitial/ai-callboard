@@ -224,6 +224,33 @@ async function promptAnomalyHint($: any, p: { uid: number; root: string }): Prom
   return n > 0 ? `${n} decision${n === 1 ? ' was' : 's were'} dropped in the last two months for a reason that can mean a forged or stale file; tell the person (tools/callboard/prompt-audit.mjs lists them).` : undefined
 }
 
+// The sessions with an open request in this tier's reach, found as prompt_list finds them (not closed, decided, passed up or its own, the tier able to act, past
+// the person's first 30 seconds); the check-ins skip a waiting prompt of such a session. Answering off: none. A read that fails: undefined, so nothing is skipped
+// and the check-in tells as before.
+export async function promptHeldSids($: any, sid: string): Promise<Set<string> | undefined> {
+  try {
+    const answering = await answeringNow($)
+    if (!answering || (await promptsOff($))) return new Set()
+    const p = await where($)
+    const live = await registryEntries($)
+    if (!p || !live) return undefined
+    const now = await $.clock.now()
+    const recs = await loadLeadRecords($)
+    const held = new Set<string>()
+    await promptRequests($, p, async (q, names, dir) => {
+      if (names.has(`${q.id}.done`) || names.has(`${q.id}.decision.json`) || q.sid === sid || !(now >= q.at + pr.MIN_AGE_MS)) return false
+      const stand = await promptStand($, p, live, answering, dir, names, q, recs)
+      const self = stand.tiers.find((x) => x.sid === sid)
+      if (!self || stand.passed[self.level] !== undefined || !stand.active.some((x) => x.sid === sid)) return false
+      held.add(q.sid)
+      return false
+    })
+    return held
+  } catch {
+    return undefined
+  }
+}
+
 async function promptListTool($: any, e: unknown): Promise<{ result: string } | { deny: string }> {
   const sid = await $.session.id()
   const t = await promptTierCtx($, e, sid)

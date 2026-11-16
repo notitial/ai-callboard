@@ -114,6 +114,7 @@ import { loadLeadRecords, boundState } from './lead-records.ts'
 import { managerCommand } from './commands.ts'
 import { ownerLeave, ownerRename, leadNameHeld } from './lead-records.ts'
 import { goGrantorOff } from './go.ts'
+import { promptHeldSids } from './answer-tiers.ts'
 import { epochOf, heldNo, levelBrief, levelSave } from './levels.ts'
 import { usageDrop, usageSweep } from './usage.ts'
 import type { LevelDesc, GrantDialog } from './levels.ts'
@@ -1149,7 +1150,10 @@ export async function checkinTick($: any, sid: string, submitsAtStart: number) {
   if (epochOf(sid) !== ep) return
   laneObs.set(sid, obs)
   const items = c.checkinItems(obs, now)
-  const { told, owed } = owedItems(sid, items)
+  // A waiting prompt this tier already holds as an open request is told by the request's own notice: no check-in for it (the toast below still shows it).
+  const held = items.some((i) => i.code === 'prompt') ? await promptHeldSids($, sid) : undefined
+  if (epochOf(sid) !== ep) return
+  const { told, owed } = owedItems(sid, c.checkinSkipHeld(items, held, (l) => obs.get(l)?.sid))
   const gate = owed.length === 0 ? 'off' : await checkinGates($, sid, now)
   const due = gate === 'off' ? [] : c.checkinDueItems(owed, gate === 'all')
   // The manager is told only of lanes no live lead reaches, by leadHere's rule (a lane naming its lead: a live
@@ -1241,7 +1245,9 @@ async function conductorCheckin($: any, sid: string, submitsAtStart: number) {
   if (epochOf(sid) !== ep) return
   leadObs.set(sid, obs)
   const items = c.checkinItems(obs, now)
-  const { owed: all } = owedItems(sid, items)
+  const held = items.some((i) => i.code === 'prompt') ? await promptHeldSids($, sid) : undefined
+  if (epochOf(sid) !== ep) return
+  const { owed: all } = owedItems(sid, c.checkinSkipHeld(items, held, (l) => obs.get(l)?.sid))
   const gate = all.length === 0 ? 'off' : await checkinGates($, sid, now)
   const due = gate === 'off' ? [] : c.checkinDueItems(all, gate === 'all')
   // The gate reads wait: an off or a re-grant meanwhile has cleared this grant's memory.
