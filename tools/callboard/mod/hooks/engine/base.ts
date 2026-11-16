@@ -36,7 +36,7 @@ export function rmF($: any, paths: string | string[]): Promise<R | undefined> {
 
 // A wait inside one tool call goes through a host process, never $.clock.sleep. A hook has 10 s of its own time per dispatch (HookBudget.ms),
 // and a $.clock.sleep counts against it while no $ call does; a hook past it is cut off, its .catch answers, and the code that was running goes on unseen.
-// false: the process did not run or failed, so the caller must not loop on it.
+// false: the process did not run or failed. A caller that loops on it must bound the failures in a row (pr.PAUSE_FAILS_MAX), or leave.
 export async function pause($: any, ms: number): Promise<boolean> {
   if (!Number.isFinite(ms) || ms <= 0) return false
   const r = await $.process.run([SLEEP, String(ms / 1000)], { timeoutMs: ms + 5000 }).catch(() => undefined)

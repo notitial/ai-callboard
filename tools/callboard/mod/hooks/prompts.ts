@@ -411,7 +411,7 @@ export function applyCheck(a: ApplyIn): ApplyOut {
 
 // ---- the ledger: machine-wide, one JSON row per line, no input text ----
 // Every kind of row the mod writes. The prompt audit reads its kinds from this list.
-export const ROW_KINDS = ['requested', 'answered', 'escalated', 'dropped', 'returned', 'superseded', 'expired-denied', 'off', 'abandoned', 'dialog', 'not-judgeable', 'no-tier', 'answering-on', 'answering-off', 'relayed', 'relay-lost', 'relay-left', 'relay-late', 'relay-closed', 'deny-unclear', 'lead-offer', 'lead-offer-void', 'lead-grant', 'lead-owner', 'lead-resume', 'lead-stop', 'go-grant', 'go-end', 'go-read', 'pr-watch', 'pr-notice', 'here-on', 'here-off', 'unattended-on', 'unattended-off', 'unattended-unknown'] as const
+export const ROW_KINDS = ['requested', 'answered', 'escalated', 'dropped', 'returned', 'superseded', 'expired-denied', 'off', 'abandoned', 'dialog', 'not-judgeable', 'subagent-denied', 'question-denied', 'no-tier', 'answering-on', 'answering-off', 'relayed', 'relay-lost', 'relay-left', 'relay-late', 'relay-closed', 'deny-unclear', 'lead-offer', 'lead-offer-void', 'lead-grant', 'lead-owner', 'lead-resume', 'lead-stop', 'go-grant', 'go-end', 'go-read', 'pr-watch', 'pr-notice', 'here-on', 'here-off', 'unattended-on', 'unattended-off', 'unattended-unknown'] as const
 export type RowKind = (typeof ROW_KINDS)[number]
 // A `lead-owner` row (ADR 0007), written before the lead record changes: code made | joined | left | off, hash the repo's key, repo, lane the lead's name at the
 // time (for reading only), target the lead's session id, by the conductor's session id (made, joined), was the conductor the lead left (left, off), nonce (made).
@@ -505,7 +505,7 @@ export function matchLabel(labels: string[], text: string): number {
 }
 type QuestionShape = { ok: true; question: string; header: string } | { ok: false; code: string }
 // Whether a question may reach a tier: exactly one question, single select, 2 to 4 plain labels, header not `Person`. Each refusal is a `not-judgeable`
-// row with its code, and no request. The input is the live one.
+// row with its code, and no request; some end in the form deny as well (questionDeniable). The input is the live one.
 export function questionShape(input: unknown): QuestionShape {
   const i = obj(input)
   if (!Array.isArray(i.questions) || i.questions.length !== 1) return { ok: false, code: 'question-count' }
@@ -523,6 +523,14 @@ export function questionShape(input: unknown): QuestionShape {
   if (typeof q.question !== 'string' || (q.header !== undefined && typeof q.header !== 'string') || 'answers' in i) return { ok: false, code: 'question-shape' }
   return { ok: true, question: q.question, header: typeof q.header === 'string' ? q.header : '' }
 }
+// The shape refusals that end in the form deny (FORM_DENY_MESSAGE) when a tier is in reach: the question has no form a tier or the relay could answer.
+// A call with any question headed `Person` is never one, whatever its shape: the header is the lane's own mark that the question is the person's.
+const FORM_DENY_CODES = ['question-count', 'question-multi', 'question-options', 'question-shape']
+const personMarked = (input: unknown): boolean => {
+  const qs = obj(input).questions
+  return Array.isArray(qs) && qs.some((q) => typeof obj(q).header === 'string' && (obj(q).header as string).trim().toLowerCase() === 'person')
+}
+export const questionDeniable = (code: string, input: unknown): boolean => FORM_DENY_CODES.includes(code) && !personMarked(input)
 // What the tier is shown of a question: its header, text and numbered options, from the request's copy.
 type QuestionView = { header: string; question: string; options: { label: string; description: string }[] }
 export function questionView(input: unknown): QuestionView | undefined {
@@ -610,7 +618,7 @@ export const ESCALATION_YES = 'Allow'
 export const ESCALATION_NO = 'Cancel'
 export const ESCALATION_HEADER = 'Escalation'
 // The fixed text of the one dialog: it names everything that turns on and takes no input.
-export const ESCALATION_QUESTION = `On this Mac, let a lead, conductor or manager answer the permission prompts of EVERY lane and lead, and the single-choice questions of EVERY lane (a lead's own questions stay yours) when the answer is settled or harmless. The dialog stays open and your click always wins; an answer lands no earlier than 30 seconds after a prompt or question opens. A plan-mode exit is theirs to answer too: they are told to allow it only when the plan is the work the lane was given. Stays yours: anything from a subagent, which cannot be passed to them; and the sessions are told to pass anything on the risk list up to you. Edits to the live checkouts, the settings files and callboard's folder are stopped by ai-toolkit's protected-paths hook, not by callboard, and only where that hook and its markers are installed. Merges, force pushes, pushes to main, master or production, and destructive deletes are on the risk list: the sessions are told to pass them up to you. Questions headed Person and questions with several parts or choices always stay yours; the sessions are told to leave anything on the risk list to you too. A question no session can settle is put to you in the top session, or in the one where you typed /callboard here, in that session's words, with the lane's own choices, and your pick lands in the lane; typing your own answer there leaves the question in the lane. Answers are kept, redacted, for 90 days. /callboard escalation off turns it off; /callboard off in a lane's session takes that lane out.`
+export const ESCALATION_QUESTION = `On this Mac, let a lead, conductor or manager answer the permission prompts of EVERY lane and lead, and the single-choice questions of EVERY lane (a lead's own questions stay yours) when the answer is settled or harmless. The dialog stays open and your click always wins; an answer lands no earlier than 30 seconds after a prompt or question opens. A plan-mode exit is theirs to answer too: they are told to allow it only when the plan is the work the lane was given. Not passed to them: a subagent's permission ask, which is denied with a message that tells the main session to run the call itself while one of them is in reach, and stays yours otherwise; its questions stay yours; and the sessions are told to pass anything on the risk list up to you. Edits to the live checkouts, the settings files and callboard's folder are stopped by ai-toolkit's protected-paths hook, not by callboard, and only where that hook and its markers are installed. Merges, force pushes, pushes to main, master or production, and destructive deletes are on the risk list: the sessions are told to pass them up to you. Questions headed Person always stay yours; a question that is not one single-choice question with two to four options stays yours for 30 seconds and, while one of the sessions is in reach, is then ended with a message that tells the lane to ask again as one; the sessions are told to leave anything on the risk list to you too. A question no session can settle is put to you in the top session, or in the one where you typed /callboard here, in that session's words, with the lane's own choices, and your pick lands in the lane; typing your own answer there leaves the question in the lane. Answers are kept, redacted, for 90 days. /callboard escalation off turns it off; /callboard off in a lane's session takes that lane out.`
 const OFF_FILE_NOTE = 'The OFF file exists, so it is off whatever is stored; delete the file and the stored switch applies again.'
 // The switch and, when it is on, what the questions get.
 const escalationParts = (a: Answering | undefined): { on: string; questions?: string } =>
@@ -893,6 +901,10 @@ export const UNCLEAR_SUFFIX = ' Write a cleaner command (smaller, plain, no enco
 export const unclearMessage = (why: string): string => `${UNCLEAR_PREFIX}${why}${UNCLEAR_SUFFIX}`
 // What the 20-minute deny tells the lane when some tier was live and nobody answered.
 export const DENY_TIMEOUT_MESSAGE = 'Nobody answered this prompt within 20 minutes, so it was denied. Ask again if it is still needed.'
+// The two denials of an ask that cannot rise (ADR 0011, What cannot rise). Fixed texts with nothing of the lane's in them: each refuses the way the ask
+// was made, says so, and says how to ask again. Neither is a tier's or the person's decision on the call or the question itself.
+export const SUBAGENT_DENY_MESSAGE = "Callboard denied this because a subagent's permission ask cannot be passed up to a lead, conductor or manager. It is not a decision on the call itself. If the call is still needed, the main session should run it itself, where it can be judged."
+export const FORM_DENY_MESSAGE = 'Callboard ended this question because of its form, not its content: nobody answered it and nothing was decided. It cannot be passed up as asked. Ask again as one single-choice question with two to four short options.'
 // A decision's `why` that is the cleaner-command deny starts with the prefix; the row counts it apart.
 export const isUnclear = (why: string): boolean => why.startsWith(UNCLEAR_PREFIX)
 

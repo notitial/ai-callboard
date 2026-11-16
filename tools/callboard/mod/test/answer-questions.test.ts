@@ -25,13 +25,51 @@ longTest('prompts: a lane\'s own question under an asks scope: the request is wr
   expect(noFiles()).toBe(true)
 })
 
-for (const [name, input, code] of [
-  ['the Person header', { questions: [{ ...QIN.questions[0], header: 'Person' }] }, 'question-person'],
+const NO_FORM = [
   ['two questions', { questions: [QIN.questions[0], QIN.questions[0]] }, 'question-count'],
   ['multiSelect', { questions: [{ ...QIN.questions[0], multiSelect: true }] }, 'question-multi'],
   ['five options', { questions: [{ ...QIN.questions[0], options: [1, 2, 3, 4, 5].map((n) => ({ label: `o${n}`, description: 'd' })) }] }, 'question-options'],
-] as [string, unknown, string][]) {
-  test(`prompts: ${name} stays the person's, with its own code and no request`, async ($, on) => {
+  ['a header that is not text', { questions: [{ ...QIN.questions[0], header: 5 }] }, 'question-shape'],
+] as [string, unknown, string][]
+const PERSON_Q = { questions: [{ ...QIN.questions[0], header: 'Person' }] }
+const PERSON_MULTI = { questions: [{ ...QIN.questions[0], header: 'Person', multiSelect: true }] }
+const FORM_DENY = { decision: { behavior: 'deny', message: prm.FORM_DENY_MESSAGE } }
+
+test('prompts: the Person header stays the person\'s with a tier in reach: its own code, no request and no denial', async ($, on) => {
+  await answerer($, on, [], { verdict: QASK, asksScope: 'all' })
+  const c = callOf('AskUserQuestion', PERSON_Q)
+  expect(await runRequest($, [stop(60_000)], c.over, c.check)).toEqual({})
+  expect(rowKinds()).toEqual(['not-judgeable question-person'])
+  expect(reqFiles().length).toBe(0)
+})
+
+test('prompts: a Person header with no answer form stays the person\'s too: no wait and no denial, with a tier in reach', async ($, on) => {
+  await answerer($, on, [], { verdict: QASK, asksScope: 'all' })
+  const c = callOf('AskUserQuestion', PERSON_MULTI)
+  expect(await runRequest($, [], c.over, c.check)).toEqual({})
+  expect(h.nowMs - T0).toBe(0)
+  expect(rowKinds()).toEqual(['not-judgeable question-multi'])
+})
+
+test('prompts: a question with no answer form is not denied when its denial row cannot be written: no row, no denial', async ($, on) => {
+  await answerer($, on, [], { verdict: QASK, asksScope: 'all' })
+  const c = callOf('AskUserQuestion', NO_FORM[0][1])
+  expect(await runRequest($, [at(20_000, () => { h.pfsFails = (a) => a[0] === '/usr/bin/tee' && a.includes('-a') })], c.over, c.check)).toEqual({})
+  expect(rowKinds()).toEqual(['not-judgeable question-count'])
+})
+
+for (const [name, input, code] of NO_FORM) {
+  longTest(`prompts: ${name}, with a tier in reach, is ended with the fixed form message after the person's first 30 s: a row of its own kind, no request, nothing allowed`, async ($, on) => {
+    await answerer($, on, [], { verdict: QASK, asksScope: 'all' })
+    const c = callOf('AskUserQuestion', input)
+    expect(await runRequest($, [], c.over, c.check)).toEqual(FORM_DENY)
+    expect(h.nowMs - T0).toBe(30_000)
+    expect(rowKinds()).toEqual([`not-judgeable ${code}`, `question-denied ${code}`])
+    expect(reqFiles().length).toBe(0)
+    expect(noFiles()).toBe(true)
+  })
+
+  test(`prompts: ${name} stays the person's when the switch goes off inside the 30 s: one not-judgeable row, no denial`, async ($, on) => {
     await answerer($, on, [], { verdict: QASK, asksScope: 'all' })
     const c = callOf('AskUserQuestion', input)
     expect(await runRequest($, [stop(8000)], c.over, c.check)).toEqual({})
@@ -39,6 +77,46 @@ for (const [name, input, code] of [
     expect(reqFiles().length).toBe(0)
   })
 }
+
+test('prompts: the person\'s click on a question with no answer form wins inside the 30 s: the card closes and nothing is denied', async ($, on) => {
+  await answerer($, on, [], { verdict: QASK, asksScope: 'all' })
+  const c = callOf('AskUserQuestion', NO_FORM[0][1])
+  // The dialog's row was seen waiting, then is not: the person answered in the lane's panel.
+  expect(await runRequest($, [at(6000, () => { h.sessions = { ...leadReg(), ...h.extraRows, ...ownReg({ status: 'busy' }) } })], c.over, c.check)).toEqual({})
+  expect(h.nowMs - T0).toBeLessThan(30_000)
+  expect(rowKinds()).toEqual(['not-judgeable question-count'])
+})
+
+test('prompts: a question with no answer form whose only tier goes during the 30 s is not denied: the reach is read again before the denial', async ($, on) => {
+  await answerer($, on, [], { verdict: QASK, asksScope: 'all' })
+  const c = callOf('AskUserQuestion', NO_FORM[0][1])
+  expect(await runRequest($, [at(20_000, () => { h.sessions = { ...h.extraRows, ...ownReg({ status: 'waiting', waitingFor: 'permission prompt', statusUpdatedAt: T0 + 500 }) } })], c.over, c.check)).toEqual({})
+  expect(h.nowMs - T0).toBe(30_000)
+  expect(rowKinds()).toEqual(['not-judgeable question-count'])
+})
+
+test('prompts: a question with no answer form and no live tier in reach is not denied: it stays the person\'s, with no wait', async ($, on) => {
+  await answerer($, on, [], { verdict: QASK, asksScope: 'all' })
+  const c = callOf('AskUserQuestion', NO_FORM[0][1])
+  await askCheck($, c.check)
+  // The lane's own row and no lead's: nobody is in reach.
+  h.sessions = { ...h.extraRows, ...ownReg({ status: 'waiting', waitingFor: 'permission prompt', statusUpdatedAt: T0 + 500 }) }
+  driveClock()
+  expect(await $.classic.PermissionRequest({ ...c.over } as any)).toEqual({})
+  expect(h.nowMs - T0).toBe(0)
+  expect(rowKinds()).toEqual(['not-judgeable question-count'])
+})
+
+test('prompts: a question with no answer form is not denied with escalation off, or with the questions scope unset', async ($, on) => {
+  await answerer($, on, [], { verdict: QASK, switchOn: false })
+  const c = callOf('AskUserQuestion', NO_FORM[0][1])
+  expect(await runRequest($, [], c.over, c.check)).toEqual({})
+  expect(rowKinds()).toEqual([])
+  h.store.set('answering', { scope: 'all', asks: false, savedAt: T0 })
+  expect(await runRequest($, [], c.over, { ...c.check, tool_use_id: 'tu2' })).toEqual({})
+  expect(rowKinds()).toEqual(['not-judgeable question-scope'])
+  expect(h.nowMs - T0).toBe(0)
+})
 
 test('prompts: a Relay question in a covered lane stays the person\'s, untouched', async ($, on) => {
   await answerer($, on, [], { verdict: QASK, asksScope: 'all' })
