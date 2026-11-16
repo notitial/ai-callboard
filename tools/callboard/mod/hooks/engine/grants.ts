@@ -1072,9 +1072,9 @@ function owedItems(sid: string, items: c.AttentionItem[]): { told: Set<string>; 
   return { told, owed: items.filter((i) => !told.has(c.checkinKey(i))) }
 }
 // The turn end a check-in counts the lead's idle time from: a done notice's own turn does not restart it (c.idleTurnEnd).
-function idleEnd(sid: string, turnEnd: unknown): unknown {
+function idleEnd(sid: string, turnEnd: unknown, now: number): unknown {
   if (typeof turnEnd !== 'number') return turnEnd
-  const r = c.idleTurnEnd(turnEnd, doneHold.get(sid))
+  const r = c.idleTurnEnd(turnEnd, doneHold.get(sid), now)
   if (r.hold) doneHold.set(sid, r.hold)
   else doneHold.delete(sid)
   return r.at
@@ -1086,7 +1086,7 @@ async function checkinGates($: any, sid: string, now: number): Promise<'off' | '
   const pause = (await getCheckinPause($)).value
   if (typeof pause === 'number' && pause > now) return 'off'
   if (mem.wokeAt !== undefined && now - mem.wokeAt < c.CHECKIN_WAKE_MS) return 'off'
-  const turnEnd = idleEnd(sid, (await getTurnEnd($)).value)
+  const turnEnd = idleEnd(sid, (await getTurnEnd($)).value, now)
   return typeof turnEnd === 'number' && now - Math.max(turnEnd, lastSubmitAt.get(sid) ?? 0) >= c.CHECKIN_IDLE_MS ? 'all' : 'prompt'
 }
 // The waiting prompts among the items that are due: left for the mid-turn hook (a busy session gets no idle submit).
@@ -1284,7 +1284,7 @@ async function conductorCheckin($: any, sid: string, submitsAtStart: number) {
 export async function laneEndTick($: any, sid: string, submitsAtStart: number) {
   if (grants.get(sid)?.level !== 'lead') return
   // The end of the notice's own turn is learned here, at every step (once a minute), so a turn that ends a minute or more after it is not taken for it.
-  if (doneHold.has(sid)) idleEnd(sid, (await getTurnEnd($)).value)
+  if (doneHold.has(sid)) idleEnd(sid, (await getTurnEnd($)).value, await $.clock.now())
   const obs = laneObs.get(sid)
   if (!obs) return
   const ep = epochOf(sid)
@@ -1342,7 +1342,7 @@ export async function laneEndTick($: any, sid: string, submitsAtStart: number) {
   const turnEnd = (await getTurnEnd($)).value
   if (typeof turnEnd !== 'number' || now - Math.max(turnEnd, lastSubmitAt.get(sid) ?? 0) < c.LANE_DONE_IDLE_MS) return
   // Since when the lead was idle for a check-in, before this notice: its own turn leaves that time as it was.
-  const from = Math.max(c.idleTurnEnd(turnEnd, doneHold.get(sid)).at, lastSubmitAt.get(sid) ?? 0)
+  const from = Math.max(c.idleTurnEnd(turnEnd, doneHold.get(sid), now).at, lastSubmitAt.get(sid) ?? 0)
   const sigs = new Map(owed.map((i) => [i.lane, ends.get(i.lane)?.sig]))
   // A submit that timed out may never start a turn: it sets no hold, so the next turn to end is not taken for the notice's. A hold an earlier notice left stays.
   const sent = async (items: c.AttentionItem[], confirmed: boolean) => {
@@ -1350,7 +1350,7 @@ export async function laneEndTick($: any, sid: string, submitsAtStart: number) {
       const sig = sigs.get(i.lane)
       if (sig !== undefined) told.add(c.doneKey(i.lane, sig))
     }
-    if (confirmed) doneHold.set(sid, { from, prevEnd: turnEnd })
+    if (confirmed) doneHold.set(sid, { from, prevEnd: turnEnd, at: now })
   }
   await attentionNotice($, sid, owed, submitsAtStart, ep, undefined, { render: c.doneText, label: 'lane-done', sent, budget: { times: doneNotices, capped: doneCapped, max: c.LANE_DONE_PER_HOUR } })
 }
@@ -1931,7 +1931,7 @@ async function conductorTools($: any, sid: string) {
     ['lead_unpark', `Reopen a parked lead you own in a new panel, as the lead, within ${c.UNPARK_MAX_MS / 86_400_000} days of its park. Needs the panels extension 1.4.0 or later. lead: the lead's name.`, lead],
     ['lead_retire', "Stop a lead you own once it confirms it can end: idle, empty prompt box, no background agents or shells, and its report signed done. Refused while any lane record names the lead (its lanes are retired or removed first). The call waits up to 40 seconds for the idle time. Once the session has stopped, the lead's record is deleted (its .archive folder and report stay). A lead record no live session carries is removed directly; for a parked lead the person confirms first. Retire is final. lead: the lead's name.", lead],
     ['lead_terminate', "Stop a lead you own with SIGTERM, whatever it is doing. Every stop asks the person: they confirm in a dialog that names the lead, its repo, the session, the pid and how many live lanes name it. Once the session has stopped, the lead's record is deleted, or kept with no session while any lane names the lead (then lead_retire removes it once its lanes are gone). lead: the lead's name.", lead],
-    ['go_request', "Ask the person for one go that counts in the leads you own and in their lanes (ADR 0009). It only opens the person's dialog in this session: text says what the work is (1 to 1500 bytes of plain text; the person reads it, and the leads and lanes read it back from go_status). The dialog lists your leads with their lanes, the end (24 hours) and what a go never covers. The result says whether the go was given. Main agent of a conductor only; at most 6 dialogs an hour. Call it when lead_open says no go covers a lead that has risk-list work.", { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] }],
+    ['go_request', "Ask the person for one go that counts in the leads you own and in their lanes (ADR 0009). It only opens the person's dialog in this session: text says what the work is (1 to 300 bytes of plain text on at most 3 lines, none empty, with the detail in the brief or the plan; the person reads it, and the leads and lanes read it back from go_status). The dialog shows how many leads you own and how many lanes they have with a session now, the end (24 hours) and the short list of what a go never covers. The result says whether the go was given. Main agent of a conductor only; at most 6 dialogs an hour. Call it when lead_open says no go covers a lead that has risk-list work.", { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] }],
   ]
   for (const [name, description, inputSchema] of tools) await $.tool.register({ name, description, inputSchema })
   await promptToolsRegister($)

@@ -16,7 +16,7 @@ const HASH = 'a'.repeat(64)
 const COND = '6a1b2c3d-0000-4000-8000-123456789abc'
 const LEAD2 = '7a1b2c3d-0000-4000-8000-123456789abc'
 const go = (over: Partial<g.GoLead> = {}): g.GoLead => ({ v: 1, id: ID, by: { level: 'lead', sid: LEAD, name: 'LEAD', repo: '/Users/x/code/app' }, at: T, ends: T + 24 * H, text: 'Build the import step.', covered: [{ name: 'API', sid: LANE }], nonce: 'f'.repeat(32), ...over })
-// A conductor's go: the dialog listed the lead LEAD and its lane API.
+// A conductor's go that holds the lead LEAD and its lane API from the click.
 const cgo = (over: Partial<g.GoConductor> = {}): g.GoConductor => ({ v: 2, id: ID, by: { level: 'conductor', sid: COND, name: 'COND', repo: '/Users/x/code/cond' }, at: T, ends: T + 24 * H, text: 'Build the import step.', leads: [{ name: 'LEAD', sid: LEAD, repo: '/Users/x/code/app' }], covered: [{ name: 'API', sid: LANE }], nonce: 'f'.repeat(32), ...over })
 const row = (kind: LedgerRow['kind'], over: Partial<LedgerRow> = {}): LedgerRow => ({ t: new Date(T).toISOString(), kind, id: ID, ...over })
 const grant = (over: Partial<LedgerRow> = {}) => row('go-grant', { by: LEAD, hash: HASH, ...over })
@@ -92,7 +92,7 @@ test('a go file is read all or nothing: any field out of shape, an extra key, ot
     { ...ok, text: ' padded ' },
     { ...ok, text: 'a​b' },
     { ...ok, text: 'a\u0007b' },
-    { ...ok, text: 'x'.repeat(g.GO_TEXT_MAX + 1) },
+    { ...ok, text: 'x'.repeat(g.GO_FILE_TEXT_MAX + 1) },
     { ...ok, covered: [{ name: 'API', sid: 'x' }] },
     { ...ok, covered: [{ name: 'a b', sid: LANE }] },
     { ...ok, covered: Array.from({ length: g.GO_COVERED_MAX + 1 }, () => ({ name: 'API', sid: LANE })) },
@@ -108,9 +108,21 @@ test('a go file is read all or nothing: any field out of shape, an extra key, ot
   assert.equal(g.parseGo(undefined), undefined)
   assert.equal(g.parseGo(' '.repeat(g.GO_FILE_MAX + 1)), undefined)
   assert.deepEqual(g.parseGo(g.goFileText(go({ ends: T + 48 * H }))), go({ ends: T + 48 * H }))
+  // A go on file keeps a description longer than a new go may have.
+  const long = go({ text: 'x'.repeat(g.GO_FILE_TEXT_MAX) })
+  assert.deepEqual(g.parseGo(g.goFileText(long)), long)
 })
 
-test('the description: plain text of 1 to 1500 bytes, newline and tab allowed, nothing hidden', () => {
+test('the description: plain text of 1 to 300 bytes on at most 3 lines, none empty, tab allowed, nothing hidden', () => {
+  assert.equal(g.GO_TEXT_MAX, 300)
+  assert.equal(g.goTextNo('a\nb\nc'), undefined)
+  // More lines than a new go may have, or an empty line that sets a last paragraph apart: refused for a new go, read from a go file.
+  for (const tall of ['a\nb\nc\nd', 'a\n\nb', 'a\n \t\nb']) {
+    assert.equal(g.goTextNo(tall), 'bad-text', JSON.stringify(tall))
+    assert.equal(g.goTextNo(tall, true), undefined, JSON.stringify(tall))
+  }
+  assert.equal(g.goTextNo('x'.repeat(g.GO_FILE_TEXT_MAX), true), undefined)
+  assert.equal(g.goTextNo('x'.repeat(g.GO_FILE_TEXT_MAX + 1), true), 'bad-text')
   assert.equal(g.goTextNo('Build it.\n\tThen test it.'), undefined)
   assert.equal(g.goTextNo('x'.repeat(g.GO_TEXT_MAX)), undefined)
   assert.equal(g.goTextNo('Compare a <<< b and c >>> d.'), undefined)
@@ -137,7 +149,7 @@ test('a go is live only with its grant row, the same hash, no end row and time l
   assert.equal(g.goState(go(), HASH, [grant()], T + 24 * H - 1), 'live')
 })
 
-test('a go covers its own session, the sessions the dialog listed, and a lane opened later whose record names the granting session; never a name', () => {
+test('a go covers its own session, the lanes its lead had at the click, and a lane opened later whose record names the granting session; never a name', () => {
   const made = (over: Partial<Lane> = {}): Lane => ({ name: 'NEW', folder: '/Users/x/code/app', brief: '/b', repo: '/Users/x/code/app', sid: LATER, leadSid: LEAD, leadName: 'LEAD', ...over })
   assert.equal(g.goCovers(go(), LEAD, []), 'grantor')
   assert.equal(g.goCovers(go(), LANE, []), 'listed')
@@ -156,7 +168,7 @@ test('a go covers its own session, the sessions the dialog listed, and a lane op
   assert.equal(g.goCovers(go(), 'API', []), undefined)
 })
 
-test("a conductor's go covers its own session, the leads and lanes its dialog listed, a lead its records give it later, and a lane of any of those leads", () => {
+test("a conductor's go covers its own session, the leads and lanes it holds from the click, a lead its records give it later, and a lane of any of those leads", () => {
   const made = (over: Partial<Lane> = {}): Lane => ({ name: 'NEW', folder: '/Users/x/code/app', brief: '/b', repo: '/Users/x/code/app', sid: LATER, leadSid: LEAD, leadName: 'LEAD', ...over })
   assert.equal(g.goCovers(cgo(), COND, []), 'grantor')
   // Listed: the lead and its lane, by the session ids in the go.
@@ -190,23 +202,21 @@ test("a conductor's go covers its own session, the leads and lanes its dialog li
   assert.equal(g.goReachesLead(cgo(), LEAD2, [LEAD2]), true)
 })
 
-test("the conductor's dialog groups the lanes under their leads, and names the conductor as the author", () => {
-  const q = g.goQuestion({ name: 'COND', covered: ['X', 'Y', 'Z'], ends: 'Sun 16 Nov 19:25', text: 'Build the import step.', author: 'tier', groups: [{ name: 'A', session: true, lanes: ['X', 'Y'] }, { name: 'B', session: true, lanes: [] }, { name: 'OLD', session: false, lanes: ['Z'] }] })
-  const parts = q.split('\n\n')
-  assert.equal(parts[0], 'Give one go for this work? It counts for conductor COND, the leads it owns and their lanes.')
-  assert.equal(parts[1], 'Covers now: lead A (lanes X, Y); lead B (no lane yet); lead OLD, no session (lane Z); and leads and lanes opened under it later, until the end.')
-  assert.equal(parts[2], 'Ends Sun 16 Nov 19:25, or when you type /callboard go off.')
-  assert.equal(parts[3], `A go never covers these; each still needs you, every time: ${g.GO_NEVER_TEXT}`)
-  assert.equal(parts[4], 'Everything below this line was written by conductor COND, not by callboard:')
-  assert.equal(parts[5], 'Build the import step.')
-  assert.equal(parts.length, 6)
-  const own = g.goQuestion({ name: '', covered: [], ends: 'x', text: 't', author: 'person', groups: [] })
-  assert.ok(own.includes('It counts for this conductor, the leads it owns and their lanes.'))
-  assert.ok(own.includes('Covers now: no lead yet; and leads and lanes opened under it later'))
-  assert.ok(own.includes('Everything below this line was typed with the command, not written by callboard:\n\nt'))
-  // The fullest dialog: sixteen leads and thirty-two lanes with the longest names and the longest text.
-  const full = g.goQuestion({ name: 'C'.repeat(40), covered: [], ends: 'Sun 16 Nov 19:25', text: 'x'.repeat(g.GO_TEXT_MAX), author: 'tier', groups: Array.from({ length: g.GO_LEADS_MAX }, () => ({ name: 'L'.repeat(40), session: true, lanes: ['N'.repeat(40), 'N'.repeat(40)] })) })
-  assert.ok(full.length < 5200, String(full.length))
+test("the conductor's dialog: the same three short lines, with its leads and their lanes as counts, and the conductor as the author", () => {
+  const q = g.goQuestion({ name: 'COND', lanes: 3, leads: 2, ends: 'Sun 16 Nov 19:25', text: 'Build the import step.', author: 'tier' })
+  assert.deepEqual(q.split('\n'), [
+    'Give conductor COND, its 2 leads and their 3 lanes, later ones too, one go until Sun 16 Nov 19:25? /callboard go off ends it.',
+    g.GO_NEVER_DIALOG,
+    'Everything below was written by conductor COND, not by callboard:',
+    'Build the import step.',
+  ])
+  assert.ok(g.goQuestion({ name: 'COND', lanes: 0, leads: 1, ends: 'x', text: 't', author: 'tier' }).startsWith('Give conductor COND, its 1 lead and the lanes they open, later ones too, one go until x?'))
+  assert.ok(g.goQuestion({ name: 'COND', lanes: 1, leads: 0, ends: 'x', text: 't', author: 'tier' }).startsWith('Give conductor COND, its 0 leads and their 1 lane, later ones too, one go until x?'))
+  const own = g.goQuestion({ name: '', lanes: 0, leads: 0, ends: 'x', text: 't', author: 'person' })
+  assert.ok(own.startsWith('Give this conductor and the leads and lanes opened under it one go until x? /callboard go off ends it.\n'))
+  assert.ok(own.endsWith('\nEverything below was typed with the command, not written by callboard:\nt'))
+  const longest = g.goQuestion({ name: 'C'.repeat(40), lanes: g.GO_COVERED_MAX, leads: g.GO_LEADS_MAX, ends: 'Sun 16 Nov 19:25', text: 'x'.repeat(g.GO_TEXT_MAX), author: 'tier' })
+  assert.ok(longest.length < 700, String(longest.length))
 })
 
 test("the conductor's result texts: a go given, the lead_open tail, the list and go_status", () => {
@@ -222,27 +232,26 @@ test("the conductor's result texts: a go given, the lead_open tail, the list and
   assert.ok(g.goStatusText([cgo({ by: { level: 'conductor', sid: COND, name: '', repo: '/r' } })]).includes('given in this conductor (session'))
   assert.equal(g.GO_REFUSE.conductor, undefined)
   assert.equal(g.GO_REFUSE['not-lead'], "a go is given in a lead's or conductor's session. A lane, or any session a go only covers, cannot give, widen or extend one.")
-  assert.equal(g.GO_REFUSE['too-many'], 'more than 16 leads or 32 lanes to list.')
+  assert.equal(g.GO_REFUSE['too-many'], 'more than 16 leads or 32 lanes for one go.')
   assert.ok(g.GO_USAGE.startsWith("Use /callboard go TEXT in a lead's or conductor's session to give one go"))
 })
 
-test('the dialog: fixed lines first, the mod\'s names, the end, the full never-list, then the description under a line naming its author', () => {
-  const q = g.goQuestion({ name: 'LEAD', covered: ['API', 'WEB'], ends: 'Sun 16 Nov 19:25', text: 'Build the import step.', author: 'tier' })
-  const parts = q.split('\n\n')
-  assert.equal(parts[0], 'Give one go for this work? It counts for lead LEAD and every session under it.')
-  assert.equal(parts[1], 'Covers now: API, WEB; and lanes opened under it later, until the end.')
-  assert.equal(parts[2], 'Ends Sun 16 Nov 19:25, or when you type /callboard go off.')
-  assert.equal(parts[3], `A go never covers these; each still needs you, every time: ${g.GO_NEVER_TEXT}`)
-  assert.equal(parts[4], 'Everything below this line was written by lead LEAD, not by callboard:')
-  assert.equal(parts[5], 'Build the import step.')
-  assert.equal(parts.length, 6)
-  const own = g.goQuestion({ name: '', covered: [], ends: 'x', text: 't', author: 'person' })
-  assert.ok(own.includes('It counts for this lead and every session under it.'))
-  assert.ok(own.includes('Covers now: no lane yet; and lanes opened under it later'))
-  assert.ok(own.includes('Everything below this line was typed with the command, not written by callboard:\n\nt'))
-  // The longest dialog stays near the size the engine dialog is asked to show.
-  const longest = g.goQuestion({ name: 'L'.repeat(40), covered: Array.from({ length: 8 }, () => 'N'.repeat(40)), ends: 'Sun 16 Nov 19:25', text: 'x'.repeat(g.GO_TEXT_MAX), author: 'tier' })
-  assert.ok(longest.length < 3200, String(longest.length))
+test('the dialog: three short fixed lines (whom and until when, the short never-list, the author), then the description', () => {
+  const q = g.goQuestion({ name: 'LEAD', lanes: 2, ends: 'Sun 16 Nov 19:25', text: 'Build the import step.', author: 'tier' })
+  assert.deepEqual(q.split('\n'), [
+    'Give lead LEAD and its 2 lanes, later ones too, one go until Sun 16 Nov 19:25? /callboard go off ends it.',
+    'It never covers a merge, a force push, a push to main, a production change or a delete outside the work; full list: go_status.',
+    'Everything below was written by lead LEAD, not by callboard:',
+    'Build the import step.',
+  ])
+  assert.ok(g.goQuestion({ name: 'LEAD', lanes: 1, ends: 'x', text: 't', author: 'tier' }).startsWith('Give lead LEAD and its 1 lane, later ones too, one go until x?'))
+  const own = g.goQuestion({ name: '', lanes: 0, ends: 'x', text: 't', author: 'person' })
+  assert.ok(own.startsWith('Give this lead and the lanes it opens one go until x? /callboard go off ends it.\n'))
+  assert.ok(own.endsWith('\nEverything below was typed with the command, not written by callboard:\nt'))
+  // The mod's lines come first whatever the description holds, and the longest dialog stays short.
+  const longest = g.goQuestion({ name: 'L'.repeat(40), lanes: g.GO_COVERED_MAX, ends: 'Sun 16 Nov 19:25', text: 'x'.repeat(g.GO_TEXT_MAX), author: 'tier' })
+  assert.ok(longest.length < 700, String(longest.length))
+  assert.ok(!longest.includes(g.GO_NEVER_TEXT))
   assert.equal(g.GO_NO, 'Cancel')
   assert.equal(g.GO_YES, 'Give go')
 })
@@ -252,6 +261,8 @@ test('the never-list is one list: twelve items, and the short form names its fir
   assert.ok(g.GO_NEVER_TEXT.startsWith('a merge; a force push; a push to main, master or production; a production or staging change, a deploy or a data migration run; a delete outside'))
   assert.ok(g.GO_NEVER_TEXT.endsWith("work the go's text does not name."))
   assert.equal(GO_NEVER_SHORT, 'a merge, a force push, a push to main, a production change, a delete outside your work, and the rest of the list `go_status` prints')
+  assert.equal(g.GO_NEVER_DIALOG, 'It never covers a merge, a force push, a push to main, a production change or a delete outside the work; full list: go_status.')
+  assert.ok(g.GO_REFUSE['bad-text'].includes('1 to 300 bytes') && g.GO_REFUSE['bad-text'].includes('two or three lines'))
 })
 
 test('a time is printed in the reader\'s zone', () => {

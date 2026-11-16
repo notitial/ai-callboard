@@ -112,7 +112,7 @@ async function goAsk($: any, sid: string, question: string): Promise<'yes' | 'no
   }
 }
 
-// The lead records a conductor's go reaches beyond the leads its dialog listed: among the sessions asked about (`cands`), the ones whose record names the
+// The lead records a conductor's go reaches beyond the leads it holds from the click: among the sessions asked about (`cands`), the ones whose record names the
 // granting conductor and whose lead is bound to that record now. The records are loaded once per call (`box`), and only when a conductor's go is live. unread:
 // the records, or a binding of one that names this conductor, could not be read, so that link is not known and covers nobody. names: each such lead's record name.
 type RecBox = { recs?: LeadRecs | string }
@@ -139,9 +139,9 @@ const leadCands = (reader: string, lanes: c.Lane[]): string[] => [reader, ...lan
 
 const ZERO_ID = '00000000-0000-4000-8000-000000000000'
 type Given = { go: g.Go; ends: string } | { no: string; why?: string }
-// One go, from the checks to the file: the session is a lead or a conductor; the text passes; the guard holds; the sessions the dialog lists are the ones the
-// tools resolve as this session's now, by the session id each record carries (a lead: its lanes; a conductor: the leads it owns, from the lead records, and the
-// lanes in its reach); they fit the caps and one go file; the person clicks Give go; the session still holds the same grant; then the `go-grant` row with the
+// One go, from the checks to the file: the session is a lead or a conductor; the text passes; the guard holds; the sessions the dialog counts are the ones the
+// tools resolve as this session's now, by the session id each record carries (a lead: its lanes; a conductor: the leads whose bound record names it, and their
+// lanes); they fit the caps and one go file; the person clicks Give go; the session still holds the same grant; then the `go-grant` row with the
 // hash of the file's bytes, then the file (created only if absent). A file that cannot be written gets a `go-end` row (void), so the row never stands alone.
 // capped: a go_request call, counted against the hourly cap once it reaches the dialog.
 async function goGive($: any, sid: string, text: unknown, hours: number, author: 'tier' | 'person', capped: boolean): Promise<Given> {
@@ -161,15 +161,12 @@ async function goGive($: any, sid: string, text: unknown, hours: number, author:
   const name = c.NAME_RE.test(base.g.name) ? base.g.name : ''
   const laneOk = (l: c.Lane) => typeof l.sid === 'string' && c.SID_RE.test(l.sid) && l.sid !== sid
   const inLanes = base.lanes.filter((l) => c.inReach(base.g, l) && laneOk(l))
-  // A conductor: the leads it owns whose record names a session, each once, and for the dialog every lead it owns with its lanes among the listed ones.
+  // A conductor: the leads it owns whose record names a session, each once.
   const owns = level === 'conductor' ? (base.g.owns ?? []) : []
   const leads: g.GoConductor['leads'] = []
   for (const o of owns) if (typeof o.sid === 'string' && c.SID_RE.test(o.sid) && o.sid !== sid && !leads.some((x) => x.sid === o.sid)) leads.push({ name: o.name, sid: o.sid, repo: o.repo })
-  const groups: (g.GoGroup & { sid?: string })[] = owns
-    .map((o) => ({ name: o.name, sid: o.sid, session: leads.some((x) => x.sid === o.sid), lanes: inLanes.filter((l) => c.pinReach(base.g, l).includes(o.repo) && (l.leadName !== undefined ? o.name === l.leadName : o.sole)).map((l) => l.name) }))
-    .filter((x) => x.session || x.lanes.length > 0)
   // The go reaches every lead whose bound record names this conductor, whatever its list of repos holds now, and each lane whose record names such a lead by
-  // session id: the dialog lists them all, so nothing that is covered at the click is left out of it. A record or a binding that cannot be read: no dialog.
+  // session id: the dialog counts them all, and the file holds them, so nothing that is covered at the click is left out. A record or a binding that cannot be read: no dialog.
   if (level === 'conductor') {
     const recs = await loadLeadRecords($)
     if (typeof recs === 'string') return { no: 'store-unreadable', why: c.LEAD_RECORDS_UNREADABLE }
@@ -180,14 +177,12 @@ async function goGive($: any, sid: string, text: unknown, hours: number, author:
         if (st === 'error') return { no: 'store-unreadable', why: c.LEAD_RECORDS_UNREADABLE }
         if (st !== 'bound') continue
         leads.push({ name: rec.name, sid: rec.sid, repo: s.store.repo })
-        groups.push({ name: rec.name, sid: rec.sid, session: true, lanes: [] })
       }
     }
     for (const l of base.lanes) {
       const lead = c.laneLeadSid(l)
       if (inLanes.includes(l) || !laneOk(l) || lead === undefined || !leads.some((x) => x.sid === lead)) continue
       inLanes.push(l)
-      groups.find((x) => x.sid === lead)?.lanes.push(l.name)
     }
   }
   const covered = inLanes.map((l) => ({ name: l.name, sid: l.sid as string }))
@@ -198,7 +193,7 @@ async function goGive($: any, sid: string, text: unknown, hours: number, author:
     const body = { id, at, ends, text: text as string, covered, nonce }
     return level === 'lead' ? { ...body, v: 1, by: { level, sid, name, repo } } : { ...body, v: 2, by: { level, sid, name, repo }, leads }
   }
-  // What the dialog would list must fit one go file: checked before the person is asked, on the file as it will be written.
+  // The sessions of the go must fit one go file: checked before the person is asked, on the file as it will be written.
   if (g.parseGo(g.goFileText(make(ZERO_ID, '0'.repeat(32), opened))) === undefined) return { no: 'too-big' }
   // Old files go first, so the count is of the ones still kept; a folder that is not there yet holds none.
   const files = await goPrune($, p, opened)
@@ -210,7 +205,7 @@ async function goGive($: any, sid: string, text: unknown, hours: number, author:
     if (!c.noticeAllowed(times, opened, g.GO_REQUESTS_PER_HOUR)) return { no: 'rate' }
     goAsked.set(sid, c.pushRecent(times, opened))
   }
-  const asked = await goAsk($, sid, g.goQuestion({ name, covered: covered.map((x) => x.name), ends: when(ends), text: text as string, author, ...(level === 'conductor' ? { groups: groups.map((x) => ({ name: x.name, session: x.session, lanes: x.lanes })) } : {}) }))
+  const asked = await goAsk($, sid, g.goQuestion({ name, lanes: covered.length, ends: when(ends), text: text as string, author, ...(level === 'conductor' ? { leads: leads.length } : {}) }))
   if (asked === 'busy') return { no: 'busy' }
   if (asked === 'timed-out') return { no: 'timed-out' }
   if (asked !== 'yes') return { no: 'cancelled' }
@@ -288,7 +283,7 @@ export async function goStatusCall($: any, _e: any) {
       continue
     }
     if (cover !== 'grantor' && !f.rows.some((r) => r.kind === 'go-read' && r.by === sid)) {
-      // The reader's name for the row: its lane record's, or for a lead the name the dialog listed or its lead record carries.
+      // The reader's name for the row: its lane record's, or for a lead the name the go holds or its lead record carries.
       const lane = lanes.find((l) => l.sid === sid)?.name ?? (f.go.v === 2 ? f.go.leads.find((x) => x.sid === sid)?.name : undefined) ?? o?.names.get(sid)
       if (!(await ledgerAdd($, { kind: 'go-read', id: f.go.id, by: sid, code: cover, ...(lane !== undefined ? { lane } : {}) }))) {
         unrecorded++
@@ -422,7 +417,7 @@ export const goWatchOn = (sid: string): boolean => {
 export function goWatchDue(sid: string, now: number): boolean {
   return goWatchOn(sid) && c.dueEvery(goWatch.get(sid)?.at, now, GO_WATCH_MS)
 }
-// The `go-read` rows of this session's live goes: a session the dialog did not list (code later), read since the watch began and not yet told, gets one toast.
+// The `go-read` rows of this session's live goes: a session the go did not hold at the click (code later), read since the watch began and not yet told, gets one toast.
 export async function goWatchTick($: any, sid: string): Promise<void> {
   const now = await $.clock.now()
   const w = watchOf(sid, now)

@@ -185,3 +185,43 @@ for (const [what, hangs] of [
     expect(checkins()).toEqual([WEB_QUIET])
   })
 }
+
+longTest('the idle hold: a notice whose turn end is never recorded loses its hold after 10 minutes, so a much later turn is a real one', async ($, on) => {
+  await ckLead($, on, [], {}, [ckLane(), WEB])
+  h.sessions = { ...leadSelfReg(), ...ckRow(), ...webRow() }
+  await idleFor(16 * MIN)
+  sign(OTHER)
+  h.sessions = { ...leadSelfReg(), ...ckRow({ statusUpdatedAt: h.nowMs }), ...webRow() }
+  await idleFor(4 * MIN)
+  expect(dones()).toEqual([DONE])
+  // No check-in until minute 40; the notice's turn never reaches the turn-complete hook.
+  expect((await $.command.run(lane('checkin pause 20m'))).text).toContain('paused')
+  await idleFor(15 * MIN)
+  // A turn ends at minute 35: counted as the notice's, the check-in would be due the moment the pause ends; as a real turn, 20 minutes from here.
+  await $.turn.complete(TURN as any)
+  await idleFor(15 * MIN)
+  expect(checkins()).toEqual([])
+  await idleFor(8 * MIN)
+  expect(checkins()).toEqual([WEB_QUIET])
+})
+
+longTest("the idle hold: a check-in step that throws still lets the notice's turn end be seen, so a later turn is a real one", async ($, on) => {
+  await ckLead($, on, [], {}, [ckLane(), WEB])
+  h.sessions = { ...leadSelfReg(), ...ckRow(), ...webRow() }
+  await idleFor(16 * MIN)
+  sign(OTHER)
+  h.sessions = { ...leadSelfReg(), ...ckRow({ statusUpdatedAt: h.nowMs }), ...webRow() }
+  await idleFor(4 * MIN)
+  expect(dones()).toEqual([DONE])
+  await $.turn.complete(TURN as any)
+  // The next step's check-in throws; its look at the lanes' ends still runs and sees the notice's turn end.
+  h.runThrows = (a) => a[0] === '/usr/bin/stat'
+  await h.clock!.advance(62_000)
+  h.runThrows = undefined
+  // Another turn ends: a real one. Taken for the notice's, the check-in would come at minute 31; counted from here, about minute 42.
+  await $.turn.complete(TURN as any)
+  await idleFor(13 * MIN)
+  expect(checkins()).toEqual([])
+  await idleFor(12 * MIN)
+  expect(checkins()).toEqual([WEB_QUIET])
+})

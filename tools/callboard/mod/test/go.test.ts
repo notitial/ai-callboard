@@ -58,7 +58,11 @@ test('/callboard go TEXT typed by the person in a lead opens the mod\'s dialog; 
   expect(h.askCount).toBe(asked + 1)
   expect(h.lastHeader).toBe(g.GO_HEADER)
   expect(h.askedOptions.at(-1)).toEqual([g.GO_NO, g.GO_YES])
-  for (const part of [WORK, 'API', 'a merge', 'a force push']) expect(h.lastQuestion).toContain(part)
+  // Three fixed lines of the mod's, the lane as a count and not by name, then the description last.
+  const lines = String(h.lastQuestion).split('\n')
+  expect(lines).toHaveLength(4)
+  expect(lines[0]).toMatch(/^Give lead LEAD and its 1 lane, later ones too, one go until \w{3} \d{1,2} \w{3} \d\d:\d\d\? \/callboard go off ends it\.$/)
+  expect(lines.slice(1)).toEqual([g.GO_NEVER_DIALOG, 'Everything below was typed with the command, not written by callboard:', WORK])
   expect(goFiles()).toHaveLength(1)
   const f = pfs.get(goFiles()[0])!
   const go = g.parseGo(f.text)!
@@ -125,6 +129,9 @@ test('go_request from the lead\'s main agent opens the same dialog with the defa
   const asked = h.askCount
   expect(String((await $.tool.call(tool('go_request', { text: WORK, agentId: 'a1' }))).deny)).toBe(`go_request refused: subagent: ${g.GO_REFUSE.subagent}`)
   expect(String((await $.tool.call(tool('go_request', { text: '' }))).deny)).toContain('go_request refused: bad-text')
+  // A description past the limit opens no dialog, and the refusal says how long it may be.
+  expect(String((await $.tool.call(tool('go_request', { text: 'x'.repeat(g.GO_TEXT_MAX + 1) }))).deny)).toBe(`go_request refused: bad-text: ${g.GO_REFUSE['bad-text']}`)
+  expect(g.GO_REFUSE['bad-text']).toContain('two or three lines')
   expect(h.askCount).toBe(asked)
   h.askAnswer = g.GO_NO as any
   expect((await $.tool.call(tool('go_request', { text: WORK }))).result).toBe(`No go was given: ${g.GO_REFUSE.cancelled}`)
@@ -198,7 +205,15 @@ test('go_status in a lane opened after the go, whose record carries its own sess
   expect(String((await $.tool.call(tool('go_status', { agentId: 'a1' }))).result)).toBe(t)
 })
 
-test('a lane the dialog listed is covered by its session id; a joined lane is covered; a lane parked and reopened is covered', async ($, on) => {
+test('a go on file whose description is longer than a new go may have is still read', async ($, on) => {
+  await reader($, on)
+  const text = 'x'.repeat(g.GO_FILE_TEXT_MAX)
+  putGo({ text })
+  expect(g.goTextNo(text)).toBe('bad-text')
+  expect(await status($)).toContain(`<<<go ${g.goShort(GOID)}\n${text}\n>>>`)
+})
+
+test('a lane the lead had at the click is covered by its session id; a joined lane is covered; a lane parked and reopened is covered', async ($, on) => {
   await reader($, on, [])
   putGo({ covered: [{ name: 'API', sid: SID }] })
   expect(await status($)).toContain(WORK)
@@ -364,11 +379,11 @@ test('a lead cannot take the manager grant over its lead grant, so a go always e
   expect((await $.command.run(lane('manager'))).text).toContain('this session is a lead, so it cannot be the manager')
 })
 
-test('a lead that restarted as a new conversation lists its existing lanes in the dialog and covers them', async ($, on) => {
+test('a lead that restarted as a new conversation counts its existing lanes in the dialog and covers them', async ($, on) => {
   // The lane was made by the earlier conversation of this lead: its record names that session, not this one.
   await giver($, on, [ckLane({ leadSid: LEADSID })])
   await goCmd($, WORK)
-  expect(h.lastQuestion).toContain('API')
+  expect(h.lastQuestion).toContain('and its 1 lane, later ones too,')
   expect(g.parseGo(pfs.get(goFiles()[0])!.text)!.covered).toEqual([{ name: 'API', sid: OTHER }])
 })
 
@@ -393,7 +408,7 @@ longTest('lane_create and lane_start end by saying whether a go covers the lane'
   expect(String((await $.tool.call(leadCall('start', { lane: 'API' }))).result)).toContain(g.goTail(undefined))
 })
 
-longTest('the giver sees one toast the first time a lane opened after the go reads it, and none for a lane the dialog listed', async ($, on) => {
+longTest('the giver sees one toast the first time a lane opened after the go reads it, and none for a lane the lead had at the click', async ($, on) => {
   await giver($, on)
   await goCmd($, WORK)
   const go = g.parseGo(pfs.get(goFiles()[0])!.text)!
@@ -509,8 +524,7 @@ test('/callboard go TEXT typed by the person in a conductor opens the dialog wit
   expect(h.askCount).toBe(asked + 1)
   expect(h.lastHeader).toBe(g.GO_HEADER)
   expect(h.askedOptions.at(-1)).toEqual([g.GO_NO, g.GO_YES])
-  expect(h.lastQuestion).toContain('the leads it owns and their lanes.')
-  expect(h.lastQuestion).toContain('Covers now: lead LEAD (lane API); and leads and lanes opened under it later, until the end.')
+  expect(h.lastQuestion.startsWith('Give conductor COND, its 1 lead and their 1 lane, later ones too, one go until ')).toBe(true)
   for (const part of [WORK, 'a merge', 'a force push']) expect(h.lastQuestion).toContain(part)
   expect(goFiles()).toHaveLength(1)
   const f = pfs.get(goFiles()[0])!
@@ -533,7 +547,7 @@ test("go_request from a conductor's main agent opens the same dialog; a subagent
   expect(h.askCount).toBe(asked)
   h.askAnswer = g.GO_NO as any
   expect((await $.tool.call(tool('go_request', { text: WORK }))).result).toBe(`No go was given: ${g.GO_REFUSE.cancelled}`)
-  expect(h.lastQuestion).toContain('Covers now: no lead yet; and leads and lanes opened under it later')
+  expect(h.lastQuestion).toContain('Give conductor COND and the leads and lanes opened under it one go until ')
   expect(goFiles()).toEqual([])
   h.askAnswer = GIVE
   const r = await $.tool.call(tool('go_request', { text: WORK, hours: 48 }))
@@ -667,7 +681,7 @@ test('/callboard off in a conductor ends the goes it gave, and no other', async 
   expect(goRows().filter((r) => r.kind === 'go-end')).toEqual([expect.objectContaining({ id: mine.id, code: 'grantor-off', by: SID })])
 })
 
-test("the conductor's dialog lists every lead whose bound record names it, also one in a repo off its list, with the lanes that name that lead by session id", async ($, on) => {
+test("the conductor's dialog counts, and its go holds, every lead whose bound record names it, also one in a repo off its list, with the lanes that name that lead by session id", async ($, on) => {
   const WORKREPO = '/data/x/work'
   const L2 = '00000001-0000-4000-8000-00000000abcd'
   const W1 = '00000002-0000-4000-8000-00000000abcd'
@@ -675,7 +689,7 @@ test("the conductor's dialog lists every lead whose bound record names it, also 
   ownedBy(SID, { name: 'LEAD2', leadSid: L2, repo: WORKREPO })
   storeFiles.set(`${LANESDIR}/${repoKey(WORKREPO)}.json`, JSON.stringify({ repo: WORKREPO, lanes: [{ name: 'W1', folder: WORKREPO, brief: `${WORKREPO}/BRIEF.md`, createdAt: 1, sid: W1, leadSid: L2 }], creates: [] }))
   expect((await goCmd($, WORK)).text).toContain('recorded')
-  expect(h.lastQuestion).toContain('Covers now: lead LEAD (lane API); lead LEAD2 (lane W1); and leads and lanes opened under it later, until the end.')
+  expect(h.lastQuestion).toContain('Give conductor COND, its 2 leads and their 2 lanes, later ones too, one go until ')
   expect(givenGo()).toMatchObject({ leads: [{ name: 'LEAD', sid: LEADSID, repo: PIN }, { name: 'LEAD2', sid: L2, repo: WORKREPO }], covered: [{ name: 'API', sid: APISID }, { name: 'W1', sid: W1 }] })
   // A binding that cannot be read: no dialog, since what the go would reach is not known.
   const asked = h.askCount

@@ -276,9 +276,15 @@ async function tick($: any) {
       await keepaliveTick($, sid as string, submitsAtStart).catch(logFail($, sid as string, 'keepalive'))
       // The lead check-in, after the ping, so the submits guard covers both. Only once a minute, for a lead: no timer is started on the other ticks.
       // Not awaited, so a slow observation never holds the tick (and the cue it claims); its own flag keeps one step at a time. A lead's look at
-      // its lanes' ends (laneEndTick) follows in the same step, on what the check-in just observed.
+      // its lanes' ends (laneEndTick) follows in the same step, on what the check-in just observed, even when the check-in step threw (the error is still logged).
       const s = sid as string
-      if (await checkinDue($, s).catch(() => false)) bgStep($, s, checkinBusy, 'checkin', () => checkinTick($, s, submitsAtStart).then(() => laneEndTick($, s, submitsAtStart)))
+      if (await checkinDue($, s).catch(() => false)) bgStep($, s, checkinBusy, 'checkin', async () => {
+        try {
+          await checkinTick($, s, submitsAtStart)
+        } finally {
+          await laneEndTick($, s, submitsAtStart)
+        }
+      })
       // The deadline of an order, for a lead, a conductor or the manager; once a minute, and only while the session has an order out.
       if (await orderDue($, s).catch(() => false)) bgStep($, s, orderBusy, 'order', () => orderTick($, s, submitsAtStart))
       // A lead's or a conductor's look at who read its goes, once a minute: a lane or a lead opened after the click is told to the person the first time it reads one.
