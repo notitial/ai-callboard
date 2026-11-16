@@ -374,17 +374,12 @@ test('c: --since keeps old transcripts out', () => {
   assert.deepEqual(run(fx, { since: BASE - 3600_000 }).anomalies, [])
 })
 
-test('d: a request for a dialog tool is an anomaly; a merge, a settings edit or a machine-ops call is not one', () => {
+test('a request for the plan-mode exit is a request like any other: no anomaly', () => {
   const fx = fixture()
-  const dialog = clean(uid(1), BASE, uid(101), { tool: 'ExitPlanMode', pattern: 'ExitPlanMode', hash: H('c') })
-  const merge = clean(uid(2), BASE + 1000, uid(102), { tool: 'mcp__github__merge_pull_request', pattern: 'mcp__github__merge_pull_request x/y #3', hash: H('d') })
-  const settings = clean(uid(3), BASE + 2000, uid(103), { tool: 'Edit', pattern: 'Edit .claude/settings.json', hash: H('e') })
-  ledger(fx, [ON(), ...dialog, ...merge, ...settings])
-  const rep = run(fx)
-  assert.deepEqual(rules(rep), ['dialog-asked'])
-  assert.deepEqual(rep.anomalies.map((a) => a.id), [uid(1)])
+  ledger(fx, [ON(), ...clean(uid(1), BASE, uid(101), { tool: 'ExitPlanMode', pattern: 'ExitPlanMode', hash: H('c') })])
+  assert.deepEqual(run(fx).anomalies, [])
 })
-test('d: a dialog row is read and is not an anomaly', () => {
+test('a dialog row of an older ledger is read and is not an anomaly', () => {
   const fx = fixture()
   ledger(fx, [ON(), R('dialog', BASE - 1000, { ...T, tool: 'ExitPlanMode', pattern: 'ExitPlanMode' }), ...clean()])
   assert.deepEqual(run(fx).anomalies, [])

@@ -6,10 +6,10 @@ const H = 'a'.repeat(64)
 const SID_A = '0a1b2c3d-0000-4000-8000-123456789abc'
 const SID_B = '1a1b2c3d-0000-4000-8000-123456789abc'
 const ID = '2a1b2c3d-0000-4000-8000-123456789abc'
-// ---- the dialog rule: a dialog is never answered by an agent ----
-test('isDialog: the plan-mode exit is a dialog; no other tool is', () => {
-  assert.equal(p.isDialog('ExitPlanMode'), true)
-  for (const t of ['Bash', 'Write', 'Edit', 'AskUserQuestion', 'mcp__github__merge_pull_request', 'mcp__git-mcp__git_push', 'exitplanmode']) assert.equal(p.isDialog(t), false, t)
+// ---- the plan-mode exit is a request like any other ----
+test('the plan-mode exit: classified by what raised it, and the rubric has its line', () => {
+  assert.deepEqual(p.classify(p.PLAN_EXIT_TOOL, { decision: 'ask' }), { judge: 'agents', raisedBy: 'mode' })
+  assert.ok(p.RUBRIC.includes("**A plan-mode exit.** The input is the lane's plan, and an allow lets the lane start on it. Allow it only when the plan is the work the lane was given and nothing in it is on the risk list; surface it otherwise."))
 })
 
 // ---- the classifier table from the probes ----
@@ -164,7 +164,7 @@ test('awake clock: a gap is capped, a clock that ran back adds nothing, a sleep 
 // ---- apply: each code ----
 const baseReq = { id: ID, nonce: 'n1', inputHash: H, sid: SID_A }
 const baseDec = (o: Partial<p.Decision> = {}): p.Decision => ({ id: ID, inputHash: H, decision: 'allow', why: 'ok', by: { level: 'lead', sid: SID_B, name: 'LEAD' }, at: 1, nonce: 'n1', ...o })
-const apply = (o: Partial<p.ApplyIn> = {}): p.ApplyOut => p.applyCheck({ req: baseReq, decision: baseDec(), liveHash: H, awakeMs: 60_000, expiresAt: p.EXPIRES_MS, dialog: false, byOk: true, ledger: 'found', graceMs: 0, ...o })
+const apply = (o: Partial<p.ApplyIn> = {}): p.ApplyOut => p.applyCheck({ req: baseReq, decision: baseDec(), liveHash: H, awakeMs: 60_000, expiresAt: p.EXPIRES_MS, byOk: true, ledger: 'found', graceMs: 0, ...o })
 test('apply: a good decision applies', () => {
   assert.deepEqual(apply(), { ok: true })
 })
@@ -174,7 +174,6 @@ test('apply: each refusal has its code', () => {
   assert.deepEqual(apply({ decision: baseDec({ inputHash: 'b'.repeat(64) }) }), { drop: 'hash' })
   assert.deepEqual(apply({ decision: baseDec({ nonce: 'other' }) }), { drop: 'nonce' })
   assert.deepEqual(apply({ awakeMs: p.EXPIRES_MS }), { drop: 'expired' })
-  assert.deepEqual(apply({ dialog: true }), { drop: 'dialog' })
   assert.deepEqual(apply({ byOk: false }), { drop: 'by-sid' })
   assert.deepEqual(apply({ decision: baseDec({ by: { level: 'lead', sid: SID_A, name: 'A' } }) }), { drop: 'by-sid' })
   assert.deepEqual(apply({ decision: baseDec({ by: { level: 'lead', sid: 'not-a-sid', name: 'A' } }) }), { drop: 'by-sid' })
@@ -188,7 +187,6 @@ test('apply: early and a row that lags are held, not dropped; a refusal outranks
   assert.deepEqual(apply({ awakeMs: p.MIN_AGE_MS - 1 }), { hold: 'early' })
   assert.deepEqual(apply({ awakeMs: p.MIN_AGE_MS }), { ok: true })
   assert.deepEqual(apply({ ledger: 'missing', graceMs: p.LEDGER_GRACE_MS - 1 }), { hold: 'ledger' })
-  assert.deepEqual(apply({ awakeMs: 1000, dialog: true }), { drop: 'dialog' })
   assert.deepEqual(apply({ awakeMs: 1000, decision: baseDec({ nonce: 'x' }) }), { drop: 'nonce' })
 })
 test('parseDecision: only the exact shape, no answer decision yet, and a size cap', () => {
@@ -375,7 +373,7 @@ test('parseDecision: answer needs its object; an index of 0 to 3 and a label of 
   assert.ok(p.parseDecision(JSON.stringify({ ...base, decision: 'answer', answer: { index: 0, label: 'a'.repeat(200) } })))
 })
 test('applyCheck: a question takes only `answer`, bound to the live label; the order is kept', () => {
-  const base = { req: { id: ID, nonce: 'n-1', inputHash: H, sid: SID_A }, liveHash: H, awakeMs: 40_000, expiresAt: p.EXPIRES_MS, dialog: false, byOk: true, ledger: 'found' as const, graceMs: 0 }
+  const base = { req: { id: ID, nonce: 'n-1', inputHash: H, sid: SID_A }, liveHash: H, awakeMs: 40_000, expiresAt: p.EXPIRES_MS, byOk: true, ledger: 'found' as const, graceMs: 0 }
   const dec = (over: Record<string, unknown> = {}) => ({ id: ID, inputHash: H, decision: 'answer' as const, why: 'ok', by: { level: 'lead', sid: SID_B, name: 'L' }, at: 1, nonce: 'n-1', answer: { index: 1, label: 'Green' }, ...over }) as p.Decision
   const question = { labels: ['Red', 'Green'] }
   assert.deepEqual(p.applyCheck({ ...base, decision: dec(), question }), { ok: true })
@@ -397,9 +395,8 @@ test('applyCheck: a question takes only `answer`, bound to the live label; the o
   assert.deepEqual(p.applyCheck({ ...base, decision: dec({ via: 'person', answer: { index: 0, label: 'Green' } }), question, relay }), { drop: 'answer' })
   assert.deepEqual(p.applyCheck({ ...base, decision: dec({ via: 'person', decision: 'allow', answer: undefined }), question, relay }), { drop: 'kind' })
   assert.deepEqual(p.applyCheck({ ...base, decision: dec(), question, relay }), { drop: 'relay' }, 'an agent while a relay is in place')
-  // The order: a bad hash is reported before kind; a dialog too.
+  // The order: a bad hash is reported before kind.
   assert.deepEqual(p.applyCheck({ ...base, liveHash: 'b'.repeat(64), decision: dec({ decision: 'allow', answer: undefined }), question }), { drop: 'hash' })
-  assert.deepEqual(p.applyCheck({ ...base, dialog: true, decision: dec({ decision: 'allow', answer: undefined }), question }), { drop: 'dialog' })
 })
 test('answerText: the suffix names the checked tier; a name that is not a plain word falls back to the level; the person\'s pick is bare', () => {
   assert.equal(p.answerText('Green', { level: 'lead', name: 'ELDRITCH' }, false), 'Green (answered by lead ELDRITCH)')
@@ -468,9 +465,18 @@ for (const [name, tool, facts, raisedBy] of JUDGED_CASES) {
     assert.deepEqual(p.classify(tool, facts), { judge: 'agents', raisedBy })
   })
 }
-test('capReason: a string is trimmed and capped; nothing else is a reason', () => {
-  assert.equal(p.capReason('  why  '), 'why')
+test('capReason: a string is trimmed; one over the cap keeps its head and its tail and is marked cut; nothing else is a reason', () => {
+  assert.deepEqual(p.capReason('  why  '), { text: 'why', cut: false })
   assert.equal(p.capReason(''), undefined)
   assert.equal(p.capReason(3), undefined)
-  assert.ok(new TextEncoder().encode(p.capReason('x'.repeat(5000))!).length <= p.REASON_CAP)
+  const size = (t: string) => new TextEncoder().encode(t).length
+  assert.deepEqual(p.capReason('x'.repeat(p.REASON_CAP)), { text: 'x'.repeat(p.REASON_CAP), cut: false })
+  // A guard's warning at the end survives lane-set fields that fill the head.
+  const long = p.capReason(`guard: dispatch of ${'i'.repeat(5000)} WARNING: this run can deploy.`)!
+  assert.equal(long.cut, true)
+  assert.ok(size(long.text) <= p.REASON_CAP)
+  assert.ok(long.text.startsWith('guard: dispatch of iii') && long.text.includes(' [...] ') && long.text.endsWith('WARNING: this run can deploy.'))
+  // Multibyte text is cut on a character, at both ends.
+  const wide = p.capReason('\u00e9'.repeat(3000) + 'end')!
+  assert.ok(wide.cut && size(wide.text) <= p.REASON_CAP && !wide.text.includes('\ufffd') && wide.text.endsWith('end'))
 })

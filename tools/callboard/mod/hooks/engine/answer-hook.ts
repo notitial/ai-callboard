@@ -1,5 +1,5 @@
 // The prompt-answering hook: request files, the wait for a decision, the apply step, the relay, the ledger glue and the sweeps.
-// Trust rules held here: a dialog is never answered, at answer time or at apply; no decision without a ledger row; the relay reads only the person's own answer.
+// Trust rules held here: no decision without a ledger row; the relay reads only the person's own answer.
 import * as c from '../core.ts'
 import * as pr from '../prompts.ts'
 import { grants, checks, openReqs, doneIds, unclosed, askingSids, relayAskedTurn, relayHolds, mem } from '../mem.ts'
@@ -616,11 +616,6 @@ async function promptHook($: any, e: any, nextOnce: (x: any) => Promise<any>, si
         return beneath
       }
     }
-    // 6. A dialog of another kind is the person's alone: a row, no request, nobody asked.
-    if (pr.isDialog(tool)) {
-      await ledgerAdd($, { ...base, kind: 'dialog' })
-      return beneath
-    }
     // 7. A live tier: the lead of a lane, or a conductor or the manager (a lead's own prompt starts at the conductor). Nobody in reach, or an asker that the
     // session list does not show: no row for a judge, the dialog stays the person's.
     if (!leadRead) lead = await promptLeadOf($, cov.level, sid, cwd, cov.lead)
@@ -646,7 +641,7 @@ async function promptHook($: any, e: any, nextOnce: (x: any) => Promise<any>, si
     const capped = pr.capInput(input)
     // The reason comes from the live tool.check facts.
     const reason = pr.capReason(entry.facts.reason)
-    const req: pr.Request = { id, sid, pid: own.pid, procStart: own.procStart, level: cov.level, lane: cov.lane ?? cov.self, ...(leadName ? { leadName } : {}), ...(leadSid ? { leadSid } : {}), ...(cov.level === 'lane' && lead === undefined ? { noLead: true } : {}), repo: cwd, tool, inputHash: hash, raisedBy: judged.raisedBy, ...(reason !== undefined ? { reason } : {}), at: started, expiresAt: started + pr.EXPIRES_MS, nonce, input: capped.input, truncated: capped.truncated }
+    const req: pr.Request = { id, sid, pid: own.pid, procStart: own.procStart, level: cov.level, lane: cov.lane ?? cov.self, ...(leadName ? { leadName } : {}), ...(leadSid ? { leadSid } : {}), ...(cov.level === 'lane' && lead === undefined ? { noLead: true } : {}), repo: cwd, tool, inputHash: hash, raisedBy: judged.raisedBy, ...(reason !== undefined ? { reason: reason.text, ...(reason.cut ? { reasonCut: true } : {}) } : {}), at: started, expiresAt: started + pr.EXPIRES_MS, nonce, input: capped.input, truncated: capped.truncated }
     const text = pr.requestText(req)
     if (new TextEncoder().encode(text).length > pr.REQUEST_MAX || !(await promptPut($, `${dir}/${id}.request.json`, text))) {
       await ledgerAdd($, { ...base, kind: 'abandoned', code: 'hook-failed' })
@@ -911,7 +906,7 @@ async function promptApply($: any, w: WaitCtx, d: pr.Decision, awake: number, gr
   const ledger = d.decision === 'answer' && d.answer && lh === undefined ? 'unreadable' : await ledgerHas($, w.p, w.id, w.nonce, { code: d.decision, by: d.by.sid, ...(d.via ? { via: d.via } : {}), ...(d.answer && lh !== undefined ? { opt: String(d.answer.index), lh } : {}) })
   // Only a call that carries an `@claude` body, and only once the other checks would let the decision through, reads the cap.
   const cap = w.cap && ledger === 'found' && d.decision === 'allow' && d.via !== 'person' ? await capOf($, w.p, w.cap) : undefined
-  const out = pr.applyCheck({ req: w.req, decision: d, liveHash, awakeMs: awake, expiresAt: pr.expiresAfter(relay !== undefined), dialog: pr.isDialog(w.tool), byOk, ...(relay ? { relay } : {}), ...(w.tool === pr.QUESTION_TOOL ? { question: { labels: pr.questionLabels(w.input) } } : {}), ledger, graceMs, cap })
+  const out = pr.applyCheck({ req: w.req, decision: d, liveHash, awakeMs: awake, expiresAt: pr.expiresAfter(relay !== undefined), byOk, ...(relay ? { relay } : {}), ...(w.tool === pr.QUESTION_TOOL ? { question: { labels: pr.questionLabels(w.input) } } : {}), ledger, graceMs, cap })
   // The two drops that rest on those lookups are held for the next poll when one failed; the final codes (id, hash, nonce, expired, dialog, cap) never are.
   return unsure && 'drop' in out && (out.drop === 'by-sid' || out.drop === 'relay') ? { out: { hold: 'lookup' } } : { out, ...(tier ? { tier } : {}) }
 }

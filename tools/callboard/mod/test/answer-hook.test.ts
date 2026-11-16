@@ -185,7 +185,8 @@ const CLASSIFY: [string, any, string, unknown, string][] = [
   ['a hook ask on a workflow rerun', { decision: 'ask', hook: 'PreToolUse', reason: 'x' }, 'mcp__github__actions_run_trigger', { owner: 'o', repo: 'r', method: 'rerun_failed_jobs', run_id: 7 }, 'requested hook'],
   ['a setting', { decision: 'ask', setting: 'permissions.x' }, 'Bash', PRQ, 'requested setting'],
   ['a plugin', { decision: 'ask', plugin: 'other' }, 'Bash', PRQ, 'requested plugin'],
-  ['the plan-mode exit behind a hook ask (a dialog, whatever raised it)', { decision: 'ask', hook: 'PreToolUse', reason: 'x' }, 'ExitPlanMode', { plan: 'p' }, 'dialog'],
+  ['the plan-mode exit behind a hook ask', { decision: 'ask', hook: 'PreToolUse', reason: 'x' }, 'ExitPlanMode', { plan: 'p' }, 'requested hook'],
+  ['the plan-mode exit the mode asks about', { decision: 'ask' }, 'ExitPlanMode', { plan: 'p' }, 'requested mode'],
   ['a question with no asks scope (stays his)', { decision: 'ask' }, 'AskUserQuestion', { questions: [{ question: 'q', header: 'h', options: [{ label: 'a' }, { label: 'b' }] }] }, 'not-judgeable question-scope'],
 ]
 for (const [name, verdict, tool, input, want] of CLASSIFY) {
@@ -229,11 +230,9 @@ test('prompts: a guard\'s lock-clear ask becomes a request with the guard\'s rea
   const c2 = callOf('Bash', PRQ)
   let seen: any
   const r = await runRequest($, [at(4000, () => { seen = readReq() }), at(34_000, () => handDecision(readReq(), { decision: 'deny', why: 'that holder is alive' }))], c2.over, c2.check)
-  expect('floor' in seen).toBe(false)
   expect(seen.reason).toBe(LOCK_ASK.reason)
   expect(seen.raisedBy).toBe('hook')
   expect(ledgerRows()[0]).toEqual(expect.objectContaining({ kind: 'requested', raised: 'hook' }))
-  expect('floor' in ledgerRows()[0]).toBe(false)
   expect(r).toMatchObject({ decision: { behavior: 'deny' } })
   expect(rowKinds()).toEqual(['requested', 'answered deny', 'returned deny'])
 })
@@ -259,18 +258,29 @@ test('prompts: a rerun of failed jobs carries the guard\'s reason in its file', 
   expect(seen.reason).toBe('github-mcp-guard: rerun_failed_jobs on ["o","r"].')
 })
 
-// ---- a dialog, at the request: no request is written and the dialog stays the person's ----
-test('prompts: a dialog (the plan-mode exit) at the request: no request, a dialog row, the dialog stays', async ($, on) => {
-  const argv: string[][] = []
-  await answerer($, on, [], { argv })
-  const c2 = callOf('ExitPlanMode', { plan: 'p' })
-  const r = await runRequest($, [], c2.over, c2.check)
-  expect(r).toEqual({})
-  expect(rowKinds()).toEqual(['dialog'])
-  expect(reqFiles().length).toBe(0)
-  expect(sleeps(argv).length).toBe(0)
+test('prompts: a guard\'s reason over 1 KB is cut in the request, keeps its last words and is marked cut', async ($, on) => {
+  const reason = `github-mcp-guard: dispatch with inputs ${'i'.repeat(3000)} WARNING: this can deploy.`
+  await answerer($, on, [], { verdict: { decision: 'ask', hook: 'PreToolUse', reason } })
+  const c2 = callOf('mcp__github__actions_run_trigger', { owner: 'o', repo: 'r', method: 'run_workflow', workflow_id: 'ci.yml', ref: 'main' })
+  let seen: any
+  await runRequest($, [at(4000, () => { seen = readReq() }), stop(8000)], c2.over, c2.check)
+  expect(seen.reasonCut).toBe(true)
+  expect(seen.reason.endsWith('WARNING: this can deploy.')).toBe(true)
+  expect(new TextEncoder().encode(seen.reason).length).toBeLessThanOrEqual(1024)
 })
-// Every other call reaches the tiers: a request is written, and the rubric judges it. A hook stops an edit of the checkouts, the settings and callboard's state before any prompt exists.
+
+// ---- the plan-mode exit: a request like any other ----
+test('prompts: the plan-mode exit becomes a request with the plan in it, and a tier\'s allow lands', async ($, on) => {
+  await answerer($, on, [])
+  const c2 = callOf('ExitPlanMode', { plan: 'p' })
+  let seen: any
+  const r = await runRequest($, [at(4000, () => { seen = readReq() }), at(34_000, () => handDecision(readReq(), { decision: 'allow' }))], c2.over, c2.check)
+  expect(seen.tool).toBe('ExitPlanMode')
+  expect(seen.input).toEqual({ plan: 'p' })
+  expect(r).toMatchObject({ decision: { behavior: 'allow' } })
+  expect(rowKinds()).toEqual(['requested', 'answered allow', 'returned allow'])
+})
+// Every call reaches the tiers: a request is written, and the rubric judges it. A hook stops an edit of the checkouts, the settings and callboard's state before any prompt exists.
 const REACH_CASES: [string, string, unknown][] = [
   ['a merge', 'mcp__github__merge_pull_request', { owner: 'o', repo: 'r', pullNumber: 1 }],
   ['a machine-ops merge', 'mcp__machine-ops__pr_merge', { owner: 'o', repo: 'r', number: 1 }],
@@ -578,7 +588,7 @@ const ESC_VALUE = { scope: 'all', asks: false, asksScope: 'all', savedAt: T0 }
 test('prompts: /callboard config shows escalation OFF (the default is blocked on this machine), help has no dialog line, and the prompts word is the usage line', async ($, on) => {
   await started($, on, [])
   expect((await $.command.run(lane('config'))).text).toContain('| Escalation | OFF |')
-  expect((await $.command.run(lane('help'))).text).not.toContain('Never answered by an agent')
+  expect((await $.command.run(lane('help'))).text).not.toContain('Nothing is held back from the tiers by the mod')
   const usage = (await $.command.run(lane('prompts'))).text
   expect(usage).toContain('Run /callboard help for the full list.')
   expect(usage).not.toContain('Escalation')
@@ -594,7 +604,7 @@ test('prompts: /callboard escalation: the person\'s own command, one dialog nami
   // Scope all for permission prompts and questions alike; `asks: false` stays for an older mod.
   expect(h.store.get('answering')).toEqual(ESC_VALUE)
   expect(r.text).toContain('Escalation: on for all lanes and leads; questions: answered for all lanes.')
-  expect(r.text).toContain('Never answered by an agent')
+  expect(r.text).toContain('Nothing is held back from the tiers by the mod')
   expect(rowKinds()).toEqual(['answering-on', 'answering-on asks'])
   for (const row of ledgerRows()) expect(row.hash).toMatch(/^[0-9a-f]{64}$/)
   expect(ledgerRows()[0].hash).toBe(ledgerRows()[1].hash)

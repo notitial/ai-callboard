@@ -768,8 +768,8 @@ const HELP_ROWS: [string, string][] = [
   ['off', 'Turn lead, conductor, manager and lane off for this session.'],
   ['help', 'Show this table.'],
 ]
-// What escalation never hands to an agent: the one wording of it, appended to the answer of /callboard escalation.
-export const DIALOG_LINE = 'Never answered by an agent: a dialog of another kind (the plan-mode exit). Writes to the checkouts, the settings and callboard\'s state are stopped by a hook before any prompt exists, not here. Merges, force pushes, pushes to main, master or production and destructive deletes are not on it: the rubric passes them up.'
+// What escalation does not hold back: the one wording of it, appended to the answer of /callboard escalation.
+export const DIALOG_LINE = 'Nothing is held back from the tiers by the mod: every prompt of a lane or a lead rises, the plan-mode exit included, and the rubric says what they surface to you. Writes to the checkouts, the settings and callboard\'s state are stopped by a hook before any prompt exists, not here. Merges, force pushes, pushes to main, master or production and destructive deletes rise too: the rubric passes them up.'
 export const helpText = (): string => mdPage('**Callboard commands**', ['Command', 'What it does'], HELP_ROWS.map((r) => r.map(mdEscape)))
 // A word the handler does not know: the short list, then the way to the full one.
 export const HELP_USAGE = 'Use /callboard help, lanes, status, lead [NAME], lead join, lane [NAME], escalation [off], go [TEXT], manager or off. Run /callboard help for the full list.'

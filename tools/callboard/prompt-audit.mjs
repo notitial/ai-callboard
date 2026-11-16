@@ -6,7 +6,7 @@
 // limit lives in the mod. Exit 0: no anomalies. 1: anomalies. 2: usage error, an unreadable root, or a ledger file that could
 // not be read (an audit that missed a ledger file proves nothing, so it never exits 0).
 //
-// The ledger rows it reads (prompts.ts, LedgerRow): { t, kind, code?, id?, lane?, repo?, tool?, pattern?, hash?, tier?, why?, nonce?, opt?, lh?, dialog?, end? }.
+// The ledger rows it reads (prompts.ts, LedgerRow): { t, kind, code?, id?, lane?, repo?, tool?, pattern?, hash?, tier?, why?, nonce?, opt?, lh?, dialog?, end?, raised? }.
 //   requested  id, nonce, lane, repo, tool, pattern, hash, tier, raised?     the hook asked a tier. raised: what raised the ask (mode | rule | guard | hook |
 //              setting | plugin | ceiling; anything else is an anomaly)
 //   answered   id, nonce (the requested row's), code allow|deny, by (the answering lead's session id), tier, why, lane, repo, tool, pattern, hash
@@ -90,8 +90,6 @@ const DROP_ANOMALY = new Set(['no-answered-row', 'id', 'hash', 'nonce', 'by-sid'
 // What may raise an ask (prompts.ts, RAISED). A requested row that names anything else was not written by the hook.
 const RAISED = new Set(['mode', 'rule', 'guard', 'hook', 'setting', 'plugin', 'ceiling'])
 
-// A tool whose call is a dialog of its own: no agent answers it, so a request for one is an anomaly (rule d).
-const DIALOG_TOOLS = new Set(['ExitPlanMode'])
 
 class AuditError extends Error {}
 
@@ -672,15 +670,6 @@ function noteBenign(g, { abandoned, lostRaces, dropsFine }) {
   for (const d of g.dropped) if (!DROP_ANOMALY.has(d.code)) dropsFine.push({ id: g.id, t: d.t, code: d.code ?? '' })
 }
 
-// d. a dialog: the plan-mode exit stays the person's, so a request or an answer for one means the mod's own rule was bypassed.
-function ruleDialog({ groups, flag }) {
-  for (const g of groups) {
-    const probe = g.rows.find((r) => (r.kind === 'requested' || r.kind === 'answered' || r.kind === 'returned') && r.tool !== undefined)
-    if (!probe || !DIALOG_TOOLS.has(probe.tool)) continue
-    if (g.requested.length > 0 || g.answered.length > 0) flag('d', 'dialog-asked', `request ${g.id} (${probe.tool}) was asked of an agent but is a dialog`, { id: g.id, t: probe.t })
-  }
-}
-
 // g. lead grants (ADR 0006): a lead-grant needs a lead-offer row of the same repo hash and nonce written by the same session; at most one grant of a repo in an hour (a grant
 // followed by a void of its nonce does not count); and a grant with a void of its nonce is a grant that was told to have failed, which is listed so a person looks at it.
 function ruleLeadGrants({ rows, flag, inRange }) {
@@ -1195,7 +1184,6 @@ export function audit({ root, projects, since, now = Date.now(), projectsExplici
   const abandonedNoId = rows.filter((r) => r.kind === 'abandoned' && r.id === undefined && inRange(r.ms))
   for (const r of abandonedNoId) abandoned.push({ id: '', t: r.t, code: r.code ?? '', tool: r.tool ?? '' })
 
-  ruleDialog(ctx)
   ruleLeadGrants(ctx)
   ruleLeadOwners(ctx)
   ruleAnsweringOn(ctx)
