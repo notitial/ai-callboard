@@ -14,7 +14,7 @@ test('every form is written once, each with a help line', () => {
 })
 
 test('the hint and the usage lines are built from the table', () => {
-  assert.equal(argumentHint(), 'lanes|status|lead|lane|escalation|go|here|conductor|manager|config|reserve|checkin|rest|off|help')
+  assert.equal(argumentHint(), 'lanes|status|lead|lane|escalation|go|here|unattended|conductor|manager|config|reserve|checkin|rest|off|help')
   assert.deepEqual(firstWords().slice(0, 3), ['lanes', 'status', 'lead'])
   assert.equal(usageLine('conductor'), 'Use /callboard conductor [NAME], conductor add NAME|PATH or conductor remove NAME|PATH.')
   assert.equal(usageLine('checkin'), 'Use /callboard checkin pause [Nm|Nh] or checkin resume.')
@@ -43,6 +43,7 @@ test('a later word completes from the forms the earlier words fit', () => {
   assert.deepEqual(words('/callboard config ', 'p'), ['ping'])
   assert.deepEqual(words('/callboard escalation ', 'o'), ['off'])
   assert.deepEqual(words('/callboard go ', 'o'), ['off'])
+  assert.deepEqual(words('/callboard unattended ', 'o'), ['off'])
 })
 
 test('a value the person supplies, a word past the end of a form and a draft that is not /callboard offer nothing', () => {
@@ -79,6 +80,7 @@ test('every line a form of the table stands for is one the parser or the handler
       if (first === 'escalation') assert.notEqual(prm.parseEscalationArgs(rest.join(' ')), 'bad', line)
       else if (first === 'go') assert.notEqual(go.parseGoArgs(rest.join(' ')), 'bad', line)
       else if (first === 'here') assert.notEqual(prm.parseHereArgs(rest.join(' ')), 'bad', line)
+      else if (first === 'unattended') assert.notEqual(prm.parseUnattendedArgs(rest.join(' ')), 'bad', line)
       else {
         const arg = c.parseCommandArgs(line)
         assert.notEqual(arg, undefined, line)
