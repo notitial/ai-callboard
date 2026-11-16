@@ -69,6 +69,8 @@ const TEXT: Record<Role, Record<string, string>> = {
     lane_terminate: `Stop ${LANE.conductor} with SIGTERM, whatever it is doing; with no live session it is removed directly. ${LANE_ARG} For a lead, use lead_terminate.`,
     lead_open:
       'Open a lead in one of your repos, briefed with task, and make it the lead without asking the person. The person sees a toast. repo (absolute path), name, task; optional model and job (true: one small task, no lanes).',
+    go_request:
+      "Ask the person for one go that counts in the leads you own and in their lanes (ADR 0009). It only opens the person's dialog in this session: text says what the work is, in at most 3 short plain lines, with the detail in the brief or the plan; the person reads it, and the leads and lanes read it back from go_status. Main agent of a conductor only.",
     ...upperText('conductor'),
   },
   manager: {

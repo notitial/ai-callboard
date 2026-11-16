@@ -1,9 +1,10 @@
 import { expect } from 'claude-code/testing'
 import { REASON_TEXT } from '../hooks/core'
 import * as c from '../hooks/core'
-import { toasts, h, SID, pdirs, teeTexts, OFFERS_DIR, longTest, PROMPTS_DIR, ROOT, T0, extraStat, leadFiles, pfs } from './harness'
-import { ledgerRows } from './answer-fixtures'
-import { ticks, CSESS, LEADPS, LEADSID, OTHERLEAD, PIN, condOn, leadAt, leadFileText, leadReg, putLeadRecs, regAs } from './fixtures'
+import * as g from '../hooks/go'
+import { toasts, h, SID, pdirs, teeTexts, GO_DIR, OFFERS_DIR, longTest, PROMPTS_DIR, ROOT, T0, extraStat, leadFiles, pfs } from './harness'
+import { ledgerRows, wireGuard } from './answer-fixtures'
+import { ticks, CSESS, LEADPS, LEADSID, OTHERLEAD, PERSON, PIN, condOn, lane, leadAt, leadFileText, leadReg, ownedBy, putLeadRecs, regAs, waitFor } from './fixtures'
 
 const call = (over: Record<string, unknown> = {}) => ({ tool: 'mcp__callboard__lead_open', repo: PIN, name: 'LEAD-N', task: 'Do the work.', ...over }) as any
 const NEWSID = '12345678-aaaa-4bbb-8ccc-dddddddddddd'
@@ -46,6 +47,8 @@ longTest('lead_open opens a panel, writes the brief, cues it and reports the lea
   const r = await open($, `ok ${NEWSID}\n`)
   expect(r).toContain('lead LEAD-N is on as session 12345678')
   expect(r).not.toContain('model you asked for')
+  // No go of this conductor is live: the result ends by saying so.
+  expect(String(JSON.parse(r).result).endsWith(g.goLeadTail(undefined))).toBe(true)
   expect(ledgerRows().map((x) => x.kind)).toEqual(['lead-offer'])
   expect(ledgerRows()[0]).toMatchObject({ hash: KEY, repo: PIN, lane: 'LEAD-N' })
   expect(offers()).toEqual([])
@@ -53,6 +56,35 @@ longTest('lead_open opens a panel, writes the brief, cues it and reports the lea
   expect(mvs(argv, `${PIN}/.archive/LEAD-N/BRIEF.md`).length).toBeGreaterThan(0)
   expect(mvs(argv, `${ROOT}/open/LEAD-N.lead`).length).toBe(1)
   expect(ledgerRows().some((x) => x.kind === 'lead-grant')).toBe(false)
+})
+
+longTest("lead_open ends by saying a go covers the new lead once its record names this conductor and it is bound; a lead with no record gets the no-go tail", async ($, on) => {
+  await conductor($, on, [])
+  await waitFor(() => h.liveHeadAsked !== undefined)
+  wireGuard()
+  h.askAnswer = g.GO_YES
+  expect((await $.command.run(lane('go Build the API.', PERSON))).text).toContain('recorded')
+  const go = g.parseGo(pfs.get([...pfs.keys()].find((k) => k.startsWith(`${GO_DIR}/`) && k.endsWith('.json'))!)!.text)!
+  // The new panel's own mod writes its record and binding at the accept; here the test does, while the window answers.
+  const p = $.tool.call(call())
+  await h.clock!.advance(500)
+  ownedBy(SID, { name: 'LEAD-N', leadSid: NEWSID })
+  h.openResult = `ok ${NEWSID}\n`
+  await h.clock!.advance(500)
+  const r = String((await p).result)
+  expect(r).toContain('lead LEAD-N is on as session 12345678')
+  expect(r.endsWith(` A go covers this lead: ${g.goShort(go.id)}, ends ${g.goWhen(go.ends, -new Date(go.ends).getTimezoneOffset())}.`)).toBe(true)
+})
+
+longTest('lead_open under a live go of this conductor: a new lead whose record was not written is not covered, and the result says so', async ($, on) => {
+  await conductor($, on, [])
+  await waitFor(() => h.liveHeadAsked !== undefined)
+  wireGuard()
+  h.askAnswer = g.GO_YES
+  expect((await $.command.run(lane('go Build the API.', PERSON))).text).toContain('recorded')
+  const r = String(JSON.parse(await open($, `ok ${NEWSID}\n`)).result)
+  expect(r).toContain('lead LEAD-N is on as session 12345678')
+  expect(r.endsWith(g.GO_LEAD_TAIL_UNBOUND)).toBe(true)
 })
 
 // The answer a window of the nonce-echoing extension writes: the request's nonce is the one the ledger row carries.

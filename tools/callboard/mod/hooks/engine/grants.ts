@@ -335,8 +335,17 @@ export function presenceDrop($: any, sid: string) {
 
 // Resolves true when the saved grant is gone, false when its delete failed (the off and Cancel replies then say lead may come back after a restart).
 export function leadDrop($: any, sid: string): Promise<boolean> {
-  // The goes this lead gave end with its grant (ADR 0009); the rows are written beside the drop, which does not wait for them.
-  if (grants.get(sid)?.level === 'lead') void goGrantorOff($, sid).catch(() => undefined)
+  // The goes this lead or conductor gave end with its grant (ADR 0009); the rows are written beside the drop, which does not wait for them. A grant that is
+  // only saved (a restart whose restore has not finished, or was refused with the saved grant kept) is dropped here too, so its goes end as well: the two
+  // saved grants are looked up before the deletes below are issued, and a look that fails counts as saved. Any other session gave no go and ends none.
+  const level = grants.get(sid)?.level
+  if (level === 'lead' || level === 'conductor') void goGrantorOff($, sid).catch(() => undefined)
+  else if (level === undefined) {
+    const saved = [c.LEAD_HINT_PREFIX, c.CONDUCTOR_HINT_PREFIX].map((k) => (async () => $.store.get(`${k}${sid}`))().then((v: unknown) => v !== undefined, () => true))
+    void Promise.all(saved)
+      .then((had) => (had.some(Boolean) ? goGrantorOff($, sid) : undefined))
+      .catch(() => undefined)
+  }
   leadEpoch.set(sid, epochOf(sid) + 1)
   grants.delete(sid)
   briefed.delete(sid)
@@ -501,8 +510,8 @@ async function leadRestoreTry($: any, me: string, hint: c.LeadHint): Promise<str
   if (dropped()) return
   if (cwd === 'timeout' || typeof cwd !== 'string') return 'cwd-unreadable'
   if (cwd !== hint.pin) {
-    await $.store.delete(`${c.LEAD_HINT_PREFIX}${me}`)
     void goGrantorOff($, me).catch(() => undefined)
+    await $.store.delete(`${c.LEAD_HINT_PREFIX}${me}`)
     void hereGrantOff($, me).catch(() => undefined)
     return void (await end('wrong-folder'))
   }
@@ -1927,7 +1936,7 @@ export async function conductorReach($: any, sid: string): Promise<{ pins: strin
 }
 
 // ---- the conductor grant by dialog, its saved grant and restore, its tools ----
-// The conductor's tools (three lane tools, lead_open and the six lead tools), declared at its grant, then the three prompt tools (thirteen in all, c.CONDUCTOR_TOOLS). The handlers are the lead's (leadBase refuses every other lane tool at conductor level).
+// The conductor's tools (three lane tools, lead_open, the six lead tools and go_request), declared at its grant, then the three prompt tools (fourteen in all, c.CONDUCTOR_TOOLS). The handlers are the lead's (leadBase refuses every other lane tool at conductor level).
 async function conductorTools($: any, sid: string) {
   if (conductorDeclared.has(sid)) return
   const lane = { type: 'object', properties: { lane: { type: 'string' } }, required: ['lane'] }
@@ -1943,6 +1952,7 @@ async function conductorTools($: any, sid: string) {
     ['lead_unpark', lead],
     ['lead_retire', lead],
     ['lead_terminate', lead],
+    ['go_request', { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] }],
   ]
   for (const [name, inputSchema] of tools) await $.tool.register({ name, description: toolText(name, 'conductor'), inputSchema })
   await promptToolsRegister($, 'conductor')
@@ -2000,7 +2010,10 @@ async function conductorRestoreTry($: any, me: string, box: { hint: c.ConductorH
   const key = `${c.CONDUCTOR_HINT_PREFIX}${me}`
   const reject = (code: string) => log($, me, 'conductor-restore-rejected', code)
   // A final end that no toast of its own tells. `told`: the reason the person reads, when the log's code would say more than is known.
+  // The session is no conductor after it, so the goes its conductor grant gave end with it (a lead's own goes, if it is a lead now, stay).
+  const noGoes = () => void goGrantorOff($, me, 'conductor').catch(() => undefined)
   const end = async (code: string, told = code) => {
+    noGoes()
     await reject(code)
     toast($, c.notRestoredToast('conductor', told, hint.home))
   }
@@ -2023,6 +2036,7 @@ async function conductorRestoreTry($: any, me: string, box: { hint: c.ConductorH
   if (dropped()) return
   if (cwd === 'timeout' || typeof cwd !== 'string') return 'cwd-unreadable'
   if (cwd !== hint.home) {
+    noGoes()
     await $.store.delete(key)
     void hereGrantOff($, me).catch(() => undefined)
     return void (await end('wrong-folder'))
@@ -2050,6 +2064,7 @@ async function conductorRestoreTry($: any, me: string, box: { hint: c.ConductorH
   const f = await readConductorFile($, hint.home)
   if (dropped()) return
   if (f.state === 'absent') {
+    noGoes()
     toast($, c.conductorNoReposToast(hint.home))
     return void (await reject('no-repos'))
   }
@@ -2069,6 +2084,7 @@ async function conductorRestoreTry($: any, me: string, box: { hint: c.ConductorH
   const added = r.ok.filter((x) => !approved.includes(x))
   if (added.length > 0) return { shown: r.ok, added }
   if (r.ok.length === 0) {
+    noGoes()
     toast($, c.conductorNoReposToast(hint.home))
     return void (await reject('no-repos'))
   }
@@ -2098,6 +2114,7 @@ export async function conductorRestore($: any, me: string, hint: c.ConductorHint
   if (typeof again === 'object') return void conductorRestorePending.set(me, { hint: box.hint, tries, ask: again })
   if (tries >= CONDUCTOR_RESTORE_TRIES) {
     conductorRestorePending.delete(me)
+    void goGrantorOff($, me, 'conductor').catch(() => undefined)
     await log($, me, 'conductor-restore-rejected', again)
     toast($, again === 'file-bad' ? c.conductorFileBadToast(box.hint.home) : c.notRestoredToast('conductor', again, box.hint.home))
     return
@@ -2126,6 +2143,7 @@ async function conductorRestoreAsk($: any, me: string, pend: CondPending) {
     if (!mine()) return void (await log($, me, 'conductor-restore-rejected', 'changed'))
     if (r === 'no') {
       end()
+      void goGrantorOff($, me, 'conductor').catch(() => undefined)
       await Promise.resolve($.store.delete(key)).catch(logFail($, me, 'conductor-hint-delete'))
       return void (await log($, me, 'conductor-restore-cancelled'))
     }

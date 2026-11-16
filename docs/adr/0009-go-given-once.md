@@ -1,7 +1,10 @@
 # 9. A go given once
 
-**Status:** proposed
+**Status:** accepted
 **Date:** 2026-11-15
+
+*2026-11-16: accepted, with the conductor's go built. A lead's go was built first; the dated lines below say what the
+conductor's half added.*
 
 Scope: how the person's go for a body of work reaches the sessions that do it. It changes
 [ADR 0001](0001-manager-role.md) ("every go is typed in the session that executes it"),
@@ -83,6 +86,13 @@ Facts that bound the options:
 - **The mod keeps it**: a file under `~/.claude/callboard/go/` (0700 folder, 0600 file, one link, at most 8 KB) and a
   `go-grant` ledger row that holds the file's hash. The file stores the text the person was shown and the session ids
   the dialog listed. A go counts only while the file and its row agree. No tool lets an agent write either.
+  *2026-11-16: a lead's go file is the `v: 1` form and is unchanged. A conductor's go file is `v: 2`: it names the
+  conductor as the session it was given in, and holds the leads the dialog counted (each lead's record name, session
+  id and repo) beside the lanes: every lead whose bound record names the conductor, whatever its list of repos
+  holds then, and the lanes whose record names such a lead by session id (a lane that names no lead, or a lead only
+  by name, is not taken in). One go holds at most 16 leads and 32 lanes, and they
+  must fit the file; more is refused before any dialog. A session whose mod was loaded before this form existed cannot parse it
+  and reads "no go".*
 - **It belongs to the session it was given in, by session id.** A new conversation under the same name has no go; the
   person gives one there, and that go lists and covers the lanes that exist.
 - **It ends** at its end time (24 hours by default, at most 48), at the person's `/callboard go off`, or when the
@@ -101,6 +111,16 @@ Facts that bound the options:
   under a lead's go is one link from the granting session, a lane under a conductor's go is two. Every link is a
   session id in a record, never a name, and each is checked fresh on every read. The granting session is shown a
   toast the first time each later session reads the go.
+  *2026-11-16: under a conductor's go a later lead is covered while its lead record names the granting conductor's
+  session and the lead is bound to that record (ADR 0007); a lane is covered while its record names, by session id,
+  a lead the go holds from the click or such a later lead. Lead records or a binding that cannot be read cover nobody, and
+  `go_status` says so. The reader looks only at the records, never at the conductor's list of repos or at whether
+  the conductor is live: a repo the person takes off the conductor's list keeps its leads covered until the go
+  ends or they type `/callboard go off`. A session the go holds from the click stays covered by its own session id until then
+  too, also a lead that has since left the conductor. A conductor reads only the goes given in its own session:
+  no other go covers it. A conductor's goes also end when its saved grant is refused for good at a restart (another
+  folder, the session is a lane or a lead by then, its repo in use, no approved repo left, its tools refused, or
+  the tries used up), and then only the goes it gave as a conductor.*
 - **The granting session itself.**
 - The reader is always bound by its own session id, never by its name. The reading session's own mod checks the go's
   file and row, its end and the records, fresh, on every read. A check that cannot be made is "no go".
@@ -230,5 +250,7 @@ Each is open until run, and each needs the person at the machine.
   not ask.
 - **P-G3.** `go_request` from a subagent is refused.
 - **P-G4.** A go given in a conductor reaches a lead it opened and that lead's lane.
+- **P-G7.** *Added 2026-11-16.* The conductor's dialog, which counts its leads and their lanes, shows whole on the
+  desktop and the phone.
 - **P-G5.** A click after the dialog's limit records nothing and the person is told.
 - **P-G6.** A go text that holds a zero-width or tag character is refused and no dialog opens.

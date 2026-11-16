@@ -32,7 +32,8 @@ A session takes a role with one `/callboard` command and a confirmation dialog. 
   listed in `.claude/callboard-conductor.json`: it lists their lanes, resumes, compacts, parks and retires those
   leads, and opens a new lead in a listed repo without asking you (`lead_open`). It holds at most four leads at
   once, and a parked lead keeps its slot until it is retired (ADR 0006). It never creates, starts or retires a lane
-  itself, and a force stop of any lane or lead asks you.
+  itself, and a force stop of any lane or lead asks you. A conductor can also hold a go (below), which counts in
+  the leads it owns and in their lanes.
 - **Manager.** `/callboard manager [NAME]`: one per machine, reaching every lane and lead in any repo. It resumes and
   compacts lanes; every stop, every removal and every call to a lead asks you. Its role is in `docs/manager/README.md`.
 
@@ -88,6 +89,12 @@ caller.
    main or production, or a delete outside the lane's own work, and the rest of the list `/callboard go` prints
    (ADR 0009). The dialog is short, and so is TEXT: two or three lines, with the detail in the brief or the plan.
    `go_status` shows a session what covers it. A closed, parked or crashed panel ends no go; `go off` does.
+   Typed in a conductor, the same command gives one go for the leads it owns and their lanes, the ones it
+   opens later included; its main agent can ask you for one with `go_request`, as a lead's can. It counts a lane only when the lane's record names one of those leads by
+   session id. Such a go ends at its end time, at `go off`, when the conductor turns off, or when its saved
+   conductor grant is refused for good at a restart; taking a repo off the conductor's list does not end
+   it, and a lead or lane it held at the click keeps it until then, also if that lead leaves the conductor. The
+   manager gives no go.
 
 A lead that you leave idle is told when a lane needs it (its session is gone, it waits on a prompt, it went
 quiet without signing), unless you pause that with `/callboard checkin pause` (an hour, or the time you give;
@@ -315,6 +322,9 @@ case small (ADR 0002, Consequences). Beyond that, specific to what you see:
   the rows is not checked against a live engine.
 - A go dialog left open for 10 minutes inside a tool call may be cut off by the engine, and a window may join its
   lines into one block: unverified live (ADR 0009, probes).
+- A session whose mod was loaded before the conductor's go existed cannot read a conductor's go file and reports no
+  go: it asks you as before, until it restarts. Its `/callboard go off` cannot end such a go either and says there is
+  none: type it in a session that has restarted.
 
 ## Tests
 

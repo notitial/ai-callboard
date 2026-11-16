@@ -978,7 +978,7 @@ test('j: a go whose file and go-grant row agree raises nothing, is no request, a
   assert.deepEqual(rules(rep), [])
   assert.equal(rep.scanned.goFiles, 1)
   assert.equal(rep.scanned.requests, 0)
-  assert.deepEqual(rep.goes, [{ id: GOID, t: iso(BASE), by: SID, lane: 'LEAD', repo: '/Users/x/api', end: iso(NOW + 3600_000), state: 'live', text: 'Build the API.', readers: [{ t: iso(BASE + 1000), by: uid(31), lane: 'API', code: 'later' }] }])
+  assert.deepEqual(rep.goes, [{ id: GOID, t: iso(BASE), by: SID, tier: 'lead', lane: 'LEAD', repo: '/Users/x/api', end: iso(NOW + 3600_000), state: 'live', text: 'Build the API.', readers: [{ t: iso(BASE + 1000), by: uid(31), lane: 'API', code: 'later' }] }])
   const text = render(rep)
   assert.match(text, /GOES/)
   assert.match(text, /text: Build the API\./)
@@ -988,6 +988,21 @@ test('j: a go whose file and go-grant row agree raises nothing, is no request, a
   ledger(bare, [ON()])
   assert.equal(run(bare).scanned.goFiles, 0)
   assert.doesNotMatch(render(run(bare)), /GOES/)
+})
+
+test("j: a conductor's go file (v 2) with its row passes and is listed with its tier and its leads; one with no row is flagged", () => {
+  const fx = fixture()
+  const over = { v: 2, by: { level: 'conductor', sid: SID, name: 'COND', repo: '/Users/x/cond' }, leads: [{ name: 'API-LEAD', sid: uid(41), repo: '/Users/x/api' }, { name: 'WEB-LEAD', sid: uid(42), repo: '/Users/x/web' }] }
+  const hash = goFile(fx, GOID, over)
+  ledger(fx, [ON(), GOGRANT(GOID, hash, { tier: 'conductor', repo: '/Users/x/cond', lane: 'COND' }), R('go-read', BASE + 1000, { id: GOID, by: uid(43), code: 'later', lane: 'NEW-LEAD' })])
+  const rep = run(fx)
+  assert.deepEqual(rules(rep), [])
+  assert.deepEqual(rep.goes, [{ id: GOID, t: iso(BASE), by: SID, tier: 'conductor', lane: 'COND', repo: '/Users/x/cond', end: iso(NOW + 3600_000), leads: ['API-LEAD', 'WEB-LEAD'], state: 'live', text: 'Build the API.', readers: [{ t: iso(BASE + 1000), by: uid(43), lane: 'NEW-LEAD', code: 'later' }] }])
+  const text = render(rep)
+  assert.match(text, new RegExp(`given in conductor COND \\(${SID}\\)`))
+  assert.match(text, /leads at the click: API-LEAD, WEB-LEAD/)
+  ledger(fx, [ON()])
+  assert.deepEqual(rules(run(fx)), ['go-file-no-row'])
 })
 
 test('j: a go file with no go-grant row, or whose bytes do not hash to its row, is an anomaly', () => {
