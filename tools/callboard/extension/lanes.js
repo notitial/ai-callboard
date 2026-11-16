@@ -11,6 +11,9 @@ const PID_MAX = 2 ** 22
 const ADOPT_TTL_MS = 5 * 60_000
 // How long a new panel's registry row must keep its session id before an open answers with it.
 const SETTLE_MS = 2000
+// How long a dead tab is shown before the sweep closes it: time for the Claude extension to see it as the active tab.
+const SHOW_MS = 300
+const GROUP_FOCUS = ['First', 'Second', 'Third', 'Fourth', 'Fifth', 'Sixth', 'Seventh', 'Eighth'].map((n) => `workbench.action.focus${n}EditorGroup`)
 
 // Start time of a process as `ps` prints it in UTC, the way the session registry records procStart; undefined when it cannot be read.
 function psStart(pid) {
@@ -22,7 +25,7 @@ function psStart(pid) {
 }
 const startKey = (s) => (typeof s === 'string' && s.trim() !== '' ? s.trim().replace(/\s+/g, ' ') : undefined)
 
-function createLanes({ vscode, registry, sleep, now, workspaceFolders = () => undefined, timeoutMs = 15000, pollMs = 200, settleMs = SETTLE_MS, guardMs = 120000, adoptTtlMs = ADOPT_TTL_MS, alive = pidAlive, startOf = psStart }) {
+function createLanes({ vscode, registry, sleep, now, workspaceFolders = () => undefined, timeoutMs = 15000, pollMs = 200, settleMs = SETTLE_MS, showMs = SHOW_MS, guardMs = 120000, adoptTtlMs = ADOPT_TTL_MS, alive = pidAlive, startOf = psStart }) {
   // registry.list() -> [{ sessionId, cwd, entrypoint, name }] (parsed ~/.claude/sessions/*.json)
   let chain = Promise.resolve()
   function serial(fn) {
@@ -187,6 +190,41 @@ function createLanes({ vscode, registry, sleep, now, workspaceFolders = () => un
     } catch {}
   }
 
+  // The Claude extension marks a session unread, and its list then counts it as active, when a turn ends in a tab that is not showing; it clears the mark only
+  // when that tab is shown. A lane's last turn usually ends that way, so the sweep shows a dead tab for a moment before it closes it, then gives focus back to
+  // the tab that had it. A tab that is showing already (the active tab of its group) is closed as it is. This runs in the serial chain, so it never crosses an
+  // open's own focus changes. Showing is best effort: whatever fails or cannot be told here is skipped, and the tab is closed either way.
+  async function focusTab(tab) {
+    const groups = vscode.window.tabGroups
+    const g = groups.all.find((x) => x.tabs.includes(tab))
+    if (!g) return
+    if (groups.activeTabGroup.viewColumn !== g.viewColumn) {
+      const cmd = GROUP_FOCUS[g.viewColumn - 1]
+      if (!cmd) throw new Error('no focus command for that group')
+      await bounded(vscode.commands.executeCommand(cmd), 5 * pollMs, 'the group focus command')
+    }
+    await bounded(vscode.commands.executeCommand('workbench.action.openEditorAtIndex', g.tabs.indexOf(tab)), 5 * pollMs, 'the focus command')
+  }
+  function closeSeen(tab) {
+    return serial(async () => {
+      let prev
+      try {
+        const at = activeTab()
+        if (at && at.tab !== tab && tab.isActive !== true) {
+          prev = at.tab
+          await focusTab(tab)
+          await sleep(showMs)
+        }
+      } catch {}
+      try {
+        await Promise.resolve(vscode.window.tabGroups.close(tab))
+      } catch {}
+      try {
+        if (prev) await focusTab(prev)
+      } catch {}
+    })
+  }
+
   // The state of a process the registry names (the registry keeps the rows of processes that died, and a pid can be reused):
   //   'dead'  its pid is not a valid pid, does not answer, or `ps` gave a start time that differs from a recorded one;
   //   'live'  its pid answers and `ps` gave the recorded start time;
@@ -248,7 +286,7 @@ function createLanes({ vscode, registry, sleep, now, workspaceFolders = () => un
   // process id and tab from the registry. When no live entry is left and that process is dead, its tab is closed, but only if no live session
   // still carries that name (a new panel for the same lane), only for a known pid (a missing or odd pid is never taken for dead), never a
   // reserved name, and only the tab seen for that panel (or, if VS Code gave out a new object, the one Claude tab with its label).
-  // History stays, so the session can be reopened. A live process (a /clear or a resume in the same panel) is never closed.
+  // The tab is shown for a moment first, so its session does not stay marked unread (closeSeen). History stays, so the session can be reopened. A live process (a /clear or a resume in the same panel) is never closed.
   // Rows and the recorded process are judged by procState: a dead row neither keeps a tab nor blocks a close, and anything not proven dead
   // (a failed `ps`, a row with no start time) keeps the tab: a row of that sid that is 'maybe' and not the recorded pid keeps it, the recorded
   // pid closes it only when 'dead' (a pid since reused by another process is 'dead'), and a row with the name blocks the close unless 'dead'.
@@ -317,9 +355,7 @@ function createLanes({ vscode, registry, sleep, now, workspaceFolders = () => un
       const tabs = claudeTabs().filter((t) => t.label === rec.name)
       const tab = rec.tab && tabs.includes(rec.tab) ? rec.tab : tabs.length === 1 ? tabs[0] : undefined
       if (!tab) continue
-      try {
-        await Promise.resolve(vscode.window.tabGroups.close(tab))
-      } catch {}
+      await closeSeen(tab)
     }
   }
 
