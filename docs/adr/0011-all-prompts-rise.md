@@ -6,7 +6,8 @@
 Scope: which asks of a lane's or a lead's call become a request for the answering tiers. It amends
 [ADR 0004](0004-prompt-answering.md), "What agents may judge". It changes who may answer a permission prompt, so it
 is on the risk list. The rubric's five rules, the tiers, the windows and the relay are unchanged; the rubric gains a
-paragraph on what raised an ask, and the audit gains two rules and a count.
+paragraph on what raised an ask and a list of what a tier handles and what it surfaces of a guard's or hook's ask,
+and the audit gains one rule and a count.
 
 ## Context
 
@@ -45,9 +46,15 @@ Facts that bound the options:
    "become requests that the lead, conductor and manager judge by the same rubric, and the top live tier relays them
    to the person". Taken alone it lets a tier allow what an installed guard asks the person about by design: a clear
    of another session's workspace lock, a delete, a workflow dispatch.
-4. **Option 3 with a floor: chosen.** Every ask rises and is judged by the rubric, except a short list of asks that
-   rise the same way and that no tier may allow (option 2, for those only). The case that started this, a rerun of
-   failed jobs, stays a tier's to judge.
+4. **Option 3 with a floor.** Every ask rises and is judged by the rubric, except a fixed list of asks (a ceiling's,
+   the workspace-lock guard's, the destructive-command guard's, most GitHub writes a hook asks about) that rise the
+   same way and that no tier may allow. It was built and then dropped: the list matches guards by their reason text
+   and tool names, so it follows ai-toolkit's wording, and it stops a tier from handling the routine case (a delete
+   in the lane's own clone, a label the work needs) the same as the dangerous one.
+5. **Option 3 with written guidance: chosen.** Every ask is the tiers' to judge. The rubric says, in a short list
+   a tier can check a request against, which of a guard's or hook's asks it handles and which it surfaces to the
+   person. The person's decision: the tiers judge them all, with instructions good enough that they know what to
+   surface and what they can handle.
 
 ## Decision
 
@@ -60,31 +67,31 @@ is gone. The rubric says what each value means, and that a guard's or hook's ask
 plainly the routine case. A question behind a rule, hook, setting, plugin or ceiling is classified the same way; the questions scope
 and the question shape still apply to it.
 
-### The floor: asks no tier may allow
+### A guard's or hook's ask: what a tier handles and what it surfaces
 
-An ask on this list becomes a request like any other, so every tier sees it and nobody misses it. No tier may allow
-it, or answer it when it is a question. A tier may deny it when certain it is wrong, or pass it up; the top live tier
-relays it to the person, whose click decides.
+The mod keeps no list of asks from the tiers. The rubric carries the guidance, in every tier's briefing and at the
+end of every `prompt_list` result, so a tier reads it whenever escalation is on and a request is open. The rubric's
+five rules hold for both lists.
 
-| Code | The ask | Matched by |
-|---|---|---|
-| `ceiling` | An organisation ceiling's ask | `tool.check` names a ceiling |
-| `lock` | ai-toolkit's workspace-lock guard: a lock clear, a forced turn give, an owner transfer (the three things it asks about) | A hook's ask whose reason starts `workspace-lock-guard: ` |
-| `destructive` | ai-toolkit's destructive-command guard: a delete | A hook's ask whose reason starts `Destructive command: ` |
-| `github-write` | A hook's ask on a GitHub tool other than the guard's four (open a pull request, update one, a comment, a reply) and a rerun: a workflow dispatch, a run cancel, a label delete, a project write and every other write | The tool name and, for the run trigger, its `method`; the reason is not read |
-| `hidden-reason` | A hook's ask on any other tool with an ask rule behind it too | Both a hook and a rule in `tool.check`: the rule hides the hook's reason, so a guard above cannot be told from another hook |
+| A tier handles | A tier surfaces to the person (`prompt_escalate`) |
+|---|---|
+| A rerun of a CI run on the lane's own pull request | Any workspace-lock clear, forced turn give or owner transfer |
+| A delete inside the lane's own clone under `/tmp`, or of its own scratch files | A bulk or destructive delete outside the lane's own clone |
+| A label or project write the lane's work clearly needs | A workflow dispatch on any ref, or one that uses repo secrets; a cancel of a run the lane did not start |
+| | A label delete |
+| | Any ask raised by a ceiling |
+| | Anything whose reason warns of a deploy, a dispatch or secrets |
 
-- **One list, in one place** (`FLOOR` in `prompts.ts`), with a test for each entry and for what stays off it.
-- **A rerun stays a tier's to judge**: the run trigger's `rerun_failed_jobs` and `rerun_workflow_run`.
-- **Enforced twice.** `prompt_answer` refuses an allow or an answer by the request's mark. The hook takes the floor
-  again from the live `tool.check` facts and the live input when a decision arrives, never from a file, and drops a
-  tier's allow (`dropped floor`); only a deny, or the person's own answer through a relay, lands.
-- **Shown.** `prompt_list` marks the request `PERSON ONLY` with what it is. The ledger's `requested` row keeps the
-  code as `floor`.
-- **A match by reason text is only as good as the guard's wording.** A guard that changes its prefix leaves the
-  floor until the list follows; its ask is then judged by the rubric, whose rule 4 already sends a delete outside
-  the lane's work and a change of another session's state up. A hook that must never be answered by an agent
-  should still deny.
+- **The default.** When the hook's reason says the person must approve, the tier surfaces the ask, unless it is
+  plainly one of the cases it handles. Any other guard or hook ask is allowed only when plainly routine.
+- **A lock clear stays the person's.** ai-toolkit's rule is that a lock clear needs the person's own live turn; the
+  guidance keeps it by sending every workspace-lock ask up.
+- **Surfaced means relayed.** A tier that is not the top passes the request up; the top live tier asks the person
+  in its own session, and the mod reads their click.
+- **This is guidance, not a check.** Nothing in the mod stops a tier that allows an ask on the right-hand list.
+  What stands behind it: the rubric a tier is briefed with, the ledger row of every answer, and the audit's count of
+  the tiers' allows of such asks. A hook that must never be answered by an agent should deny: a deny is decided
+  before any prompt exists.
 
 ### The hook's reason
 
@@ -95,10 +102,9 @@ tier what the guard saw; it decides nothing.
 ### The audit
 
 - A `requested` row whose `raised` is not a known source is an anomaly.
-- A tier's allow or answer of an ask on the floor, recorded or returned, is an anomaly; so is a `dropped floor`
-  row (a decision that got past `prompt_answer`).
 - The count of the tiers' allows of hook-, setting-, plugin- and ceiling-raised asks includes their answers to a
-  question behind one.
+  question behind one. It is a note, not an anomaly: the audit cannot tell a routine allow from one the guidance
+  sends up.
 
 Nothing else moves:
 
@@ -143,18 +149,18 @@ ends in the 20-minute deny.
 - **Sessions on the earlier code do not see these requests.** A tier whose mod was loaded before this change reads
   only the three earlier `raised by` values and skips a request with a new one, so the request ends in that deny.
   Tier sessions need a reload after the checkout moves.
-- **An ask on the floor waits for the person when nobody relays it.** With a live top tier that passes it up, the
-  person is asked in that tier's session. With tiers that do nothing, it ends in the 20-minute deny.
+- **An ask a tier surfaces waits for the person only while a tier relays it.** With a live top tier that passes it
+  up, the person is asked in that tier's session. With tiers that do nothing, it ends in the 20-minute deny.
 
 ### What this widens: plainly
 
-- **A tier can allow what a guard was written to put in front of the person, outside the floor.** For the asks on
-  the floor no tier can; for any other hook's ask the rubric is the only check.
-- **A forged decision file now buys hook-, setting- and plugin-raised calls too, outside the floor.** ADR 0004
-  already said a forged file buys everything above the floor. On the floor a forged allow is dropped, since the
-  hook reads the floor from its own memory of `tool.check`; a forged file that claims the person's answer still
-  needs a relay in place. The same guards remain: the input hash, expiry and nonce, a live tier in reach, the 30 seconds with the dialog open, the ledger
-  and the audit. The audit prints a count of the tiers' allows of such asks, by what raised them.
+- **A tier can allow what a guard was written to put in front of the person.** That includes a workspace-lock
+  clear, a delete, a workflow dispatch and a ceiling's ask. The rubric tells the tier to surface those; a tier that
+  misreads it, or is talked round by a lane's input, allows one, and the person learns of it from the ledger.
+- **A forged decision file now buys hook-, setting-, plugin- and ceiling-raised calls too.** ADR 0004 already said
+  a forged file buys everything above the floor. The same guards remain: the input hash, expiry and nonce, a live
+  tier in reach, the 30 seconds with the dialog open, the ledger and the audit. The audit prints a count of the
+  tiers' allows of such asks, by what raised them.
 - **`setting`, `plugin` and `ceiling` have never been seen filled live** (ADR 0004, Probes). They are classified by
   the same rule and are untested against a live engine.
 - **The tier reads another script's text.** The hook's reason is shown framed as data, with `<` and line breaks
@@ -170,7 +176,7 @@ ends in the 20-minute deny.
 
 ## Not verified live
 
-The classifier, the floor and the hook are tested against the mock engine only. A hook-raised ask reaching a tier,
-a tier's allow landing on it, and a floor ask relayed to the person have not been run on a live engine. That an ask
-rule hides a hook's reason is ADR 0004's probe; the reason prefixes are read from ai-toolkit's guards as they are
-now.
+The classifier and the hook are tested against the mock engine only. A hook-raised ask reaching a tier, a tier's
+allow landing on it, and one relayed to the person have not been run on a live engine. Whether a tier follows the
+guidance is not tested at all: the tests pin its text, not a model's reading of it. An ask rule hides a hook's
+reason (ADR 0004's probe), so a tier may see `raised by: hook` with a rule's text in the reason frame, or none.

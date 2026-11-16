@@ -1,15 +1,14 @@
 #!/usr/bin/env node
 // callboard prompt-audit [--since DATE] [--root DIR] [--projects DIR] [--records DIR] [--goes DIR] [--json]
-// Read-only audit of prompt answering (ADR 0004, "Rollout, off switch and audit"; ADR 0011 for what raised an ask and the floor): one table of every request, the anomalies
+// Read-only audit of prompt answering (ADR 0004, "Rollout, off switch and audit"; ADR 0011 for what raised an ask): one table of every request, the anomalies
 // that must stay empty, what is deliberately not an anomaly, and wait counts. Nothing here writes: it never creates, edits,
 // renames, removes or touches a file, and it follows no symlink inside the folders it reads. Convenience only: every real
 // limit lives in the mod. Exit 0: no anomalies. 1: anomalies. 2: usage error, an unreadable root, or a ledger file that could
 // not be read (an audit that missed a ledger file proves nothing, so it never exits 0).
 //
 // The ledger rows it reads (prompts.ts, LedgerRow): { t, kind, code?, id?, lane?, repo?, tool?, pattern?, hash?, tier?, why?, nonce?, opt?, lh?, dialog?, end? }.
-//   requested  id, nonce, lane, repo, tool, pattern, hash, tier, raised?, floor?     the hook asked a tier. raised: what raised the ask (mode | rule | guard | hook |
-//              setting | plugin | ceiling; anything else is an anomaly). floor: the ask is one no tier may allow or answer (ADR 0011); a tier's allow or answer of
-//              one is an anomaly, and so is a dropped row with code floor (a decision that got past prompt_answer's refusal)
+//   requested  id, nonce, lane, repo, tool, pattern, hash, tier, raised?     the hook asked a tier. raised: what raised the ask (mode | rule | guard | hook |
+//              setting | plugin | ceiling; anything else is an anomaly)
 //   answered   id, nonce (the requested row's), code allow|deny, by (the answering lead's session id), tier, why, lane, repo, tool, pattern, hash
 //              a tier decided (written by prompt_answer)
 //   returned   id, code allow|deny, by, tuid (the tool_use_id of the call), tier, why (+ the request's fields)  the hook gave the decision
@@ -82,12 +81,12 @@ const LABEL_MAX = 256
 
 const ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const KINDS = new Set(['requested', 'answered', 'escalated', 'dropped', 'returned', 'superseded', 'expired-denied', 'off', 'abandoned', 'dialog', 'not-judgeable', 'no-tier', 'answering-on', 'answering-off', 'relayed', 'relay-lost', 'relay-left', 'relay-late', 'relay-closed', 'deny-unclear', 'lead-offer', 'lead-offer-void', 'lead-grant', 'lead-owner', 'lead-resume', 'lead-stop', 'go-grant', 'go-end', 'go-read', 'pr-watch', 'pr-notice'])
-const FIELDS = ['code', 'id', 'lane', 'repo', 'tool', 'pattern', 'hash', 'tier', 'why', 'nonce', 'tuid', 'by', 'via', 'short', 'opt', 'lh', 'target', 'was', 'dialog', 'end', 'raised', 'floor']
+const FIELDS = ['code', 'id', 'lane', 'repo', 'tool', 'pattern', 'hash', 'tier', 'why', 'nonce', 'tuid', 'by', 'via', 'short', 'opt', 'lh', 'target', 'was', 'dialog', 'end', 'raised']
 // The rows of a go carry the go's id, which is no request's.
 const GO_KINDS = new Set(['go-grant', 'go-end', 'go-read'])
 const ENDS = new Set(['returned', 'superseded', 'expired-denied', 'off', 'abandoned'])
 // A `dropped` row with one of these codes is a decision the hook refused as forged or wrong: an anomaly. The others are ordinary.
-const DROP_ANOMALY = new Set(['no-answered-row', 'id', 'hash', 'nonce', 'by-sid', 'kind', 'answer', 'floor'])
+const DROP_ANOMALY = new Set(['no-answered-row', 'id', 'hash', 'nonce', 'by-sid', 'kind', 'answer'])
 // What may raise an ask (prompts.ts, RAISED). A requested row that names anything else was not written by the hook.
 const RAISED = new Set(['mode', 'rule', 'guard', 'hook', 'setting', 'plugin', 'ceiling'])
 
@@ -612,11 +611,6 @@ function ruleDecisions(g, { flag }) {
   }
   // What raised the ask is one of the known sources (a row with none is an older one).
   if (req && req.raised !== undefined && !RAISED.has(req.raised)) flag('a', 'raised-unknown', `request ${g.id}: the requested row names an unknown source of the ask (${String(req.raised).slice(0, 40)})`, { id: g.id, t: req.t })
-  // An ask on the floor (ADR 0011) is the person's alone to allow or answer: a tier's own allow or answer of one, recorded or returned, is an anomaly.
-  if (req && req.floor !== undefined) {
-    const r = [...g.returned, ...g.answered].find((x) => (x.code === 'allow' || x.code === 'answer') && x.via !== 'person')
-    if (r) flag('a', 'floor-allowed', `request ${g.id}: a tier's ${r.code} of an ask on the floor (${String(req.floor).slice(0, 40)}), ${r.kind}`, { id: g.id, t: r.t })
-  }
   for (const a of g.answered) {
     if (!req) flag('a', 'answered-without-requested', `request ${g.id} has an answered row and no requested row`, { id: g.id, t: a.t })
     else if (a.nonce !== req.nonce) flag('a', 'answered-nonce-mismatch', `request ${g.id}: the answered row's nonce differs from the requested row's`, { id: g.id, t: a.t })

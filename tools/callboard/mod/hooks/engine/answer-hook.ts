@@ -644,10 +644,9 @@ async function promptHook($: any, e: any, nextOnce: (x: any) => Promise<any>, si
     const id = await promptNewId($)
     const nonce = await promptNewId($)
     const capped = pr.capInput(input)
-    // The floor and the reason come from the live tool.check facts and the live input; the wait keeps the floor in memory for the apply.
-    const floor = pr.floorOf(tool, input, entry.facts)
+    // The reason comes from the live tool.check facts.
     const reason = pr.capReason(entry.facts.reason)
-    const req: pr.Request = { id, sid, pid: own.pid, procStart: own.procStart, level: cov.level, lane: cov.lane ?? cov.self, ...(leadName ? { leadName } : {}), ...(leadSid ? { leadSid } : {}), ...(cov.level === 'lane' && lead === undefined ? { noLead: true } : {}), repo: cwd, tool, inputHash: hash, raisedBy: judged.raisedBy, ...(floor !== undefined ? { floor } : {}), ...(reason !== undefined ? { reason } : {}), at: started, expiresAt: started + pr.EXPIRES_MS, nonce, input: capped.input, truncated: capped.truncated }
+    const req: pr.Request = { id, sid, pid: own.pid, procStart: own.procStart, level: cov.level, lane: cov.lane ?? cov.self, ...(leadName ? { leadName } : {}), ...(leadSid ? { leadSid } : {}), ...(cov.level === 'lane' && lead === undefined ? { noLead: true } : {}), repo: cwd, tool, inputHash: hash, raisedBy: judged.raisedBy, ...(reason !== undefined ? { reason } : {}), at: started, expiresAt: started + pr.EXPIRES_MS, nonce, input: capped.input, truncated: capped.truncated }
     const text = pr.requestText(req)
     if (new TextEncoder().encode(text).length > pr.REQUEST_MAX || !(await promptPut($, `${dir}/${id}.request.json`, text))) {
       await ledgerAdd($, { ...base, kind: 'abandoned', code: 'hook-failed' })
@@ -659,9 +658,9 @@ async function promptHook($: any, e: any, nextOnce: (x: any) => Promise<any>, si
     if (doneIds.has(tid as string)) await promptDone($, { tool_use_id: tid })
     const row = { ...base, id, tier: [...reach].sort((x, y) => pr.TIER_RANK[x.level] - pr.TIER_RANK[y.level])[0].level }
     // Without a `requested` row no decision could ever pass the ledger check: the dialog is left to the person.
-    if (!(await ledgerAdd($, { ...row, kind: 'requested', nonce, raised: judged.raisedBy, ...(floor !== undefined ? { floor } : {}) }))) throw new Error('ledger-unwritable')
+    if (!(await ledgerAdd($, { ...row, kind: 'requested', nonce, raised: judged.raisedBy }))) throw new Error('ledger-unwritable')
     st.requested = true
-    return await promptWait($, beneath, signal, { sid, tid: tid as string, id, nonce, dir, input, tool, cwd, home: homeOf(p), p, started, row, req, leadName, cap: pr.claudeCap(tool, input), st, ...(floor !== undefined ? { floor } : {}) })
+    return await promptWait($, beneath, signal, { sid, tid: tid as string, id, nonce, dir, input, tool, cwd, home: homeOf(p), p, started, row, req, leadName, cap: pr.claudeCap(tool, input), st })
   } catch (err) {
     // A failing hook answers nothing: the dialog stays (the caller returns what the chain beneath gives).
     if (!st.closed) {
@@ -682,7 +681,7 @@ async function promptHook($: any, e: any, nextOnce: (x: any) => Promise<any>, si
   }
 }
 
-type WaitCtx = { sid: string; tid: string; id: string; nonce: string; dir: string; input: unknown; tool: string; cwd: string; home: string; p: { uid: number; root: string; own?: string }; started: number; row: Omit<pr.LedgerRow, 't' | 'kind'>; req: pr.Request; leadName?: string; cap?: { kind: pr.CapKind; target: string }; st: CloseState; floor?: string }
+type WaitCtx = { sid: string; tid: string; id: string; nonce: string; dir: string; input: unknown; tool: string; cwd: string; home: string; p: { uid: number; root: string; own?: string }; started: number; row: Omit<pr.LedgerRow, 't' | 'kind'>; req: pr.Request; leadName?: string; cap?: { kind: pr.CapKind; target: string }; st: CloseState }
 
 // The wait. Each poll: a click, the switch, the dialog's own row, the relay, expiry, then a decision file. The awake clock adds each gap,
 // capped. A relay (a tier put the prompt to the person) makes the wait `withPerson`: expiry at 2 hours, a 10 s poll, and no 20-minute deny.
@@ -912,7 +911,7 @@ async function promptApply($: any, w: WaitCtx, d: pr.Decision, awake: number, gr
   const ledger = d.decision === 'answer' && d.answer && lh === undefined ? 'unreadable' : await ledgerHas($, w.p, w.id, w.nonce, { code: d.decision, by: d.by.sid, ...(d.via ? { via: d.via } : {}), ...(d.answer && lh !== undefined ? { opt: String(d.answer.index), lh } : {}) })
   // Only a call that carries an `@claude` body, and only once the other checks would let the decision through, reads the cap.
   const cap = w.cap && ledger === 'found' && d.decision === 'allow' && d.via !== 'person' ? await capOf($, w.p, w.cap) : undefined
-  const out = pr.applyCheck({ req: w.req, decision: d, liveHash, awakeMs: awake, expiresAt: pr.expiresAfter(relay !== undefined), dialog: pr.isDialog(w.tool), byOk, ...(relay ? { relay } : {}), ...(w.tool === pr.QUESTION_TOOL ? { question: { labels: pr.questionLabels(w.input) } } : {}), ledger, graceMs, cap, floor: w.floor !== undefined })
+  const out = pr.applyCheck({ req: w.req, decision: d, liveHash, awakeMs: awake, expiresAt: pr.expiresAfter(relay !== undefined), dialog: pr.isDialog(w.tool), byOk, ...(relay ? { relay } : {}), ...(w.tool === pr.QUESTION_TOOL ? { question: { labels: pr.questionLabels(w.input) } } : {}), ledger, graceMs, cap })
   // The two drops that rest on those lookups are held for the next poll when one failed; the final codes (id, hash, nonce, expired, dialog, cap) never are.
   return unsure && 'drop' in out && (out.drop === 'by-sid' || out.drop === 'relay') ? { out: { hold: 'lookup' } } : { out, ...(tier ? { tier } : {}) }
 }

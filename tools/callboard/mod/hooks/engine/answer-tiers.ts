@@ -258,7 +258,7 @@ async function promptListTool($: any, e: unknown): Promise<{ result: string } | 
     const s = stands.get(q.id)!
     const top = s.stand.top
     const turn = pr.turnLine({ relay: s.stand.relay?.by, top: top?.sid === s.self.sid || top?.level === s.self.level, above: top, opensInSec: promptWindowShut(s.stand, sid, now) ? (s.stand.windows[sid] - now) / 1000 : undefined, question: q.tool === pr.QUESTION_TOOL })
-    items.push({ id: q.id, lane: q.lane, tool: q.tool, repo: q.repo, raisedBy: q.raisedBy, ageSec: (now - q.at) / 1000, truncated: q.truncated, agentType: q.agentType, input: q.input, turn, ...(q.floor !== undefined ? { floor: q.floor } : {}), ...(q.reason !== undefined ? { reason: q.reason } : {}) })
+    items.push({ id: q.id, lane: q.lane, tool: q.tool, repo: q.repo, raisedBy: q.raisedBy, ageSec: (now - q.at) / 1000, truncated: q.truncated, agentType: q.agentType, input: q.input, turn, ...(q.reason !== undefined ? { reason: q.reason } : {}) })
   }
   return { result: pr.promptListText(items, { on: true, young, hint: await promptAnomalyHint($, t.p).catch(() => undefined) }) }
 }
@@ -287,8 +287,6 @@ async function promptAnswerTool($: any, e: any, answer: boolean): Promise<{ resu
   const now = await $.clock.now()
   // A question takes only decision `answer`, by the number prompt_list showed (`option`), with the label as an optional echo; nothing else takes `answer`.
   const isQ = q.tool === pr.QUESTION_TOOL
-  // An ask on the floor is never allowed or answered by a tier (the hook checks again at apply, from the live facts); a deny stands.
-  if (answer && q.floor !== undefined && (decision === 'allow' || decision === 'answer')) return refuse('floor')
   let pick: { index: number; label: string } | undefined
   if (answer && isQ) {
     if (decision !== 'answer') return refuse('question-answer-only')

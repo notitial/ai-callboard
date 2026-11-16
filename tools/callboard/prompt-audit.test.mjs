@@ -180,7 +180,7 @@ test('a: an answered row with no requested row, and one later than the return, a
 
 test('a: dropped rows with a forgery code are anomalies, the ordinary codes are not', () => {
   const fx = fixture()
-  const bad = ['no-answered-row', 'id', 'hash', 'nonce', 'by-sid', 'kind', 'answer', 'floor']
+  const bad = ['no-answered-row', 'id', 'hash', 'nonce', 'by-sid', 'kind', 'answer']
   const fine = ['expired', 'ledger-unreadable', 'file', 'shape', 'dialog']
   const rows = [ON()]
   bad.forEach((code, i) => rows.push(R('requested', BASE + i, { ...T, id: uid(10 + i), nonce: uid(110 + i), tier: 'lead' }), R('dropped', BASE + 1000 + i, { ...T, id: uid(10 + i), code }), R('abandoned', BASE + 2000 + i, { id: uid(10 + i), code: 'swept' })))
@@ -1258,15 +1258,6 @@ test('a: a requested row that names an unknown source of the ask is an anomaly; 
   ledger(fx, [ON(), ...clean(uid(1), BASE, uid(101), { raised: 'other' }), ...clean(uid(2), BASE + 60_000, uid(102), { raised: 'guard' }), ...clean(uid(3), BASE + 120_000, uid(103))])
   const rep = run(fx)
   assert.deepEqual(rules(rep), ['raised-unknown'])
-  assert.equal(rep.anomalies[0].id, uid(1))
-})
-
-test('a: a tier\'s allow of an ask on the floor is an anomaly, once per request; its deny is not', () => {
-  const fx = fixture()
-  const denied = clean(uid(2), BASE + 60_000, uid(102), { raised: 'hook', floor: 'lock' }).map((r) => (r.kind === 'requested' ? r : { ...r, code: 'deny' }))
-  ledger(fx, [ON(), ...clean(uid(1), BASE, uid(101), { raised: 'hook', floor: 'lock' }), ...denied])
-  const rep = run(fx)
-  assert.deepEqual(rules(rep), ['floor-allowed'])
   assert.equal(rep.anomalies[0].id, uid(1))
 })
 
