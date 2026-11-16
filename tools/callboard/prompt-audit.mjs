@@ -75,6 +75,8 @@ const WINDOW_MS = 10 * 60 * 1000
 const LIST_MAX = 200
 const QUESTION_TOOL = 'AskUserQuestion'
 const QUESTION_DAYS = 90
+// A conductor's backstop on successful lead opens an hour (OPENS_PER_CONDUCTOR_HOUR in mod/hooks/core.ts).
+const OPENS_PER_CONDUCTOR_HOUR = 8
 // The longest answer label the audit reads from a transcript (the mod caps a label at 200 bytes).
 const LABEL_MAX = 256
 
@@ -676,7 +678,7 @@ function ruleDialog({ groups, flag }) {
   }
 }
 
-// g. lead grants (ADR 0006): a lead-grant needs a lead-offer row of the same repo hash and nonce written by the same session; at most one grant of a repo in an hour (a grant
+// g. lead grants (ADR 0006): a lead-grant needs a lead-offer row of the same repo hash and nonce written by the same session; at most OPENS_PER_CONDUCTOR_HOUR grants by one conductor in an hour (a grant
 // followed by a void of its nonce does not count); and a grant with a void of its nonce is a grant that was told to have failed, which is listed so a person looks at it.
 function ruleLeadGrants({ rows, flag, inRange }) {
   const grants = rows.filter((r) => r.kind === 'lead-grant' && inRange(r.ms))
@@ -687,8 +689,8 @@ function ruleLeadGrants({ rows, flag, inRange }) {
   }
   const live = grants.filter((g) => !voided(g)).sort((a, b) => a.ms - b.ms)
   for (let i = 1; i < live.length; i++) {
-    const prev = live.slice(0, i).reverse().find((x) => x.hash === live[i].hash && live[i].ms - x.ms < 3_600_000)
-    if (prev) flag('g', 'lead-grant-twice-in-hour', `two lead-grants for one repo within an hour: ${prev.lane ?? '?'} (${prev.t}) and ${live[i].lane ?? '?'} (${live[i].t})`, { t: live[i].t })
+    const inHour = live.slice(0, i + 1).filter((x) => x.by === live[i].by && live[i].ms - x.ms < 3_600_000)
+    if (inHour.length > OPENS_PER_CONDUCTOR_HOUR) flag('g', 'lead-grants-over-backstop', `${inHour.length} lead-grants by one conductor within an hour, over the ${OPENS_PER_CONDUCTOR_HOUR} it may open: the latest is ${live[i].lane ?? '?'} (${live[i].t}) by session ${live[i].by ?? '?'}`, { t: live[i].t })
   }
 }
 

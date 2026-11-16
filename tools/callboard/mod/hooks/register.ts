@@ -9,7 +9,7 @@ import { leadToolCall } from './engine/lead-tools.ts'
 import { leadStopCall, leadStopFailed } from './engine/lead-stops.ts'
 import { TOOL, requestCompactCall, turnComplete, promptSubmit, turnStart, postToolHook, postCompact } from './engine/compaction.ts'
 import { sessionStart } from './engine/tick.ts'
-import { commandRun } from './engine/commands.ts'
+import { commandRun, commandComplete } from './engine/commands.ts'
 import { toolCheck, permissionRequest, doneHook } from './engine/answer-hook.ts'
 import { promptListCall, promptAnswerCall, promptEscalateCall } from './engine/answer-tiers.ts'
 import { usageMeasure } from './engine/usage.ts'
@@ -20,6 +20,8 @@ export const register: Register = (on) => {
   on('session.start', sessionStart).catch(($, e, next) => next(e))
 
   on('command.run', { command: 'callboard' }, ($, e) => commandRun($, e)).catch(() => ({ text: 'Callboard hit an error. Run /callboard status.' }))
+
+  on('prompt.autocomplete', commandComplete).catch(($, e, next) => next(e))
 
   // /rest is /callboard rest: the same handler, with its arguments dropped.
   on('command.run', { command: 'rest' }, ($, e) => commandRun($, { ...e, args: 'rest' })).catch(() => ({ text: 'Callboard hit an error. Run /callboard status.' }))
