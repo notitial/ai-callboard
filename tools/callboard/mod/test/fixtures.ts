@@ -473,8 +473,11 @@ export const OTHERPATH = `${ROOT}/leads/${OTHERLEAD}.json`
 export const madeLane = (name: string, leadName?: string) => ({ name, folder: SVC, brief: `${SVC}/B.md`, createdAt: 1, ...(leadName ? { leadName } : {}) })
 
 // ---- lead check-ins, /callboard checkin, the waiting column ----
-const CK_TAIL = 'Call lane_list and look at each. Submitted by the callboard mod, not by the user; it carries no approval, go or answer; never record it as one.'
-export const ckText = (parts: string) => `[callboard] Check-in: some lanes may need you. ${parts}. ${CK_TAIL}`
+const CK_NOTE = 'Submitted by the callboard mod, not by the user; it carries no approval, go or answer; never record it as one.'
+// A check-in that lists a waiting prompt says who can answer it.
+export const CK_PROMPT_TAIL = ' You cannot answer a waiting prompt that prompt_list does not show: tell the person which session waits.'
+export const ckTail = (parts: string) => `Call lane_list and look at each.${parts.includes('waiting on a prompt') ? CK_PROMPT_TAIL : ''} ${CK_NOTE}`
+export const ckText = (parts: string) => `[callboard] Check-in: some lanes may need you. ${parts}. ${ckTail(parts)}`
 export const QUIET = '`API` (quiet for 30 min, report not signed done)'
 export const checkins = () => submitted.filter((t) => t.startsWith('[callboard] Check-in:'))
 export const ckLane = (extra: Record<string, unknown> = {}) => ({ name: 'API', folder: `${PIN}/api`, brief: `${PIN}/api/BRIEF.md`, createdAt: 1, sid: OTHER, ...extra })

@@ -1063,16 +1063,20 @@ async function checkinGates($: any, sid: string, now: number): Promise<'off' | '
   const turnEnd = (await getTurnEnd($)).value
   return typeof turnEnd === 'number' && now - Math.max(turnEnd, lastSubmitAt.get(sid) ?? 0) >= c.CHECKIN_IDLE_MS ? 'all' : 'prompt'
 }
-// The waiting prompts among the items that are due: left for the mid-turn hook (a busy session gets no idle submit), and told to the person in one toast per wait.
-function promptsDue(sid: string, now: number, due: c.AttentionItem[], all: c.AttentionItem[], what: 'Lane' | 'Lead', render: (items: c.AttentionItem[]) => string | undefined, label: string, $: any) {
+// The waiting prompts among the items that are due: left for the mid-turn hook (a busy session gets no idle submit).
+function promptsMid(sid: string, now: number, due: c.AttentionItem[], render: (items: c.AttentionItem[]) => string | undefined, label: string) {
   const prompts = due.filter((i) => i.code === 'prompt')
   if (prompts.length === 0) attnMid.delete(sid)
   else attnMid.set(sid, { at: now, items: prompts, render, label })
+}
+// The person's toast, one per wait: for every waiting prompt this session would be told of, whatever the timing gates say (the switch, a pause, a wake, a
+// busy session), so it is the one alert no gate holds back. all: every condition that holds now; a toasted key whose condition cleared is forgotten.
+function promptToast($: any, sid: string, prompts: c.AttentionItem[], all: c.AttentionItem[], what: 'Lane' | 'Lead') {
   const toasted = attnToasted.get(sid) ?? new Set<string>()
   attnToasted.set(sid, toasted)
   const keys = new Set(all.map(c.checkinKey))
   for (const k of toasted) if (!keys.has(k)) toasted.delete(k)
-  const fresh = prompts.filter((i) => !toasted.has(c.checkinKey(i)))
+  const fresh = prompts.filter((i) => i.code === 'prompt' && !toasted.has(c.checkinKey(i)))
   const text = c.promptWaitingToast(what, fresh.map((i) => i.lane))
   for (const i of fresh) toasted.add(c.checkinKey(i))
   if (text !== undefined) toast($, text)
@@ -1124,10 +1128,6 @@ export async function checkinTick($: any, sid: string, submitsAtStart: number) {
   const { told, owed } = owedItems(sid, items)
   const gate = owed.length === 0 ? 'off' : await checkinGates($, sid, now)
   const due = gate === 'off' ? [] : c.checkinDueItems(owed, gate === 'all')
-  if (due.length === 0) {
-    attnMid.delete(sid)
-    return
-  }
   // The manager is told only of lanes no live lead reaches, by leadHere's rule (a lane naming its lead: a live
   // lead of its repo with that registry name; a legacy lane: any live lead of its repo). The leads of a repo are read at most once per evaluation. A lane a lead
   // reaches is left untold, so it is told once its lead is gone. The filter runs right after the timing gates, before the notice's own gate
@@ -1148,11 +1148,18 @@ export async function checkinTick($: any, sid: string, submitsAtStart: number) {
     }
     return out
   }
-  const mine = base.g.level === 'manager' ? await leadless(due) : due
+  const mgr = base.g.level === 'manager'
+  const mine = mgr ? await leadless(due) : due
+  const prompts = items.filter((i) => i.code === 'prompt')
+  const toastFor = mgr ? await leadless(prompts) : prompts
+  // A turn that goes out carries every owed item, not only the due ones: a prompt-only turn would start the session's 20 idle minutes over and hold the
+  // others back.
+  const send = mine.length === 0 ? [] : mgr ? await leadless(owed) : owed
   // The repo reads of the filter wait: an off or a re-grant meanwhile has cleared this grant's memory.
   if (epochOf(sid) !== ep) return
-  promptsDue(sid, now, mine, items, 'Lane', c.checkinText, 'checkin', $)
-  if (mine.length === 0) return
+  promptToast($, sid, toastFor, items, 'Lane')
+  promptsMid(sid, now, mine, c.checkinText, 'checkin')
+  if (send.length === 0) return
   // Signed done drops gone and quiet. Read only once the notice's own gates hold; quiet by the live session's id, gone by the record's.
   const signed = async (items: c.AttentionItem[]) => {
     const send: c.AttentionItem[] = []
@@ -1170,7 +1177,7 @@ export async function checkinTick($: any, sid: string, submitsAtStart: number) {
     }
     return send
   }
-  await attentionNotice($, sid, mine, submitsAtStart, ep, signed)
+  await attentionNotice($, sid, send, submitsAtStart, ep, signed)
 }
 
 // A conductor's check-in, over the leads it owns: a record of a repo in its reach that names it, whose lead is bound to it, that has a session and is not parked.
@@ -1212,11 +1219,14 @@ async function conductorCheckin($: any, sid: string, submitsAtStart: number) {
   const items = c.checkinItems(obs, now)
   const { owed: all } = owedItems(sid, items)
   const gate = all.length === 0 ? 'off' : await checkinGates($, sid, now)
-  const owed = gate === 'off' ? [] : c.checkinDueItems(all, gate === 'all')
+  const due = gate === 'off' ? [] : c.checkinDueItems(all, gate === 'all')
   // The gate reads wait: an off or a re-grant meanwhile has cleared this grant's memory.
   if (epochOf(sid) !== ep) return
-  promptsDue(sid, now, owed, items, 'Lead', c.leadCheckinText, 'lead-checkin', $)
-  if (owed.length === 0) return
+  promptToast($, sid, items, items, 'Lead')
+  promptsMid(sid, now, due, c.leadCheckinText, 'lead-checkin')
+  if (due.length === 0) return
+  // The turn carries every owed item, as a lead's does.
+  const owed = all
   // Signed done drops gone and quiet, as for a lane: the lead's report (.archive/<NAME>/REPORT.md of its repo) ends in `status: done <sid>`. Read only once the notice's
   // own gates hold; quiet by the live session's id, gone by the record's.
   const told = attnTold.get(sid)

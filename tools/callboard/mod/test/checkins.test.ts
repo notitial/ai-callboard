@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { h, NO, PS_TABLE, ROOT, SID, T0, leadFiles, longTest, resultFiles, toasts } from './harness'
+import { GOOD, h, NO, PS_TABLE, ROOT, SID, T0, leadFiles, longTest, resultFiles, toasts } from './harness'
 import { ANY, APISID, LEADPATH, MGR_SESS, MIN, OTHER, OTHERLEAD, OWN_ROW, PIN, QUIET, RESULT, TURN, bareList, checkins, ckLane, ckLead, ckRow, ckText, cueSession, grantAt, idleFor, lane, leadAt, leadCall, leadFileText, leadReg, leadSelfReg, logged, madeLane, mdBox, mgrAt, midCtx, newTrace, notices, postBeneath, putStore, regAs, sleepFor, started, statusTable, ticks } from './fixtures'
 
 longTest('check-in: a lane quiet 30 min gets one fixed notice from an idle lead, not before; once per since; again after it worked (seen busy twice)', async ($, on) => {
@@ -71,10 +71,94 @@ test('check-in: a busy lead is not told in the middle of a turn of a quiet lane,
   expect(await midCtx($)).toEqual([])
   expect((await $.command.run(lane('checkin pause 1h'))).text).toBe('Check-ins paused in this session for 60 min.')
   h.sessions = { ...leadSelfReg({ status: 'busy' }), ...ckRow({ ...WAITING, statusUpdatedAt: h.nowMs }) }
+  await idleFor(12 * MIN)
+  expect(await midCtx($)).toEqual([])
+  expect(checkins()).toEqual([])
+  // The person's toast is not the session's check-in: the pause does not hold it back.
+  expect(toasts).toEqual([PROMPT_TOAST])
+})
+
+test('check-in: the toast for a waiting prompt is shown with check-ins switched off, and no check-in is sent', async ($, on) => {
+  await ckLead($, on, [], WAITING)
+  await $.command.run(lane('config checkin off'))
+  await idleFor(8 * MIN)
+  expect(checkins()).toEqual([])
+  expect(toasts.filter((t) => t === PROMPT_TOAST)).toEqual([PROMPT_TOAST])
+  await idleFor(8 * MIN)
+  expect(toasts.filter((t) => t === PROMPT_TOAST)).toEqual([PROMPT_TOAST])
+})
+
+test('check-in: the toast for a waiting prompt is shown within 30 min of a wake, when no check-in is sent', async ($, on) => {
+  await ckLead($, on, [], WAITING)
+  await sleepFor(30 * MIN)
+  await idleFor(8 * MIN)
+  expect(checkins()).toEqual([])
+  expect(toasts.filter((t) => t === PROMPT_TOAST)).toEqual([PROMPT_TOAST])
+})
+
+test('check-in: a turn sent for a waiting prompt carries the other owed lanes too, before the lead has been idle 20 min', async ($, on) => {
+  const web = (over: Record<string, unknown>) => cueSession(APISID, 'WEB', `${PIN}/web`, { pid: 4600, ...over })
+  await ckLead($, on, [], {}, [ckLane(), { name: 'WEB', folder: `${PIN}/web`, brief: `${PIN}/web/BRIEF.md`, createdAt: 1, sid: APISID }])
+  h.sessions = { ...leadSelfReg(), ...ckRow(), ...web({ status: 'busy', statusUpdatedAt: T0 }) }
+  await idleFor(20 * MIN)
+  await $.turn.complete(TURN as any)
+  await idleFor(4 * MIN)
+  h.sessions = { ...leadSelfReg(), ...ckRow(), ...web({ ...WAITING, statusUpdatedAt: h.nowMs }) }
+  // API is quiet 30 min by now, and the lead's last turn ended 12 min ago: nothing is sent for it alone.
+  await idleFor(8 * MIN)
+  expect(checkins()).toEqual([])
+  await idleFor(4 * MIN)
+  expect(checkins()).toEqual([ckText(`${QUIET}; \`WEB\` (waiting on a prompt for over 5 min)`)])
+})
+
+test('check-in: the mid-turn text shares the hourly cap: capped, it stays owed, logged once, and is told when the cap frees', async ($, on) => {
+  postBeneath(on)
+  const stdins: string[] = []
+  await ckLead($, on, stdins, WAITING)
+  for (let i = 1; i <= 12; i++) {
+    putStore([ckLane({ createdAt: 10 ** i })])
+    await h.clock!.advance(2000)
+  }
+  expect(notices()).toBe(12)
+  h.sessions = { ...leadSelfReg({ status: 'busy' }), ...ckRow(WAITING) }
   await idleFor(8 * MIN)
   expect(await midCtx($)).toEqual([])
-  expect(toasts).toEqual([])
+  expect(await midCtx($)).toEqual([])
+  expect(logged(stdins).filter((x) => x === 'notice-capped:attention')).toEqual(['notice-capped:attention'])
+  await idleFor(56 * MIN)
+  expect(await midCtx($)).toEqual([ckText(PROMPT)])
+})
+
+test('check-in: no mid-turn text while a compaction is armed, nor from an observation older than two minutes', async ($, on) => {
+  postBeneath(on)
+  await ckLead($, on, [], WAITING)
+  h.sessions = { ...leadSelfReg({ status: 'busy' }), ...ckRow(WAITING) }
+  await idleFor(8 * MIN)
+  // The clock moves three minutes with the tick held: the last observation is stale.
+  let wake!: () => void
+  h.timerHeld = new Promise<void>((r) => (wake = r))
+  await h.clock!.advance(2000)
+  await h.clock!.set(h.nowMs + 3 * MIN)
+  expect(await midCtx($)).toEqual([])
+  h.timerHeld = undefined
+  wake()
+  await idleFor(4 * MIN)
+  await $.tool.call({ ...GOOD, mode: 'now' } as any)
+  expect(await midCtx($)).toEqual([])
+})
+
+test('manager check-ins: a busy manager is told of a lane waiting on a prompt 10 min beside a tool result, with its lead live', async ($, on) => {
+  postBeneath(on)
+  const sess = (over: Record<string, unknown> = {}) => ({ ...leadSelfReg({ name: 'MANAGER', ...over }), ...cueSession(OTHER, 'LABLANE', '/data/x/work/lab', { pid: 4600, statusUpdatedAt: T0 }), ...cueSession(APISID, 'API', `${PIN}/api`, { pid: 4500, ...WAITING }), ...leadReg() })
+  await mgrAt($, on, [], { clock: true, sess: sess(), seed: () => leadFiles.set(LEADPATH, { text: leadFileText() }) })
+  h.sessions = sess({ status: 'busy' })
+  await idleFor(8 * MIN)
+  expect(await midCtx($)).toEqual([])
+  await idleFor(4 * MIN)
+  expect(await midCtx($)).toEqual([ckText(PROMPT)])
+  expect(await midCtx($)).toEqual([])
   expect(checkins()).toEqual([])
+  expect(toasts.filter((t) => t === PROMPT_TOAST)).toEqual([PROMPT_TOAST])
 })
 
 test('check-in: a pause typed after the observation, or the lead\'s own lane_resume, takes the waiting prompt back from the mid-turn path', async ($, on) => {

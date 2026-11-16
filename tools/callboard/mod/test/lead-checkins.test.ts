@@ -1,11 +1,11 @@
 import { expect, test } from 'claude-code/testing'
-import { LEADS_CHANGED_NOTE, LEADS_CHANGED_TEXT, SUBMITTED_NOTE_NEVER_RECORD } from '../hooks/core'
+import { LEADS_CHANGED_NOTE, LEADS_CHANGED_TEXT } from '../hooks/core'
 import { LEADRECDIR, PS_TABLE, SID, T0, extraStat, h, leadFiles, longTest, submitted, toasts } from './harness'
-import { APISID, CSESS, LEADPATH, LEADSID, MIN, OTHERLEAD, PIN, TURN, bindOwner, ckLane, condOn, idleFor, lane, leadFileText, leadReg, listed, ownedBy, putLeadRecs, putStore, ticks, leadRecsJson, waitFor } from './fixtures'
+import { APISID, CSESS, LEADPATH, LEADSID, MIN, OTHERLEAD, PIN, TURN, bindOwner, ckLane, ckTail, condOn, idleFor, lane, leadFileText, leadReg, listed, midCtx, ownedBy, postBeneath, putLeadRecs, putStore, ticks, leadRecsJson, waitFor } from './fixtures'
 
 // An owning conductor's check-ins on its leads and the leads-changed notice (the lead's own: checkins.test.ts, lead.test.ts).
 const THEIRS = '7a1b2c3d-0000-4000-8000-123456789abc'
-const leadCk = (parts: string) => `[callboard] Check-in: some of your leads may need you. ${parts}. Call lane_list and look at each. ${SUBMITTED_NOTE_NEVER_RECORD}`
+const leadCk = (parts: string) => `[callboard] Check-in: some of your leads may need you. ${parts}. ${ckTail(parts)}`
 const LEAD_QUIET = '`LEAD` (quiet for 30 min with no live lane, report not signed done)'
 const leadCheckins = () => submitted.filter((t) => t.startsWith('[callboard] Check-in: some of your leads'))
 const anyCheckins = () => submitted.filter((t) => t.startsWith('[callboard] Check-in:'))
@@ -64,6 +64,18 @@ test('lead check-in: an owned lead waiting on a prompt 5 min is told to an idle 
   expect(leadCheckins()).toEqual([])
   await idleFor(4 * MIN)
   expect(leadCheckins()).toEqual([leadCk('`LEAD` (waiting on a prompt for over 5 min)')])
+  expect(toasts.filter((t) => t.includes('waiting on a prompt'))).toEqual(['Lead LEAD: waiting on a prompt for over 5 min.'])
+})
+
+test('lead check-in: a busy conductor is told of an owned lead waiting on a prompt beside a tool result, once, with no turn submitted', async ($, on) => {
+  postBeneath(on)
+  const waiting = { status: 'waiting', waitingFor: 'permission prompt', statusUpdatedAt: T0 }
+  await ckOwn($, on, { lead: waiting })
+  h.sessions = { ...sessions(waiting), ...CSESS({ status: 'busy' }), ...leadReg(waiting) }
+  await idleFor(8 * MIN)
+  expect(await midCtx($)).toEqual([leadCk('`LEAD` (waiting on a prompt for over 5 min)')])
+  expect(await midCtx($)).toEqual([])
+  expect(leadCheckins()).toEqual([])
   expect(toasts.filter((t) => t.includes('waiting on a prompt'))).toEqual(['Lead LEAD: waiting on a prompt for over 5 min.'])
 })
 
