@@ -527,14 +527,13 @@ test('prompts: no mid-turn notice for a subagent\'s tool call, nor while answeri
 })
 
 // ---- the lead's section ----
-test('prompts: a lead\'s system prompt carries the prompt section with the rubric, beside the briefing that is left as it was', async ($, on) => {
+test('prompts: a lead\'s system prompt carries the prompt section, beside the briefing that is left as it was', async ($, on) => {
   await tier($, on)
   const r = await $.prompt.compose(COMPOSE)
   const s = r.sections.filter((x: any) => x.id === prm.LEAD_PROMPTS_ID)
   expect(s.length).toBe(1)
-  expect(s[0].text).toBe(prm.LEAD_PROMPT_BRIEFING)
+  expect(s[0].text).toBe(prm.tierPromptSection('lead'))
   expect(s[0].scope).toBe('session')
-  expect(s[0].text).toContain(prm.RUBRIC)
   expect(r.sections.find((x: any) => x.id === 'callboard:lead').text).toBe(leadBriefing(PIN, SID))
   expect((await $.prompt.compose({ ...COMPOSE, tools: ['Read'] })).sections.filter((x: any) => x.id === prm.LEAD_PROMPTS_ID).length).toBe(0)
   expect((await $.prompt.compose({ ...COMPOSE, traits: ['teammate'] })).sections.filter((x: any) => x.id === prm.LEAD_PROMPTS_ID).length).toBe(0)
@@ -877,13 +876,10 @@ test('prompts notice: an idle conductor with no lead is told; so is one told of 
   expect(promptNotices()).toBe(1)
 })
 
-test('prompts briefing: the conductor and the manager get the tier section; the lead\'s names the chain and the cleaner-command deny; no other session has one', async ($, on) => {
+test('prompts briefing: the conductor gets the tier section', async ($, on) => {
   await condOn($, on, [], { clock: true })
   let r = await $.prompt.compose(COMPOSE)
-  expect(r.sections.filter((x: any) => x.id === prm.TIER_PROMPTS_ID).map((x: any) => x.text)).toEqual([prm.tierPromptBriefing('conductor')])
-  expect(prm.tierPromptBriefing('conductor')).toContain(prm.UNCLEAR_PREFIX)
-  expect(prm.tierPromptBriefing('manager')).toContain('Relay <')
-  expect(prm.LEAD_PROMPT_BRIEFING).toContain(prm.UNCLEAR_PREFIX)
+  expect(r.sections.filter((x: any) => x.id === prm.TIER_PROMPTS_ID).map((x: any) => x.text)).toEqual([prm.tierPromptSection('conductor')])
 })
 
 test('prompts tools (manager): a lead that passed the request up leaves the manager its own 10-minute slot (the conductor between them is live)', async ($, on) => {

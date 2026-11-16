@@ -2271,15 +2271,15 @@ export async function promptCompose($: any, e: any, next: any) {
   }
   if (gated) setSection(c.LEAD_BRIEFING_ID, c.leadBriefing(pin, sid))
   if (gated) setSection(c.LEAD_MANAGER_ID, leadManager ? c.LEAD_MANAGER_TEXT : undefined)
-  // ADR 0004: the lead's prompt section, beside the briefing (whose approved text is left alone).
-  if (gated) setSection(pr.LEAD_PROMPTS_ID, grants.get(sid)?.level === 'lead' ? pr.LEAD_PROMPT_BRIEFING : undefined)
+  // ADR 0004: the lead's prompt section, beside the briefing.
+  if (gated) setSection(pr.LEAD_PROMPTS_ID, grants.get(sid)?.level === 'lead' ? pr.tierPromptSection('lead') : undefined)
   if (gated) setSection(c.LEAD_CONDUCTOR_ID, seenConductors.length > 0 ? c.leadConductorText(seenConductors) : undefined)
   if (managerText !== undefined) setSection(c.MANAGER_BRIEFING_ID, managerText)
   if (conductorText !== undefined) setSection(c.CONDUCTOR_BRIEFING_ID, conductorText)
   // The conductor's and the manager's prompt section (the lead's is above).
   {
     const lvl = grants.get(sid)?.level
-    const tierText = lvl === 'conductor' && conductorText !== undefined ? pr.tierPromptBriefing('conductor') : lvl === 'manager' && managerText !== undefined ? pr.tierPromptBriefing('manager') : undefined
+    const tierText = lvl === 'conductor' && conductorText !== undefined ? pr.tierPromptSection('conductor') : lvl === 'manager' && managerText !== undefined ? pr.tierPromptSection('manager') : undefined
     setSection(pr.TIER_PROMPTS_ID, tierText)
   }
   if (laneText !== undefined) setSection(c.LANE_BRIEFING_ID, laneText)
