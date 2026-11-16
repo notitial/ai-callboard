@@ -75,9 +75,9 @@ caller.
    report unsigned shows a toast in the lead's window. A lane you may need again is parked instead.
 7. Before a long stretch, give the lead one go for the whole body of work (`/callboard go TEXT`) so its lanes do
    not ask again for each step (it counts only while the protected-paths guard is in place). A go never covers a merge, a force push, a push to
-   main or production, or a delete outside the lane's own work, and the rest of the list the dialog and `go_status`
-   print (ADR 0009). `go_status` shows a session what covers it. A closed, parked or crashed panel ends no go; `go off`
-   does.
+   main or production, or a delete outside the lane's own work, and the rest of the list `go_status` prints
+   (ADR 0009). The dialog is short, and so is TEXT: two or three lines, with the detail in the brief or the plan.
+   `go_status` shows a session what covers it. A closed, parked or crashed panel ends no go; `go off` does.
 
 A lead that you leave idle is told when a lane needs it (its session is gone, it waits on a prompt, it went
 quiet without signing), unless you pause that with `/callboard checkin pause` (an hour, or the time you give;
@@ -302,8 +302,8 @@ case small (ADR 0002, Consequences). Beyond that, specific to what you see:
   a click lost in the short gap of ADR 0004.
 - The `/callboard` typeahead is tested against the test kit only: how a terminal, a VS Code panel or a phone draws
   the rows is not checked against a live engine.
-- A go dialog left open for 10 minutes inside a tool call may be cut off by the engine, and its text can run long with
-  many lanes: unverified live (ADR 0009, probes).
+- A go dialog left open for 10 minutes inside a tool call may be cut off by the engine, and a window may join its
+  lines into one block: unverified live (ADR 0009, probes).
 
 ## Tests
 
