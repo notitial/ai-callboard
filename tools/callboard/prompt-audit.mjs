@@ -46,6 +46,7 @@
 //              reach land there from now on; written before the store key
 //   here-off   code (off | grant-off | moved | void), by, was? (the session that was here)   it ended: /callboard here off, that session's grant ending, the command typed in another session, or a key that could not be written; the end after 12 hours has no row (here-on carries it)
 //   dialog, not-judgeable, no-tier, escalated, answering-on, answering-off, here-on, here-off   no request of their own
+//   subagent-denied, question-denied (code: the shape's)   the mod's own denial of an ask that cannot rise (ADR 0011): no request, no tier and no answer of the person's
 //
 // It reads the ledger and the files beside it (questions, request files, lead records, go files), never a session's transcript. So two things are outside what it
 // sees: a hook decision that reached a session with no ledger row, and an answered row written by hand together with its decision file.
@@ -82,7 +83,7 @@ const FIELDS = ['code', 'id', 'lane', 'repo', 'tool', 'pattern', 'hash', 'tier',
 // every run incomplete (UNPLACED), so a new kind cannot be read as something it is not.
 export const KIND_CLASS = {
   requested: 'request', answered: 'request', escalated: 'request', dropped: 'request', relayed: 'request', 'relay-lost': 'request', 'relay-left': 'request', 'relay-late': 'request',
-  'relay-closed': 'request', 'deny-unclear': 'request', dialog: 'request', 'not-judgeable': 'request', 'no-tier': 'request',
+  'relay-closed': 'request', 'deny-unclear': 'request', dialog: 'request', 'not-judgeable': 'request', 'subagent-denied': 'request', 'question-denied': 'request', 'no-tier': 'request',
   returned: 'end', superseded: 'end', 'expired-denied': 'end', off: 'end', abandoned: 'end',
   'go-grant': 'go', 'go-end': 'go', 'go-read': 'go',
   'answering-on': 'other', 'answering-off': 'other', 'lead-offer': 'other', 'lead-offer-void': 'other', 'lead-grant': 'other', 'lead-owner': 'other', 'lead-resume': 'other', 'lead-stop': 'other',
@@ -547,6 +548,9 @@ function noteQuestions({ groups, rows, notes, inRange, qById }, questions) {
   const notJudged = {}
   for (const r of rows) if (r.kind === 'not-judgeable' && /^question(-|$)/.test(r.code ?? '') && inRange(r.ms)) notJudged[r.code] = (notJudged[r.code] ?? 0) + 1
   if (Object.keys(notJudged).length > 0) notes.push(`not-judgeable question rows by code: ${Object.entries(notJudged).sort().map(([c, n]) => `${c} ${n}`).join(', ')}`)
+  // The mod's own denials of an ask that cannot rise: counted apart, so none is read as a tier's deny.
+  const formDenied = rows.filter((r) => inRange(r.ms) && (r.kind === 'subagent-denied' || r.kind === 'question-denied'))
+  if (formDenied.length > 0) notes.push(`denied by the mod because the ask cannot rise (no tier's decision): subagent-denied ${formDenied.filter((r) => r.kind === 'subagent-denied').length}, question-denied ${formDenied.filter((r) => r.kind === 'question-denied').length}`)
 }
 
 function buildCounts({ rows, inRange, table, waits }) {

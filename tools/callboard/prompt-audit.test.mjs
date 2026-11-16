@@ -788,6 +788,16 @@ test('a: a requested row that names an unknown source of the ask is an anomaly; 
   assert.equal(rep.anomalies[0].id, uid(1))
 })
 
+test('the mod\'s own denials of an ask that cannot rise are known kinds, no anomaly and no tier\'s deny: counted in one note', () => {
+  const fx = fixture()
+  ledger(fx, [ON(), ASKS(), R('subagent-denied', BASE + 100, T), R('question-denied', BASE + 200, { ...QT, code: 'question-multi' }), R('question-denied', BASE + 300, { ...QT, code: 'question-count' })])
+  const rep = run(fx)
+  assert.deepEqual(rep.anomalies, [])
+  assert.ok(rep.notes.includes('denied by the mod because the ask cannot rise (no tier\'s decision): subagent-denied 1, question-denied 2'), rep.notes.join('|'))
+  assert.equal(rep.counts.rowsByKind['subagent-denied'], 1)
+  assert.equal(rep.counts.rowsByKind['question-denied'], 2)
+})
+
 test('questions: the notes: no questions row, a row past 90 days, not-judgeable counts, and the QUESTIONS table', () => {
   const fx = fixture()
   ledger(fx, [ON(), ASKS(), ...qClean(), R('not-judgeable', BASE + 100, { ...QT, code: 'question-scope' }), R('not-judgeable', BASE + 200, { ...QT, code: 'question-scope' }), R('not-judgeable', BASE + 300, { ...QT, code: 'question-multi' }), R('not-judgeable', BASE + 400, { ...T, code: 'no-check' })])
