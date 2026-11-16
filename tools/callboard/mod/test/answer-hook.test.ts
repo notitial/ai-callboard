@@ -1051,22 +1051,35 @@ test('prompts: the dialog on a machine with the default writes its own value; a 
   expect(rowKinds().slice(-2)).toEqual(DEFAULT_ROWS)
 })
 
-test('prompts: the default guard parser: only the linked hook or the exact ai-toolkit wrapper of it, on a matcher that covers the tools, with hooks not disabled, counts', () => {
+test('prompts: the default guard parser: only the exact ai-toolkit wrapper of the linked hook, in an entry that gates, on a matcher that covers the tools, with hooks not disabled, counts', () => {
   const LINK = '/Users/x/.claude/hooks/protected-paths-guard.sh'
-  const wire = (command: unknown, matcher: unknown = 'Edit|Write|MultiEdit|Bash', extra: object = {}) => prm.settingsWireGuard(JSON.stringify({ ...extra, hooks: { PreToolUse: [{ matcher, hooks: [{ command }] }] } }), LINK, '/Users/x')
-  expect(wire(LINK)).toBe(true)
-  expect(wire('$HOME/.claude/hooks/protected-paths-guard.sh')).toBe(true)
-  expect(wire('${HOME}/.claude/hooks/protected-paths-guard.sh')).toBe(true)
-  expect(wire('~/.claude/hooks/protected-paths-guard.sh')).toBe(true)
-  expect(wire(LINK, undefined)).toBe(true)
-  expect(wire(LINK, '*')).toBe(true)
-  expect(wire(LINK, '')).toBe(true)
-  expect(wire(`/bin/bash -p "$HOME/.claude/hooks/protected-paths-guard.sh" || exit 2`)).toBe(true)
+  const WRAPPED = '/bin/bash -p "$HOME/.claude/hooks/protected-paths-guard.sh" || exit 2'
+  const wire = (command: unknown, matcher: unknown = 'Edit|Write|MultiEdit|Bash', extra: object = {}, entry: object = {}) =>
+    prm.settingsWireGuard(JSON.stringify({ ...extra, hooks: { PreToolUse: [{ matcher, hooks: [{ type: 'command', command, ...entry }] }] } }), LINK, '/Users/x')
+  expect(wire(WRAPPED)).toBe(true)
   expect(wire(`/bin/bash -p "\${HOME}/.claude/hooks/protected-paths-guard.sh" || exit 2`)).toBe(true)
   expect(wire(`/bin/bash -p "${LINK}" || exit 2`)).toBe(true)
-  expect(wire(`/bin/bash -p "$HOME/.claude/hooks/protected-paths-guard.sh" || exit 2`, '*')).toBe(true)
-  expect(wire(`/bin/bash -p "$HOME/.claude/hooks/protected-paths-guard.sh" || exit 2`, 'Edit|Write')).toBe(false)
-  expect(wire(`/bin/bash -p "$HOME/.claude/hooks/protected-paths-guard.sh" || exit 2`, 'Edit|Write|Bash', { disableAllHooks: true })).toBe(false)
+  expect(wire(WRAPPED, undefined)).toBe(true)
+  expect(wire(WRAPPED, '*')).toBe(true)
+  expect(wire(WRAPPED, '')).toBe(true)
+  expect(wire(WRAPPED, 'Edit|Write')).toBe(false)
+  expect(wire(WRAPPED, 'Edit|Write|Bash', { disableAllHooks: true })).toBe(false)
+  // The bare path lets a call through when the hook cannot start, so it does not count, nor does any bare spelling of it.
+  for (const bare of [LINK, '$HOME/.claude/hooks/protected-paths-guard.sh', '${HOME}/.claude/hooks/protected-paths-guard.sh', '~/.claude/hooks/protected-paths-guard.sh']) expect(wire(bare)).toBe(false)
+  // The hook entry: type command, only the keys the toolkit writes or a status text and failure policy, and a timeout that cannot cut the guard short.
+  expect(wire(WRAPPED, undefined, {}, { timeout: 10 })).toBe(true)
+  expect(wire(WRAPPED, undefined, {}, { timeout: 30, statusMessage: 'Checking', onFailure: 'block' })).toBe(true)
+  for (const entry of [{ type: undefined }, { type: 'prompt' }, { type: 'http' }, { async: true }, { asyncRewake: true }, { if: 'Bash(rm *)' }, { args: ['x'] }, { shell: 'powershell' }, { extra: 1 }, { timeout: 9 }, { timeout: 0 }, { timeout: -1 }, { timeout: '10' }, { timeout: null }]) {
+    expect(wire(WRAPPED, undefined, {}, entry)).toBe(false)
+  }
+  // A settings `env` that sets HOME repoints $HOME for the hook; other variables do not matter.
+  expect(wire(WRAPPED, undefined, { env: { HOME: '/tmp/x' } })).toBe(false)
+  expect(wire(WRAPPED, undefined, { env: { HOME: '' } })).toBe(false)
+  expect(wire(WRAPPED, undefined, { env: { FOO: '1' } })).toBe(true)
+  for (const env of ['HOME', ['HOME=/tmp/x'], null, 5]) expect(wire(WRAPPED, undefined, { env })).toBe(false)
+  expect(wire(WRAPPED, undefined, {}, { timeout: 1e999 })).toBe(false)
+  // The entry the toolkit's template writes: a group comment, the full matcher, type, command and a timeout of 10.
+  expect(prm.settingsWireGuard(JSON.stringify({ env: { FOO: '1' }, hooks: { PreToolUse: [{ _comment: 'x', matcher: 'Edit|Write|MultiEdit|NotebookEdit|Bash|Monitor|mcp__git-mcp__.*', hooks: [{ type: 'command', command: WRAPPED, timeout: 10 }] }] } }), LINK, '/Users/x')).toBe(true)
   for (const bad of [
     `/bin/bash -p "$HOME/.claude/hooks/protected-paths-guard.sh"`,
     `/bin/bash -p "$HOME/.claude/hooks/protected-paths-guard.sh" || exit 0`,
@@ -1101,21 +1114,19 @@ test('prompts: the default guard parser: only the linked hook or the exact ai-to
     `/bin/bash -p "$HOME/.claude/hooks/protected-paths-guard.sh" "x" || exit 2`,
   ]) expect(wire(bad)).toBe(false)
   // A link the quotes would still expand never matches the wrapped form.
+  const wiredAs = (command: string, link: string, home: string) => prm.settingsWireGuard(JSON.stringify({ hooks: { PreToolUse: [{ matcher: '*', hooks: [{ type: 'command', command }] }] } }), link, home)
+  expect(wiredAs(WRAPPED, LINK, '/Users/x')).toBe(true)
   for (const odd of ['"', '$', '`', '\\']) {
-    const wrapped = JSON.stringify({ hooks: { PreToolUse: [{ matcher: '*', hooks: [{ command: '/bin/bash -p "$HOME/.claude/hooks/protected-paths-guard.sh" || exit 2' }] }] } })
-    expect(prm.settingsWireGuard(wrapped, `/Users/x${odd}/.claude/hooks/protected-paths-guard.sh`, `/Users/x${odd}`)).toBe(false)
     const literal = `/Users/x${odd}/.claude/hooks/protected-paths-guard.sh`
-    const wrappedLiteral = JSON.stringify({ hooks: { PreToolUse: [{ matcher: '*', hooks: [{ command: `/bin/bash -p "${literal}" || exit 2` }] }] } })
-    expect(prm.settingsWireGuard(wrappedLiteral, literal, `/Users/x${odd}`)).toBe(false)
+    expect(wiredAs(WRAPPED, literal, `/Users/x${odd}`)).toBe(false)
+    expect(wiredAs(`/bin/bash -p "${literal}" || exit 2`, literal, `/Users/x${odd}`)).toBe(false)
   }
   expect(wire(`${LINK} --probe`)).toBe(false)
   expect(wire('/opt/stub/protected-paths-guard.sh')).toBe(false)
   expect(wire('protected-paths-guard.sh')).toBe(false)
   expect(wire(5)).toBe(false)
-  expect(wire(LINK, 'NoSuchTool')).toBe(false)
-  expect(wire(LINK, 'Edit|Write')).toBe(false)
-  expect(wire(LINK, 'Edit|Write|Bash', { disableAllHooks: true })).toBe(false)
-  for (const bad of ['', '{', '[]', '{"hooks":[]}', `{"hooks":{"PostToolUse":[{"hooks":[{"command":"${LINK}"}]}]}}`]) expect(prm.settingsWireGuard(bad, LINK, '/Users/x')).toBe(false)
+  expect(wire(WRAPPED, 'NoSuchTool')).toBe(false)
+  for (const bad of ['', '{', '[]', '{"hooks":[]}', JSON.stringify({ hooks: { PostToolUse: [{ hooks: [{ type: 'command', command: WRAPPED }] }] } })]) expect(prm.settingsWireGuard(bad, LINK, '/Users/x')).toBe(false)
   expect(prm.settingsWireGuard(undefined, LINK, '/Users/x')).toBe(false)
   expect(prm.toolkitOfHook('/Users/x/ai-toolkit/hooks/protected-paths-guard.sh')).toBe('/Users/x/ai-toolkit')
   for (const bad of ['', '/hooks/protected-paths-guard.sh', '/x/hooks/other.sh', 'rel/hooks/protected-paths-guard.sh', undefined]) expect(prm.toolkitOfHook(bad)).toBeUndefined()
