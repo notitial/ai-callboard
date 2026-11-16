@@ -483,13 +483,21 @@ test('prompts hold: a relay whose request had already closed when the question w
   expect(rowKinds()).toEqual(['relay-closed'])
 })
 
-test('prompts hold: a poll that cannot wait ends the hold with no deny', async ($, on) => {
+test('prompts hold: a poll that cannot wait three times in a row ends the hold with no deny', async ($, on) => {
   await relayFixture($, on)
   h.sleepFails = true
   const r = await $.classic.PermissionRequest({ tool_name: 'AskUserQuestion', tool_input: { questions: [relayQ(TID)] } } as any)
   expect(r ?? {}).toEqual({})
   expect(pfs.has(`${LDIR()}/${TID}.asked`)).toBe(true)
   expect(rowKinds()).toEqual([])
+})
+
+test('prompts hold: a poll that cannot wait twice (the Mac slept through it) keeps the hold: a relay that closes later still withdraws the question', async ($, on) => {
+  await relayFixture($, on)
+  h.sleepFailsNext = 2
+  const r = await holdRelay($, [relayQ(TID)], [at(12_000, () => { expect(h.sleepFailsNext).toBe(0); pfs.delete(`${LDIR()}/${TID}.request.json`) })])
+  expect(r).toEqual(denyOf([SHORT]))
+  expect(closedRows().map((x) => x.id)).toEqual([TID])
 })
 
 for (const [name, o] of [['no asks scope', {}], ['the old asks flag', { asksOld: true }]] as [string, Ans][]) {
