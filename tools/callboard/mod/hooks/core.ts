@@ -34,6 +34,7 @@ export const STORE_MAX_LANES = 16
 export const STORE_MAX_BYTES = 16_384
 export const STORE_MAX_FILES = 64
 // The create times a store may hold, and how many of them a rewrite keeps: the highest lanes-per-hour setting (CONFIG_RANGE) fits in both.
+// The panels extension reads the same store and holds the same 64 (extension/spool.js).
 const STORE_MAX_CREATES = 64
 export const STORE_KEEP_CREATES = 60
 
