@@ -419,9 +419,9 @@ export function startTurnsOk(turnsNow: number, turnsAtBind: number | undefined):
   return Number.isInteger(turnsNow) && turnsNow === (turnsAtBind ?? 0)
 }
 
-// The closing sentence of every text the mod submits as a turn: it says the turn is not the person's and carries no approval. rules/callboard.md matches the
-// keepalive text exactly, so the wording is pinned byte for byte by its spec. The texts that start or restart work (a lane's or a lead's start and resume,
-// the compact cue) add NEVER_RECORD after it.
+// The closing sentence of the texts the mod submits as a turn (the PR notice has its own, PR_NOTICE_TAIL): it says the turn is not the person's and carries
+// no approval. rules/callboard.md matches the keepalive text exactly, so the wording is pinned byte for byte by its spec. A lane's and a lead's start and
+// resume, which start or restart work, add NEVER_RECORD after it; the compact cue says the same in its own longer sentence.
 export const SENT_NOTE = 'Sent by callboard, not the person; it is no approval, go or answer.'
 export const NEVER_RECORD = 'Never record it as one.'
 // A note the mod appends as a user row: the person's next prompt can join it in one message, so the note says where it starts and where it ends.
