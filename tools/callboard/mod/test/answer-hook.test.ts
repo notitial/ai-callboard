@@ -991,7 +991,7 @@ test('prompts: the dialog on a machine with the default writes its own value; a 
   expect(rowKinds().slice(-2)).toEqual(DEFAULT_ROWS)
 })
 
-test('prompts: the default guard parser: only the linked hook, on a matcher that covers the tools, with hooks not disabled, counts', () => {
+test('prompts: the default guard parser: only the linked hook or the exact ai-toolkit wrapper of it, on a matcher that covers the tools, with hooks not disabled, counts', () => {
   const LINK = '/Users/x/.claude/hooks/protected-paths-guard.sh'
   const wire = (command: unknown, matcher: unknown = 'Edit|Write|MultiEdit|Bash', extra: object = {}) => prm.settingsWireGuard(JSON.stringify({ ...extra, hooks: { PreToolUse: [{ matcher, hooks: [{ command }] }] } }), LINK, '/Users/x')
   expect(wire(LINK)).toBe(true)
@@ -1001,6 +1001,53 @@ test('prompts: the default guard parser: only the linked hook, on a matcher that
   expect(wire(LINK, undefined)).toBe(true)
   expect(wire(LINK, '*')).toBe(true)
   expect(wire(LINK, '')).toBe(true)
+  expect(wire(`/bin/bash -p "$HOME/.claude/hooks/protected-paths-guard.sh" || exit 2`)).toBe(true)
+  expect(wire(`/bin/bash -p "\${HOME}/.claude/hooks/protected-paths-guard.sh" || exit 2`)).toBe(true)
+  expect(wire(`/bin/bash -p "${LINK}" || exit 2`)).toBe(true)
+  expect(wire(`/bin/bash -p "$HOME/.claude/hooks/protected-paths-guard.sh" || exit 2`, '*')).toBe(true)
+  expect(wire(`/bin/bash -p "$HOME/.claude/hooks/protected-paths-guard.sh" || exit 2`, 'Edit|Write')).toBe(false)
+  expect(wire(`/bin/bash -p "$HOME/.claude/hooks/protected-paths-guard.sh" || exit 2`, 'Edit|Write|Bash', { disableAllHooks: true })).toBe(false)
+  for (const bad of [
+    `/bin/bash -p "$HOME/.claude/hooks/protected-paths-guard.sh"`,
+    `/bin/bash -p "$HOME/.claude/hooks/protected-paths-guard.sh" || exit 0`,
+    `/bin/bash -p "$HOME/.claude/hooks/protected-paths-guard.sh" || true`,
+    `/bin/bash -p "$HOME/.claude/hooks/protected-paths-guard.sh" || exit 2; true`,
+    `/bin/bash -p "$HOME/.claude/hooks/protected-paths-guard.sh" || exit 2 && true`,
+    `/bin/bash -p "$HOME/.claude/hooks/protected-paths-guard.sh" --probe || exit 2`,
+    `/bin/bash -p "$HOME/.claude/hooks/protected-paths-guard.sh" || exit 2\ntrue`,
+    `true; /bin/bash -p "$HOME/.claude/hooks/protected-paths-guard.sh" || exit 2`,
+    `/bin/bash "$HOME/.claude/hooks/protected-paths-guard.sh" || exit 2`,
+    `/bin/sh -p "$HOME/.claude/hooks/protected-paths-guard.sh" || exit 2`,
+    `bash -p "$HOME/.claude/hooks/protected-paths-guard.sh" || exit 2`,
+    `/usr/bin/env bash -p "$HOME/.claude/hooks/protected-paths-guard.sh" || exit 2`,
+    `/bin/bash -p $HOME/.claude/hooks/protected-paths-guard.sh || exit 2`,
+    `/bin/bash -p '$HOME/.claude/hooks/protected-paths-guard.sh' || exit 2`,
+    `/bin/bash -p "~/.claude/hooks/protected-paths-guard.sh" || exit 2`,
+    `/bin/bash -p "$HOME/.claude/hooks/other.sh" || exit 2`,
+    `/bin/bash -p "/opt/stub/protected-paths-guard.sh" || exit 2`,
+    `/bin/bash -p "$HOME/x/../.claude/hooks/protected-paths-guard.sh" || exit 2`,
+    `/bin/bash -p "$HOME/.claude/hooks/protected-paths-guard.sh" "$HOME/.claude/hooks/protected-paths-guard.sh" || exit 2`,
+    `/bin/bash -p "" || exit 2`,
+    `/bin/bash -p "$HOMEX/.claude/hooks/protected-paths-guard.sh" || exit 2`,
+    ` /bin/bash -p "$HOME/.claude/hooks/protected-paths-guard.sh" || exit 2`,
+    `/bin/bash -p "$HOME/.claude/hooks/protected-paths-guard.sh" || exit 2 `,
+    `/bin/bash -p "$HOME/.claude/hooks/protected-paths-guard.sh" || exit 2\r`,
+    `/bin/bash -p "$HOME/.claude/hooks/protected-paths-guard.sh" || exit 2\n`,
+    `/bin/bash\t-p "$HOME/.claude/hooks/protected-paths-guard.sh" || exit 2`,
+    `/bin/bash -p  "$HOME/.claude/hooks/protected-paths-guard.sh" || exit 2`,
+    `/bin/bash -p "$HOME/.claude/hooks/protected-paths-guard.sh" ||  exit 2`,
+    `/bin/bash -p "$HOME/.claude/hooks/protected-paths-guard.sh" || exit 2 || true`,
+    `/bin/bash -p "$HOME/.claude/hooks/protected-paths-guard.sh" || exit 20`,
+    `/bin/bash -p "$HOME/.claude/hooks/protected-paths-guard.sh" "x" || exit 2`,
+  ]) expect(wire(bad)).toBe(false)
+  // A link the quotes would still expand never matches the wrapped form.
+  for (const odd of ['"', '$', '`', '\\']) {
+    const wrapped = JSON.stringify({ hooks: { PreToolUse: [{ matcher: '*', hooks: [{ command: '/bin/bash -p "$HOME/.claude/hooks/protected-paths-guard.sh" || exit 2' }] }] } })
+    expect(prm.settingsWireGuard(wrapped, `/Users/x${odd}/.claude/hooks/protected-paths-guard.sh`, `/Users/x${odd}`)).toBe(false)
+    const literal = `/Users/x${odd}/.claude/hooks/protected-paths-guard.sh`
+    const wrappedLiteral = JSON.stringify({ hooks: { PreToolUse: [{ matcher: '*', hooks: [{ command: `/bin/bash -p "${literal}" || exit 2` }] }] } })
+    expect(prm.settingsWireGuard(wrappedLiteral, literal, `/Users/x${odd}`)).toBe(false)
+  }
   expect(wire(`${LINK} --probe`)).toBe(false)
   expect(wire('/opt/stub/protected-paths-guard.sh')).toBe(false)
   expect(wire('protected-paths-guard.sh')).toBe(false)
