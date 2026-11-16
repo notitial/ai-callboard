@@ -5,7 +5,7 @@ import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { audit, render, eachLine, percentile, LEDGER_MAX_BYTES } from './prompt-audit.mjs'
+import { audit, render, eachLine, percentile, LEDGER_MAX_BYTES, KIND_CLASS } from './prompt-audit.mjs'
 import { ROW_KINDS } from './mod/hooks/prompts.ts'
 
 const SCRIPT = new URL('./prompt-audit.mjs', import.meta.url).pathname
@@ -792,17 +792,42 @@ test('questions: a relayed question is listed with the lane\'s own question, fou
   assert.match(render(rep), /the lane asked: \[Color\] Which color should the page use\? \(options: Red \| Green\)/)
 })
 
-// The audit takes its row kinds from the mod's own list, so a row of every kind the mod writes is read as a row.
-test('the audit reads a row of every kind the mod writes', () => {
+// The audit takes its row kinds from the mod's own list, so a row of every kind the mod writes is read as a row; and each kind has a place in the audit, so
+// a kind added to the mod fails here until it is placed.
+test('the audit reads a row of every kind the mod writes, and has a place for each', () => {
   const fx = fixture()
   assert.ok(ROW_KINDS.length > 10)
+  assert.deepEqual(Object.keys(KIND_CLASS).sort(), [...ROW_KINDS].sort())
+  assert.deepEqual([...new Set(Object.values(KIND_CLASS))].sort(), ['end', 'go', 'other', 'request'])
+  assert.deepEqual(ROW_KINDS.filter((k) => k.startsWith('go-')).sort(), Object.keys(KIND_CLASS).filter((k) => KIND_CLASS[k] === 'go').sort())
   ledger(fx, ROW_KINDS.map((kind, i) => R(kind, BASE + i)))
   const rep = run(fx)
   assert.deepEqual(Object.keys(rep.counts.rowsByKind).sort(), [...ROW_KINDS].sort())
   assert.equal(rep.scanned.rows, ROW_KINDS.length)
+  assert.deepEqual(rep.problems, [])
   assert.ok(!rep.notes.some((n) => /not valid rows/.test(n)))
-  ledger(fx, [R('no-such-kind', BASE)])
-  assert.ok(run(fx).notes.some((n) => /1 ledger line\(s\) were not valid rows/.test(n)))
+})
+
+test('a row of a kind the mod does not write is a problem that names the kind (exit 2), not a quiet note; --since keeps an older one out', () => {
+  const fx = fixture()
+  ledger(fx, [ON(), ...clean(), R('go-extend', BASE, { id: uid(5) }), R('go-extend', BASE + 1), R('no-such-kind', BASE - 7200_000), { kind: 'no-time' }])
+  const rep = run(fx)
+  assert.deepEqual(rep.anomalies, [])
+  assert.deepEqual(rep.problems, ['ledger: 4 row(s) of a kind the audit does not know were not read (go-extend 2, no-such-kind 1, no-time 1)'])
+  assert.equal(rep.table.length, 1)
+  assert.match(render(rep), /INCOMPLETE: 1 problem/)
+  assert.match(run(fx, { since: BASE - 3600_000 }).problems[0], /3 row\(s\).*\(go-extend 2, no-time 1\)/)
+  const cli = spawnSync(process.execPath, [SCRIPT, '--root', fx.root], { encoding: 'utf8' })
+  assert.equal(cli.status, 2)
+})
+
+test('the script copied out of its checkout cannot load the mod\'s definitions: exit 2 with a line that says so', () => {
+  const d = mkdtempSync(join(tmpdir(), 'pa-alone-'))
+  writeFileSync(join(d, 'prompt-audit.mjs'), readFileSync(SCRIPT))
+  const r = spawnSync(process.execPath, [join(d, 'prompt-audit.mjs'), '--root', d], { encoding: 'utf8' })
+  assert.equal(r.status, 2)
+  assert.match(r.stderr, /prompt audit: cannot load the mod's definitions/)
+  rmSync(d, { recursive: true })
 })
 
 // ---- i. lead tools and lead stops (ADR 0007) ----

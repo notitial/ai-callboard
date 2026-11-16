@@ -4,7 +4,7 @@
 // that must stay empty, what is deliberately not an anomaly, and wait counts. Nothing here writes: it never creates, edits,
 // renames, removes or touches a file, and it follows no symlink inside the folders it reads. Convenience only: every real
 // limit lives in the mod. Exit 0: no anomalies. 1: anomalies. 2: usage error, an unreadable root, or a ledger file that could
-// not be read (an audit that missed a ledger file proves nothing, so it never exits 0).
+// not be read (an audit that missed a ledger file proves nothing, so it never exits 0), a ledger row of a kind it does not know, or the mod's definitions not loading.
 // It imports the row kinds, the forged-drop codes, the dialog test and the id shape from the mod's own sources (mod/hooks/prompts.ts, core.ts), so it
 // runs from this checkout and needs node 22.18 or later.
 //
@@ -49,8 +49,17 @@ import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { pathToFileURL } from 'node:url'
-import { SID_RE as ID_RE } from './mod/hooks/core.ts'
-import { ROW_KINDS, DROP_FORGED, isDialog } from './mod/hooks/prompts.ts'
+
+// The mod's own definitions. A load that fails (an older node, the script copied out of its checkout, a renamed export) ends the run with exit 2, never 1.
+let ID_RE, ROW_KINDS, DROP_FORGED, isDialog
+try {
+  ;({ SID_RE: ID_RE } = await import('./mod/hooks/core.ts'))
+  ;({ ROW_KINDS, DROP_FORGED, isDialog } = await import('./mod/hooks/prompts.ts'))
+  if (!(ID_RE instanceof RegExp) || !Array.isArray(ROW_KINDS) || !Array.isArray(DROP_FORGED) || typeof isDialog !== 'function') throw new Error('an export is missing')
+} catch (e) {
+  console.error(`prompt audit: cannot load the mod's definitions from mod/hooks beside this script (node 22.18 or later is needed): ${String(e?.message ?? e).slice(0, 300)}`)
+  process.exit(2)
+}
 
 export const LEDGER_MAX_BYTES = 16 * 1024 * 1024
 const LEDGER_LINE_MAX = 64 * 1024
@@ -63,9 +72,21 @@ const QUESTION_DAYS = 90
 
 const KINDS = new Set(ROW_KINDS)
 const FIELDS = ['code', 'id', 'lane', 'repo', 'tool', 'pattern', 'hash', 'tier', 'why', 'nonce', 'tuid', 'by', 'via', 'short', 'opt', 'lh', 'target', 'was', 'dialog', 'end']
-// The rows of a go carry the go's id, which is no request's.
-const GO_KINDS = new Set(['go-grant', 'go-end', 'go-read'])
-const ENDS = new Set(['returned', 'superseded', 'expired-denied', 'off', 'abandoned'])
+// Where the audit puts each kind of row: `request` a row of a request (grouped by the request id it carries), `end` a row that ends a request, `go` a row of a go
+// (its id is the go's, no request's), `other` a row of no request (the switch, the lead rows, the PR rows). A kind the mod writes that has no place here makes
+// every run incomplete (UNPLACED), so a new kind cannot be read as something it is not.
+export const KIND_CLASS = {
+  requested: 'request', answered: 'request', escalated: 'request', dropped: 'request', relayed: 'request', 'relay-lost': 'request', 'relay-left': 'request', 'relay-late': 'request',
+  'relay-closed': 'request', 'deny-unclear': 'request', dialog: 'request', 'not-judgeable': 'request', 'no-tier': 'request',
+  returned: 'end', superseded: 'end', 'expired-denied': 'end', off: 'end', abandoned: 'end',
+  'go-grant': 'go', 'go-end': 'go', 'go-read': 'go',
+  'answering-on': 'other', 'answering-off': 'other', 'lead-offer': 'other', 'lead-offer-void': 'other', 'lead-grant': 'other', 'lead-owner': 'other', 'lead-resume': 'other', 'lead-stop': 'other',
+  'pr-watch': 'other', 'pr-notice': 'other',
+}
+const UNPLACED = ROW_KINDS.filter((k) => !Object.hasOwn(KIND_CLASS, k))
+const ofClass = (c) => new Set(ROW_KINDS.filter((k) => KIND_CLASS[k] === c))
+const GO_KINDS = ofClass('go')
+const ENDS = ofClass('end')
 // A `dropped` row with one of these codes is a decision the hook refused as forged or wrong: an anomaly. The others are ordinary.
 const DROP_ANOMALY = new Set(DROP_FORGED)
 
@@ -184,18 +205,30 @@ function eachMonthFile(root, entries, prefix, problems, onLine) {
   return { files, skippedLong }
 }
 
-function readLedger(root, entries, problems, notes) {
+function readLedger(root, entries, since, problems, notes) {
   const rows = []
   let garbage = 0
+  // Rows of a kind the mod's list does not hold (written by another version of the mod), by kind: not read, and reported.
+  const unknown = new Map()
   const { files, skippedLong } = eachMonthFile(root, entries, 'ledger', problems, (line, file) => {
     if (line.trim() === '') return
-    if (parseObj(line)?.kind === 'floor') return // a row of the removed floor judge: not a row now, and not damage
+    const j = parseObj(line)
+    if (j?.kind === 'floor') return // a row of the removed floor judge: not a row now, and not damage
+    if (typeof j?.kind === 'string' && !KINDS.has(j.kind)) {
+      const ms = typeof j.t === 'string' ? Date.parse(j.t) : NaN
+      if (since === undefined || !Number.isFinite(ms) || ms >= since) {
+        const k = j.kind.slice(0, 40)
+        unknown.set(k, (unknown.get(k) ?? 0) + 1)
+      }
+      return
+    }
     const r = parseRow(line)
     if (r) rows.push({ ...r, seq: rows.length, file })
     else garbage++
   })
   garbage += skippedLong
   if (garbage > 0) notes.push(`${garbage} ledger line(s) were not valid rows and were ignored`)
+  if (unknown.size > 0) problems.push(`ledger: ${[...unknown.values()].reduce((a, b) => a + b, 0)} row(s) of a kind the audit does not know were not read (${[...unknown.entries()].sort().slice(0, 20).map(([k, n]) => `${k} ${n}`).join(', ')})`)
   rows.sort((a, b) => a.ms - b.ms || a.seq - b.seq)
   return { rows, garbage, files }
 }
@@ -724,7 +757,8 @@ export function audit({ root, since, now = Date.now(), records, recordsExplicit 
   } catch (e) {
     throw new AuditError(`cannot list the prompts folder: ${e.code ?? e.message}`)
   }
-  const { rows, files: ledgerFiles } = readLedger(rootReal, entries, problems, notes)
+  if (UNPLACED.length > 0) problems.push(`the mod writes row kind(s) the audit has no place for: ${UNPLACED.join(', ')}`)
+  const { rows, files: ledgerFiles } = readLedger(rootReal, entries, since, problems, notes)
   const questions = readQuestions(rootReal, entries, since, problems, now)
   const qById = questions.byId
   const inRange = (ms) => since === undefined || ms >= since
