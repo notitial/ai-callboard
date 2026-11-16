@@ -3203,6 +3203,14 @@ export const conductorReachText = (conductorRepo: string, pins: string[], home: 
 export const conductorRestoredToast = (conductorRepo: string, n: number): string => `Conductor is on again for ${folderName(conductorRepo)} (${n} repo${n === 1 ? '' : 's'}).`
 export const conductorNoReposToast = (conductorRepo: string): string => `Conductor is off: none of ${folderName(conductorRepo)}'s approved repos can be reached. Run /callboard conductor.`
 export const conductorUnansweredToast = (conductorRepo: string): string => `Conductor not restored: ${folderName(conductorRepo)}'s list changed and the question was not answered. Run /callboard conductor.`
+// The toast when the conductor's restore question went unanswered and will be asked again (conductorUnansweredStep).
+export const conductorAskAgainToast = (conductorRepo: string): string => `Conductor not restored: ${folderName(conductorRepo)}'s list changed and the question was not answered. It is asked again after the next prompt in this session.`
+// What follows a conductor restore question that got no answer, as the manager's (managerRestoreStep). `unanswered` counts the unanswered questions, this one
+// included; `shown` is false when the question was too long to show. wait: the entry is kept and the same question is asked again once a prompt that is not the
+// mod's own has reached this session (it is asked at most CONDUCTOR_RESTORE_ASKS times). end: final, with the toast that names the command. Nothing here grants.
+export const CONDUCTOR_RESTORE_ASKS = MANAGER_RESTORE_ASKS
+export const conductorUnansweredStep = (conductorRepo: string, unanswered: number, shown = true): Exclude<RestoreStep, { next: 'retry' }> =>
+  shown && unanswered < CONDUCTOR_RESTORE_ASKS ? { next: 'wait', toast: conductorAskAgainToast(conductorRepo) } : { next: 'end', toast: conductorUnansweredToast(conductorRepo) }
 export const conductorFileBadToast = (conductorRepo: string): string => `Conductor is off: ${folderName(conductorRepo)}'s list file could not be read. Run /callboard conductor.`
 
 // The conductor's briefing: one `session`-scope section while the grant holds, and once as a note at a

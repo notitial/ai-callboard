@@ -2,7 +2,7 @@
 // text, log lines, toasts, tool declarations, refusal codes) and not as internals. Cells that look odd are pinned as they are and marked.
 // No text of an info print (status, config, lanes, help, escalation) is pinned here: those change on their own.
 import { expect, test } from 'claude-code/testing'
-import { PRESENCE_TOUCH_MS, CONDUCTOR_KEPT, CONDUCTOR_ON_TEXT, CONDUCTOR_TOOLS, HINT_MAX_AGE_MS, HINT_REFRESH_MS, LEAD_KEPT, MANAGER_KEPT, MANAGER_REFRESH_MS, MANAGER_ON_TEXT, MANAGER_RESTORED_TOAST, MANAGER_TOOLS, MANAGER_ASK_AGAIN_TOAST, REASON_TEXT, TIMED_OUT_LEAD_OFF_TOAST, TIMED_OUT_TOAST, conductorBriefingNote, conductorRestoredToast, conductorUnansweredToast, leadBriefingNote, leadRestoredToast, managerBriefingNote } from '../hooks/core'
+import { PRESENCE_TOUCH_MS, CONDUCTOR_KEPT, CONDUCTOR_ON_TEXT, CONDUCTOR_TOOLS, HINT_MAX_AGE_MS, HINT_REFRESH_MS, LEAD_KEPT, MANAGER_KEPT, MANAGER_REFRESH_MS, MANAGER_ON_TEXT, MANAGER_RESTORED_TOAST, MANAGER_TOOLS, MANAGER_ASK_AGAIN_TOAST, REASON_TEXT, TIMED_OUT_LEAD_OFF_TOAST, TIMED_OUT_TOAST, conductorBriefingNote, conductorRestoredToast, conductorAskAgainToast, leadBriefingNote, leadRestoredToast, managerBriefingNote } from '../hooks/core'
 import { h, NO, ROOT, SID, T0, YES, extraStat, laneSeed, leadFiles, statErr, toasts, toolDefs } from './harness'
 import { APP2, COND, FAR, LANE_HINT, LEADKEY, LEADPS, OTHERLEAD, PIN, SELFPATH, STORE_LANE, allEvents, condRun, condSelf, dirStat, lane, leadFileText, leadReg, listCall, logged, mgrFile, mgrRow, noteRows, putCond, putStore, sleepMs, started, ticks, unanswered, waitFor } from './fixtures'
 
@@ -326,14 +326,14 @@ for (const level of ['lead', 'conductor'] as const) {
   })
 }
 
-// The two restore dialogs (a conductor whose list widened, the manager) end a dismissal like a timeout: nothing restored, the key kept, one toast, asked once.
+// The two restore dialogs (a conductor whose list widened, the manager) end a dismissal like a timeout: nothing restored, the key kept, one toast, not asked again before a prompt.
 test('restore: a conductor restore dialog (list widened) that is dismissed restores nothing, keeps the key and toasts', async ($, on) => {
   const stdins: string[] = []
   await world($, on, stdins, { seed: () => h.store.set(LV.conductor.key, { home: COND, repos: [PIN], savedAt: T0 - 60_000 }) })
   h.askAnswer = ''
   await ticks(3)
   await waitFor(() => logged(stdins).includes('conductor-restore-unanswered:'))
-  expect(toasts).toContain(conductorUnansweredToast(COND))
+  expect(toasts).toContain(conductorAskAgainToast(COND))
   expect(h.store.get(LV.conductor.key)).toEqual({ home: COND, repos: [PIN], savedAt: T0 - 60_000 })
   await ticks(3)
   expect(h.askCount).toBe(1)

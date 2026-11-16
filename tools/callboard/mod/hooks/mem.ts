@@ -277,8 +277,13 @@ export const conductorApproved = new Map<string, string[]>()
 export const conductorSavedAt = new Map<string, number>()
 export const conductorDeclared = new Set<string>()
 
-export type CondPending = { hint: c.ConductorHint; tries: number; last?: string; ask?: { shown: string[]; added: string[] }; asking?: boolean }
+// unanswered: the times the restore question got no answer. waiting: it got no answer and is asked again only once a prompt that is not the mod's own has
+// reached this session (conductorRestoreWake).
+export type CondPending = { hint: c.ConductorHint; tries: number; last?: string; ask?: { shown: string[]; added: string[] }; asking?: boolean; unanswered?: number; waiting?: boolean }
 export const conductorRestorePending = new Map<string, CondPending>()
+// The sessions whose restore question was shown in this process: a session.start that is not a start (a compaction) starts no second restore for them, so
+// the question is asked again only as its own limits allow. Module memory: a reload of the mod empties it, and the restore then starts over.
+export const conductorRestoreAsked = new Set<string>()
 
 export const conductorReadAt = new Map<string, number>()
 
