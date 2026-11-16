@@ -205,9 +205,9 @@ export const GUARD_WHY: Record<GuardMissing, string> = {
 // holds a hook entry that gates and runs the linked hook through ai-toolkit's fail-closed wrapper, exactly `/bin/bash -p "<hook>" || exit 2`, where `<hook>` is `hookLink`
 // or `hookLink` with its leading `home` written `$HOME` or `${HOME}` (a `~` does not expand inside the quotes, and a link with a character the quotes would still expand
 // is not matched). The bare path does not count: it lets a call through when the hook cannot start. The entry has `type` `command` and no key beyond `type`, `command`,
-// `timeout`, `statusMessage` and `onFailure`, so a field that makes a hook not block (`async`, `if`, `args`, `shell`) reads as not wired, and its `timeout` is absent or at
-// least GUARD_TIMEOUT_MIN seconds, since a hook that times out does not block. `disableAllHooks` is not true and settings `env` does not set `HOME`, which would repoint
-// `$HOME` for the hook. Anything that does not parse, or has another shape, is no.
+// `timeout`, `statusMessage` and `onFailure`, so a field that makes a hook not block (`async`, `if`, `args`) reads as not wired, and its `timeout` is absent or a finite number of at
+// least GUARD_TIMEOUT_MIN seconds, since a hook that times out does not block. `disableAllHooks` is not true and settings `env` is absent or an object that does not set `HOME`, which would repoint
+// `$HOME` for the hook (an `env` of another shape is a settings file Claude Code may refuse to load). Anything that does not parse, or has another shape, is no.
 const GUARD_TIMEOUT_MIN = 10
 const GUARD_ENTRY_KEYS = new Set(['type', 'command', 'timeout', 'statusMessage', 'onFailure'])
 export function settingsWireGuard(text: unknown, hookLink: string, home: string): boolean {
@@ -218,7 +218,8 @@ export function settingsWireGuard(text: unknown, hookLink: string, home: string)
   } catch {
     return false
   }
-  if (obj(j).disableAllHooks === true || 'HOME' in obj(obj(j).env)) return false
+  const env = obj(j).env
+  if (obj(j).disableAllHooks === true || (env !== undefined && (typeof env !== 'object' || env === null || Array.isArray(env) || 'HOME' in env))) return false
   const pre = obj(obj(j).hooks).PreToolUse
   if (!Array.isArray(pre)) return false
   const expandQuoted = (s: string): string => s.replace(/^(?:\$HOME|\$\{HOME\})(?=\/)/, home)
@@ -230,7 +231,7 @@ export function settingsWireGuard(text: unknown, hookLink: string, home: string)
   const gates = (h: unknown): boolean => {
     const e = obj(h)
     const t = e.timeout
-    return e.type === 'command' && typeof e.command === 'string' && runsHook(e.command) && Object.keys(e).every((k) => GUARD_ENTRY_KEYS.has(k)) && (t === undefined || (typeof t === 'number' && t >= GUARD_TIMEOUT_MIN))
+    return e.type === 'command' && typeof e.command === 'string' && runsHook(e.command) && Object.keys(e).every((k) => GUARD_ENTRY_KEYS.has(k)) && (t === undefined || (typeof t === 'number' && Number.isFinite(t) && t >= GUARD_TIMEOUT_MIN))
   }
   return pre.some((m) => {
     const mt = obj(m).matcher

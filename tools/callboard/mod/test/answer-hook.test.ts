@@ -1016,7 +1016,10 @@ test('prompts: the default guard parser: only the exact ai-toolkit wrapper of th
   expect(wire(WRAPPED, undefined, { env: { HOME: '/tmp/x' } })).toBe(false)
   expect(wire(WRAPPED, undefined, { env: { HOME: '' } })).toBe(false)
   expect(wire(WRAPPED, undefined, { env: { FOO: '1' } })).toBe(true)
-  expect(wire(WRAPPED, undefined, { env: 'HOME' })).toBe(true)
+  for (const env of ['HOME', ['HOME=/tmp/x'], null, 5]) expect(wire(WRAPPED, undefined, { env })).toBe(false)
+  expect(wire(WRAPPED, undefined, {}, { timeout: 1e999 })).toBe(false)
+  // The entry the toolkit's template writes: a group comment, the full matcher, type, command and a timeout of 10.
+  expect(prm.settingsWireGuard(JSON.stringify({ env: { FOO: '1' }, hooks: { PreToolUse: [{ _comment: 'x', matcher: 'Edit|Write|MultiEdit|NotebookEdit|Bash|Monitor|mcp__git-mcp__.*', hooks: [{ type: 'command', command: WRAPPED, timeout: 10 }] }] } }), LINK, '/Users/x')).toBe(true)
   for (const bad of [
     `/bin/bash -p "$HOME/.claude/hooks/protected-paths-guard.sh"`,
     `/bin/bash -p "$HOME/.claude/hooks/protected-paths-guard.sh" || exit 0`,
