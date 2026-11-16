@@ -1225,7 +1225,7 @@ async function conductorCheckin($: any, sid: string, submitsAtStart: number) {
 // does not hold the done notice. The manager and a conductor get neither.
 export async function laneEndTick($: any, sid: string, submitsAtStart: number) {
   if (grants.get(sid)?.level !== 'lead') return
-  // The end of the notice's own turn is learned here, at every step, so a turn that ends later is never taken for it.
+  // The end of the notice's own turn is learned here, at every step (once a minute), so a turn that ends a minute or more after it is not taken for it.
   if (doneHold.has(sid)) idleEnd(sid, (await getTurnEnd($)).value)
   const obs = laneObs.get(sid)
   if (!obs) return
@@ -1250,11 +1250,7 @@ export async function laneEndTick($: any, sid: string, submitsAtStart: number) {
     for (const r of reads) {
       const l = base.lanes.find((x) => x.name === r.lane)
       // A record parked or cleared of its session since the observation was stopped on purpose: nothing ended by itself.
-      if (!l || (r.kind === 'gone' && (l.sid === undefined || l.parked !== undefined))) {
-        // Kept as read with no signature, so the record is not asked for again while the lane stays gone.
-        if (r.kind === 'gone') ends.set(r.lane, { at: ends.get(r.lane)?.at, gone: r.at })
-        continue
-      }
+      if (!l || (r.kind === 'gone' && (l.sid === undefined || l.parked !== undefined))) continue
       // Idle by the live session's id, gone by the record's, as the check-in reads a signature.
       const signer = r.kind === 'idle' ? obs.get(r.lane)?.sid ?? '' : (l.sid as string)
       const rep: Awaited<ReturnType<typeof readReport>> = await readReport($, l).catch(() => ({ no: 'report-read' }))
@@ -1290,14 +1286,13 @@ export async function laneEndTick($: any, sid: string, submitsAtStart: number) {
   // Since when the lead was idle for a check-in, before this notice: its own turn leaves that time as it was.
   const from = Math.max(c.idleTurnEnd(turnEnd, doneHold.get(sid)).at, lastSubmitAt.get(sid) ?? 0)
   const sigs = new Map(owed.map((i) => [i.lane, ends.get(i.lane)?.sig]))
-  // A submit that timed out may never start a turn: no hold then, so the next turn to end is not taken for the notice's.
+  // A submit that timed out may never start a turn: it sets no hold, so the next turn to end is not taken for the notice's. A hold an earlier notice left stays.
   const sent = async (items: c.AttentionItem[], confirmed: boolean) => {
     for (const i of items) {
       const sig = sigs.get(i.lane)
       if (sig !== undefined) told.add(c.doneKey(i.lane, sig))
     }
     if (confirmed) doneHold.set(sid, { from, prevEnd: turnEnd })
-    else doneHold.delete(sid)
   }
   await attentionNotice($, sid, owed, submitsAtStart, ep, undefined, { render: c.doneText, label: 'lane-done', sent, budget: { times: doneNotices, capped: doneCapped, max: c.LANE_DONE_PER_HOUR } })
 }
