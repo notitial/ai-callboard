@@ -782,7 +782,7 @@ test('the conductor section is in the system prompt while the grant holds and go
   const r = await $.prompt.compose(COMPOSE)
   expect(condSections(r).length).toBe(1)
   expect(condSections(r)[0].text).toBe(conductorBriefing('COND', COND, [PIN, APP2]))
-  expect(condSections(r)[0].text).toContain('A live lead you own with no lanes is one row with – in the lane cells')
+  expect(condSections(r)[0].text).toContain('a live lead you own with no lanes is one row with – in the lane cells')
   expect(briefings(r).length).toBe(0)
   await $.command.run(lane('off'))
   expect(condSections(await $.prompt.compose(COMPOSE)).length).toBe(0)
