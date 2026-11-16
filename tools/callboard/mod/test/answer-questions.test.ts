@@ -29,6 +29,7 @@ const NO_FORM = [
   ['two questions', { questions: [QIN.questions[0], QIN.questions[0]] }, 'question-count'],
   ['multiSelect', { questions: [{ ...QIN.questions[0], multiSelect: true }] }, 'question-multi'],
   ['five options', { questions: [{ ...QIN.questions[0], options: [1, 2, 3, 4, 5].map((n) => ({ label: `o${n}`, description: 'd' })) }] }, 'question-options'],
+  ['a header that is not text', { questions: [{ ...QIN.questions[0], header: 5 }] }, 'question-shape'],
 ] as [string, unknown, string][]
 const PERSON_Q = { questions: [{ ...QIN.questions[0], header: 'Person' }] }
 const PERSON_MULTI = { questions: [{ ...QIN.questions[0], header: 'Person', multiSelect: true }] }

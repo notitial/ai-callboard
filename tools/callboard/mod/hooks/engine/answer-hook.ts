@@ -686,6 +686,8 @@ async function promptHook($: any, e: any, nextOnce: (x: any) => Promise<any>, si
         if (asker === undefined || !(await promptFormWait($, signal, { sid, tid: tid as string, tool, p, started, leadName: r?.leadName, req: asker }))) return beneath
         // The tier may have gone during the wait: with none in reach now, the question asked again could not rise, so it stays the person's.
         if ((await reachOf()).reach.length === 0) return beneath
+        // A click that landed while the reach was read wins.
+        if (signal.aborted || doneIds.has(tid as string)) return beneath
         if (!(await ledgerAdd($, { ...base, kind: 'question-denied', code: shape.code }))) return beneath
         return { ...(beneath && typeof beneath === 'object' ? beneath : {}), decision: { behavior: 'deny' as const, message: pr.FORM_DENY_MESSAGE } }
       }
