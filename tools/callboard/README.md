@@ -75,7 +75,7 @@ caller.
    report unsigned shows a toast in the lead's window. A lane you may need again is parked instead.
 7. Before a long stretch, give the lead one go for the whole body of work (`/callboard go TEXT`) so its lanes do
    not ask again for each step (it counts only while the protected-paths guard is in place). A go never covers a merge, a force push, a push to
-   main or production, or a delete outside the lane's own work, and the rest of the list `go_status` prints
+   main or production, or a delete outside the lane's own work, and the rest of the list `/callboard go` prints
    (ADR 0009). The dialog is short, and so is TEXT: two or three lines, with the detail in the brief or the plan.
    `go_status` shows a session what covers it. A closed, parked or crashed panel ends no go; `go off` does.
 
