@@ -94,8 +94,8 @@ Add this line to the `env` block of `~/.claude/settings.json`, with `<checkout>`
 
 **Install check.** In a restarted session, type `/callboard config ping 45` once yourself, and once ask the model to
 run it. First type `/callboard config` and note the ping value. The typed one must apply; the model-run one must be
-refused with "Only you can change callboard settings". If the model-run one applies, report it (callboard README,
-Keepalive and settings). Then type `/callboard config ping <the value you noted>`. Do not use
+refused with "Only you can change callboard settings". If the model-run one applies, report it (ADR 0002, Design
+addition v13.2: keepalive pings and `/callboard config`). Then type `/callboard config ping <the value you noted>`. Do not use
 `/callboard config reset` for this: it puts every callboard setting on this Mac back to its default.
 
 ### Manager setup: keep agents off the list file and the store (by hand)
@@ -275,8 +275,8 @@ Remote Control lists every machine's sessions. Reserve it on that machine first,
 
 The reserved list is kept per machine, in the mod's store: `/callboard reserve` shows it and
 `/callboard reserve remove NAME` takes a name off. Only you can change it, from your own prompt or phone; a name a
-lane or a live lead carries cannot be reserved. Details: callboard README, The manager, its
-"Reserved names" bullet; design: ADR 0002, Design addition v15.1: per-machine reserved names.
+lane or a live lead carries cannot be reserved. Details: callboard README, Commands (reserved names); design:
+ADR 0002, Design addition v15.1: per-machine reserved names.
 
 ## 5. Final check
 
