@@ -479,9 +479,13 @@ async function promptRelayHold($: any, sid: string, under: any, signal: AbortSig
   const held = (): boolean => !signal.aborted && relayHolds.get(sid) === token
   // The closed relays whose row is in the ledger, so a retry writes none twice.
   const rowed = new Set<string>()
+  // A pause that failed (a sleep outlasts its time limit) does not end the hold: only pr.PAUSE_FAILS_MAX in a row do.
+  let pauseFails = 0
   try {
     for (;;) {
-      if (!(await pause($, pr.RELAY_WATCH_MS)) || !held()) return under
+      if (await pause($, pr.RELAY_WATCH_MS)) pauseFails = 0
+      else if (++pauseFails >= pr.PAUSE_FAILS_MAX) return under
+      if (!held()) return under
       const closed: { dir: string; relay: pr.Relay }[] = []
       const open: { dir: string; relay: pr.Relay }[] = []
       for (const r of mine) ((await promptRelayClosed($, r)) ? closed : open).push(r)
@@ -735,6 +739,7 @@ async function promptWait($: any, beneath: any, signal: AbortSignal, w: WaitCtx)
   let askedSeen = false
   let noCount = 0
   let presenceAt = 0
+  let pauseFails = 0
   // A relay whose question the person had on screen (asked) never ends in the 20-minute deny, even if it is lost later: the prompt stays in the dialog (expired at 21 minutes).
   let personSaw = false
   const relayLost = async (code: string): Promise<void> => {
@@ -853,9 +858,14 @@ async function promptWait($: any, beneath: any, signal: AbortSignal, w: WaitCtx)
       w.st.closed = true
       return { ...(beneath && typeof beneath === 'object' ? beneath : {}), decision: { behavior: 'deny' as const, message: pr.DENY_TIMEOUT_MESSAGE } }
     }
-    if (!(await pause($, pr.pollFor(withPerson)))) return signal.aborted ? end('superseded') : end('abandoned', 'hook-failed')
+    // A pause that failed (a sleep outlasts its time limit) is not the wait's end: the poll runs again. Its gap adds no awake time, so a Mac that slept through
+    // it never shortens the person's own first 30 seconds.
+    const ran = await pause($, pr.pollFor(withPerson))
+    if (ran) pauseFails = 0
+    else if (signal.aborted) return end('superseded')
+    else if (++pauseFails >= pr.PAUSE_FAILS_MAX) return end('abandoned', 'hook-failed')
     const now = await $.clock.now()
-    awake = pr.awakeAdd(awake, now - last)
+    if (ran) awake = pr.awakeAdd(awake, now - last)
     last = now
   }
 }

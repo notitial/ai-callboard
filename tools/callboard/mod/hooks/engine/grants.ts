@@ -1082,13 +1082,15 @@ function idleEnd(sid: string, turnEnd: unknown, now: number): unknown {
   else doneHold.delete(sid)
   return r.at
 }
-// The timing gates of a check-in: on in the config, not paused, no wake in the last 30 minutes ('off' otherwise). 'all' once the session has been idle for 20
-// minutes; before that 'prompt': only a waiting prompt is due (c.checkinDueItems).
-async function checkinGates($: any, sid: string, now: number): Promise<'off' | 'prompt' | 'all'> {
+// The timing gates of a check-in: on in the config and not paused ('off' otherwise). 'wake' for 30 minutes after a wake: only a waiting prompt is due, and its
+// turn carries nothing else (the lanes slept too, so gone and quiet say nothing yet). 'all' once the session has been idle for 20 minutes; before that 'prompt':
+// only a waiting prompt is due (c.checkinDueItems), and its turn carries the other owed items.
+type CheckinGate = 'off' | 'wake' | 'prompt' | 'all'
+async function checkinGates($: any, sid: string, now: number): Promise<CheckinGate> {
   if (!(await cfgGet($, sid)).checkin) return 'off'
   const pause = (await getCheckinPause($)).value
   if (typeof pause === 'number' && pause > now) return 'off'
-  if (mem.wokeAt !== undefined && now - mem.wokeAt < c.CHECKIN_WAKE_MS) return 'off'
+  if (mem.wokeAt !== undefined && now - mem.wokeAt < c.CHECKIN_WAKE_MS) return 'wake'
   const turnEnd = idleEnd(sid, (await getTurnEnd($)).value, now)
   return typeof turnEnd === 'number' && now - Math.max(turnEnd, lastSubmitAt.get(sid) ?? 0) >= c.CHECKIN_IDLE_MS ? 'all' : 'prompt'
 }
@@ -1185,8 +1187,8 @@ export async function checkinTick($: any, sid: string, submitsAtStart: number) {
   const prompts = items.filter((i) => i.code === 'prompt')
   const toastFor = mgr ? await leadless(prompts) : prompts
   // A turn that goes out carries every owed item, not only the due ones: a prompt-only turn would start the session's 20 idle minutes over and hold the
-  // others back.
-  const send = mine.length === 0 ? [] : mgr ? await leadless(owed) : owed
+  // others back. Within 30 minutes of a wake it carries the due prompts alone.
+  const send = mine.length === 0 || gate === 'wake' ? mine : mgr ? await leadless(owed) : owed
   // The repo reads of the filter wait: an off or a re-grant meanwhile has cleared this grant's memory.
   if (epochOf(sid) !== ep) return
   promptToast($, sid, toastFor, items, 'Lane')
@@ -1259,8 +1261,8 @@ async function conductorCheckin($: any, sid: string, submitsAtStart: number) {
   promptToast($, sid, items, items, 'Lead')
   promptsMid(sid, now, due, c.leadCheckinText, 'lead-checkin')
   if (due.length === 0) return
-  // The turn carries every owed item, as a lead's does.
-  const owed = all
+  // The turn carries every owed item, as a lead's does (the due prompts alone within 30 minutes of a wake).
+  const owed = gate === 'wake' ? due : all
   // Signed done drops gone and quiet, as for a lane: the lead's report (.archive/<NAME>/REPORT.md of its repo) ends in `status: done <sid>`. Read only once the notice's
   // own gates hold; quiet by the live session's id, gone by the record's.
   const told = attnTold.get(sid)
@@ -1475,8 +1477,8 @@ async function attentionNotice($: any, sid: string, items: c.AttentionItem[], su
 // The check-in in the middle of a turn (like promptMidTurnNotice): a busy lead, conductor or manager gets no idle submit, and a lane waiting on a prompt would wait
 // until its turn ends. After a main-agent tool call the hook returns the fixed check-in text for the waiting prompts the last observation left owed (attnMid), as
 // additionalContext beside the tool's result. It reads no file. Same told marks and hourly cap as the idle notice, so a wait is told once, by whichever path
-// comes first. An observation older than two periods is not used (a stalled check-in step), the switch, the pause and the wake gate are read again here, and a
-// compaction that is armed or waiting to resume keeps it owed.
+// comes first. An observation older than two periods is not used (a stalled check-in step), the switch and the pause are read again here (a wake holds no
+// waiting prompt back), and a compaction that is armed or waiting to resume keeps it owed.
 export async function checkinMidTurn($: any, e: any): Promise<string | undefined> {
   if (typeof e?.agent_id === 'string' && e.agent_id !== '') return undefined
   const sid = await $.session.id()
