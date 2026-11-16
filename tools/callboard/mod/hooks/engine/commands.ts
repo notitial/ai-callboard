@@ -22,6 +22,8 @@ import {
   leadEpoch,
   laneObs,
   attnTold,
+  attnMid,
+  attnToasted,
   laneBrief,
   mem,
 } from '../mem.ts'
@@ -982,6 +984,8 @@ export async function grantLead($: any, sid: string, code: c.OriginCode, busy: (
         leadEpoch.set(sid, epochOf(sid) + 1)
         laneObs.delete(sid)
         attnTold.delete(sid)
+        attnMid.delete(sid)
+        attnToasted.delete(sid)
         // The goes this lead gave were for the old folder's lanes: they end, beside the grant, which does not wait for the rows.
         void goGrantorOff($, sid).catch(() => undefined)
       }
