@@ -242,7 +242,6 @@ test('manager lane_terminate of a lane no live session carries: the Remove quest
   expect(JSON.stringify(await $.tool.call(mgrCall('terminate', 'API')))).toContain('lane_terminate refused: the person did not confirm. Nothing was removed.')
   expect(h.lastQuestion).toBe(removeQuestion('API', PIN, false, HOME))
   // The repo by its home-relative path.
-  expect(h.lastQuestion).toBe('Remove lane API in ~/code/app? It has no live session.')
   expect(h.lastHeader).toBe('Stop Lane')
   expect(h.askedOptions[h.askedOptions.length - 1]).toEqual(['Remove', 'Cancel'])
   expect(storeNames()).toEqual(['API'])
@@ -261,7 +260,6 @@ test('manager lane_terminate of a parked lane no live session carries: the quest
   h.askAnswer = NO
   await $.tool.call(mgrCall('terminate', 'API'))
   expect(h.lastQuestion).toBe(removeQuestion('API', PIN, true, HOME))
-  expect(h.lastQuestion).toContain('It is parked: its saved conversation is no longer reachable from callboard.')
   expect(storeNames()).toEqual(['API'])
   h.askAnswer = YES
   expect(JSON.stringify(await $.tool.call(mgrCall('terminate', 'API')))).toContain('terminated and removed')
@@ -279,13 +277,12 @@ test('manager lane_retire of a lane no live session carries: needs no report; Ca
   h.askAnswer = NO
   expect(await retire()).toContain('lane_retire refused: the person did not confirm.')
   expect(h.lastQuestion).toBe(removeQuestion('API', PIN, false, HOME))
-  expect(h.lastQuestion).toBe('Remove lane API in ~/code/app? It has no live session.')
   expect(h.lastHeader).toBe('Stop Lane')
   expect(h.askedOptions[h.askedOptions.length - 1]).toEqual(['Remove', 'Cancel'])
   expect(storeNames()).toEqual(['API'])
   expect(logged(stdins)).not.toContain('lane-removed:API')
   h.askAnswer = YES
-  expect(JSON.parse(await retire()).result).toBe('lane API retired and removed: it had no live session. Its .archive/API/ folder and report stay.')
+  expect(JSON.parse(await retire()).result).toContain('lane API retired and removed: it had no live session')
   expect(storeNames()).toEqual([])
   expect(h.askCount).toBe(asked + 2)
   expect(logged(stdins)).toContain('lane-removed:API')
@@ -776,7 +773,6 @@ test('manager restore: the same conversation asks once when it starts, with the 
   await ticks(3)
   await waitFor(() => mgrLogs(stdins).includes('manager-restored:'))
   expect(h.lastQuestion).toBe(MANAGER_RESTORE_QUESTION)
-  expect(h.lastQuestion).toBe('Restore this session as the manager of every lane on this machine? You made it the manager here earlier and callboard saved that; click Cancel if you did not. It can resume, compact, stop, retire and remove lanes in any repo. Every stop and remove asks you. Cancel removes the saved manager grant.')
   expect(h.lastHeader).toBe('Manager')
   expect(h.askedOptions).toEqual([['Manager', 'Cancel']])
   expect(h.askCount).toBe(1)

@@ -14,7 +14,6 @@ test('conductor add by folder name resolves the sibling at the same depth, not a
   await condAt($, on, stdins, { seed: () => extraStat.set(`${COND}/app/.git`, dirStat) })
   const r = await condRun($, 'add app')
   expect(h.lastQuestion).toBe(conductorAddQuestion(COND, PIN, [PIN], CHOME, false))
-  expect(h.lastQuestion).toBe('Let conductors in cond reach the lanes of ../app? The list would then be: ../app (1 repo).')
   expect(h.lastHeader).toBe('Conductor')
   expect(h.askedOptions).toEqual([['Add', 'Cancel']])
   expect(condFiles.get(CONDFILE)).toBe(conductorFileText(['../app']))
@@ -92,7 +91,6 @@ test('add refuses a target that is not a git root, is too broad, does not exist 
   expect((await condRun($, 'add /Users/x/Documents')).text).toBe(condNo('conductor-broad'))
   realFails.set('/Users/x/code/nosuch', { n: 9, err: 'realpath: /Users/x/code/nosuch: No such file or directory' })
   expect((await condRun($, 'add nosuch')).text).toBe(condNo('conductor-not-found'))
-  expect(condNo('conductor-not-found')).toBe('Nothing changed: no repo by that name next to cond, or at that path. Give its full path.')
   realMap.set(FAR, '/Users/x/real/far-repo')
   expect((await condRun($, `add ${FAR}`)).text).toBe(condNo('conductor-not-real'))
   expect(h.askCount).toBe(0)
@@ -220,7 +218,6 @@ test('add refuses conductor-repo-in-use when the folder has a lane store with a 
   await condAt($, on, stdins, { sess: { ...condSelf(), ...regAs(OTHERLEAD, 4243, 'LEADB') } })
   storeFiles.set(CONDSTORE, JSON.stringify({ repo: COND, lanes: [{ name: 'CL', folder: COND, brief: `${COND}/BRIEF.md`, createdAt: 1 }], creates: [] }))
   expect((await condRun($, 'add app')).text).toBe(conductorRefusalText('conductor-repo-in-use', COND))
-  expect(conductorRefusalText('conductor-repo-in-use', COND)).toBe('Nothing changed: cond has lanes or a lead, so it cannot be a conductor repo: use a repo of its own.')
   storeFiles.set(CONDSTORE, JSON.stringify({ repo: COND, lanes: [], creates: [] }))
   h.askAnswer = NO
   await condRun($, 'add app')

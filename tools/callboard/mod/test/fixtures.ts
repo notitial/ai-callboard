@@ -300,7 +300,7 @@ export const laneTarget = async ($: any, on: any, stdins: string[], trace?: Trac
   await started($, on, stdins, { clock: true, trace })
 }
 
-// ---- F7 races: a lead grant and a lane binding under way at the same time ----
+// ---- Races: a lead grant and a lane binding under way at the same time ----
 export const pause = () => new Promise((r) => setTimeout(r, 20))
 
 // ---- the lane's briefing: a session-scope section while bound, and a note at attach and restore ----

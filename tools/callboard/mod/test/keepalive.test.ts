@@ -220,7 +220,7 @@ for (const [what, set, line] of [
   })
 }
 
-test('keepalive: a ping turn moves neither the turn mark nor the stop clock and records no nudge; a lane that signed done stays retire-able (F1)', async ($, on) => {
+test('keepalive: a ping turn moves neither the turn mark nor the stop clock and records no nudge; a lane that signed done stays retire-able', async ($, on) => {
   const stdins: string[] = []
   const trace = newTrace()
   await renameThroughTick($, on, stdins, 1, trace)
