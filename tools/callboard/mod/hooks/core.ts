@@ -1799,7 +1799,7 @@ export function leadOpenArgs(a: { repo?: unknown; name?: unknown; task?: unknown
   if (a.job !== undefined && typeof a.job !== 'boolean') return { ok: false, reason: 'bad-job' }
   return { ok: true, repo, name, task, model, ...(a.job === true ? { job: true as const } : {}) }
 }
-// Whether a conductor (`sid`) may open another lead. `recs` are the lead records that name it (every repo), `rows` the ledger rows by it and every lead-offer-void
+// Whether a conductor (`sid`) may open another lead. `recs` are the lead records that name it, in the repos it lists now (the caller filters; a lead of a repo that left the list is not counted), `rows` the ledger rows by it and every lead-offer-void
 // row. Two limits, the cap first:
 // - lead-cap: LEADS_PER_CONDUCTOR leads at once, a parked lead and an offer still open (written under OFFER_STALE_MS ago, no grant or void of its nonce yet) included.
 //   `held` lists them, parked ones marked.

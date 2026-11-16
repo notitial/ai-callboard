@@ -70,8 +70,9 @@ For waking a lead:
   panel and the brief are written, so the panel stays a plain one and the offer counts against the hour.*
   *2026-11-16: the per-repo hourly rate is replaced by two limits per conductor, at the person's choice, after it
   blocked a conductor that had done nothing wrong (the three tries counted failed opens, and the refusal named no
-  time). (1) A conductor owns at most 4 leads at once: its lead records (ADR 0007) are the count, across every repo,
-  a parked lead keeping its slot, and an offer of its own still open (under ten minutes old, with no grant or void
+  time). (1) A conductor owns at most 4 leads at once: its lead records (ADR 0007) are the count, across the repos
+  the conductor lists now (a lead in a repo that left its list is not counted: `lead_retire` cannot reach it, so the
+  person ends it; adding the repo back can take the count past 4, which is accepted), a parked lead keeping its slot, and an offer of its own still open (under ten minutes old, with no grant or void
   of its nonce yet) holds one too, so an open whose panel is slow to answer cannot be followed by a fifth. The
   conductor retires a lead to free a slot. (2) A backstop of 8 successful opens an hour per conductor, counted from
   `lead-grant` rows by its session; a grant whose nonce was voided, and every refused or failed try, does not count.
