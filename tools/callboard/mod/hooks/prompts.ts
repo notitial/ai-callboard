@@ -527,7 +527,14 @@ export function questionView(input: unknown): QuestionView | undefined {
 export function answerText(label: string, tier: { level: string; name: string } | undefined, viaPerson: boolean): string {
   if (viaPerson) return label
   if (tier === undefined) return `${label} (answered by tier)`
-  return `${label} (answered by ${word(tier.level, 'tier')}${tier.name !== '' && SAFE_WORD.test(tier.name) ? ` ${tier.name}` : ''})`
+  return `${label} (answered by ${tierWho(tier)})`
+}
+// A presence-checked tier as the lane reads it: its level, then its name when that is a plain word.
+const tierWho = (tier: { level: string; name: string }): string => `${word(tier.level, 'tier')}${tier.name !== '' && SAFE_WORD.test(tier.name) ? ` ${tier.name}` : ''}`
+// The head of a deny the lane reads. Like answerText, it names the presence-checked tier, never the level or name the decision file carries.
+export function denyText(tier: { level: string; name: string } | undefined, viaPerson: boolean, why: string): string {
+  const who = tier === undefined ? 'tier' : tierWho(tier)
+  return viaPerson ? `Denied by the person via the ${who}.` : `Denied by the ${who}: ${why}`
 }
 
 // The questions file: one row per answered question (a tier's answer, or the person's pick through the relay), redacted, each removed 90 days after it was written.

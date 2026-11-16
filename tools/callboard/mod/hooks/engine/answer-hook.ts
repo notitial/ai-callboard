@@ -834,7 +834,7 @@ async function promptWait($: any, beneath: any, signal: AbortSignal, w: WaitCtx)
             if (!(await ledgerAdd($, back))) return beneath
             w.st.closed = true
             const unclear = d.decision === 'deny' && d.via !== 'person' && pr.isUnclear(d.why)
-            const text = d.via === 'person' ? `Denied by the person via the ${d.by.level} ${d.by.name}.` : `Denied by the ${d.by.level} ${d.by.name}: ${d.why}`
+            const text = pr.denyText(applied.tier, d.via === 'person', d.why)
             // The cleaner-command text is appended after the cap, so a long reason or name never cuts it off.
             const message = pr.capBytes(pr.redact(text), 300).text + (unclear ? pr.UNCLEAR_SUFFIX : '')
             const decision = d.decision === 'allow' ? { behavior: 'allow' as const } : { behavior: 'deny' as const, message }
