@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
-import { LEAD_MANAGER_TEXT, MANAGER_RESTORE_QUESTION, MANAGER_RESTORED_TOAST, MANAGER_UNANSWERED_TOAST, MANAGER_ASK_AGAIN_TOAST, MANAGER_RESTORE_ASKS, notRestoredToast, MANAGER_REFRESH_MS, MANAGER_SILENT_GRACE_MS, REASON_TEXT, MANAGER_QUESTION, MANAGER_ON_TEXT, MANAGER_ALREADY, MANAGER_H2, managerRefusalText, managerBriefingNote, terminateQuestion, retireQuestion, removeQuestion } from '../hooks/core'
-import { h, hangForever, GOOD, LANESDIR, NO, PS_TABLE, ROOT, SID, T0, YES, colorRuns, extraStat, laneSeed, leadFiles, lockLog, longTest, psCalls, psDead, psFail, renames, seen, statErr, storeFiles, toasts, toolDefs } from './harness'
+import { LEAD_MANAGER_TEXT, MANAGER_RESTORE_QUESTION, MANAGER_RESTORED_TOAST, MANAGER_UNANSWERED_TOAST, MANAGER_ASK_AGAIN_TOAST, MANAGER_RESTORE_ASKS, MANAGER_RESTORE_RETRIES, notRestoredToast, MANAGER_REFRESH_MS, MANAGER_SILENT_GRACE_MS, REASON_TEXT, MANAGER_QUESTION, MANAGER_ON_TEXT, MANAGER_ALREADY, MANAGER_H2, managerRefusalText, managerBriefingNote, terminateQuestion, retireQuestion, removeQuestion } from '../hooks/core'
+import { h, hangForever, GOOD, LANESDIR, NO, PS_TABLE, ROOT, SESSIONS, SID, T0, YES, colorRuns, extraStat, laneSeed, leadFiles, lockLog, longTest, psCalls, psDead, psFail, renames, seen, statErr, storeFiles, toasts, toolDefs } from './harness'
 import { APISID, COMPOSE, HOME, LEADPATH, LEADPS, LEADSID, MGR_NOAPI, MGR_SESS, MIN, NEWSID, OTHER, OTHERLEAD, OTHERMGR, PIN, QUIET, REPORT_OK, SELFPATH, STATUS_NONE, TURN, attacher, checkins, ckLane, ckLead, ckText, cue, cueSession, dirStat, doLane, grantAt, idleFor, killed, lane, leadAt, leadFileText, leadReg, leadSelfReg, listCall, logged, madeLane, mgrAt, mgrCall, mgrFile, mgrRow, newTrace, noArchiveRm, noteRows, nudges, ownReg, putStore, regAs, sleepMs, started, statusTable, statusText, storeNames, ticks, unanswered, waitFor } from './fixtures'
 
 // lane_remove does not exist (retire and terminate remove the record): five.
@@ -1013,12 +1013,12 @@ test('manager restore: /callboard off in a session whose saved grant is not bein
   expect(h.store.has(MGRKEY)).toBe(false)
 })
 
-// ---- a restore never ends silently: the question is asked again after the person's next prompt, a passing failure is tried again, a final end toasts ----
+// ---- a restore never ends silently: the question is asked again after the next prompt in the session, a passing failure is tried again, a final end toasts ----
 const mgrUnanswered = async (stdins: string[], n: number) => {
   await waitFor(() => mgrLogs(stdins).filter((x) => x === 'manager-restore-unanswered:').length === n)
   await sleepMs(10)
 }
-test('manager restore: a question nobody answered is asked again after the person\'s next prompt, not before, and their yes then restores', async ($, on) => {
+test('manager restore: a question nobody answered is asked again after the next prompt in the session, not before, and the person\'s yes then restores', async ($, on) => {
   const stdins: string[] = []
   await mgrRestarter($, on, stdins)
   h.askAnswer = ''
@@ -1026,7 +1026,7 @@ test('manager restore: a question nobody answered is asked again after the perso
   await mgrUnanswered(stdins, 1)
   expect(toasts).toContain(MANAGER_ASK_AGAIN_TOAST)
   h.askAnswer = YES
-  // No prompt of the person's: idle ticks ask nothing.
+  // No prompt: idle ticks ask nothing.
   await ticks(10)
   expect(h.askCount).toBe(1)
   expect(await statusText($)).toBe(STATUS_NONE)
@@ -1174,6 +1174,64 @@ test('manager restore: a failure after the yes is tried twice more at most, then
   expect(h.askCount).toBe(3)
   expect(h.store.has(MGRKEY)).toBe(true)
   expect(await statusText($)).toBe(STATUS_NONE)
+})
+test('manager restore: a failure after the yes is counted as one whatever its code: a registry that cannot be read after each yes asks three times in all', async ($, on) => {
+  const stdins: string[] = []
+  await mgrRestarter($, on, stdins)
+  // The registry is readable until the person's yes and not after it, so each try ends registry-unreadable in the check after the yes.
+  h.askScript = async () => {
+    statErr.set(SESSIONS, `stat: ${SESSIONS}: Permission denied`)
+    return YES
+  }
+  const rejected = () => mgrLogs(stdins).filter((x) => x === 'manager-restore-rejected:registry-unreadable').length
+  for (let n = 1; n <= 3; n++) {
+    await ticks(3)
+    await waitFor(() => h.askCount === n)
+    await waitFor(() => rejected() === n)
+    await sleepMs(20)
+    statErr.delete(SESSIONS)
+  }
+  expect(mgrLogs(stdins).filter((x) => x === 'manager-restore-retry:registry-unreadable').length).toBe(2)
+  expect(toasts).toContain(notRestoredToast('manager', 'registry-unreadable'))
+  await ticks(5)
+  expect(h.askCount).toBe(3)
+  expect(h.store.has(MGRKEY)).toBe(true)
+  expect(await statusText($)).toBe(STATUS_NONE)
+})
+test('manager restore: a failure before the question is tried again fifteen times, then the person is told; nothing was asked', async ($, on) => {
+  const stdins: string[] = []
+  await mgrRestarter($, on, stdins)
+  // The registry is readable at the tick and not inside the try: a try starts by reading the reserved names, and from then on the registry cannot be read.
+  class Watched extends Map<string, unknown> {
+    get(k: string) {
+      if (k === 'reserved') statErr.set(SESSIONS, `stat: ${SESSIONS}: Permission denied`)
+      return super.get(k)
+    }
+  }
+  h.store = new Watched(h.store)
+  try {
+    const rejected = () => mgrLogs(stdins).filter((x) => x === 'manager-restore-rejected:registry-unreadable').length
+    for (let n = 1; n <= MANAGER_RESTORE_RETRIES + 1; n++) {
+      for (let i = 0; i < 5 && rejected() < n; i++) {
+        await ticks(1)
+        await sleepMs(10)
+      }
+      expect(rejected()).toBe(n)
+      await sleepMs(10)
+      statErr.delete(SESSIONS)
+    }
+    expect(MANAGER_RESTORE_RETRIES).toBe(15)
+    expect(mgrLogs(stdins).filter((x) => x === 'manager-restore-retry:registry-unreadable').length).toBe(MANAGER_RESTORE_RETRIES)
+    expect(toasts).toContain(notRestoredToast('manager', 'registry-unreadable'))
+    await ticks(5)
+    expect(rejected()).toBe(MANAGER_RESTORE_RETRIES + 1)
+    expect(h.askCount).toBe(0)
+    expect(h.store.has(MGRKEY)).toBe(true)
+    expect(await statusText($)).toBe(STATUS_NONE)
+  } finally {
+    h.store = new Map(h.store)
+    statErr.delete(SESSIONS)
+  }
 })
 test('manager restore: a restore that had to ask is never silent on a later try, even when the silent conditions hold by then', async ($, on) => {
   const stdins: string[] = []

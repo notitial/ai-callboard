@@ -2759,26 +2759,25 @@ export const MANAGER_RESTORE_QUESTION = 'Restore this session as the manager of 
 export const MANAGER_RESTORED_TOAST = 'Manager is on again.'
 export const MANAGER_UNANSWERED_TOAST = 'Manager not restored: the question was not answered. Run /callboard manager.'
 // The toast when the restore question went unanswered and will be asked again (managerRestoreStep).
-export const MANAGER_ASK_AGAIN_TOAST = 'Manager not restored: the question was not answered. It is asked again after your next prompt in this session.'
+export const MANAGER_ASK_AGAIN_TOAST = 'Manager not restored: the question was not answered. It is asked again after the next prompt in this session.'
 
 // How one try of a manager restore ended, and what comes next. `code` is what the try reported: undefined or a quiet code when the person ended it or another
-// path took over (an off, a Cancel, a grant by hand), 'unanswered' when the question got no answer, else the refusal. fails counts the failures of this code's kind (those that come only after the yes,
-// MANAGER_RESTORE_AFTER_YES, are counted apart from the others, so earlier failures never use up their tries) and unanswered the unanswered questions, this try included.
-// retry: the tick tries again (a refusal that can clear by itself, at most MANAGER_RESTORE_RETRIES times; one that comes only after the yes, where each new try
+// path took over (an off, a Cancel, a grant by hand), 'unanswered' when the question got no answer, else the refusal. fails counts the failures of this try's kind (those that came after the yes,
+// `afterYes`, are counted apart from the others, so earlier failures never use up their tries) and unanswered the unanswered questions, this try included.
+// retry: the tick tries again (a refusal that can clear by itself, at most MANAGER_RESTORE_RETRIES times; one that came after the yes, where each new try
 // asks the person again or grants and steps back again, at most MANAGER_RESTORE_RETRIES_AFTER_YES times). wait: the entry is kept and the same question is asked
-// again once the person has sent a prompt in this session (it is asked at most MANAGER_RESTORE_ASKS times). end: final, with the toast that tells the person.
+// again once a prompt that is not the mod's own has reached this session (it is asked at most MANAGER_RESTORE_ASKS times). end: final, with the toast that tells the person.
 // Nothing here grants: every try runs the whole restore again, the question and each check included.
 export const MANAGER_RESTORE_RETRIES = 15
 export const MANAGER_RESTORE_RETRIES_AFTER_YES = 2
-export const MANAGER_RESTORE_AFTER_YES: ReadonlySet<string> = new Set(['manager-check-slow', 'manager-presence', 'tools-timeout'])
 export const MANAGER_RESTORE_ASKS = 3
 export const MANAGER_RESTORE_PASSING: ReadonlySet<string> = new Set(['registry-unreadable', 'manager-check-slow', 'manager-presence', 'tools-timeout', 'error'])
 const MANAGER_RESTORE_QUIET: ReadonlySet<string> = new Set(['changed', 'cancelled', 'off-meanwhile'])
 export type RestoreStep = { next: 'retry' } | { next: 'wait'; toast: string } | { next: 'end'; toast?: string }
-export function managerRestoreStep(code: string | undefined, fails: number, unanswered: number): RestoreStep {
+export function managerRestoreStep(code: string | undefined, fails: number, unanswered: number, afterYes = false): RestoreStep {
   if (code === undefined || MANAGER_RESTORE_QUIET.has(code)) return { next: 'end' }
   if (code === 'unanswered') return unanswered < MANAGER_RESTORE_ASKS ? { next: 'wait', toast: MANAGER_ASK_AGAIN_TOAST } : { next: 'end', toast: MANAGER_UNANSWERED_TOAST }
-  if (MANAGER_RESTORE_PASSING.has(code) && fails <= (MANAGER_RESTORE_AFTER_YES.has(code) ? MANAGER_RESTORE_RETRIES_AFTER_YES : MANAGER_RESTORE_RETRIES)) return { next: 'retry' }
+  if (MANAGER_RESTORE_PASSING.has(code) && fails <= (afterYes ? MANAGER_RESTORE_RETRIES_AFTER_YES : MANAGER_RESTORE_RETRIES)) return { next: 'retry' }
   return { next: 'end', toast: notRestoredToast('manager', code) }
 }
 

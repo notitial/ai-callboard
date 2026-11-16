@@ -1413,12 +1413,13 @@ async function managerRestoreAsk($: any, me: string, pend: MgrPending) {
   const seq = offSeq.get(me) ?? 0
   let code: string | undefined
   pend.asking = true
+  pend.yes = false
   try {
     code = (await managerCommand($, me, 'prompt', pend.hint.name, async () => {
       busy = true
       return { text: '' }
       // A restore that once had to ask never comes back with no question on a later try: the saved grant is passed only until then.
-    }, true, () => managerRestorePending.get(me) === pend, pend.asked ? undefined : pend.hint, () => (pend.asked = true))).code
+    }, true, () => managerRestorePending.get(me) === pend, pend.asked ? undefined : pend.hint, pend)).code
   } catch {
     code = 'error'
     await logq($, me, 'manager-restore-rejected', 'error')
@@ -1427,14 +1428,15 @@ async function managerRestoreAsk($: any, me: string, pend: MgrPending) {
   }
   // A question already open asks again at the next idle tick. A grant (this restore's, or the person's own meanwhile) has ended the restore.
   if (busy || grants.get(me)?.level === 'manager') return
-  // An off typed meanwhile is the person's end: the saved grant is gone, and nothing is tried or asked again.
+  // An off typed meanwhile, or the person's own /callboard manager, is the person's end: nothing is tried or asked again.
   let step: c.RestoreStep = { next: 'end' }
-  if ((offSeq.get(me) ?? 0) === seq) {
-    const afterYes = code !== undefined && c.MANAGER_RESTORE_AFTER_YES.has(code)
+  if ((offSeq.get(me) ?? 0) === seq && !pend.byHand) {
+    // A failure after the yes is counted apart, whatever its code: each new try asks the person again, or grants and steps back again.
+    const afterYes = pend.yes === true
     if (code === 'unanswered') pend.unanswered = (pend.unanswered ?? 0) + 1
     else if (afterYes) pend.afterYes = (pend.afterYes ?? 0) + 1
     else pend.fails = (pend.fails ?? 0) + 1
-    step = c.managerRestoreStep(code, (afterYes ? pend.afterYes : pend.fails) ?? 0, pend.unanswered ?? 0)
+    step = c.managerRestoreStep(code, (afterYes ? pend.afterYes : pend.fails) ?? 0, pend.unanswered ?? 0, afterYes)
   }
   if (step.next === 'end') {
     if (managerRestorePending.get(me) === pend) managerRestorePending.delete(me)
@@ -1446,8 +1448,8 @@ async function managerRestoreAsk($: any, me: string, pend: MgrPending) {
   }
   if (step.toast !== undefined) toast($, step.toast)
 }
-// The person sent a prompt in this session: a restore question that got no answer is asked again at the next idle tick. Their click in the dialog is still
-// the only yes.
+// A prompt that is not the mod's own reached this session (the person's, or a message another session sent: the hook cannot tell them apart): a restore
+// question that got no answer is asked again at the next idle tick. The person's click in the dialog is still the only yes.
 export function managerRestoreWake(sid: string) {
   const pend = managerRestorePending.get(sid)
   if (pend?.waiting) pend.waiting = false

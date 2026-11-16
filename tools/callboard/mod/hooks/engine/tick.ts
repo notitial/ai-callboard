@@ -357,7 +357,8 @@ export async function sessionStart($: any, e: any, next: any) {
   // A saved lead grant for this session, then whether a store record names it, looked at from the tick.
   if (c.SID_RE.test(me)) {
     try {
-      const raw = await $.store.get(`${c.LEAD_HINT_PREFIX}${me}`)
+      // A session that still holds the grant (a compaction) has nothing to restore, so nothing here can say it was not restored.
+      const raw = grants.get(me)?.level === 'lead' ? undefined : await $.store.get(`${c.LEAD_HINT_PREFIX}${me}`)
       if (raw !== undefined) {
         const p = await where($)
         const h = p ? c.parseLeadHint(raw, now, homeOf(p)) : undefined
@@ -373,7 +374,7 @@ export async function sessionStart($: any, e: any, next: any) {
     }
     // A saved conductor grant for this session, restored as the lead's is (conductorRestore).
     try {
-      const raw = await $.store.get(`${c.CONDUCTOR_HINT_PREFIX}${me}`)
+      const raw = grants.get(me)?.level === 'conductor' ? undefined : await $.store.get(`${c.CONDUCTOR_HINT_PREFIX}${me}`)
       if (raw !== undefined) {
         const p = await where($)
         const h = p ? c.parseConductorHint(raw, now, homeOf(p)) : undefined

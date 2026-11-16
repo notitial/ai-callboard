@@ -3656,23 +3656,22 @@ test('managerRestoreStep: a passing failure is tried again up to the limit, an u
     assert.deepEqual(c.managerRestoreStep(code, c.MANAGER_RESTORE_RETRIES + 1, 0), { next: 'end', toast: c.notRestoredToast('manager', code) }, code)
   }
   assert.equal(c.MANAGER_RESTORE_RETRIES, 15)
-  // A failure that comes only after the yes: each new try asks the person again (or grants and steps back again), so it gets two more tries, not fifteen.
-  for (const code of ['manager-check-slow', 'manager-presence', 'tools-timeout']) {
-    assert.deepEqual(c.managerRestoreStep(code, 1, 0), { next: 'retry' }, code)
-    assert.deepEqual(c.managerRestoreStep(code, 2, 0), { next: 'retry' }, code)
-    assert.deepEqual(c.managerRestoreStep(code, 3, 0), { next: 'end', toast: c.notRestoredToast('manager', code) }, code)
+  // A failure that came after the yes, whatever its code: each new try asks the person again (or grants and steps back again), so it gets two more tries, not fifteen.
+  for (const code of c.MANAGER_RESTORE_PASSING) {
+    assert.deepEqual(c.managerRestoreStep(code, 1, 0, true), { next: 'retry' }, code)
+    assert.deepEqual(c.managerRestoreStep(code, 2, 0, true), { next: 'retry' }, code)
+    assert.deepEqual(c.managerRestoreStep(code, 3, 0, true), { next: 'end', toast: c.notRestoredToast('manager', code) }, code)
   }
   assert.equal(c.MANAGER_RESTORE_RETRIES_AFTER_YES, 2)
-  // The caller counts these apart from the other failures (MgrPending.afterYes), so the set is what keeps earlier failures from using up their tries.
-  assert.deepEqual([...c.MANAGER_RESTORE_AFTER_YES].sort(), ['manager-check-slow', 'manager-presence', 'tools-timeout'])
-  for (const code of c.MANAGER_RESTORE_AFTER_YES) assert.ok(c.MANAGER_RESTORE_PASSING.has(code), code)
+  // A refusal that does not clear by itself is final after the yes too.
+  assert.deepEqual(c.managerRestoreStep('manager-exists', 1, 0, true), { next: 'end', toast: c.notRestoredToast('manager', 'manager-exists') })
   // A refusal that does not clear by itself is final at once.
   for (const code of ['manager-exists', 'manager-name', 'lane-holder', 'lead-holder', 'conductor-holder', 'manager-after-lead', 'tools']) assert.deepEqual(c.managerRestoreStep(code, 1, 0), { next: 'end', toast: c.notRestoredToast('manager', code) }, code)
   assert.equal(c.MANAGER_RESTORE_ASKS, 3)
   assert.deepEqual(c.managerRestoreStep('unanswered', 0, 1), { next: 'wait', toast: c.MANAGER_ASK_AGAIN_TOAST })
   assert.deepEqual(c.managerRestoreStep('unanswered', 9, 2), { next: 'wait', toast: c.MANAGER_ASK_AGAIN_TOAST })
   assert.deepEqual(c.managerRestoreStep('unanswered', 0, 3), { next: 'end', toast: c.MANAGER_UNANSWERED_TOAST })
-  assert.equal(c.MANAGER_ASK_AGAIN_TOAST, 'Manager not restored: the question was not answered. It is asked again after your next prompt in this session.')
+  assert.equal(c.MANAGER_ASK_AGAIN_TOAST, 'Manager not restored: the question was not answered. It is asked again after the next prompt in this session.')
 })
 
 test('notRestoredToast: the level, the reason and the command; a reason that names its own next step gets no second one; a code with no text gets no reason', () => {

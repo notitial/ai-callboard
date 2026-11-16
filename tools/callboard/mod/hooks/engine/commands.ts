@@ -402,10 +402,11 @@ async function leadClickQuestion($: any, sid: string, res: { text: string; code?
 // same conversation asks again when it starts or resumes (managerRestoreAsk runs this function with restore set: the restore question, and its own log lines;
 // `saved` is the hint it restores from: when it names this session's start folder and is younger than MANAGER.silentGraceMs, nothing is asked and every other
 // check runs as after a yes). A restore's result also carries a `code` saying how it ended (the refusal, 'unanswered', 'cancelled'), which managerRestoreAsk
-// reads to try again, wait for the person's next prompt or tell them; the person's own command gets no code. `asked` is called when a restore is
-// not silent, so the caller can keep every later try of the same restore from being silent.
+// reads to try again, wait for the person's next prompt or tell them; the person's own command gets no code. `mark` is the caller's note of this try: `asked` is set when a restore is
+// not silent, so the caller can keep every later try of the same restore from being silent, and `yes` once the yes is given (or stands in for a silent
+// restore), so the caller knows a failure came after it.
 // After the grant the presence file must be written (one per machine rests on it), and a second manager that won the same moment makes both step back.
-export async function managerCommand($: any, sid: string, code: c.OriginCode, want: string | undefined, busy: () => Promise<{ text: string }>, restore = false, alive: () => boolean = () => true, saved?: c.ManagerHint, asked?: () => void): Promise<{ text: string; code?: string }> {
+export async function managerCommand($: any, sid: string, code: c.OriginCode, want: string | undefined, busy: () => Promise<{ text: string }>, restore = false, alive: () => boolean = () => true, saved?: c.ManagerHint, mark?: { asked?: boolean; yes?: boolean }): Promise<{ text: string; code?: string }> {
   // The off counter before any await: for a restore with no question, an off typed during the checks below counts as one meanwhile.
   const seq = offSeq.get(sid) ?? 0
   await reservedGet($, sid, true)
@@ -439,7 +440,7 @@ export async function managerCommand($: any, sid: string, code: c.OriginCode, wa
   const root = await withTimeout($, sessionRoot($), c.ENGINE_CALL_TIMEOUT_MS).catch(() => undefined)
   const here = typeof root === 'string' && root !== '' && root !== 'timeout' ? root : undefined
   const silent = restore && saved !== undefined && c.managerSilentOk(saved, here, await $.clock.now(), MANAGER.silentGraceMs)
-  if (restore && !silent) asked?.()
+  if (restore && !silent && mark) mark.asked = true
   let live: Awaited<ReturnType<typeof registryEntries>>
   let wasBusy = false
   const done = await grantDialog($, sid, MANAGER, {
@@ -468,6 +469,7 @@ export async function managerCommand($: any, sid: string, code: c.OriginCode, wa
       : undefined,
     // The post-click re-check, as the lead's: the marks are read and set with no await between.
     postClick: () => {
+      if (mark) mark.yes = true
       if (restore && !alive()) return refuse('changed')
       if (laneBinding.has(sid) || leadGranting.has(sid)) return refuse(laneBinding.has(sid) ? 'lane-holder' : 'lead-holder')
     },
@@ -523,7 +525,11 @@ export async function managerCommand($: any, sid: string, code: c.OriginCode, wa
   })
   // The person's own command, once its dialog was answered or left unanswered, ends a restore that still waits: they decided by hand, whatever the answer,
   // so no restore question follows it. The saved grant stays (only the restore's Cancel and an off remove it).
-  if (!restore && !wasBusy && c.originIsPerson(code)) managerRestorePending.delete(sid)
+  const waits = managerRestorePending.get(sid)
+  if (!restore && !wasBusy && c.originIsPerson(code) && waits) {
+    waits.byHand = true
+    managerRestorePending.delete(sid)
+  }
   return done
 }
 
