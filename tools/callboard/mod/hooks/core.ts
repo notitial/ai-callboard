@@ -1590,6 +1590,7 @@ export const REASON_TEXT: Record<string, string> = {
   'store-unreadable': 'this repo\'s lane list cannot be read safely.',
   'store-size': 'this repo\'s lane list is too big.',
   'lane-cap': `the repo already has ${STORE_MAX_LANES} lanes.`,
+  'create-rate': `${CREATES_PER_HOUR} lanes were created in this repo in the last hour, the most allowed. Retry when the oldest of them is an hour old.`,
   'adopted-record': 'an attached lane keeps its own session: no rename, start or open. Use lane_resume to prompt it. lane_retire or lane_terminate ends it.',
   'folder-bad': 'the session folder must be a real path, not a link.',
   'folder-chars': 'the folder path has a space or an odd character, so it cannot be a lane folder.',
