@@ -46,7 +46,7 @@ import {
 } from './base.ts'
 import { registryOf, idleCheck, regOnce, loadLanes, registryEntries, noAnswer } from './store.ts'
 import type { Reg, Answer } from './store.ts'
-import { homeOf, LEAD_RESTORE_TRIES, regEntry, cfgGet, leadBusy, checkinMidTurn } from './grants.ts'
+import { homeOf, LEAD_RESTORE_TRIES, regEntry, cfgGet, leadBusy, checkinMidTurn, managerRestoreWake } from './grants.ts'
 import { reportLaneOf, reportTargetOf, reportStat, retireReportCheck, sessionRoot, undoLate, detach, keepLaneFacts, briefLane } from './lanes.ts'
 import type { Bound } from './lanes.ts'
 import { ensureTimer } from './tick.ts'
@@ -452,7 +452,7 @@ export async function keepaliveTick($: any, sid: string, submitsAtStart: number)
   if (gap < k.pingAfterMin * 60_000) return
   const pingAt = (await getPingAt($)).value
   if (typeof pingAt === 'number' && pingAt >= gapStart) return
-  // `/callboard rest`: the person left this session alone for this gap, so no ping and no cache nudge in its slot; the cache may expire.
+  // `/callboard rest` or the `rest` tool: this session is left alone for this gap, so no ping and no cache nudge in its slot; the cache may expire.
   const restAt = (await getRest($)).value
   if (typeof restAt === 'number') return kaOnce($, sid, `rest:${restAt}`, 'keepalive-skipped', 'rest')
   // Every interactive session, not only a lead, a lane or a session with callboard on; personRow below keeps it to a person's.
@@ -819,6 +819,8 @@ export async function promptSubmit($: any, e: any, next: any) {
     return next(e)
   }
   turnKind.delete(sid)
+  // A prompt that is not the mod's own: a manager restore question that got no answer is asked again once the session is idle.
+  managerRestoreWake(sid)
   // A prompt that is not the mod's own ends the nudge grant: it covers the nudge turn and the turns that follow without the person typing.
   if ((await getNudgedAt($)).value != null) await setNudgedAt($, null)
   const req = (await getRequest($)).value as Request | null | undefined
@@ -848,7 +850,7 @@ export async function turnStart($: any, e: any, next: any) {
     if (kind) turnKind.set(sid, kind)
     else {
       turnKind.delete(sid)
-      // A real turn ends a `/callboard rest`.
+      // A real turn ends a rest (`/callboard rest`, or the `rest` tool).
       if (typeof (await getRest($)).value === 'number') await setRest($, null).catch(() => undefined)
     }
     if (kind !== 'ping') await markTurn($, sid)

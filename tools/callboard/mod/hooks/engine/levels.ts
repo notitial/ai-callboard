@@ -65,7 +65,7 @@ export type GrantDialog = {
   // session makes it busy, as a second question would be.
   silent?: boolean
   // A question that is not the grant's own (the manager's restore) ends its own way when the answer is not yes.
-  onNotYes?: (r: Asked) => Promise<{ text: string }>
+  onNotYes?: (r: Asked) => Promise<{ text: string; code?: string }>
   // The checks that read the marks, with no await: the marks are read and set with nothing between.
   postClick: () => Promise<{ text: string; code?: string }> | undefined
   // Checks inside the mark, then the tools and the grant (offNow: an off came since the question).

@@ -311,12 +311,12 @@ class WatchTest(unittest.TestCase):
 
     def test_cache_expiring_lists_idle_big_sessions(self):
         self.register("BIG")
-        self.append(asst("w1", "q1", cr=300_000, out=5_000, when=-120 * 60),
+        self.append(asst("w1", "q1", cr=300_000, out=5_000, when=-110 * 60),
                     asst("k1", "q2", cr=300_000, out=3, when=-45 * 60))
         c = self.run_watch()["cacheExpiring"]
         self.assertEqual(len(c), 1)
         self.assertEqual((c[0]["sid"], c[0]["name"], c[0]["addr"], c[0]["due"], c[0]["idleMin"], c[0]["workIdleMin"]),
-                         (SID, "BIG", True, "ping", 45, 120))
+                         (SID, "BIG", True, "ping", 45, 110))
 
     def test_cache_expiring_window_bounds(self):
         self.register("EDGE")
@@ -325,9 +325,9 @@ class WatchTest(unittest.TestCase):
             self.append(asst("w%d" % idle, "q%d" % idle, cr=300_000, out=5_000, when=-idle * 60 - 30))
             self.assertEqual(len(self.run_watch()["cacheExpiring"]), int(listed), "idle %d min" % idle)
 
-    def test_cache_expiring_due_checkpoint_after_three_hours_without_work(self):
+    def test_cache_expiring_due_checkpoint_after_two_hours_without_work(self):
         self.register("PINGED")
-        self.append(asst("w1", "q1", cr=300_000, out=5_000, when=-200 * 60),
+        self.append(asst("w1", "q1", cr=300_000, out=5_000, when=-130 * 60),
                     asst("k1", "q2", cr=300_000, out=3, when=-50 * 60))
         self.assertEqual(self.run_watch()["cacheExpiring"][0]["due"], "checkpoint")
 
