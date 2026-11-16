@@ -61,6 +61,8 @@ export function goFileText(g: Go): string {
   if (g.v === 2) return JSON.stringify({ v: 2, id: g.id, by, at: g.at, ends: g.ends, text: g.text, leads: g.leads.map((x) => ({ name: x.name, sid: x.sid, repo: x.repo })), covered, nonce: g.nonce })
   return JSON.stringify({ v: 1, id: g.id, by, at: g.at, ends: g.ends, text: g.text, covered, nonce: g.nonce })
 }
+// Whether a go file's text is within the size of one go file.
+export const goFileFits = (text: string): boolean => bytes(text) <= GO_FILE_MAX
 const repoOk = (r: unknown): r is string => typeof r === 'string' && r.startsWith('/') && r.length <= 1024
 
 // A go file's text as a go, or undefined for anything else: every field of its type and within its bounds, and the text exactly what goFileText writes for it (so

@@ -85,7 +85,8 @@ Facts that bound the options:
   *2026-11-16: a lead's go file is the `v: 1` form and is unchanged. A conductor's go file is `v: 2`: it names the
   conductor as the session it was given in, and holds the leads the dialog counted (each lead's record name, session
   id and repo) beside the lanes: every lead whose bound record names the conductor, whatever its list of repos
-  holds then, and the lanes whose record names such a lead. One go holds at most 16 leads and 32 lanes, and they
+  holds then, and the lanes whose record names such a lead by session id (a lane that names no lead, or a lead only
+  by name, is not taken in). One go holds at most 16 leads and 32 lanes, and they
   must fit the file; more is refused before any dialog. A session whose mod was loaded before this form existed cannot parse it
   and reads "no go".*
 - **It belongs to the session it was given in, by session id.** A new conversation under the same name has no go; the
@@ -113,7 +114,9 @@ Facts that bound the options:
   the conductor is live: a repo the person takes off the conductor's list keeps its leads covered until the go
   ends or they type `/callboard go off`. A session the go holds from the click stays covered by its own session id until then
   too, also a lead that has since left the conductor. A conductor reads only the goes given in its own session:
-  no other go covers it.*
+  no other go covers it. A conductor's goes also end when its saved grant is refused for good at a restart (another
+  folder, the session is a lane or a lead by then, its repo in use, no approved repo left, its tools refused, or
+  the tries used up), and then only the goes it gave as a conductor.*
 - **The granting session itself.**
 - The reader is always bound by its own session id, never by its name. The reading session's own mod checks the go's
   file and row, its end and the records, fresh, on every read. A check that cannot be made is "no go".

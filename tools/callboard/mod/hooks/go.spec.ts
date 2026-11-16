@@ -192,6 +192,12 @@ test("a conductor's go covers its own session, the leads and lanes it holds from
   // A lead's go takes nothing from the lead records: owned is not read for it.
   assert.equal(g.goCovers(go(), LEAD2, [], [LEAD2]), undefined)
   assert.equal(g.goCovers(go(), LATER, [made({ leadSid: LEAD2 })], [LEAD2]), undefined)
+  // A lead the go holds from the click is covered by its own session id, and so are lanes it opens later, whatever its lead record says by then: the pure check
+  // takes no record for a held lead, so one that moved to another conductor keeps the go until it ends.
+  assert.equal(g.goCovers(cgo(), LEAD, [], []), 'listed')
+  assert.equal(g.goCovers(cgo(), LATER, [made()], []), 'later')
+  assert.equal(g.goFileFits(g.goFileText(cgo())), true)
+  assert.equal(g.goFileFits('x'.repeat(g.GO_FILE_MAX + 1)), false)
   // goReachesLead: whose lanes a go reaches.
   assert.equal(g.goReachesLead(go(), LEAD), true)
   assert.equal(g.goReachesLead(go(), LANE), false)

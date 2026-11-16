@@ -374,8 +374,8 @@ export async function sessionStart($: any, e: any, next: any) {
         const h = p ? c.parseLeadHint(raw, now, homeOf(p)) : undefined
         if (!p) await restoreEnded($, me, 'lead', 'error')
         else if (!h) {
+          void goGrantorOff($, me, 'lead').catch(() => undefined)
           await $.store.delete(`${c.LEAD_HINT_PREFIX}${me}`)
-          void goGrantorOff($, me).catch(() => undefined)
           await restoreEnded($, me, 'lead', 'invalid')
         } else await leadRestore($, me, h, 0)
       }
@@ -390,8 +390,8 @@ export async function sessionStart($: any, e: any, next: any) {
         const h = p ? c.parseConductorHint(raw, now, homeOf(p)) : undefined
         if (!p) await restoreEnded($, me, 'conductor', 'error')
         else if (!h) {
+          void goGrantorOff($, me, 'conductor').catch(() => undefined)
           await $.store.delete(`${c.CONDUCTOR_HINT_PREFIX}${me}`)
-          void goGrantorOff($, me).catch(() => undefined)
           await restoreEnded($, me, 'conductor', 'invalid')
         } else await conductorRestore($, me, h, 0)
       }

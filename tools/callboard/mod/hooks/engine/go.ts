@@ -160,13 +160,10 @@ async function goGive($: any, sid: string, text: unknown, hours: number, author:
   if (!p || typeof repo !== 'string') return { no: 'go-write' }
   const name = c.NAME_RE.test(base.g.name) ? base.g.name : ''
   const laneOk = (l: c.Lane) => typeof l.sid === 'string' && c.SID_RE.test(l.sid) && l.sid !== sid
-  const inLanes = base.lanes.filter((l) => c.inReach(base.g, l) && laneOk(l))
-  // A conductor: the leads it owns whose record names a session, each once.
-  const owns = level === 'conductor' ? (base.g.owns ?? []) : []
+  // A lead: its lanes, as the lane tools resolve them. A conductor: the leads whose bound record names it, whatever its list of repos holds now, each once, and
+  // the lanes whose record names such a lead by session id. A lane that names no lead, or a lead only by name, is not taken in: under a conductor's go every link
+  // is a session id. So what the dialog counts and the file holds is what go_status covers at the click. A record or a binding that cannot be read: no dialog.
   const leads: g.GoConductor['leads'] = []
-  for (const o of owns) if (typeof o.sid === 'string' && c.SID_RE.test(o.sid) && o.sid !== sid && !leads.some((x) => x.sid === o.sid)) leads.push({ name: o.name, sid: o.sid, repo: o.repo })
-  // The go reaches every lead whose bound record names this conductor, whatever its list of repos holds now, and each lane whose record names such a lead by
-  // session id: the dialog counts them all, and the file holds them, so nothing that is covered at the click is left out. A record or a binding that cannot be read: no dialog.
   if (level === 'conductor') {
     const recs = await loadLeadRecords($)
     if (typeof recs === 'string') return { no: 'store-unreadable', why: c.LEAD_RECORDS_UNREADABLE }
@@ -175,16 +172,16 @@ async function goGive($: any, sid: string, text: unknown, hours: number, author:
         if (rec.sid === undefined || rec.conductorSid !== sid || !c.SID_RE.test(rec.sid) || rec.sid === sid || leads.some((x) => x.sid === rec.sid)) continue
         const st = await boundState($, { key: s.key, repo: s.store.repo, rec }).catch(() => 'error' as const)
         if (st === 'error') return { no: 'store-unreadable', why: c.LEAD_RECORDS_UNREADABLE }
-        if (st !== 'bound') continue
-        leads.push({ name: rec.name, sid: rec.sid, repo: s.store.repo })
+        if (st === 'bound') leads.push({ name: rec.name, sid: rec.sid, repo: s.store.repo })
       }
     }
-    for (const l of base.lanes) {
-      const lead = c.laneLeadSid(l)
-      if (inLanes.includes(l) || !laneOk(l) || lead === undefined || !leads.some((x) => x.sid === lead)) continue
-      inLanes.push(l)
-    }
   }
+  const inLanes = base.lanes.filter((l) => {
+    if (!laneOk(l)) return false
+    if (level === 'lead') return c.inReach(base.g, l)
+    const lead = c.laneLeadSid(l)
+    return lead !== undefined && leads.some((x) => x.sid === lead)
+  })
   const covered = inLanes.map((l) => ({ name: l.name, sid: l.sid as string }))
   if (covered.length > g.GO_COVERED_MAX || leads.length > g.GO_LEADS_MAX) return { no: 'too-many' }
   const opened = await $.clock.now()
@@ -193,8 +190,11 @@ async function goGive($: any, sid: string, text: unknown, hours: number, author:
     const body = { id, at, ends, text: text as string, covered, nonce }
     return level === 'lead' ? { ...body, v: 1, by: { level, sid, name, repo } } : { ...body, v: 2, by: { level, sid, name, repo }, leads }
   }
-  // The sessions of the go must fit one go file: checked before the person is asked, on the file as it will be written.
-  if (g.parseGo(g.goFileText(make(ZERO_ID, '0'.repeat(32), opened))) === undefined) return { no: 'too-big' }
+  // The sessions of the go must fit one go file: checked before the person is asked, on the file as it will be written. A file of the right size that still
+  // does not read back as a go (a name or a path outside its bounds) is refused as one that cannot be saved.
+  const trial = g.goFileText(make(ZERO_ID, '0'.repeat(32), opened))
+  if (!g.goFileFits(trial)) return { no: 'too-big' }
+  if (g.parseGo(trial) === undefined) return { no: 'go-write' }
   // Old files go first, so the count is of the ones still kept; a folder that is not there yet holds none.
   const files = await goPrune($, p, opened)
   if (files !== undefined && files >= g.GO_SCAN_MAX) return { no: 'full' }
@@ -341,25 +341,27 @@ export async function goLeadTailFor($: any, sid: string, leadSid: string): Promi
 }
 
 // A lead or a conductor that stops being one (/callboard off, also of a grant that is only saved; a grant taken back; a lead grant moved to another folder; a
-// saved conductor grant that is invalid, belongs to another folder, or whose restore the person cancels) ends the goes it gave: one `go-end` row each. Its panel
-// closing, parking or crashing ends none, and neither does a restore that is refused with the saved grant kept: /callboard off or /callboard go off ends those.
+// saved conductor grant that is invalid, belongs to another folder, is refused for good at a restart, or whose restore the person cancels) ends the goes it
+// gave: one `go-end` row each. Its panel closing, parking or crashing ends none, and neither does a restore that waits for the person's answer.
 // Rows that could not be written, or goes that could not be read, are told to the person, who can end them with /callboard go off.
 // One run per session at a time: a second call while the first is writing joins it, so a go gets one row.
+// only: end just the goes the session gave at that level (a conductor grant that does not come back, in a session that may be a lead by now).
 const grantorOffRuns = new Map<string, Promise<void>>()
-export function goGrantorOff($: any, sid: string): Promise<void> {
-  const running = grantorOffRuns.get(sid)
+export function goGrantorOff($: any, sid: string, only?: 'lead' | 'conductor'): Promise<void> {
+  const key = `${sid} ${only ?? ''}`
+  const running = grantorOffRuns.get(key)
   if (running) return running
-  const p = grantorOffRun($, sid).finally(() => grantorOffRuns.delete(sid))
-  grantorOffRuns.set(sid, p)
+  const p = grantorOffRun($, sid, only).finally(() => grantorOffRuns.delete(key))
+  grantorOffRuns.set(key, p)
   return p
 }
-async function grantorOffRun($: any, sid: string): Promise<void> {
-  goWatch.delete(sid)
+async function grantorOffRun($: any, sid: string, only?: 'lead' | 'conductor'): Promise<void> {
+  if (only === undefined) goWatch.delete(sid)
   const found = await goesLive($, { guard: false })
   let failed = 'no' in found || found.missed > 0
   if (!('no' in found)) {
     for (const f of found) {
-      if (f.go.by.sid !== sid) continue
+      if (f.go.by.sid !== sid || (only !== undefined && f.go.by.level !== only)) continue
       if (await ledgerAdd($, { kind: 'go-end', id: f.go.id, code: 'grantor-off', by: sid })) await logq($, sid, 'go-ended', g.goShort(f.go.id))
       else failed = true
     }

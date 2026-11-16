@@ -502,7 +502,11 @@ function putCondGo(over: Partial<g.GoConductor> = {}): g.GoConductor {
   return go
 }
 async function condGiver($: any, on: any, opts: Parameters<typeof condOn>[3] = {}) {
-  await condOn($, on, [], { clock: true, ...opts })
+  // The lane API names the lead LEAD by its session id: under a conductor's go a lane counts only by that link.
+  await condOn($, on, [], { clock: true, ...opts, seed: () => {
+    putStore([ckLane({ sid: APISID, leadSid: LEADSID })])
+    opts.seed?.()
+  } })
   await guardOn()
   h.askAnswer = GIVE
 }
@@ -516,6 +520,7 @@ async function leadReader($: any, on: any, seed: () => void = () => undefined) {
 }
 const reads = () => goRows().filter((r) => r.kind === 'go-read').map((r) => [r.by, r.code, r.lane])
 const givenGo = () => g.parseGo(pfs.get(goFiles()[0])!.text)!
+const givenGoOf = () => g.parseGo(pfs.get(`${GO_DIR}/${GOID}.json`)!.text)!
 
 test('/callboard go TEXT typed by the person in a conductor opens the dialog with its leads and their lanes; Give go writes the row, then a v 2 file', async ($, on) => {
   await condGiver($, on)
@@ -702,22 +707,22 @@ test("the conductor's dialog counts, and its go holds, every lead whose bound re
 test('more than 32 lanes or 16 leads refuse before any dialog', async ($, on) => {
   const WORKREPO = '/data/x/work'
   const sid = (i: number) => `${String(i).padStart(8, '0')}-0000-4000-8000-00000000abcd`
-  // Lanes that name no lead: each follows its repo's only lead record.
-  const laneStore = (repo: string, n: number, from: number) =>
-    storeFiles.set(`${LANESDIR}/${repoKey(repo)}.json`, JSON.stringify({ repo, lanes: Array.from({ length: n }, (_, i) => ({ name: `LN-${from + i}`, folder: repo, brief: `${repo}/BRIEF.md`, createdAt: 1, sid: sid(100 + from + i) })), creates: [] }))
+  // Each lane names its repo's lead by session id.
+  const laneStore = (repo: string, n: number, from: number, leadSid: string) =>
+    storeFiles.set(`${LANESDIR}/${repoKey(repo)}.json`, JSON.stringify({ repo, lanes: Array.from({ length: n }, (_, i) => ({ name: `LN-${from + i}`, folder: repo, brief: `${repo}/BRIEF.md`, createdAt: 1, sid: sid(100 + from + i), leadSid })), creates: [] }))
   await condGiver($, on, { repos: ['../app', '../app2', WORKREPO] })
   ownedBy(SID, { name: 'LEAD2', leadSid: sid(1), repo: APP2 })
   ownedBy(SID, { name: 'LEAD3', leadSid: sid(2), repo: WORKREPO })
-  laneStore(PIN, 16, 0)
-  laneStore(APP2, 16, 16)
-  laneStore(WORKREPO, 1, 32)
-  // 33 lanes in reach, over three repos.
+  laneStore(PIN, 16, 0, LEADSID)
+  laneStore(APP2, 16, 16, sid(1))
+  laneStore(WORKREPO, 1, 32, sid(2))
+  // 33 lanes of the three leads, over three repos.
   const asked = h.askCount
   expect((await goCmd($, WORK)).text).toBe(`No go was given: too-many: ${g.GO_REFUSE['too-many']}`)
   expect(String((await $.tool.call(tool('go_request', { text: WORK }))).deny)).toBe(`go_request refused: too-many: ${g.GO_REFUSE['too-many']}`)
   expect(h.askCount).toBe(asked)
   // 32 lanes and three leads pass the count.
-  laneStore(PIN, 15, 0)
+  laneStore(PIN, 15, 0, LEADSID)
   expect((await goCmd($, WORK)).text).toContain('recorded')
   expect(givenGo().covered).toHaveLength(32)
   expect(givenGo().leads.map((x) => x.name)).toEqual(['LEAD', 'LEAD2', 'LEAD3'])
@@ -770,24 +775,62 @@ test('a saved conductor grant that is refused when the session starts ends the g
   expect(goRows().filter((r) => r.kind === 'go-end')).toEqual([expect.objectContaining({ id: GOID, code: 'grantor-off', by: SID })])
 })
 
-test('/callboard off ends the goes of a conductor whose grant is only saved: a restart whose restore was refused with the saved grant kept', async ($, on) => {
+// A restarted conductor (SID) with a saved grant over PIN, the goes it gave as a conductor and one of another conductor. file: its list file now.
+const condRestart = ($: any, on: any, file: string[]) => {
   h.sessions = condSelf()
-  await started($, on, [], {
+  return started($, on, [], {
     clock: true,
     seed: () => {
       h.callerCwd = COND
       for (const r of [COND, PIN, APP2]) extraStat.set(`${r}/.git`, dirStat)
-      // The list file holds none of the approved repos: nothing is restored, and the saved grant stays.
-      putCond([])
+      putCond(file)
       h.store.set(`${CONDUCTOR_HINT_PREFIX}${SID}`, { home: COND, repos: [PIN], savedAt: T0 - 60_000 })
       putCondGo({ by: { level: 'conductor', sid: SID, name: 'COND', repo: COND } })
       putCondGo({ id: GOID.replace('9d', '9e') })
     },
   })
-  expect(h.store.has(`${CONDUCTOR_HINT_PREFIX}${SID}`)).toBe(true)
-  expect(goKinds()).toEqual(['go-grant', 'go-grant'])
+}
+const ended = () => goRows().filter((r) => r.kind === 'go-end')
+
+test('a saved conductor grant that is refused for good at a restart (no approved repo left) ends the goes that conductor gave, and no other', async ($, on) => {
+  // The list file holds none of the approved repos: nothing is restored.
+  await condRestart($, on, [])
+  await waitFor(() => goKinds().includes('go-end grantor-off'))
+  expect(ended()).toEqual([expect.objectContaining({ id: GOID, code: 'grantor-off', by: SID })])
+})
+
+test('/callboard off in a session that gave no go and holds no lead or conductor grant ends none and tells of none it could not end', async ($, on) => {
+  await reader($, on)
+  putGo()
+  const file = goFiles()[0]
+  h.pfsFails = (a: string[]) => a[0] === '/usr/bin/head' && a[a.length - 1] === file
   h.askAnswer = '<yes button>' as any
   await $.command.run(lane('off'))
-  await waitFor(() => goKinds().includes('go-end grantor-off'))
-  expect(goRows().filter((r) => r.kind === 'go-end')).toEqual([expect.objectContaining({ id: GOID, code: 'grantor-off', by: SID })])
+  for (let i = 0; i < 5; i++) await h.clock!.advance(2000)
+  expect(toasts).not.toContain(g.GO_END_FAILED_TOAST)
+  expect(goKinds()).toEqual(['go-grant'])
+  h.pfsFails = undefined
+})
+
+test('a go whose sessions do not fit one go file is refused too-big before any dialog', async ($, on) => {
+  // Fourteen leads in a repo whose path is 500 bytes long: each lead is held with its repo, so the file would pass 8 KB.
+  const LONG = `/data/x/${'a'.repeat(492)}`
+  const sid = (i: number) => `${String(i).padStart(8, '0')}-0000-4000-8000-00000000abcd`
+  await condGiver($, on)
+  putLeadRecs(Array.from({ length: 14 }, (_, i) => ({ name: `L-${i}`, conductorSid: SID, sid: sid(300 + i) })), LONG)
+  for (let i = 0; i < 14; i++) bindOwner(sid(300 + i), SID, `L-${i}`, LONG)
+  const asked = h.askCount
+  expect((await goCmd($, WORK)).text).toBe(`No go was given: too-big: ${g.GO_REFUSE['too-big']}`)
+  expect(h.askCount).toBe(asked)
+  expect(goFiles()).toEqual([])
+})
+
+test("a lead the conductor's go holds from the click keeps it after it moves to another conductor, and so does a lane it opens then", async ($, on) => {
+  // This session is the lead LEAD, held in the go of CONDSID at the click and owned by COND2 since.
+  await leadReader($, on, () => ownedBy(COND2, { name: 'LEAD', leadSid: SID }))
+  putCondGo({ leads: [{ name: 'LEAD', sid: SID, repo: PIN }] })
+  expect(await status($)).toContain(WORK)
+  expect(reads()).toEqual([[SID, 'listed', 'LEAD']])
+  // lane_create says a lane it opens now is covered: the go reaches this lead by the session id it holds.
+  expect(g.goReachesLead(givenGoOf(), SID)).toBe(true)
 })
