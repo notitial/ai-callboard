@@ -1071,6 +1071,8 @@ function owedItems(sid: string, all: c.AttentionItem[], askable: c.AttentionItem
   for (const k of told) if (!keys.has(k)) told.delete(k)
   return { told, owed: askable.filter((i) => !told.has(c.checkinKey(i))) }
 }
+// The live sessions of the lanes (or leads) that wait on a prompt: the only ones whose requests promptHeldSids reads.
+const promptSids = (items: c.AttentionItem[], obs: Map<string, c.LaneObs>): Set<string> => new Set(items.flatMap((i) => (i.code === 'prompt' ? [obs.get(i.lane)?.sid ?? ''] : [])).filter((s) => s !== ''))
 // The turn end a check-in counts the lead's idle time from: a done notice's own turn does not restart it (c.idleTurnEnd).
 function idleEnd(sid: string, turnEnd: unknown): unknown {
   if (typeof turnEnd !== 'number') return turnEnd
@@ -1152,7 +1154,7 @@ export async function checkinTick($: any, sid: string, submitsAtStart: number) {
   laneObs.set(sid, obs)
   const items = c.checkinItems(obs, now)
   // A waiting prompt this tier already holds as an open request is told by the request's own notice: no check-in for it (the toast below still shows it).
-  const held = items.some((i) => i.code === 'prompt') ? await promptHeldSids($, sid) : undefined
+  const held = items.some((i) => i.code === 'prompt') ? await promptHeldSids($, sid, promptSids(items, obs)) : undefined
   if (epochOf(sid) !== ep) return
   const { told, owed } = owedItems(sid, items, c.checkinSkipHeld(items, held, (l) => obs.get(l)?.sid))
   const gate = owed.length === 0 ? 'off' : await checkinGates($, sid, now)
@@ -1246,7 +1248,7 @@ async function conductorCheckin($: any, sid: string, submitsAtStart: number) {
   if (epochOf(sid) !== ep) return
   leadObs.set(sid, obs)
   const items = c.checkinItems(obs, now)
-  const held = items.some((i) => i.code === 'prompt') ? await promptHeldSids($, sid) : undefined
+  const held = items.some((i) => i.code === 'prompt') ? await promptHeldSids($, sid, promptSids(items, obs)) : undefined
   if (epochOf(sid) !== ep) return
   const { owed: all } = owedItems(sid, items, c.checkinSkipHeld(items, held, (l) => obs.get(l)?.sid))
   const gate = all.length === 0 ? 'off' : await checkinGates($, sid, now)

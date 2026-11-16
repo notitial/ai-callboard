@@ -101,11 +101,36 @@ test('check-in: a prompt already told to the lead is not told again when a reque
   expect(checkins()).toEqual([ckText(PROMPT)])
 })
 
-test('check-in: a request the lead has no part in (answering off, or a lane of another lead) leaves the check-in as it was', async ($, on) => {
+for (const [what, put] of [
+  ['of a lane of another lead', () => putOpenRequest({ leadName: 'OTHERLEAD' })],
+  ['with answering off', () => { putOpenRequest(); h.store.delete('answering') }],
+  ['the lead has passed up', () => { putOpenRequest(); pfs.set(`${PROMPTS_DIR}/${OTHER}/${REQ_ID}.escalate-lead.json`, { text: JSON.stringify({ id: REQ_ID, tier: 'up', why: 'x', at: T0 + MIN, level: 'lead', sid: SID }), mtimeSec: T0 / 1000 }) }],
+] as const) {
+  test(`check-in: a request ${what} is not the lead's to hold: the check-in comes as it did`, async ($, on) => {
+    await ckLead($, on, [], WAITING)
+    put()
+    await idleFor(8 * MIN)
+    expect(checkins()).toEqual([ckText(PROMPT)])
+    expect(toasts).toEqual([PROMPT_TOAST])
+  })
+}
+
+test('check-in: a request left open past its expiresAt holds nothing: the lead is told of the lane still waiting', async ($, on) => {
   await ckLead($, on, [], WAITING)
-  putOpenRequest({ leadName: 'OTHERLEAD' })
-  await idleFor(8 * MIN)
+  putOpenRequest()
+  await idleFor(20 * MIN)
+  expect(checkins()).toEqual([])
+  await idleFor(4 * MIN)
   expect(checkins()).toEqual([ckText(PROMPT)])
+  expect(toasts).toEqual([PROMPT_TOAST])
+})
+
+test('check-in: a request put to the person holds past its expiresAt, as its wait does', async ($, on) => {
+  await ckLead($, on, [], WAITING)
+  putOpenRequest()
+  pfs.set(`${PROMPTS_DIR}/${OTHER}/${REQ_ID}.relay.json`, { text: JSON.stringify({ id: REQ_ID, short: REQ_ID.slice(0, 8), by: { level: 'lead', sid: SID, name: 'LEAD' }, at: T0 + MIN, nonce: 'n-1' }), mtimeSec: T0 / 1000 })
+  await idleFor(24 * MIN)
+  expect(checkins()).toEqual([])
   expect(toasts).toEqual([PROMPT_TOAST])
 })
 
