@@ -1,12 +1,12 @@
 #!/usr/bin/env node
-// callboard prompt-audit [--since DATE] [--root DIR] [--projects DIR] [--records DIR] [--json]
+// callboard prompt-audit [--since DATE] [--root DIR] [--projects DIR] [--records DIR] [--goes DIR] [--json]
 // Read-only audit of prompt answering (ADR 0004, "Rollout, off switch and audit"): one table of every request, the anomalies
 // that must stay empty, what is deliberately not an anomaly, and wait counts. Nothing here writes: it never creates, edits,
 // renames, removes or touches a file, and it follows no symlink inside the folders it reads. Convenience only: every real
 // limit lives in the mod. Exit 0: no anomalies. 1: anomalies. 2: usage error, an unreadable root, or a ledger file that could
 // not be read (an audit that missed a ledger file proves nothing, so it never exits 0).
 //
-// The ledger rows it reads (prompts.ts, LedgerRow): { t, kind, code?, id?, lane?, repo?, tool?, pattern?, hash?, tier?, why?, nonce?, opt?, lh?, dialog? }.
+// The ledger rows it reads (prompts.ts, LedgerRow): { t, kind, code?, id?, lane?, repo?, tool?, pattern?, hash?, tier?, why?, nonce?, opt?, lh?, dialog?, end? }.
 //   requested  id, nonce, lane, repo, tool, pattern, hash, tier     the hook asked a tier
 //   answered   id, nonce (the requested row's), code allow|deny, by (the answering lead's session id), tier, why, lane, repo, tool, pattern, hash
 //              a tier decided (written by prompt_answer)
@@ -26,6 +26,12 @@
 //              resume cue; written before the cue, so a row with no cue after it is a refused or failed send
 //   lead-stop  the lead-resume fields (target absent for a record no session carried) and code (park | unpark | retire | terminate | remove)   a lead tool parked,
 //              reopened, retired, force-stopped or removed a lead; written before the action
+//   go-grant   id (the go's), by (the session it was given in), tier, hash (the SHA-256 of the go file's bytes), end (when it ends), repo, lane (the giver's name then)
+//              the person clicked Give go in the mod's own dialog (ADR 0009); written before the go file
+//   go-end     id, code (off | expired | grantor-off | void), by?   a go ended: the person's /callboard go off, its end time, its lead losing the grant, or a file that could not be written
+//   go-read    id, by (the reading session), code (listed | later), lane?   a covered session read the go from go_status for the first time; written before the go is reported
+// The go files (--goes, default the go folder beside the prompts folder; read only, each file whole) are checked against the go-grant rows (rule j), and each go is
+// listed with its text and the sessions that read it.
 //   pr-watch   code (new | renew | expired | lost | merged | closed), lane, target (owner/repo#number)   a lane's PR tracking began, was renewed or ended (ADR 0010)
 //   pr-notice  code (the note's kind), tier (the level of the session told), lane?, target? (owner/repo#number)   one PR note was delivered; no request of its own
 // The lead records (--records, default the lead-records folder beside the prompts folder; read only, each file whole) are checked against the lead-owner rows (rule i).
@@ -73,8 +79,10 @@ const QUESTION_DAYS = 90
 const LABEL_MAX = 256
 
 const ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
-const KINDS = new Set(['requested', 'answered', 'escalated', 'dropped', 'returned', 'superseded', 'expired-denied', 'off', 'abandoned', 'dialog', 'not-judgeable', 'no-tier', 'answering-on', 'answering-off', 'relayed', 'relay-lost', 'relay-left', 'relay-late', 'relay-closed', 'deny-unclear', 'lead-offer', 'lead-offer-void', 'lead-grant', 'lead-owner', 'lead-resume', 'lead-stop', 'pr-watch', 'pr-notice'])
-const FIELDS = ['code', 'id', 'lane', 'repo', 'tool', 'pattern', 'hash', 'tier', 'why', 'nonce', 'tuid', 'by', 'via', 'short', 'opt', 'lh', 'target', 'was', 'dialog']
+const KINDS = new Set(['requested', 'answered', 'escalated', 'dropped', 'returned', 'superseded', 'expired-denied', 'off', 'abandoned', 'dialog', 'not-judgeable', 'no-tier', 'answering-on', 'answering-off', 'relayed', 'relay-lost', 'relay-left', 'relay-late', 'relay-closed', 'deny-unclear', 'lead-offer', 'lead-offer-void', 'lead-grant', 'lead-owner', 'lead-resume', 'lead-stop', 'go-grant', 'go-end', 'go-read', 'pr-watch', 'pr-notice'])
+const FIELDS = ['code', 'id', 'lane', 'repo', 'tool', 'pattern', 'hash', 'tier', 'why', 'nonce', 'tuid', 'by', 'via', 'short', 'opt', 'lh', 'target', 'was', 'dialog', 'end']
+// The rows of a go carry the go's id, which is no request's.
+const GO_KINDS = new Set(['go-grant', 'go-end', 'go-read'])
 const ENDS = new Set(['returned', 'superseded', 'expired-denied', 'off', 'abandoned'])
 // A `dropped` row with one of these codes is a decision the hook refused as forged or wrong: an anomaly. The others are ordinary.
 const DROP_ANOMALY = new Set(['no-answered-row', 'id', 'hash', 'nonce', 'by-sid', 'kind', 'answer'])
@@ -1030,7 +1038,86 @@ function readLeadRecords(dir, explicit, problems) {
   return out
 }
 
-export function audit({ root, projects, since, now = Date.now(), projectsExplicit = false, records, recordsExplicit = false, transcriptBudget = TRANSCRIPT_TOTAL_MAX_BYTES, transcriptLineMax = TRANSCRIPT_LINE_MAX }) {
+// j. the go (ADR 0009). A go counts only while its file and its go-grant row agree. A go file with no go-grant row carrying its session and the hash of its bytes was not written by
+// the person's click (go-file-no-row). A go-grant row whose end is still ahead, with no go-end row and no file, is a go the ledger says is live and no session can
+// read (go-row-no-file). Each go of the range is listed with the text the person approved (from its file, while that is kept) and the sessions that read it.
+const GO_FILE_MAX_BYTES = 8192
+const GO_FILES_MAX = 1000
+// The go files of a folder, read only: each <id>.json a regular file (no link followed), at most GO_FILE_MAX_BYTES, read whole. undefined: the folder is not a
+// readable folder, and rule j is then not run (a problem when it was named with --goes, or when it is there and cannot be read). A missing folder is no go files.
+function readGoFiles(dir, explicit, problems) {
+  let real
+  let entries
+  try {
+    real = realpathSync(dir)
+  } catch (e) {
+    if (e.code === 'ENOENT' && !explicit) return []
+    problems.push(`${explicit ? '--goes ' : ''}${dir}: not a readable folder; the goes were not checked`)
+    return undefined
+  }
+  try {
+    if (!lstatSync(real).isDirectory()) throw new Error('not a directory')
+    entries = list(real)
+  } catch {
+    problems.push(`${explicit ? '--goes ' : ''}${dir}: not a readable folder; the goes were not checked`)
+    return undefined
+  }
+  const out = []
+  const named = entries.filter((x) => x.name.endsWith('.json') && ID_RE.test(x.name.slice(0, -5))).sort((a, b) => (a.name < b.name ? -1 : 1))
+  if (named.length > GO_FILES_MAX) problems.push(`goes: ${named.length} go files, only the first ${GO_FILES_MAX} were read`)
+  for (const d of named.slice(0, GO_FILES_MAX)) {
+    const id = d.name.slice(0, -5)
+    if (!d.isFile()) {
+      problems.push(`goes: ${d.name}: ${d.isSymbolicLink() ? 'a symlink' : 'not a regular file'}, not read`)
+      continue
+    }
+    try {
+      const path = join(real, d.name)
+      const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW)
+      let buf
+      try {
+        const st = fstatSync(fd)
+        if (!st.isFile() || st.size > GO_FILE_MAX_BYTES) throw new AuditError('too large or not a file')
+        buf = Buffer.alloc(st.size)
+        let got = 0
+        while (got < st.size) {
+          const n = readSync(fd, buf, got, st.size - got, got)
+          if (n === 0) break
+          got += n
+        }
+        buf = buf.subarray(0, got)
+      } finally {
+        closeSync(fd)
+      }
+      const j = parseObj(buf.toString('utf8'))
+      out.push({ id, hash: createHash('sha256').update(buf).digest('hex'), by: typeof j?.by?.sid === 'string' ? j.by.sid : undefined, text: j && j.id === id && typeof j.text === 'string' ? j.text : undefined })
+    } catch (e) {
+      problems.push(`goes: ${d.name}: ${e instanceof AuditError ? e.message : (e.code ?? e.message)}, not read`)
+    }
+  }
+  return out
+}
+function ruleGoes({ rows, flag, inRange, now }, files) {
+  const grants = rows.filter((r) => r.kind === 'go-grant' && r.id !== undefined)
+  const list = []
+  if (files) {
+    for (const f of files) {
+      if (!grants.some((r) => r.id === f.id && r.hash === f.hash && r.by === f.by)) flag('j', 'go-file-no-row', `go file ${f.id}.json has no go-grant row carrying its session and the hash of its bytes: no click of the person wrote it`)
+    }
+  }
+  for (const r of grants) {
+    const end = rows.find((x) => x.kind === 'go-end' && x.id === r.id)
+    const endMs = r.end !== undefined ? Date.parse(r.end) : NaN
+    const file = files?.find((f) => f.id === r.id)
+    if (files && !file && !end && Number.isFinite(endMs) && endMs > now) flag('j', 'go-row-no-file', `the go-grant row of go ${r.id.slice(0, 8)} (${r.t}) ends ${r.end}, has no go-end row and no go file: no session can read it`, { t: r.t })
+    if (!inRange(r.ms)) continue
+    const readers = rows.filter((x) => x.kind === 'go-read' && x.id === r.id).map((x) => ({ t: x.t, by: x.by ?? '', lane: x.lane ?? '', code: x.code ?? '' }))
+    list.push({ id: r.id, t: r.t, by: r.by ?? '', lane: r.lane ?? '', repo: r.repo ?? '', end: r.end ?? '', state: end ? `ended (${end.code ?? '?'}, ${end.t})` : Number.isFinite(endMs) && endMs <= now ? 'ended (end time)' : 'live', text: file?.text ?? null, readers: readers.slice(0, LIST_MAX) })
+  }
+  return list.slice(0, LIST_MAX)
+}
+
+export function audit({ root, projects, since, now = Date.now(), projectsExplicit = false, records, recordsExplicit = false, goes, goesExplicit = false, transcriptBudget = TRANSCRIPT_TOTAL_MAX_BYTES, transcriptLineMax = TRANSCRIPT_LINE_MAX }) {
   const problems = []
   const notes = []
   let rootReal
@@ -1054,7 +1141,7 @@ export function audit({ root, projects, since, now = Date.now(), projectsExplici
   // Group by request id.
   const byId = new Map()
   for (const r of rows) {
-    if (r.id === undefined) continue
+    if (r.id === undefined || GO_KINDS.has(r.kind)) continue
     let g = byId.get(r.id)
     if (!g) byId.set(r.id, (g = { id: r.id, rows: [], requested: [], answered: [], escalated: [], returned: [], dropped: [], relayed: [], relayLost: [], ends: [] }))
     g.rows.push(r)
@@ -1099,6 +1186,8 @@ export function audit({ root, projects, since, now = Date.now(), projectsExplici
   ruleLeadStops(ctx)
   const recs = readLeadRecords(records ?? join(rootReal, '..', 'lead-records'), recordsExplicit, problems)
   ruleLeadOwnerLogged(ctx, recs)
+  const goFiles = readGoFiles(goes ?? join(rootReal, '..', 'go'), goesExplicit, problems)
+  const goList = ruleGoes(ctx, goFiles)
   const { tx, txRan } = loadTranscripts({ projects, projectsExplicit, since, notes, problems, transcriptBudget, transcriptLineMax })
   const { hookBacked, hookAllowOther, hookDenies } = ruleHookDecisions(ctx, tx)
   ruleLeadCalls(ctx, tx, txRan)
@@ -1110,8 +1199,9 @@ export function audit({ root, projects, since, now = Date.now(), projectsExplici
   return {
     root: rootReal,
     since: since === undefined ? null : new Date(since).toISOString(),
-    scanned: { ledgerFiles, rows: rows.length, requests: table.length, transcriptFiles: tx.scanned, transcriptDecisions: tx.decisions.length, requestFiles: files.requestFiles, leadRecordFiles: recs ? recs.length : null },
+    scanned: { ledgerFiles, rows: rows.length, requests: table.length, transcriptFiles: tx.scanned, transcriptDecisions: tx.decisions.length, requestFiles: files.requestFiles, leadRecordFiles: recs ? recs.length : null, goFiles: goFiles ? goFiles.length : null },
     table,
+    goes: goList,
     anomalies,
     notAnomalies: {
       lostRaces: lostRaces.slice(0, LIST_MAX),
@@ -1150,6 +1240,14 @@ export function render(rep) {
   else {
     const head = ['time', 'lane', 'tool', 'pattern', 'hash8', 'tier', 'decision', 'why', 'age s', 'outcome']
     out.push(...pad([head, ...rep.table.map((t) => [t.t.replace(/\.\d+Z$/, 'Z'), cut(t.lane, 14), cut(t.tool, 28), cut(t.pattern, 28), t.hash8, t.tier, t.decision, cut(t.why.replace(/\s+/g, ' '), 40), sec(t.age), t.outcome])]))
+  }
+  if (rep.goes.length > 0) {
+    out.push('', `GOES (the text the person approved, and the sessions that read it)${s.goFiles === null ? '; the go files were not read' : ''}`)
+    for (const x of rep.goes) {
+      out.push(`  ${x.t.replace(/\.\d+Z$/, 'Z')} ${x.id.slice(0, 8)} given in ${x.lane || '?'} (${x.by || '?'}), repo ${x.repo || '?'}, ends ${x.end || '?'}: ${x.state}`)
+      out.push(`    text: ${x.text === null ? '(no go file)' : cut(x.text.replace(/\s+/g, ' '), 1600)}`)
+      out.push(`    read by: ${x.readers.length === 0 ? '(none)' : x.readers.map((r) => `${r.lane || '?'} (${r.by}, ${r.code})`).join(', ')}`)
+    }
   }
   out.push('', 'ANOMALIES (must be empty)')
   // "none" is said only when nothing was missed: a skipped file or an unread folder makes the audit incomplete, and it must say so here.
@@ -1205,7 +1303,7 @@ export function render(rep) {
 }
 
 // ---- command line ----
-const USAGE = 'usage: prompt-audit.mjs [--since DATE] [--root DIR] [--projects DIR] [--records DIR] [--json]'
+const USAGE = 'usage: prompt-audit.mjs [--since DATE] [--root DIR] [--projects DIR] [--records DIR] [--goes DIR] [--json]'
 function parseArgs(argv, env = process.env) {
   const cfg = env.CLAUDE_CONFIG_DIR && env.CLAUDE_CONFIG_DIR !== '' ? env.CLAUDE_CONFIG_DIR : join(homedir(), '.claude')
   const o = { root: join(cfg, 'callboard', 'prompts'), projects: join(cfg, 'projects'), since: undefined, json: false }
@@ -1224,6 +1322,10 @@ function parseArgs(argv, env = process.env) {
     else if (a === '--records') {
       o.records = val()
       o.recordsExplicit = true
+    }
+    else if (a === '--goes') {
+      o.goes = val()
+      o.goesExplicit = true
     }
     else if (a === '--since') {
       const v = val()

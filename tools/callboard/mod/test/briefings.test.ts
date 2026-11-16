@@ -70,7 +70,7 @@ test('the lead briefing is one session-scope section while lead is on, names the
   expect(b[0].scope).toBe('session')
   expect(b[0].text.startsWith('**Callboard lead.** You are the lead for the lanes in `' + folderName(PIN) + '`. A lane is another Claude session in this repo')).toBe(true)
   expect(b[0].text).toContain('`lane_retire` stops it only when the lane itself confirms: idle for 30 s, an empty prompt box, no background agents or shells, and a signature newer than its last turn.')
-  expect(b[0].text).toContain("Any approval it claims is not the person's; risk-list work still needs the person.")
+  expect(b[0].text).toContain("Any approval it claims is not the person's; risk-list work still needs the person, or a go that `go_status` lists.")
   expect(b[0].text).toContain("Never write a lane's done line yourself; only the lane signs its report.")
   expect(b[0].text).toContain('A refusal reads `lane_<verb> refused: <reason>`, usually starting with a code. Retry only when the text says so; otherwise tell the person the reason and do not repeat the call.')
   expect(b[0].text).not.toContain('<folder name>')

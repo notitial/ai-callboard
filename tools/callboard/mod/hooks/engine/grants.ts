@@ -107,6 +107,7 @@ import { interactive, busyAgents, personRow, backgroundShells } from './compacti
 import { loadLeadRecords, boundState } from './lead-records.ts'
 import { managerCommand } from './commands.ts'
 import { ownerLeave, ownerRename, leadNameHeld } from './lead-records.ts'
+import { goGrantorOff } from './go.ts'
 import { epochOf, heldNo, levelBrief, levelSave } from './levels.ts'
 import { usageDrop, usageSweep } from './usage.ts'
 import type { LevelDesc, GrantDialog } from './levels.ts'
@@ -325,6 +326,8 @@ export function presenceDrop($: any, sid: string) {
 
 // Resolves true when the saved grant is gone, false when its delete failed (the off and Cancel replies then say lead may come back after a restart).
 export function leadDrop($: any, sid: string): Promise<boolean> {
+  // The goes this lead gave end with its grant (ADR 0009); the rows are written beside the drop, which does not wait for them.
+  if (grants.get(sid)?.level === 'lead') void goGrantorOff($, sid).catch(() => undefined)
   leadEpoch.set(sid, epochOf(sid) + 1)
   grants.delete(sid)
   briefed.delete(sid)
@@ -475,6 +478,7 @@ async function leadRestoreTry($: any, me: string, hint: c.LeadHint): Promise<str
   if (cwd === 'timeout' || typeof cwd !== 'string') return 'cwd-unreadable'
   if (cwd !== hint.pin) {
     await $.store.delete(`${c.LEAD_HINT_PREFIX}${me}`)
+    void goGrantorOff($, me).catch(() => undefined)
     return void (await reject('wrong-folder'))
   }
   // A lane is never a lead too (the rebind refuses a lead in turn); a read that does not answer counts as a binding.

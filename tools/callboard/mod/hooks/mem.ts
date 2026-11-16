@@ -318,6 +318,12 @@ export const ownerFlagged = new Set<string>()
 // A lead's rename whose new name is taken: the `old\ncur` pair the person was already told about, so the toast comes once per pair.
 export const renameRefused = new Map<string, string>()
 
+// The go (engine/go.ts). goAsked: when each session's go_request calls reached the dialog (the hourly cap). goWatch: what a lead has seen of the `go-read` rows of
+// its own goes, so a lane that reads one later is told to the person once (since: when this watch began; a read before it is not told). goBusy: its once-a-minute step.
+export const goAsked = new Map<string, number[]>()
+export const goWatch = new Map<string, { since: number; at: number | undefined; told: Map<string, Set<string>> }>()
+export const goBusy = new Set<string>()
+
 // ---- PR notices (engine/pr-watch.ts, ADR 0010) ----
 // A session's own tracker as last read or written, and whether its file was looked at in this load; by tracker session, the one writer at a time.
 export const prTrack = new Map<string, pw.Tracker>()

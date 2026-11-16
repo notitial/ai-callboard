@@ -110,6 +110,7 @@ import { leadAccept } from './lead-accept.ts'
 import { leadCue } from './lead-cues.ts'
 import { leadCompactTo } from './lead-tools.ts'
 import { recordViews } from './lead-records.ts'
+import { goTailFor } from './go.ts'
 
 const stopCallKey = (sid: string, verb: string, lane: unknown) => `${sid}\n${verb}\n${String(lane)}`
 
@@ -249,6 +250,12 @@ async function leadTools($: any, sid: string) {
     name: 'lane_list',
     description: 'List the lanes of the repo this lead was allowed in, as one table (a plain header line, then one row per lane with its lead, repo folder name, session and waiting columns; a lead no live session carries is marked not live): each lane, its folder when it is outside the repo root, whether a live session carries its name or it is parked, and how many minutes it has waited on a prompt. Call it when told the lanes changed.',
     inputSchema: { type: 'object', properties: {} },
+  })
+  await $.tool.register({
+    name: 'go_request',
+    description:
+      "Ask the person for one go that counts in your lanes (ADR 0009). It only opens the person's dialog in this session: text says what the work is (1 to 1500 bytes of plain text; the person reads it, and the lanes read it back from go_status). The dialog lists your lanes, the end (24 hours) and what a go never covers. The result says whether the go was given. Main agent of a lead only; at most 6 dialogs an hour. Call it when lane_create or lane_start says no go covers a lane that has risk-list work.",
+    inputSchema: { type: 'object', properties: { text }, required: ['text'] },
   })
   // ADR 0004 (prompt answering): the three tools of every tier.
   await promptToolsRegister($)
@@ -1221,10 +1228,10 @@ export async function leadVerbCall($: any, e: any, next: any, verb: (typeof c.LE
       const sent = await cueExchange($, sid, prep.lane.name, target, verb, deadline, noCue)
       if (sent && st.fate === 'done') {
         await log($, sid, 'acted-late', `${verb} ${prep.lane.name}`)
-        return { result: c.lateDoneText(verb, prep.lane.name, target) }
+        return { result: `${c.lateDoneText(verb, prep.lane.name, target)}${verb === 'start' ? await goTailFor($, sid, target) : ''}` }
       }
       if (sent) return sent
-      return { result: `cue ${verb} acted for lane ${prep.lane.name}.` }
+      return { result: `cue ${verb} acted for lane ${prep.lane.name}.${verb === 'start' ? await goTailFor($, sid, target) : ''}` }
     })
 }
 
@@ -1321,7 +1328,7 @@ export async function laneCreateCall($: any, e: any, next: any) {
     if ('no' in w) return no(w.no, w.why ?? c.reasonWhy(w.no))
     await log($, sid, 'lane-created', made!.name)
     toast($, `Lane ${made!.name} created (model ${made!.model})`)
-    return { result: `lane ${made!.name} created (model ${made!.model}); brief written to ${made!.brief}.${made!.leadName ? '' : c.LANE_NO_LEAD} Next: lane_open, then lane_rename with the id it returns, then lane_start.` }
+    return { result: `lane ${made!.name} created (model ${made!.model}); brief written to ${made!.brief}.${made!.leadName ? '' : c.LANE_NO_LEAD} Next: lane_open, then lane_rename with the id it returns, then lane_start.${await goTailFor($, sid)}` }
   })
 }
 

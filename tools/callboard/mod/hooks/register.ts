@@ -13,6 +13,7 @@ import { commandRun } from './engine/commands.ts'
 import { toolCheck, permissionRequest, doneHook } from './engine/answer-hook.ts'
 import { promptListCall, promptAnswerCall, promptEscalateCall } from './engine/answer-tiers.ts'
 import { usageMeasure } from './engine/usage.ts'
+import { goRequestCall, goStatusCall } from './engine/go.ts'
 import { prWatchCall } from './engine/pr-watch.ts'
 
 export const register: Register = (on) => {
@@ -48,6 +49,8 @@ export const register: Register = (on) => {
   on('tool.call', { tool: 'mcp__callboard__prompt_answer' }, promptAnswerCall).catch(() => ({ deny: 'prompt_answer failed closed.' }))
   on('tool.call', { tool: 'mcp__callboard__prompt_escalate' }, promptEscalateCall).catch(() => ({ deny: 'prompt_escalate failed closed.' }))
 
+  on('tool.call', { tool: 'mcp__callboard__go_request' }, goRequestCall).catch(() => ({ deny: 'go_request failed closed.' }))
+  on('tool.call', { tool: 'mcp__callboard__go_status' }, goStatusCall).catch(() => ({ deny: 'go_status failed closed.' }))
   on('tool.call', { tool: 'mcp__callboard__pr_watch' }, prWatchCall).catch(() => ({ deny: 'pr_watch failed closed.' }))
 
   for (const verb of c.STOP_VERBS) {

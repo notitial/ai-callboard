@@ -1,5 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 import { LANE_NO_LEAD } from '../hooks/core'
+import { goTail } from '../hooks/go'
 import { h, SID, T0, YES, briefFiles, extraStat, longTest, realMap, storeFiles, toasts, toolDefs } from './harness'
 import { OTHER, PIN, STOREFILE, callCreate, created, creator, cueSession, dirStat, grantAt, lane, leadCall, putLeadRecs, storeLaneNames } from './fixtures'
 
@@ -28,7 +29,7 @@ test('lane_create writes .archive/<NAME>/BRIEF.md with the fixed header and the 
   const argv: string[][] = []
   await creator($, on, [], { argv })
   const r = await callCreate($, created({ task: 'Build the API.\n\tThen test it.' }))
-  expect(r.result).toBe(`lane API created (model sonnet); brief written to ${BRIEF}.${LANE_NO_LEAD} Next: lane_open, then lane_rename with the id it returns, then lane_start.`)
+  expect(r.result).toBe(`lane API created (model sonnet); brief written to ${BRIEF}.${LANE_NO_LEAD} Next: lane_open, then lane_rename with the id it returns, then lane_start.${goTail(undefined)}`)
   expect(briefFiles.get(BRIEF)).toBe(`${HEADER}Build the API.\n\tThen test it.`)
   expect(JSON.parse(storeFiles.get(STOREFILE)!).lanes[0]).toEqual({ name: 'API', folder: `${PIN}/api`, brief: BRIEF, createdAt: T0, model: 'sonnet', leadSid: SID })
   const mine = argv.filter((a) => a.some((x) => x.includes('/.archive/')))

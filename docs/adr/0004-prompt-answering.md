@@ -167,6 +167,11 @@ Trust rises with the tier.
 
 A go that must be typed in the session that acts still has to be: the tier sends the person to the lane's panel.
 
+*Amended 2026-11-15 ([ADR 0009](0009-go-given-once.md)).* A question that asks for a go is relayed like any other, and
+the person's pick is their go for that one question. A go for a body of work is given once through callboard's go and
+read with `go_status`; it never covers the actions rubric rule 4 names, which are still passed up and relayed. A go
+allows no permission prompt and answers no question by itself, and the rubric is unchanged.
+
 ### What the hook does
 
 It runs in the asking session. It looks up why the prompt exists, calls `next(e)` first and lets any answer beneath
