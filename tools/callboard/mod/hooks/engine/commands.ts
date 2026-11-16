@@ -77,7 +77,7 @@ import { ensureTimer } from './tick.ts'
 import { grantNameNo } from './lead-open.ts'
 import { epochOf, heldNo, holdsOf, levelSave } from './levels.ts'
 import type { LevelDesc } from './levels.ts'
-import { ANSWERING_KEY, ledgerAdd, promptsOff, escalationNow, defaultForget, hereRead, hereDrop } from './answer-hook.ts'
+import { ANSWERING_KEY, ledgerAdd, promptsOff, escalationNow, defaultForget, hereRead, hereDrop, unattendedNow, unattendedClose } from './answer-hook.ts'
 import { ledgerRestore } from './answer-tiers.ts'
 import * as go from '../go.ts'
 import { goCommand, goGrantorOff } from './go.ts'
@@ -827,6 +827,22 @@ async function reserveCommand($: any, sid: string, code: c.OriginCode, op: c.Res
   return { text: 'add' in op ? c.reserveAddedText(op.add) : c.reserveRemovedText(cur.find((x) => x.toUpperCase() === op.remove.toUpperCase())!) }
 }
 
+// A time for the person, in this machine's zone.
+const whenLocal = (ms: number): string => go.goWhen(ms, -new Date(ms).getTimezoneOffset())
+
+// /callboard unattended (the person's own command: the state of the window) and /callboard unattended off (any origin, no dialog: it only narrows, bringing the
+// questions back to the person). Anything else is the usage line; no form of this command opens a window.
+async function unattendedCommand($: any, sid: string, code: c.OriginCode, op: pr.UnattendedOp): Promise<{ text: string }> {
+  if (op === 'bad') return { text: c.usageLine('unattended') }
+  if (op === 'off') {
+    const r = await unattendedClose($, { code: 'command', origin: code })
+    if (r === 'store-failed') await logq($, sid, 'error', 'unattended-store')
+    return { text: r === 'closed' ? pr.UNATTENDED_ENDED : r === 'none' ? pr.UNATTENDED_NOT_ON : pr.UNATTENDED_OFF_FAILED }
+  }
+  if (!c.originIsPerson(code)) return notPerson($, sid, 'unattended', code, pr.UNATTENDED_NOT_PERSON)
+  return { text: pr.unattendedState(await unattendedNow($), whenLocal) }
+}
+
 // /callboard escalation (the person's own command, one dialog) and /callboard escalation off (any origin, no dialog). One Allow stores scope `all` for permission prompts and questions alike;
 // the two ledger rows are the ones the audit reads (the plain `answering-on`, then the one with code asks that opens the questions).
 async function escalationCommand($: any, sid: string, code: c.OriginCode, op: pr.EscalationOp): Promise<{ text: string }> {
@@ -838,10 +854,14 @@ async function escalationCommand($: any, sid: string, code: c.OriginCode, op: pr
       await $.store.set(ANSWERING_KEY, { off: true, savedAt: await $.clock.now() })
     } catch {
       await logq($, sid, 'error', 'escalation-store')
-      return { text: 'Escalation could not be changed: the store did not answer. Create ~/.claude/callboard/prompts/OFF to stop it now.' }
+      // The command is an off for an unattended window whether or not its own write landed.
+      const ended = await unattendedClose($, { code: 'escalation-off', origin: code }).catch(() => 'store-failed' as const)
+      return { text: `Escalation could not be changed: the store did not answer. Create ~/.claude/callboard/prompts/OFF to stop it now.${ended === 'closed' ? ` ${pr.UNATTENDED_ENDED}` : ended === 'store-failed' ? ` ${pr.UNATTENDED_OFF_FAILED}` : ''}` }
     }
     if (!(await ledgerAdd($, { kind: 'answering-off', code: 'off' }))) await logq($, sid, 'error', 'escalation-ledger')
-    return { text: 'Escalation is off on this Mac.' }
+    // An unattended window needs escalation: this off ends it.
+    const ended = await unattendedClose($, { code: 'escalation-off', origin: code }).catch(() => 'store-failed' as const)
+    return { text: `Escalation is off on this Mac.${ended === 'closed' ? ` ${pr.UNATTENDED_ENDED}` : ended === 'store-failed' ? ` ${pr.UNATTENDED_OFF_FAILED}` : ''}` }
   }
   // On is the person's own command, with a dialog that names exactly what turns on.
   if (!c.originIsPerson(code)) return notPerson($, sid, 'escalation', code, pr.ESCALATION_NOT_PERSON)
@@ -1106,6 +1126,8 @@ export async function commandRun($: any, e: any) {
   if (line === 'go' || line.startsWith('go ')) return goCommand($, sid, code, go.parseGoArgs(line.slice(2)))
   // Here (ADR 0009, the relay): read here too; `here off` only narrows, so any origin may type it.
   if (line === 'here' || line.startsWith('here ')) return hereCommand($, sid, code, pr.parseHereArgs(line.slice(4)))
+  // The unattended window (ADR 0008): read here, as escalation is.
+  if (line === 'unattended' || line.startsWith('unattended ')) return unattendedCommand($, sid, code, pr.parseUnattendedArgs(line.slice(10)))
   if (line === '' || line === 'help') return { text: c.helpText() }
   const arg = c.parseCommandArgs(rawArgs)
   if (!arg) return { text: c.HELP_USAGE }
@@ -1201,7 +1223,7 @@ export async function commandRun($: any, e: any) {
   const grantPart: [string, string] = gs?.level === 'manager' ? ['Manager', 'ON'] : gs?.level === 'conductor' ? ['Conductor', c.conductorStatus(gs.pins.length)] : ['Lead', grants.has(sid) ? 'ON' : 'OFF']
   const laneLead: [string, string][] = bound ? [["This lane's lead", c.laneStatusLead(laneBrief.get(sid), bound.name)]] : []
   if (arg === 'status') {
-    const esc: [string, string][] = [['Escalation', pr.escalationStatus(await escalationNow($), await promptsOff($))]]
+    const esc: [string, string][] = [['Escalation', pr.escalationStatus(await escalationNow($), await promptsOff($))], ['Unattended', pr.unattendedStatus(await unattendedNow($), whenLocal)]]
     const ownerRow: [string, string][] = gs?.level === 'lead' ? [['Conductor', await ownerStatusNow($, sid)]] : []
     return { text: c.statusTableText([['Lane', bound ? bound.name : 'NONE'], grantPart, ...ownerRow, ...ckStatus, ...laneLead, ...esc]) }
   }

@@ -197,6 +197,8 @@ fires for a grant it offered before a restart, which is the safe side).
   and the switch withdraws the power.
   *2026-11-16: a wrong conductor now holds at most 4 leads at once and opens at most 8 an hour, not one per approved
   repo per hour.*
+  *2026-11-17: a lead's hourly creates are a setting of the person's, 30 by default and at most 60
+  (`/callboard config lanes`, [ADR 0002](0002-callboard.md)).*
 - A lead keeps running, and restores, after its repo leaves the conductor's list, as any lead does. The conductor
   loses reach over it at once.
 - The brief is the conductor model's text, at the trust level of that model and the repo; its header says it is
