@@ -232,6 +232,19 @@ test('a session start that finds the lead grant still held (a compaction) keeps 
   expect(leadFiles.has(SELFPATH)).toBe(false)
 })
 
+test('a session start that finds the lead grant still held (a compaction) restores nothing: a folder that cannot be read then says nothing about a restore', async ($, on) => {
+  const stdins: string[] = []
+  await leadAt($, on, stdins, { clock: true })
+  const t0 = toasts.length
+  h.cwdThrows = 1000
+  await $.session.start({ cwd: '/data/x/work/lab', surface: 'vscode', isInteractive: true })
+  await ticks(18)
+  h.cwdThrows = 0
+  expect(toasts.slice(t0).some((x) => x.startsWith('Lead not restored'))).toBe(false)
+  expect(logged(stdins).some((x) => x.startsWith('lead-restore-rejected'))).toBe(false)
+  expect(await statusText($)).toContain('| Lead | ON |')
+})
+
 const noPresence: [string, string, () => void][] = [
   ['too broad (the home folder)', '/Users/x', () => undefined],
   ['too broad (Documents)', '/Users/x/Documents', () => undefined],

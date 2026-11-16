@@ -248,9 +248,9 @@ export const renameChecked = new Map<string, number>()
 export const managerSavedAt = new Map<string, number>()
 export const managerCwd = new Map<string, string>()
 
-// fails: the tries that ended on a refusal that can clear by itself. unanswered: the times the question got no answer. waiting: the question got no answer and is
+// fails: the tries that ended on a refusal that can clear by itself; afterYes: those of them that failed only after the yes, counted apart. unanswered: the times the question got no answer. waiting: the question got no answer and is
 // asked again only once the person has sent a prompt in this session (managerRestoreWake). asked: a try of this restore was not silent, so no later try is.
-export type MgrPending = { hint: c.ManagerHint; tries: number; asking?: boolean; fails?: number; unanswered?: number; waiting?: boolean; asked?: boolean }
+export type MgrPending = { hint: c.ManagerHint; tries: number; asking?: boolean; fails?: number; afterYes?: number; unanswered?: number; waiting?: boolean; asked?: boolean }
 export const managerRestorePending = new Map<string, MgrPending>()
 // A restore is offered once per process and session: a session.start that is not a start (a compaction, a reload) never starts a second one.
 export const managerRestoreOffered = new Set<string>()

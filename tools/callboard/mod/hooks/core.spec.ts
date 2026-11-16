@@ -3663,6 +3663,9 @@ test('managerRestoreStep: a passing failure is tried again up to the limit, an u
     assert.deepEqual(c.managerRestoreStep(code, 3, 0), { next: 'end', toast: c.notRestoredToast('manager', code) }, code)
   }
   assert.equal(c.MANAGER_RESTORE_RETRIES_AFTER_YES, 2)
+  // The caller counts these apart from the other failures (MgrPending.afterYes), so the set is what keeps earlier failures from using up their tries.
+  assert.deepEqual([...c.MANAGER_RESTORE_AFTER_YES].sort(), ['manager-check-slow', 'manager-presence', 'tools-timeout'])
+  for (const code of c.MANAGER_RESTORE_AFTER_YES) assert.ok(c.MANAGER_RESTORE_PASSING.has(code), code)
   // A refusal that does not clear by itself is final at once.
   for (const code of ['manager-exists', 'manager-name', 'lane-holder', 'lead-holder', 'conductor-holder', 'manager-after-lead', 'tools']) assert.deepEqual(c.managerRestoreStep(code, 1, 0), { next: 'end', toast: c.notRestoredToast('manager', code) }, code)
   assert.equal(c.MANAGER_RESTORE_ASKS, 3)

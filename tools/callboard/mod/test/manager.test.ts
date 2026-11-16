@@ -1189,6 +1189,23 @@ test('manager restore: a restore that had to ask is never silent on a later try,
   expect(mgrLogs(stdins)).not.toContain('manager-restored:silent')
   expect(h.askCount).toBe(2)
 })
+test('manager restore: the person\'s own /callboard manager that they cancel ends a restore that waits for the next prompt: no restore question follows', async ($, on) => {
+  const stdins: string[] = []
+  await mgrRestarter($, on, stdins)
+  h.askAnswer = ''
+  await ticks(3)
+  await mgrUnanswered(stdins, 1)
+  h.askAnswer = NO
+  expect((await $.command.run(lane('manager'))).text).toBe('Manager stays off.')
+  expect(h.askCount).toBe(2)
+  h.askAnswer = YES
+  await $.prompt.submit({ text: 'hello' } as any)
+  await ticks(5)
+  expect(h.askCount).toBe(2)
+  expect(await statusText($)).toBe(STATUS_NONE)
+  // The saved grant is not the command's to remove.
+  expect(h.store.has(MGRKEY)).toBe(true)
+})
 test('manager restore: a session that is a lane gets one toast saying why', async ($, on) => {
   const stdins: string[] = []
   await mgrRestarter($, on, stdins, { bound: true })

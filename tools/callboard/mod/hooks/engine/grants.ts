@@ -470,6 +470,8 @@ async function leadRestoreTry($: any, me: string, hint: c.LeadHint): Promise<str
   }
   const epoch = epochOf(me)
   const dropped = () => epochOf(me) !== epoch
+  // A lead that still holds its grant in memory (a compaction) has nothing to restore: no check runs, so none can say it was not restored.
+  if (grants.get(me)?.level === 'lead') return
   // A person's session only: a headless run resumed under this id is not made lead; the key is kept and the tick asks again (the registry row of a
   // reopened panel may come a moment after session.start).
   if (!(await interactive($, me))) return dropped() ? undefined : 'not-interactive'
@@ -1428,9 +1430,11 @@ async function managerRestoreAsk($: any, me: string, pend: MgrPending) {
   // An off typed meanwhile is the person's end: the saved grant is gone, and nothing is tried or asked again.
   let step: c.RestoreStep = { next: 'end' }
   if ((offSeq.get(me) ?? 0) === seq) {
+    const afterYes = code !== undefined && c.MANAGER_RESTORE_AFTER_YES.has(code)
     if (code === 'unanswered') pend.unanswered = (pend.unanswered ?? 0) + 1
+    else if (afterYes) pend.afterYes = (pend.afterYes ?? 0) + 1
     else pend.fails = (pend.fails ?? 0) + 1
-    step = c.managerRestoreStep(code, pend.fails ?? 0, pend.unanswered ?? 0)
+    step = c.managerRestoreStep(code, (afterYes ? pend.afterYes : pend.fails) ?? 0, pend.unanswered ?? 0)
   }
   if (step.next === 'end') {
     if (managerRestorePending.get(me) === pend) managerRestorePending.delete(me)
@@ -1798,6 +1802,8 @@ async function conductorRestoreTry($: any, me: string, box: { hint: c.ConductorH
   }
   const epoch = epochOf(me)
   const dropped = () => epochOf(me) !== epoch
+  // A conductor that still holds its grant in memory (a compaction) has nothing to restore: no check runs, so none can say it was not restored.
+  if (grants.get(me)?.level === 'conductor') return
   // A person's own row: kind interactive. No row yet: tried again (a reopened panel's row may come a moment after session.start). Another kind (a
   // --bg worker resumed under this id) or none: the try ends and the key is kept.
   const row = await registryOf($, me)

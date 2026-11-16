@@ -441,14 +441,18 @@ export async function managerCommand($: any, sid: string, code: c.OriginCode, wa
   const silent = restore && saved !== undefined && c.managerSilentOk(saved, here, await $.clock.now(), MANAGER.silentGraceMs)
   if (restore && !silent) asked?.()
   let live: Awaited<ReturnType<typeof registryEntries>>
-  return grantDialog($, sid, MANAGER, {
+  let wasBusy = false
+  const done = await grantDialog($, sid, MANAGER, {
     silent,
     seq: silent ? seq : undefined,
     question: restore ? c.MANAGER_RESTORE_QUESTION : c.askedFrom(c.MANAGER_QUESTION, code),
     yes: c.MANAGER_YES,
     no: c.MANAGER_NO,
     header: c.HEADER.manager,
-    busy,
+    busy: () => {
+      wasBusy = true
+      return busy()
+    },
     person: c.originIsPerson(code),
     on: () => grants.get(sid)?.level === 'manager',
     // A restore: only the person's Cancel removes the saved grant; no answer (a timeout, a dismissal, an error) restores nothing and keeps it, and
@@ -517,6 +521,10 @@ export async function managerCommand($: any, sid: string, code: c.OriginCode, wa
     },
     text: c.MANAGER_ON_TEXT,
   })
+  // The person's own command, once its dialog was answered or left unanswered, ends a restore that still waits: they decided by hand, whatever the answer,
+  // so no restore question follows it. The saved grant stays (only the restore's Cancel and an off remove it).
+  if (!restore && !wasBusy && c.originIsPerson(code)) managerRestorePending.delete(sid)
+  return done
 }
 
 // /callboard conductor add|remove, the person's own command only (from the prompt or the phone); any other origin is refused with no dialog. add asks once
