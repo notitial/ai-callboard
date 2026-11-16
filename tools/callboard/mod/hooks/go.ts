@@ -247,6 +247,8 @@ export function goStatusText(goes: Go[]): string {
 export const goTail = (g: Go | undefined, ends?: string): string => (g ? ` A go covers this lane: ${goShort(g.id)}, ends ${ends ?? iso(g.ends)}.` : ' No go covers this lane: call go_request before it starts risk-list work.')
 // The end of a lead_open result: whether a live go covers the new lead.
 export const goLeadTail = (g: Go | undefined, ends?: string): string => (g ? ` A go covers this lead: ${goShort(g.id)}, ends ${ends ?? iso(g.ends)}.` : ' No go covers this lead: call go_request before it starts risk-list work.')
+// The same end when a go of the conductor is live and the new lead's record does not tie it to the conductor, or could not be read.
+export const GO_LEAD_TAIL_UNBOUND = ' Your go does not reach this lead: its record does not name you as its conductor, or could not be read. Another go_request would not reach it either; tell the person.'
 
 // /callboard go: with no argument (or `list`) the live goes; `off` or `off SHORT` ends them; `TEXT` or `for N h TEXT` asks the person for one (`for` sets the
 // end only when a number follows it; any other text starting with it is the text).

@@ -84,7 +84,7 @@ longTest('lead_open under a live go of this conductor: a new lead whose record w
   expect((await $.command.run(lane('go Build the API.', PERSON))).text).toContain('recorded')
   const r = String(JSON.parse(await open($, `ok ${NEWSID}\n`)).result)
   expect(r).toContain('lead LEAD-N is on as session 12345678')
-  expect(r.endsWith(g.goLeadTail(undefined))).toBe(true)
+  expect(r.endsWith(g.GO_LEAD_TAIL_UNBOUND)).toBe(true)
 })
 
 // The answer a window of the nonce-echoing extension writes: the request's nonce is the one the ledger row carries.

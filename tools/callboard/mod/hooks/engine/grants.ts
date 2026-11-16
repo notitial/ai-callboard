@@ -332,8 +332,10 @@ export function presenceDrop($: any, sid: string) {
 
 // Resolves true when the saved grant is gone, false when its delete failed (the off and Cancel replies then say lead may come back after a restart).
 export function leadDrop($: any, sid: string): Promise<boolean> {
-  // The goes this lead or conductor gave end with its grant (ADR 0009); the rows are written beside the drop, which does not wait for them.
-  if (grants.get(sid)?.level === 'lead' || grants.get(sid)?.level === 'conductor') void goGrantorOff($, sid).catch(() => undefined)
+  // The goes this lead or conductor gave end with its grant (ADR 0009); the rows are written beside the drop, which does not wait for them. A grant that is
+  // only saved (a restart whose restore has not finished, or was refused with the saved grant kept) is dropped here too, so its goes end as well: only a
+  // session that holds the manager grant is skipped, since a manager gave none.
+  if (grants.get(sid)?.level !== 'manager') void goGrantorOff($, sid).catch(() => undefined)
   leadEpoch.set(sid, epochOf(sid) + 1)
   grants.delete(sid)
   briefed.delete(sid)

@@ -216,6 +216,7 @@ test("the conductor's result texts: a go given, the lead_open tail, the list and
   assert.ok(g.goGivenText(cgo({ leads: [], covered: [] }), 'x').includes('It covers no lead yet and no lane yet, and leads and lanes opened'))
   assert.equal(g.goLeadTail(cgo(), 'Sun 16 Nov 19:25'), ' A go covers this lead: 9a1b2c3d, ends Sun 16 Nov 19:25.')
   assert.equal(g.goLeadTail(undefined), ' No go covers this lead: call go_request before it starts risk-list work.')
+  assert.equal(g.GO_LEAD_TAIL_UNBOUND, ' Your go does not reach this lead: its record does not name you as its conductor, or could not be read. Another go_request would not reach it either; tell the person.')
   assert.equal(g.goListText([cgo()], () => 'Sun 16 Nov 19:25'), 'Go 9a1b2c3d: conductor COND; ends Sun 16 Nov 19:25; leads at the click: LEAD; lanes at the click: API. Build the import step.')
   assert.ok(g.goStatusText([cgo()]).includes(`Go 9a1b2c3d: given in conductor COND (session ${COND}) at ${new Date(T).toISOString()}; ends`))
   assert.ok(g.goStatusText([cgo({ by: { level: 'conductor', sid: COND, name: '', repo: '/r' } })]).includes('given in this conductor (session'))

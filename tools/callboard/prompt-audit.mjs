@@ -877,7 +877,7 @@ export function render(rep) {
     for (const x of rep.goes) {
       out.push(`  ${x.t.replace(/\.\d+Z$/, 'Z')} ${x.id.slice(0, 8)} given in ${x.tier || 'tier ?'} ${x.lane || '?'} (${x.by || '?'}), repo ${x.repo || '?'}, ends ${x.end || '?'}: ${x.state}`)
       out.push(`    text: ${x.text === null ? '(no go file)' : cut(x.text.replace(/\s+/g, ' '), 1600)}`)
-      if (x.leads) out.push(`    leads at the click: ${x.leads.length === 0 ? '(none)' : x.leads.map((n) => cut(n, 40)).join(', ')}`)
+      if (x.leads) out.push(`    leads at the click: ${x.leads.length === 0 ? '(none)' : x.leads.map((n) => (/^[A-Za-z0-9_-]{1,40}$/.test(n) ? n : '?')).join(', ')}`)
       out.push(`    read by: ${x.readers.length === 0 ? '(none)' : x.readers.map((r) => `${r.lane || '?'} (${r.by}, ${r.code})`).join(', ')}`)
     }
   }

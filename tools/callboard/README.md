@@ -81,7 +81,7 @@ caller.
    does. Typed in a conductor, the same command gives one go for the leads it owns and their lanes, the ones it
    opens later included; its main agent can ask you for one with `go_request`, as a lead's can. Such a go ends at
    its end time, at `go off`, or when the conductor turns off; taking a repo off the conductor's list does not end
-   it. The manager gives no go.
+   it, and a lead or lane the dialog listed keeps it until then, also if that lead leaves the conductor. The manager gives no go.
 
 A lead that you leave idle is told when a lane needs it (its session is gone, it waits on a prompt, it went
 quiet without signing), unless you pause that with `/callboard checkin pause` (an hour, or the time you give;

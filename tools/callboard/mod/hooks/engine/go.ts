@@ -151,7 +151,7 @@ async function goGive($: any, sid: string, text: unknown, hours: number, author:
   const missing = await guardCheck($)
   if (missing !== undefined) return { no: 'guard', why: `${g.GO_REFUSE.guard}: ${pr.GUARD_WHY[missing]}.` }
   const base = await leadCore($, sid)
-  if ('err' in base) return { no: 'store-unreadable', why: base.err[1] }
+  if ('err' in base) return { no: base.err[0] === 'conductor-list' ? 'conductor-list' : 'store-unreadable', why: base.err[1] }
   if (base.g.level !== level) return { no: 'not-lead' }
   const epoch = epochOf(sid)
   const held = () => grantOf(sid)?.level === level && epochOf(sid) === epoch
@@ -159,15 +159,38 @@ async function goGive($: any, sid: string, text: unknown, hours: number, author:
   const p = await where($)
   if (!p || typeof repo !== 'string') return { no: 'go-write' }
   const name = c.NAME_RE.test(base.g.name) ? base.g.name : ''
-  const inLanes = base.lanes.filter((l) => c.inReach(base.g, l) && typeof l.sid === 'string' && c.SID_RE.test(l.sid) && l.sid !== sid)
-  const covered = inLanes.map((l) => ({ name: l.name, sid: l.sid as string }))
+  const laneOk = (l: c.Lane) => typeof l.sid === 'string' && c.SID_RE.test(l.sid) && l.sid !== sid
+  const inLanes = base.lanes.filter((l) => c.inReach(base.g, l) && laneOk(l))
   // A conductor: the leads it owns whose record names a session, each once, and for the dialog every lead it owns with its lanes among the listed ones.
   const owns = level === 'conductor' ? (base.g.owns ?? []) : []
   const leads: g.GoConductor['leads'] = []
   for (const o of owns) if (typeof o.sid === 'string' && c.SID_RE.test(o.sid) && o.sid !== sid && !leads.some((x) => x.sid === o.sid)) leads.push({ name: o.name, sid: o.sid, repo: o.repo })
-  const groups: g.GoGroup[] = owns
-    .map((o) => ({ name: o.name, session: leads.some((x) => x.sid === o.sid), lanes: inLanes.filter((l) => c.pinReach(base.g, l).includes(o.repo) && (l.leadName !== undefined ? o.name === l.leadName : o.sole)).map((l) => l.name) }))
+  const groups: (g.GoGroup & { sid?: string })[] = owns
+    .map((o) => ({ name: o.name, sid: o.sid, session: leads.some((x) => x.sid === o.sid), lanes: inLanes.filter((l) => c.pinReach(base.g, l).includes(o.repo) && (l.leadName !== undefined ? o.name === l.leadName : o.sole)).map((l) => l.name) }))
     .filter((x) => x.session || x.lanes.length > 0)
+  // The go reaches every lead whose bound record names this conductor, whatever its list of repos holds now, and each lane whose record names such a lead by
+  // session id: the dialog lists them all, so nothing that is covered at the click is left out of it. A record or a binding that cannot be read: no dialog.
+  if (level === 'conductor') {
+    const recs = await loadLeadRecords($)
+    if (typeof recs === 'string') return { no: 'store-unreadable', why: c.LEAD_RECORDS_UNREADABLE }
+    for (const s of recs) {
+      for (const rec of s.store.leads) {
+        if (rec.sid === undefined || rec.conductorSid !== sid || !c.SID_RE.test(rec.sid) || rec.sid === sid || leads.some((x) => x.sid === rec.sid)) continue
+        const st = await boundState($, { key: s.key, repo: s.store.repo, rec }).catch(() => 'error' as const)
+        if (st === 'error') return { no: 'store-unreadable', why: c.LEAD_RECORDS_UNREADABLE }
+        if (st !== 'bound') continue
+        leads.push({ name: rec.name, sid: rec.sid, repo: s.store.repo })
+        groups.push({ name: rec.name, sid: rec.sid, session: true, lanes: [] })
+      }
+    }
+    for (const l of base.lanes) {
+      const lead = c.laneLeadSid(l)
+      if (inLanes.includes(l) || !laneOk(l) || lead === undefined || !leads.some((x) => x.sid === lead)) continue
+      inLanes.push(l)
+      groups.find((x) => x.sid === lead)?.lanes.push(l.name)
+    }
+  }
+  const covered = inLanes.map((l) => ({ name: l.name, sid: l.sid as string }))
   if (covered.length > g.GO_COVERED_MAX || leads.length > g.GO_LEADS_MAX) return { no: 'too-many' }
   const opened = await $.clock.now()
   const ends = opened + hours * c.HOUR_MS
@@ -187,7 +210,7 @@ async function goGive($: any, sid: string, text: unknown, hours: number, author:
     if (!c.noticeAllowed(times, opened, g.GO_REQUESTS_PER_HOUR)) return { no: 'rate' }
     goAsked.set(sid, c.pushRecent(times, opened))
   }
-  const asked = await goAsk($, sid, g.goQuestion({ name, covered: covered.map((x) => x.name), ends: when(ends), text: text as string, author, ...(level === 'conductor' ? { groups } : {}) }))
+  const asked = await goAsk($, sid, g.goQuestion({ name, covered: covered.map((x) => x.name), ends: when(ends), text: text as string, author, ...(level === 'conductor' ? { groups: groups.map((x) => ({ name: x.name, session: x.session, lanes: x.lanes })) } : {}) }))
   if (asked === 'busy') return { no: 'busy' }
   if (asked === 'timed-out') return { no: 'timed-out' }
   if (asked !== 'yes') return { no: 'cancelled' }
@@ -304,25 +327,38 @@ export async function goTailFor($: any, sid: string, laneSid?: string): Promise<
   }
 }
 
-// The end of a lead_open result: whether a live go of a conductor covers the new lead (leadSid: its session), read from the records as go_status will read them.
-export async function goLeadTailFor($: any, leadSid: string): Promise<string> {
+// The end of a lead_open result: whether a live go of the opening conductor (sid) covers the new lead (leadSid: its session), read from the records as go_status
+// will read them. A go of this conductor that is live and does not reach the lead is told apart from no go: asking for another would not reach it either.
+export async function goLeadTailFor($: any, sid: string, leadSid: string): Promise<string> {
   try {
     const found = await goesLive($)
     if ('no' in found) return g.goLeadTail(undefined)
     const box: RecBox = {}
     const hits: Found[] = []
-    for (const f of found) if (f.go.v === 2 && g.goReachesLead(f.go, leadSid, (await ownedFor($, f.go, [leadSid], box)).owned)) hits.push(f)
+    const own = found.filter((f) => f.go.v === 2 && f.go.by.sid === sid)
+    for (const f of own) if (g.goReachesLead(f.go, leadSid, (await ownedFor($, f.go, [leadSid], box)).owned)) hits.push(f)
     const hit = hits.sort((a, b) => b.go.ends - a.go.ends)[0]
+    if (!hit && own.length > 0) return g.GO_LEAD_TAIL_UNBOUND
     return g.goLeadTail(hit?.go, hit ? when(hit.go.ends) : undefined)
   } catch {
     return g.goLeadTail(undefined)
   }
 }
 
-// A lead or a conductor that stops being one (/callboard off, a grant taken back, a saved grant refused at a restart, a lead grant moved to another folder) ends
-// the goes it gave: one `go-end` row each. Its panel closing, parking or crashing ends none.
+// A lead or a conductor that stops being one (/callboard off, also of a grant that is only saved; a grant taken back; a lead grant moved to another folder; a
+// saved conductor grant that is invalid, belongs to another folder, or whose restore the person cancels) ends the goes it gave: one `go-end` row each. Its panel
+// closing, parking or crashing ends none, and neither does a restore that is refused with the saved grant kept: /callboard off or /callboard go off ends those.
 // Rows that could not be written, or goes that could not be read, are told to the person, who can end them with /callboard go off.
-export async function goGrantorOff($: any, sid: string): Promise<void> {
+// One run per session at a time: a second call while the first is writing joins it, so a go gets one row.
+const grantorOffRuns = new Map<string, Promise<void>>()
+export function goGrantorOff($: any, sid: string): Promise<void> {
+  const running = grantorOffRuns.get(sid)
+  if (running) return running
+  const p = grantorOffRun($, sid).finally(() => grantorOffRuns.delete(sid))
+  grantorOffRuns.set(sid, p)
+  return p
+}
+async function grantorOffRun($: any, sid: string): Promise<void> {
   goWatch.delete(sid)
   const found = await goesLive($, { guard: false })
   let failed = 'no' in found || found.missed > 0

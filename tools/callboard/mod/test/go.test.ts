@@ -3,7 +3,7 @@ import * as g from '../hooks/go'
 import { CONDUCTOR_HINT_PREFIX, HOUR_MS } from '../hooks/core'
 import { h, GO_DIR, LANESDIR, LEADRECDIR, ROOT, SID, T0, YES, extraStat, fakeSha, longTest, pdirs, pfs, repoKey, storeFiles, targetLogs, toasts } from './harness'
 import { ledgerRows, putLedger, wireGuard } from './answer-fixtures'
-import { APISID, APP2, COND, LEADSID, OTHER, OTHERLEAD, PERSON, PIN, SVC, bindOwner, ckLane, ckRow, callCreate, condOn, creator, cueSession, dirStat, lane, leadAt, leadCall, leadSelfReg, mgrAt, ownedBy, putLeadRecs, putStore, started, waitFor } from './fixtures'
+import { APISID, APP2, COND, condSelf, putCond, LEADSID, OTHER, OTHERLEAD, PERSON, PIN, SVC, bindOwner, ckLane, ckRow, callCreate, condOn, creator, cueSession, dirStat, lane, leadAt, leadCall, leadSelfReg, mgrAt, ownedBy, putLeadRecs, putStore, started, waitFor } from './fixtures'
 
 // ---- the go (ADR 0009): the dialog in a lead's session, the go file and its rows, go_request, go_status, /callboard go ----
 // The giver's side: this session (SID) is the lead LEAD of PIN, with the store lane API bound to session OTHER. The reader's side: this session is a plain one
@@ -667,6 +667,24 @@ test('/callboard off in a conductor ends the goes it gave, and no other', async 
   expect(goRows().filter((r) => r.kind === 'go-end')).toEqual([expect.objectContaining({ id: mine.id, code: 'grantor-off', by: SID })])
 })
 
+test("the conductor's dialog lists every lead whose bound record names it, also one in a repo off its list, with the lanes that name that lead by session id", async ($, on) => {
+  const WORKREPO = '/data/x/work'
+  const L2 = '00000001-0000-4000-8000-00000000abcd'
+  const W1 = '00000002-0000-4000-8000-00000000abcd'
+  await condGiver($, on, { repos: ['../app'] })
+  ownedBy(SID, { name: 'LEAD2', leadSid: L2, repo: WORKREPO })
+  storeFiles.set(`${LANESDIR}/${repoKey(WORKREPO)}.json`, JSON.stringify({ repo: WORKREPO, lanes: [{ name: 'W1', folder: WORKREPO, brief: `${WORKREPO}/BRIEF.md`, createdAt: 1, sid: W1, leadSid: L2 }], creates: [] }))
+  expect((await goCmd($, WORK)).text).toContain('recorded')
+  expect(h.lastQuestion).toContain('Covers now: lead LEAD (lane API); lead LEAD2 (lane W1); and leads and lanes opened under it later, until the end.')
+  expect(givenGo()).toMatchObject({ leads: [{ name: 'LEAD', sid: LEADSID, repo: PIN }, { name: 'LEAD2', sid: L2, repo: WORKREPO }], covered: [{ name: 'API', sid: APISID }, { name: 'W1', sid: W1 }] })
+  // A binding that cannot be read: no dialog, since what the go would reach is not known.
+  const asked = h.askCount
+  h.storeThrowSync = 'get'
+  expect((await goCmd($, WORK)).text).toContain('No go was given: store-unreadable:')
+  h.storeThrowSync = undefined
+  expect(h.askCount).toBe(asked)
+})
+
 test('more than 32 lanes or 16 leads refuse before any dialog', async ($, on) => {
   const WORKREPO = '/data/x/work'
   const sid = (i: number) => `${String(i).padStart(8, '0')}-0000-4000-8000-00000000abcd`
@@ -734,6 +752,28 @@ test('a saved conductor grant that is refused when the session starts ends the g
       putCondGo({ id: GOID.replace('9d', '9e') })
     },
   })
+  await waitFor(() => goKinds().includes('go-end grantor-off'))
+  expect(goRows().filter((r) => r.kind === 'go-end')).toEqual([expect.objectContaining({ id: GOID, code: 'grantor-off', by: SID })])
+})
+
+test('/callboard off ends the goes of a conductor whose grant is only saved: a restart whose restore was refused with the saved grant kept', async ($, on) => {
+  h.sessions = condSelf()
+  await started($, on, [], {
+    clock: true,
+    seed: () => {
+      h.callerCwd = COND
+      for (const r of [COND, PIN, APP2]) extraStat.set(`${r}/.git`, dirStat)
+      // The list file holds none of the approved repos: nothing is restored, and the saved grant stays.
+      putCond([])
+      h.store.set(`${CONDUCTOR_HINT_PREFIX}${SID}`, { home: COND, repos: [PIN], savedAt: T0 - 60_000 })
+      putCondGo({ by: { level: 'conductor', sid: SID, name: 'COND', repo: COND } })
+      putCondGo({ id: GOID.replace('9d', '9e') })
+    },
+  })
+  expect(h.store.has(`${CONDUCTOR_HINT_PREFIX}${SID}`)).toBe(true)
+  expect(goKinds()).toEqual(['go-grant', 'go-grant'])
+  h.askAnswer = '<yes button>' as any
+  await $.command.run(lane('off'))
   await waitFor(() => goKinds().includes('go-end grantor-off'))
   expect(goRows().filter((r) => r.kind === 'go-end')).toEqual([expect.objectContaining({ id: GOID, code: 'grantor-off', by: SID })])
 })
