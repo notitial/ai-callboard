@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
-import { LEAD_MANAGER_TEXT, MANAGER_RESTORE_QUESTION, MANAGER_RESTORED_TOAST, MANAGER_UNANSWERED_TOAST, MANAGER_REFRESH_MS, MANAGER_SILENT_GRACE_MS, REASON_TEXT, MANAGER_QUESTION, MANAGER_ON_TEXT, MANAGER_ALREADY, MANAGER_H2, managerRefusalText, managerBriefingNote, terminateQuestion, retireQuestion, removeQuestion, removedNoSessionText } from '../hooks/core'
-import { h, GOOD, LANESDIR, NO, PS_TABLE, ROOT, SID, T0, YES, colorRuns, extraStat, laneSeed, leadFiles, lockLog, longTest, psCalls, psDead, psFail, renames, seen, statErr, storeFiles, toasts, toolDefs } from './harness'
-import { APISID, COMPOSE, HOME, LEADPATH, LEADPS, LEADSID, MGR_NOAPI, MGR_SESS, MIN, NEWSID, OTHER, OTHERLEAD, OTHERMGR, PIN, QUIET, REPORT_OK, SELFPATH, STATUS_NONE, TURN, attacher, checkins, ckLane, ckLead, ckText, cue, cueSession, dirStat, doLane, grantAt, idleFor, killed, lane, leadAt, leadFileText, leadReg, leadSelfReg, listCall, logged, madeLane, mgrAt, mgrCall, mgrFile, mgrRow, newTrace, noArchiveRm, noteRows, nudges, ownReg, putStore, regAs, started, statusTable, statusText, storeNames, ticks, unanswered, waitFor } from './fixtures'
+import { LEAD_MANAGER_TEXT, MANAGER_RESTORE_QUESTION, MANAGER_RESTORED_TOAST, MANAGER_UNANSWERED_TOAST, MANAGER_ASK_AGAIN_TOAST, MANAGER_RESTORE_ASKS, MANAGER_RESTORE_RETRIES, notRestoredToast, MANAGER_REFRESH_MS, MANAGER_SILENT_GRACE_MS, REASON_TEXT, MANAGER_QUESTION, MANAGER_ON_TEXT, MANAGER_ALREADY, MANAGER_H2, managerRefusalText, managerBriefingNote, terminateQuestion, retireQuestion, removeQuestion, removedNoSessionText } from '../hooks/core'
+import { h, hangForever, GOOD, LANESDIR, NO, PS_TABLE, ROOT, SESSIONS, SID, T0, YES, colorRuns, extraStat, laneSeed, leadFiles, lockLog, longTest, psCalls, psDead, psFail, renames, seen, statErr, storeFiles, toasts, toolDefs } from './harness'
+import { APISID, COMPOSE, HOME, LEADPATH, LEADPS, LEADSID, MGR_NOAPI, MGR_SESS, MIN, NEWSID, OTHER, OTHERLEAD, OTHERMGR, PIN, QUIET, REPORT_OK, SELFPATH, STATUS_NONE, TURN, attacher, checkins, ckLane, ckLead, ckText, cue, cueSession, dirStat, doLane, grantAt, idleFor, killed, lane, leadAt, leadFileText, leadReg, leadSelfReg, listCall, logged, madeLane, mgrAt, mgrCall, mgrFile, mgrRow, newTrace, noArchiveRm, noteRows, nudges, ownReg, putStore, regAs, sleepMs, started, statusTable, statusText, storeNames, ticks, unanswered, waitFor } from './fixtures'
 
 // lane_remove does not exist (retire and terminate remove the record): five.
 const MGR_TOOLS = ['lane_list', 'lane_resume', 'lane_compact', 'lane_terminate', 'lane_retire']
@@ -807,7 +807,7 @@ longTest('manager restore: a dialog nobody answers restores nothing and keeps th
   await waitFor(() => h.askCount === 1)
   await ticks(50)
   await waitFor(() => mgrLogs(stdins).includes('manager-restore-unanswered:'))
-  expect(toasts).toContain(MANAGER_UNANSWERED_TOAST)
+  expect(toasts).toContain(MANAGER_ASK_AGAIN_TOAST)
   expect(h.store.get(MGRKEY)).toEqual({ name: 'MANAGER', savedAt: T0 - 60_000 })
   expect(await statusText($)).toBe(STATUS_NONE)
   expect(leadFiles.has(SELFPATH)).toBe(false)
@@ -832,10 +832,13 @@ test('manager restore: no question while the prompt box has a draft or the sessi
 
 test('manager restore: a --bg worker (row kind background) is never asked and keeps the saved grant; a missing row is retried', async ($, on) => {
   const stdins: string[] = []
+  const t0 = toasts.length
   await mgrRestarter($, on, stdins, { sess: MSELF({ kind: 'background' }) })
   await ticks(4)
   expect(h.askCount).toBe(0)
   expect(mgrLogs(stdins)).toContain('manager-restore-rejected:not-person')
+  // Nobody is there to read a toast.
+  expect(toasts.slice(t0).some((x) => x.startsWith('Manager not restored'))).toBe(false)
   expect(h.store.has(MGRKEY)).toBe(true)
   expect(await statusText($)).toBe(STATUS_NONE)
 })
@@ -859,6 +862,10 @@ test('manager restore: another live manager on the Mac, a lead, a lane and a nam
   expect(mgrLogs(stdins)).toContain('manager-restore-rejected:manager-exists')
   expect(h.store.has(MGRKEY)).toBe(true)
   expect(await statusText($)).toBe(STATUS_NONE)
+  // A final end: the person is told, and nothing is tried again.
+  expect(toasts).toContain('Manager not restored: another live session is the manager on this Mac. Run /callboard off there first.')
+  await ticks(5)
+  expect(mgrLogs(stdins).filter((x) => x.startsWith('manager-restore-rejected')).length).toBe(1)
 })
 test('manager restore: a name that is no longer reserved on this machine restores nothing', async ($, on) => {
   const stdins: string[] = []
@@ -1001,6 +1008,266 @@ test('manager restore: /callboard off in a session whose saved grant is not bein
   expect(h.store.has(MGRKEY)).toBe(false)
 })
 
+// ---- a restore never ends silently: the question is asked again after the next prompt in the session, a passing failure is tried again, a final end toasts ----
+const mgrUnanswered = async (stdins: string[], n: number) => {
+  await waitFor(() => mgrLogs(stdins).filter((x) => x === 'manager-restore-unanswered:').length === n)
+  await sleepMs(10)
+}
+test('manager restore: a question nobody answered is asked again after the next prompt in the session, not before, and the person\'s yes then restores', async ($, on) => {
+  const stdins: string[] = []
+  await mgrRestarter($, on, stdins)
+  h.askAnswer = ''
+  await ticks(3)
+  await mgrUnanswered(stdins, 1)
+  expect(toasts).toContain(MANAGER_ASK_AGAIN_TOAST)
+  h.askAnswer = YES
+  // No prompt: idle ticks ask nothing.
+  await ticks(10)
+  expect(h.askCount).toBe(1)
+  expect(await statusText($)).toBe(STATUS_NONE)
+  await $.prompt.submit({ text: 'hello' } as any)
+  await ticks(2)
+  await waitFor(() => mgrLogs(stdins).includes('manager-restored:'))
+  expect(h.askCount).toBe(2)
+  expect(h.lastQuestion).toBe(MANAGER_RESTORE_QUESTION)
+  expect(h.askedOptions).toEqual([['Manager', 'Cancel'], ['Manager', 'Cancel']])
+  expect(await statusText($)).toBe(statusTable(['Lane', 'NONE'], ['Manager', 'ON'], ['Check-ins', 'ON']))
+})
+test('manager restore: the question asked again waits for an idle session with an empty prompt box, and a Cancel then removes the saved grant', async ($, on) => {
+  const stdins: string[] = []
+  await mgrRestarter($, on, stdins)
+  h.askAnswer = ''
+  await ticks(3)
+  await mgrUnanswered(stdins, 1)
+  h.askAnswer = NO
+  h.sessions = MSELF({ status: 'busy' })
+  await $.prompt.submit({ text: 'hello' } as any)
+  await ticks(4)
+  expect(h.askCount).toBe(1)
+  h.sessions = MSELF()
+  await ticks(2)
+  await waitFor(() => mgrLogs(stdins).includes('manager-restore-cancelled:'))
+  expect(h.askCount).toBe(2)
+  expect(h.store.has(MGRKEY)).toBe(false)
+  expect(await statusText($)).toBe(STATUS_NONE)
+})
+test('manager restore: asked a few times at most: after the last unanswered question the person is told to run the command, and no later prompt asks', async ($, on) => {
+  const stdins: string[] = []
+  await mgrRestarter($, on, stdins)
+  h.askAnswer = ''
+  await ticks(3)
+  for (let n = 1; n < MANAGER_RESTORE_ASKS; n++) {
+    await mgrUnanswered(stdins, n)
+    expect(toasts).not.toContain(MANAGER_UNANSWERED_TOAST)
+    await $.prompt.submit({ text: `prompt ${n}` } as any)
+    await ticks(2)
+  }
+  await mgrUnanswered(stdins, MANAGER_RESTORE_ASKS)
+  expect(MANAGER_RESTORE_ASKS).toBe(3)
+  expect(toasts).toContain(MANAGER_UNANSWERED_TOAST)
+  h.askAnswer = YES
+  await $.prompt.submit({ text: 'later' } as any)
+  await ticks(5)
+  expect(h.askCount).toBe(MANAGER_RESTORE_ASKS)
+  expect(h.store.has(MGRKEY)).toBe(true)
+  expect(await statusText($)).toBe(STATUS_NONE)
+})
+test('manager restore: /callboard off while an unanswered question waits for the next prompt ends it: that prompt asks nothing', async ($, on) => {
+  const stdins: string[] = []
+  await mgrRestarter($, on, stdins)
+  h.askAnswer = ''
+  await ticks(3)
+  await mgrUnanswered(stdins, 1)
+  expect((await $.command.run(lane('off'))).text).toContain('Its saved manager grant was removed.')
+  h.askAnswer = YES
+  await $.prompt.submit({ text: 'hello' } as any)
+  await ticks(5)
+  expect(h.askCount).toBe(1)
+  expect(await statusText($)).toBe(STATUS_NONE)
+})
+test('manager restore: a failure that can clear by itself (the presence file not written) is tried again from the tick, with the question again, and then restores', async ($, on) => {
+  const stdins: string[] = []
+  const t0 = toasts.length
+  await mgrRestarter($, on, stdins)
+  let release!: () => void
+  h.registerGate = new Promise<void>((r) => (release = r))
+  await ticks(3)
+  await waitFor(() => h.askCount === 1)
+  await sleepMs(30)
+  statErr.set(`${ROOT}/leads`, `stat: ${ROOT}/leads: Permission denied`)
+  release()
+  await waitFor(() => mgrLogs(stdins).includes('manager-restore-retry:manager-presence'))
+  statErr.delete(`${ROOT}/leads`)
+  h.registerGate = undefined
+  expect(await statusText($)).toBe(STATUS_NONE)
+  expect(h.store.has(MGRKEY)).toBe(true)
+  expect(toasts.slice(t0).some((x) => x.startsWith('Manager not restored'))).toBe(false)
+  // The next try is the whole restore: the person's click is asked for again.
+  await ticks(2)
+  await waitFor(() => mgrLogs(stdins).includes('manager-restored:'))
+  expect(h.askCount).toBe(2)
+  expect(await statusText($)).toBe(statusTable(['Lane', 'NONE'], ['Manager', 'ON'], ['Check-ins', 'ON']))
+})
+test('manager restore: an off typed after a try failed ends the retries', async ($, on) => {
+  const stdins: string[] = []
+  await mgrRestarter($, on, stdins)
+  let release!: () => void
+  h.registerGate = new Promise<void>((r) => (release = r))
+  await ticks(3)
+  await waitFor(() => h.askCount === 1)
+  await sleepMs(30)
+  statErr.set(`${ROOT}/leads`, `stat: ${ROOT}/leads: Permission denied`)
+  release()
+  await waitFor(() => mgrLogs(stdins).includes('manager-restore-retry:manager-presence'))
+  statErr.delete(`${ROOT}/leads`)
+  h.registerGate = undefined
+  expect((await $.command.run(lane('off'))).text).toContain('Its saved manager grant was removed.')
+  await ticks(5)
+  expect(h.askCount).toBe(1)
+  expect(await statusText($)).toBe(STATUS_NONE)
+})
+test('manager restore: an off typed while a try is still running ends it: the failed try is not tried again and nothing is asked', async ($, on) => {
+  const stdins: string[] = []
+  await mgrRestarter($, on, stdins)
+  let release!: () => void
+  h.registerGate = new Promise<void>((r) => (release = r))
+  await ticks(3)
+  await waitFor(() => h.askCount === 1)
+  await sleepMs(30)
+  expect((await $.command.run(lane('off'))).text).toContain('Its saved manager grant was removed.')
+  release()
+  h.registerGate = undefined
+  await sleepMs(30)
+  await ticks(5)
+  expect(mgrLogs(stdins).some((x) => x.startsWith('manager-restore-retry') || x.startsWith('manager-restored'))).toBe(false)
+  expect(h.askCount).toBe(1)
+  expect(h.store.has(MGRKEY)).toBe(false)
+  expect(await statusText($)).toBe(STATUS_NONE)
+})
+test('manager restore: a failure after the yes is tried twice more at most, then the person is told and nothing more is asked', async ($, on) => {
+  const stdins: string[] = []
+  await mgrRestarter($, on, stdins)
+  // The check for another manager after each yes never answers (one listing of the leads folder hangs), so each try ends manager-check-slow.
+  h.askScript = async () => {
+    h.leadsListHook = () => {
+      h.leadsListHook = undefined
+      return hangForever()
+    }
+    return YES
+  }
+  for (let n = 1; n <= 3; n++) {
+    await ticks(3)
+    await waitFor(() => h.askCount === n)
+    // The check's own time limit (30 s) passes.
+    await ticks(16)
+    await waitFor(() => mgrLogs(stdins).filter((x) => x === 'manager-restore-rejected:manager-check-slow').length === n)
+    await sleepMs(20)
+  }
+  expect(mgrLogs(stdins).filter((x) => x === 'manager-restore-retry:manager-check-slow').length).toBe(2)
+  expect(toasts).toContain('Manager not restored: the check for another manager took too long. Run /callboard manager.')
+  await ticks(5)
+  expect(h.askCount).toBe(3)
+  expect(h.store.has(MGRKEY)).toBe(true)
+  expect(await statusText($)).toBe(STATUS_NONE)
+})
+test('manager restore: a failure after the yes is counted as one whatever its code: a registry that cannot be read after each yes asks three times in all', async ($, on) => {
+  const stdins: string[] = []
+  await mgrRestarter($, on, stdins)
+  // The registry is readable until the person's yes and not after it, so each try ends registry-unreadable in the check after the yes.
+  h.askScript = async () => {
+    statErr.set(SESSIONS, `stat: ${SESSIONS}: Permission denied`)
+    return YES
+  }
+  const rejected = () => mgrLogs(stdins).filter((x) => x === 'manager-restore-rejected:registry-unreadable').length
+  for (let n = 1; n <= 3; n++) {
+    await ticks(3)
+    await waitFor(() => h.askCount === n)
+    await waitFor(() => rejected() === n)
+    await sleepMs(20)
+    statErr.delete(SESSIONS)
+  }
+  expect(mgrLogs(stdins).filter((x) => x === 'manager-restore-retry:registry-unreadable').length).toBe(2)
+  expect(toasts).toContain(notRestoredToast('manager', 'registry-unreadable'))
+  await ticks(5)
+  expect(h.askCount).toBe(3)
+  expect(h.store.has(MGRKEY)).toBe(true)
+  expect(await statusText($)).toBe(STATUS_NONE)
+})
+test('manager restore: a failure before the question is tried again fifteen times, then the person is told; nothing was asked', async ($, on) => {
+  const stdins: string[] = []
+  await mgrRestarter($, on, stdins)
+  // The registry is readable at the tick and not inside the try: a try starts by reading the reserved names, and from then on the registry cannot be read.
+  class Watched extends Map<string, unknown> {
+    get(k: string) {
+      if (k === 'reserved') statErr.set(SESSIONS, `stat: ${SESSIONS}: Permission denied`)
+      return super.get(k)
+    }
+  }
+  h.store = new Watched(h.store)
+  try {
+    const rejected = () => mgrLogs(stdins).filter((x) => x === 'manager-restore-rejected:registry-unreadable').length
+    for (let n = 1; n <= MANAGER_RESTORE_RETRIES + 1; n++) {
+      for (let i = 0; i < 5 && rejected() < n; i++) {
+        await ticks(1)
+        await sleepMs(10)
+      }
+      expect(rejected()).toBe(n)
+      await sleepMs(10)
+      statErr.delete(SESSIONS)
+    }
+    expect(MANAGER_RESTORE_RETRIES).toBe(15)
+    expect(mgrLogs(stdins).filter((x) => x === 'manager-restore-retry:registry-unreadable').length).toBe(MANAGER_RESTORE_RETRIES)
+    expect(toasts).toContain(notRestoredToast('manager', 'registry-unreadable'))
+    await ticks(5)
+    expect(rejected()).toBe(MANAGER_RESTORE_RETRIES + 1)
+    expect(h.askCount).toBe(0)
+    expect(h.store.has(MGRKEY)).toBe(true)
+    expect(await statusText($)).toBe(STATUS_NONE)
+  } finally {
+    h.store = new Map(h.store)
+    statErr.delete(SESSIONS)
+  }
+})
+test('manager restore: a restore that had to ask is never silent on a later try, even when the silent conditions hold by then', async ($, on) => {
+  const stdins: string[] = []
+  // A fresh saved grant for this folder, but the folder read fails at the first try: it asks, and nobody answers.
+  await mgrRestarter($, on, stdins, { raw: { name: 'MANAGER', cwd: MGRCWD, savedAt: T0 - 60_000 }, seed: () => (h.cwdThrows = 1) })
+  h.askAnswer = ''
+  await ticks(3)
+  await mgrUnanswered(stdins, 1)
+  h.askAnswer = YES
+  await $.prompt.submit({ text: 'hello' } as any)
+  await ticks(2)
+  await waitFor(() => mgrLogs(stdins).some((x) => x.startsWith('manager-restored:')))
+  expect(mgrLogs(stdins)).not.toContain('manager-restored:silent')
+  expect(h.askCount).toBe(2)
+})
+test('manager restore: the person\'s own /callboard manager that they cancel ends a restore that waits for the next prompt: no restore question follows', async ($, on) => {
+  const stdins: string[] = []
+  await mgrRestarter($, on, stdins)
+  h.askAnswer = ''
+  await ticks(3)
+  await mgrUnanswered(stdins, 1)
+  h.askAnswer = NO
+  expect((await $.command.run(lane('manager'))).text).toBe('Manager stays off.')
+  expect(h.askCount).toBe(2)
+  h.askAnswer = YES
+  await $.prompt.submit({ text: 'hello' } as any)
+  await ticks(5)
+  expect(h.askCount).toBe(2)
+  expect(await statusText($)).toBe(STATUS_NONE)
+  // The saved grant is not the command's to remove.
+  expect(h.store.has(MGRKEY)).toBe(true)
+})
+test('manager restore: a session that is a lane gets one toast saying why', async ($, on) => {
+  const stdins: string[] = []
+  await mgrRestarter($, on, stdins, { bound: true })
+  await ticks(3)
+  expect(mgrLogs(stdins)).toContain('manager-restore-rejected:lane-holder')
+  expect(toasts).toContain(notRestoredToast('manager', 'lane-holder'))
+  expect(notRestoredToast('manager', 'lane-holder')).toBe('Manager not restored: this session is a lane, so it cannot be the manager. Run /callboard lane off first.')
+})
+
 test('manager restore: a saved grant that fails the parse is deleted with no question; another session\'s bad one is pruned at start', async ($, on) => {
   const stdins: string[] = []
   await mgrRestarter($, on, stdins, { raw: { name: 'bad name', savedAt: T0 }, seed: () => h.store.set('manager:11111111-0000-4000-8000-123456789abc', 'junk') })
@@ -1009,6 +1276,7 @@ test('manager restore: a saved grant that fails the parse is deleted with no que
   expect(h.store.has(MGRKEY)).toBe(false)
   expect(h.store.has('manager:11111111-0000-4000-8000-123456789abc')).toBe(false)
   expect(mgrLogs(stdins)).toContain('manager-restore-rejected:invalid')
+  expect(toasts).toContain('Manager not restored: its saved grant was too old or could not be read, so it was removed. Run /callboard manager.')
 })
 
 // ---- the silent restore: a saved grant that names this folder and is younger than the grace period comes back with no question ----

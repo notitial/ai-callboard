@@ -77,7 +77,7 @@ FUTURE_SLACK_S = 300
 # pinged session shows at the next tick. Ceiling: the same margin before the 1h TTL.
 CACHE_IDLE_MIN, CACHE_IDLE_MAX = 20, 50
 CACHE_CTX_MIN = 200_000  # default of --cache-ctx-min: the keep-warm break-even sits near 200k
-CACHE_WORK_MAX_MIN = 180
+CACHE_WORK_MAX_MIN = 120  # callboard's default `stop after`: past it callboard sends no more pings
 WORK_OUTPUT_MIN = 200  # a main call with more output than this is real work, not a keepalive reply
 CACHE_MAX = 5
 # compactSoon: a session past the context where compacting at its next task boundary pays off.
