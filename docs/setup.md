@@ -145,7 +145,9 @@ live checkouts, of `~/.claude/settings*.json` or of callboard's state folder, be
 agent to answer. Until the hook is in place, escalation stays off on that machine:
 
 1. ai-toolkit carries the hook and your toolkit checkout is up to date. Run `/setup-claude` yourself: it links the
-   hook into `~/.claude/hooks/` and wires it in `~/.claude/settings.json`. An agent never edits settings.
+   hook into `~/.claude/hooks/` and wires it in `~/.claude/settings.json`, as `/bin/bash -p "$HOME/.claude/hooks/protected-paths-guard.sh" || exit 2`.
+   Callboard counts that command, or the bare link path, as wired; any other command (another interpreter, no `|| exit 2`,
+   extra commands) does not count. An agent never edits settings.
 2. The hook protects a folder only when it holds a `.protected-checkout` file. The file is untracked, so only you
    make it. Run these once, with `<checkout>` your ai-manager checkout and `<toolkit>` your ai-toolkit checkout:
 
@@ -291,7 +293,7 @@ lane or a live lead carries cannot be reserved. Details: callboard README, The m
 | Mod loaded | type `/callboard status` in a session | it answers a status table with a `Lane` row (`NONE`) and a `Lead` row (`OFF`) or similar |
 | Reserved names | type `/callboard reserve` | the manager's name, when it is not `MANAGER`, is listed |
 | Deny lines | read `permissions.deny` in `~/.claude/settings.json` | the two store and list-file lines are there |
-| Protected-paths hook | `jq -e '[.hooks.PreToolUse[]?.hooks[]?.command] \| any(endswith("/protected-paths-guard.sh"))' ~/.claude/settings.json`, and `ls <checkout>/.protected-checkout <toolkit>/.protected-checkout ~/.claude/callboard/.protected-checkout` | `true`, and all three markers exist; escalation is on by default only while this holds (`/callboard status` names what is missing) |
+| Protected-paths hook | `jq -e '[.hooks.PreToolUse[]?.hooks[]?.command] \| any(. == "/bin/bash -p \"$HOME/.claude/hooks/protected-paths-guard.sh\" \|\| exit 2" or endswith("/protected-paths-guard.sh"))' ~/.claude/settings.json`, and `ls <checkout>/.protected-checkout <toolkit>/.protected-checkout ~/.claude/callboard/.protected-checkout` | `true`, and all three markers exist; escalation is on by default only while this holds (`/callboard status` names what is missing) |
 | Usage watcher | `bash tools/usage-watcher/install.sh --status --ref <commit>` | exit 0, the job loaded |
 | Summary | `ls -l ~/.local/state/usage-watcher/usage-summary.json` | written in the last 5 minutes |
 | Retired hook | read `hooks.SessionStart` in `~/.claude/settings.json` | no `account-stamp.sh` entry |

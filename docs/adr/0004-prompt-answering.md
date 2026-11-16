@@ -398,7 +398,7 @@ the label is in the questions file for 90 days. It prints the lane's question be
 
 *Amended 2026-11-14: on by default, behind a guard.* With no stored switch, escalation is on for all lanes and leads, permission prompts
 and questions alike (scope `all`, asks scope `all`), but only while the hook and the markers that docs/setup.md asks for are
-in place: ai-toolkit's protected-paths hook wired in `~/.claude/settings.json` (the linked hook itself, on a matcher that covers Edit, Write and Bash, hooks not disabled), and `.protected-checkout` in the callboard folder,
+in place: ai-toolkit's protected-paths hook wired in `~/.claude/settings.json` (the linked hook itself, or ai-toolkit's fail-closed wrapper of it, `/bin/bash -p "$HOME/.claude/hooks/protected-paths-guard.sh" || exit 2`, on a matcher that covers Edit, Write and Bash, hooks not disabled), and `.protected-checkout` in the callboard folder,
 the toolkit and the checkout the mod loads from. The mod checks this at run time, at most once a minute; any read that fails
 counts as missing, and then escalation is off, a waiting request ends as `off` and goes back to the person, and `/callboard status`
 says what is missing. The OFF file and `/callboard escalation off` win at once: `off` now stores `{ off: true }` in place of

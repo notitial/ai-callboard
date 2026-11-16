@@ -79,7 +79,7 @@ first; it is the source for every step here, and wins where the two differ.
    `chmod go-w <conductor repo>/.claude`. The live checkout needs no deny lines: the hook and the markers below
    protect it (docs/setup.md, Keep agents off the live checkout).
    - Protected-paths hook: docs/setup.md, Escalation is on by default once the protected-paths hook is in place. Run
-     `jq -e '[.hooks.PreToolUse[]?.hooks[]?.command] | any(endswith("/protected-paths-guard.sh"))' ~/.claude/settings.json`
+     `jq -e '[.hooks.PreToolUse[]?.hooks[]?.command] | any(. == "/bin/bash -p \"$HOME/.claude/hooks/protected-paths-guard.sh\" || exit 2" or endswith("/protected-paths-guard.sh"))' ~/.claude/settings.json`
      and `ls ~/.claude/hooks/protected-paths-guard.sh`. If either fails, tell the person to update their ai-toolkit
      checkout and run `/setup-claude` themselves, then come back: it is ai-toolkit's, never yours to wire or edit.
      Then run `ls <checkout>/.protected-checkout <toolkit>/.protected-checkout ~/.claude/callboard/.protected-checkout`; for each marker that is
