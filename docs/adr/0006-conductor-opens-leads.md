@@ -68,6 +68,24 @@ For waking a lead:
   made by hand (ADR 0002, several leads in a repo). The new panel's own second-lead rule is unchanged: with
   another live lead that has no usable name it refuses `other-lead-unnamed` at the grant, after the offer, the
   panel and the brief are written, so the panel stays a plain one and the offer counts against the hour.*
+  *2026-11-16: the per-repo hourly rate is replaced by two limits per conductor, at the person's choice, after it
+  blocked a conductor that had done nothing wrong (the three tries counted failed opens, and the refusal named no
+  time). (1) A conductor owns at most 4 leads at once: its lead records (ADR 0007) are the count, across every repo,
+  a parked lead keeping its slot, and an offer of its own still open (under ten minutes old, with no grant or void
+  of its nonce yet) holds one too, so an open whose panel is slow to answer cannot be followed by a fifth. The
+  conductor retires a lead to free a slot. (2) A backstop of 8 successful opens an hour per conductor, counted from
+  `lead-grant` rows by its session; a grant whose nonce was voided, and every refused or failed try, does not count.
+  The cap is checked first. The refusal names the limit: for the cap, the leads that hold the slots and that one
+  must be retired (`lead_retire`); for the backstop, the time the next open is allowed, when the oldest counted open
+  leaves the hour. Nothing is written before either check. The offer and claim stay per repo. The bound on a
+  conductor that loops is now the 4-lead cap, with the backstop behind it for a conductor that opens and retires in
+  a loop. Accepted, at the person's choice: a try that fails after its panel is open (the new panel refuses, the
+  cue fails) counts against neither limit, so a conductor that keeps failing is not stopped by them and can leave
+  plain panels in the person's window; the ledger and the toast make it visible. A loose limit on tries would
+  bound it and is the follow-up if that is seen. Conductors granted before this change keep the power with no new
+  dialog, so they now may open up to 8 an hour, in one repo or across several. A conductor's identity here is its session id, as in the lead records: a conductor that restarts in a new
+  session starts with no leads and no opens counted, while the records of the leads it opened keep naming the old
+  session id.*
 - **Two files.** The conductor's mod writes the task to `<repo>/.archive/<NAME>/BRIEF.md` under a lead brief
   header, an **offer** in callboard's offer folder (one file per repo, created exclusively: name, repo, model, the
   conductor's session id, pid and process start time, a time and a single-use nonce), and a small **open
@@ -127,6 +145,7 @@ For waking a lead:
   this change get the power without a new dialog, by the person's choice.
   *2026-11-15: the dialog now says "(one an hour per repo)", as the one-lead-per-repo rule is dropped (see "Limits
   on the act").*
+  *2026-11-16: the dialog now says "(at most 4 leads at once, 8 successful opens an hour)".*
 - **Built in steps.** The tool and the extension's open came first and alone only opened the panel. The grant
   is the second step; it is the part on the risk list and needed the person's own go.
 
@@ -157,7 +176,7 @@ Consequences becomes at most 12 fixed resume turns an hour with no token. P-C5 a
 
 Ledger rows `lead-offer`, `lead-offer-void`, `lead-grant` and `lead-resume`. The audit flags a grant with no offer
 row of the same nonce and conductor, two grants of one repo in an hour (a grant whose nonce was voided does not
-count), a grant that was told to have failed (a void row of its nonce), and a resume whose sender was not a
+count; *2026-11-16: now more than 8 grants by one conductor in an hour*), a grant that was told to have failed (a void row of its nonce), and a resume whose sender was not a
 conductor or manager at the time. The conductor's own mod reads the ledger once a minute for grants naming its
 session in the last day and shows the person a toast for any whose nonce it has no memory of offering (it also
 fires for a grant it offered before a restart, which is the safe side).
@@ -172,6 +191,8 @@ fires for a grant it offered before a restart, which is the safe side).
   per approved repo per hour, each of which can create lanes within that lead's own limits (16 lanes, 12 creates
   an hour per repo). The person sees a toast per lead and the ledger; `/callboard off` in either session ends it,
   and the switch withdraws the power.
+  *2026-11-16: a wrong conductor now holds at most 4 leads at once and opens at most 8 an hour, not one per approved
+  repo per hour.*
 - A lead keeps running, and restores, after its repo leaves the conductor's list, as any lead does. The conductor
   loses reach over it at once.
 - The brief is the conductor model's text, at the trust level of that model and the repo; its header says it is
@@ -181,8 +202,9 @@ fires for a grant it offered before a restart, which is the safe side).
   trusted conductor is live: that session becomes a lead at once, with no restart and no click, and its brief is
   the forger's. The saved-grant forgery of ADR 0002 (the lead grant and the conductor grant) needs a restart of a
   known session; this does not. A forged saved conductor grant now also carries the power to open up to 16 leads
-  an hour. The toast, the log, the ledger, the audit and the conductor's own check make it visible; nothing
-  prevents it. The same process can write `resume` cues: at most 12 fixed turns an hour into an idle lead, each
+  an hour (*2026-11-16: now at most 4 leads at once and 8 opens an hour per conductor session; both are counted
+  from the lead records and the ledger, which the same process can write too*). The toast, the log, the ledger, the
+  audit and the conductor's own check make it visible; nothing prevents it. The same process can write `resume` cues: at most 12 fixed turns an hour into an idle lead, each
   pointing only at a message with its token.
 - **Accepted residual: a named, plain panel.** A refusal after the rename leaves a panel named NAME that holds no
   level: the person can click `Lead` in it. Nothing runs in it until then.

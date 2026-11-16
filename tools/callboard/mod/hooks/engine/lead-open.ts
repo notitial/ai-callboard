@@ -1,6 +1,6 @@
 // lead_open: a conductor opens a panel for a new lead in one of its repos and cues it (ADR 0006). The new panel decides: it runs every check itself and makes itself the lead.
-// Trust rules held here: the repo is in the conductor's reach at the call; one open in flight per conductor; at most one successful
-// open and three offers per repo per hour, counted from the ledger (the bound on a conductor that loops); no cap on the live leads of a repo (the new panel's second-lead naming rule still applies at its grant); every check runs before the first write, and a write that fails takes back the offer and voids its row.
+// Trust rules held here: the repo is in the conductor's reach at the call; one open in flight per conductor; per conductor at most LEADS_PER_CONDUCTOR leads it owns at once (live and parked, from the lead records) and OPENS_PER_CONDUCTOR_HOUR successful opens an hour (from the
+// ledger, the bound on a conductor that loops); no cap on the live leads of a repo (the new panel's second-lead naming rule still applies at its grant); every check runs before the first write, and a write that fails takes back the offer and voids its row.
 import * as c from '../core.ts'
 import { conductorHome, condOffers } from '../mem.ts'
 import { sha, where, statR, real, logq, rmF, pause } from './base.ts'
@@ -99,9 +99,16 @@ async function openLead($: any, e: any, sid: string, base: { live: RegRow[]; lan
   // A claim left behind with no offer (its panel never answered) goes with a stale offer, after the same age; a younger one still holds the repo.
   const cl = await statR($, `${p.root}/offers/${key}.claim`)
   if (cl !== 'absent' && !(cl !== 'error' && cl.kind === 'file' && now - cl.mtimeMs > c.OFFER_STALE_MS && (await rmF($, `${p.root}/offers/${key}.claim`))?.exitCode === 0)) return no('offer-open', c.reasonWhy('offer-open'))
-  const rows = await ledgerRowsFor($, p, `"hash":"${key}"`)
-  if (rows === 'unreadable') return no('ledger-unreadable', c.reasonWhy('ledger-unreadable'))
-  if (c.leadOpenRate(rows, key, now) !== 'ok') return no('open-rate', c.reasonWhy('open-rate'))
+  // The offer, grant and void rows of the ledger (kind by kind, so the volume follows opens and not prompts answered); leadOpenLimit keeps the conductor's own. A grant whose nonce was voided does not count.
+  const rows: c.LeadOpenRow[] = []
+  for (const kind of ['lead-offer', 'lead-grant', 'lead-offer-void']) {
+    const part = await ledgerRowsFor($, p, `"kind":"${kind}"`)
+    if (part === 'unreadable') return no('ledger-unreadable', c.reasonWhy('ledger-unreadable'))
+    rows.push(...part)
+  }
+  // Only the leads of repos still in the conductor's reach count: lead_retire cannot reach the others, so the person ends those.
+  const limit = c.leadOpenLimit(recs.filter((s) => base.g.pins.includes(s.store.repo)).flatMap((s) => s.store.leads), rows, sid, now)
+  if (!limit.ok) return no(limit.code, `${limit.code}: ${limit.code === 'lead-cap' ? c.leadCapText(limit.held) : c.openBackstopText(limit.retryAt, now)}`)
   const me = base.live.find((r) => r.j.sessionId === sid)?.j
   if (!me || !Number.isInteger(me.pid) || typeof me.procStart !== 'string') return no('registry-unreadable', c.reasonWhy('registry-unreadable'))
 
