@@ -1200,14 +1200,14 @@ test('helpText is a header and a two-column table with one row per subcommand, m
   assert.deepEqual(lines.slice(0, 4), ['**Callboard commands**', '', '| Command | What it does |', '|---|---|'])
   const rows = lines.slice(4)
   const words = rows.map((l) => /^\| ([^ \\|]+)/.exec(l)![1])
-  assert.deepEqual(words, ['lanes', 'status', 'lead', 'lead', 'lead', 'lane', 'lane', 'escalation', 'go', 'go', 'conductor', 'conductor', 'conductor', 'manager', 'config', 'config', 'config', 'config', 'reserve', 'reserve', 'reserve', 'checkin', 'checkin', 'rest', 'off', 'help'])
+  assert.deepEqual(words, ['lanes', 'status', 'lead', 'lead', 'lead', 'lane', 'lane', 'escalation', 'go', 'go', 'here', 'here', 'conductor', 'conductor', 'conductor', 'manager', 'config', 'config', 'config', 'config', 'reserve', 'reserve', 'reserve', 'checkin', 'checkin', 'rest', 'off', 'help'])
   assert.ok(lines.some((l) => l.startsWith('| lead join \\[CONDUCTOR\\] |')) && lines.some((l) => l.startsWith('| lead leave |')))
   assert.ok(lines.includes('| lane \\[NAME\\] | Make this session a lane, named NAME if given. |'))
   assert.ok(lines.includes('| checkin pause \\[Nm\\|Nh\\] | Pause check-ins for N minutes or hours (1 minute to 24 hours), or for 1 hour if you give no time. |'))
   for (const l of rows) assert.equal(l.replace(/\\\|/g, '').split('|').length, 4, l)
   assert.ok(!c.helpText().includes(c.DIALOG_LINE), 'the dialog line belongs to the escalation output only')
   assert.match(c.HELP_USAGE, /manager/)
-  assert.equal(c.HELP_USAGE, 'Use /callboard lanes, status, lead, lane, escalation, go, conductor, manager, config, reserve, checkin, rest, off or help. Run /callboard help for the full list.')
+  assert.equal(c.HELP_USAGE, 'Use /callboard lanes, status, lead, lane, escalation, go, here, conductor, manager, config, reserve, checkin, rest, off or help. Run /callboard help for the full list.')
   assert.ok(c.HELP_USAGE.endsWith('Run /callboard help for the full list.'))
 })
 
@@ -3552,7 +3552,7 @@ test('parseCommandArgs: lead NAME and conductor NAME are the grants with a name;
   // A word that is not a name shape still parses: grantNameNo refuses it with its own text, not the usage line.
   assert.deepEqual(c.parseCommandArgs('lead bad!'), { leadNamed: 'bad!' })
   assert.deepEqual(c.parseCommandArgs('conductor ' + 'a'.repeat(41)), { conductor: { grant: 'a'.repeat(41) } })
-  for (const w of ['join', 'leave', 'add', 'remove', 'on', 'off', 'Join', 'LEAVE', 'Remove', 'status', 'lanes', 'Help', 'config', 'rest', 'escalation', 'go', 'manager']) {
+  for (const w of ['join', 'leave', 'add', 'remove', 'on', 'off', 'Join', 'LEAVE', 'Remove', 'status', 'lanes', 'Help', 'config', 'rest', 'escalation', 'go', 'here', 'manager']) {
     assert.ok(c.isGrantWord(w), w)
     assert.notDeepEqual(c.parseCommandArgs(`lead ${w}`), { leadNamed: w }, w)
     assert.notDeepEqual(c.parseCommandArgs(`conductor ${w}`), { conductor: { grant: w } }, w)
