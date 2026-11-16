@@ -202,9 +202,14 @@ export const GUARD_WHY: Record<GuardMissing, string> = {
   'marker-checkout': 'the .protected-checkout marker is missing in the ai-manager checkout',
 }
 // Whether a settings file wires the hook: some PreToolUse entry whose matcher covers the file, shell and git tools (absent, empty, `*`, or naming Edit, Write and Bash)
-// has a command that is the linked hook itself (`hookLink`, with a leading `~`, `$HOME` or `${HOME}` taken as `home`) or ai-toolkit's fail-closed wrapper of it, exactly
-// `/bin/bash -p "<hook>" || exit 2` (inside the quotes only `$HOME` and `${HOME}` expand, a `~` does not, and a link with a character the quotes would still expand is
-// not matched), and `disableAllHooks` is not true. Anything that does not parse, or has another shape, is no.
+// holds a hook entry that gates and runs the linked hook through ai-toolkit's fail-closed wrapper, exactly `/bin/bash -p "<hook>" || exit 2`, where `<hook>` is `hookLink`
+// or `hookLink` with its leading `home` written `$HOME` or `${HOME}` (a `~` does not expand inside the quotes, and a link with a character the quotes would still expand
+// is not matched). The bare path does not count: it lets a call through when the hook cannot start. The entry has `type` `command` and no key beyond `type`, `command`,
+// `timeout`, `statusMessage` and `onFailure`, so a field that makes a hook not block (`async`, `if`, `args`, `shell`) reads as not wired, and its `timeout` is absent or at
+// least GUARD_TIMEOUT_MIN seconds, since a hook that times out does not block. `disableAllHooks` is not true and settings `env` does not set `HOME`, which would repoint
+// `$HOME` for the hook. Anything that does not parse, or has another shape, is no.
+const GUARD_TIMEOUT_MIN = 10
+const GUARD_ENTRY_KEYS = new Set(['type', 'command', 'timeout', 'statusMessage', 'onFailure'])
 export function settingsWireGuard(text: unknown, hookLink: string, home: string): boolean {
   if (typeof text !== 'string') return false
   let j: unknown
@@ -213,22 +218,25 @@ export function settingsWireGuard(text: unknown, hookLink: string, home: string)
   } catch {
     return false
   }
-  if (obj(j).disableAllHooks === true) return false
+  if (obj(j).disableAllHooks === true || 'HOME' in obj(obj(j).env)) return false
   const pre = obj(obj(j).hooks).PreToolUse
   if (!Array.isArray(pre)) return false
-  const expand = (s: string): string => s.replace(/^(?:~|\$HOME|\$\{HOME\})(?=\/)/, home)
   const expandQuoted = (s: string): string => s.replace(/^(?:\$HOME|\$\{HOME\})(?=\/)/, home)
   const quotable = !/["$`\\]/.test(hookLink)
   const runsHook = (cmd: string): boolean => {
-    if (expand(cmd) === hookLink) return true
     const w = quotable ? /^\/bin\/bash -p "(.+)" \|\| exit 2$/.exec(cmd) : null
     return w !== null && expandQuoted(w[1]) === hookLink
+  }
+  const gates = (h: unknown): boolean => {
+    const e = obj(h)
+    const t = e.timeout
+    return e.type === 'command' && typeof e.command === 'string' && runsHook(e.command) && Object.keys(e).every((k) => GUARD_ENTRY_KEYS.has(k)) && (t === undefined || (typeof t === 'number' && t >= GUARD_TIMEOUT_MIN))
   }
   return pre.some((m) => {
     const mt = obj(m).matcher
     const covers = mt === undefined || mt === '' || mt === '*' || (typeof mt === 'string' && ['Edit', 'Write', 'Bash'].every((t) => mt.split('|').includes(t)))
     const hs = obj(m).hooks
-    return covers && Array.isArray(hs) && hs.some((h) => typeof obj(h).command === 'string' && runsHook(obj(h).command as string))
+    return covers && Array.isArray(hs) && hs.some(gates)
   })
 }
 // The ai-toolkit checkout from the real path of the linked hook: <toolkit>/hooks/protected-paths-guard.sh. Anything else has no toolkit.
