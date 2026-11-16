@@ -2211,8 +2211,10 @@ export async function conductorTick($: any, sid: string) {
   const pend = conductorRestorePending.get(sid)
   if (pend && !pend.asking && pend.unanswered && grants.has(sid)) {
     // The person made the session a lead while the unanswered question waited, or before it was asked again: that grant stands and the restore ends at this
-    // tick, so the session no longer counts as a conductor on its way back.
+    // tick, so the session no longer counts as a conductor on its way back. It is no conductor after it, so the goes its conductor grant gave end too (the
+    // lead's own goes stay), as at the other refusals (conductorRestoreTry).
     conductorRestorePending.delete(sid)
+    void goGrantorOff($, sid, 'conductor').catch(() => undefined)
     await log($, sid, 'conductor-restore-rejected', 'lead-holder')
   } else if (pend && !pend.asking && !pend.waiting) {
     if (!pend.ask) {
