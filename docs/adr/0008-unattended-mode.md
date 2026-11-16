@@ -49,8 +49,8 @@ Facts that bound the options:
 ## Decision
 
 - **A window on one machine.** The person opens it with their own command and one dialog, for a bounded time with a
-  default length. To open, it needs escalation on for everything, a live manager and check-ins on. It counts only
-  while its ledger row and its stored value agree.
+  default length. The dialog expires: a late click turns nothing on and says so. To open, it needs escalation on for
+  everything, a live manager and check-ins on. It counts only while its ledger row and its stored value agree.
 - **Nothing is put to the person.** No tier relays, and a relay that slips in is taken back. A tier's own question is
   refused by its mod, failing closed; so is a prompt of its own that no tier can answer. The tier takes the safe
   default and notes the open decision in its own state or report, for the person's return.
@@ -80,7 +80,9 @@ Facts that bound the options:
   command lists the window: how it ended, and what was parked, held, still open, denied and allowed.
 - **The go.** The mode gives and widens no go. No session, a lead or a conductor, can open the go dialog while it is
   on; the person can still give one themselves. The manager follows the rubric as it stands when it judges a
-  request, so a change to what a go lets a tier allow is decided in ADR 0009, not here.
+  request. The person took the question ADR 0009 left open: under a go, a tier allows the edits and test runs on the
+  risky code the go names, by day and inside a window, while a merge and the rest of the go's list still go to the
+  person. ADR 0009 is amended by the PR that builds it, not here.
 - **Not an armed run.** It pre-authorises nothing and does not satisfy the arming of an unattended run in ai-toolkit
   (https://github.com/notitial/ai-toolkit/blob/main/rules/workflow.md).
 
@@ -101,6 +103,8 @@ Facts that bound the options:
 - An agent can end the mode. That opens no window and allows nothing, but it brings the relays back while the person
   is away, so the work stops on the first question to them. The record names who ended it.
 - With no live manager every unanswered prompt costs its lane the full wait.
+- Waits count awake time. While the machine sleeps, a prompt can stall past the point where it would be held, and a
+  window whose time passed during sleep ends only at the first read after the wake.
 - A process of the same user that writes both the ledger row and the stored value opens a window. The go rests on
   the same trust in the person's origin and the mod's dialog.
 - Sessions on older code must be restarted before the mode is used: an old lane and an old tier together can still
@@ -112,11 +116,11 @@ Each gets a dated line pointing here when the code that makes it true lands, not
 
 - **ADR 0001:** the exception that lets the manager answer prompts through the mod also covers a park and a
   provisional answer. The manager still never allows a risk-list prompt, and stop dialogs stay the person's.
-- **ADR 0004:** inside a window no tier relays. A tier's own question, and a conductor's or manager's own prompt, is
-  refused where it was the person's. The manager denies or parks what it would have passed up, where a tier denied
-  only when certain. A prompt that reached a tier and that none answered is held: closed for the person's return,
-  where the lane was told to ask again. A lane's prompt with no tier in reach still stays in its panel. A question
-  the rubric leaves to the person may get a provisional answer.
+- **ADR 0004:** inside a window no tier relays. A tier's own question, a conductor's or manager's own prompt, and a
+  lead's own prompt with no tier in reach, is refused where it was the person's. The manager denies or parks what it
+  would have passed up, where a tier denied only when certain. A prompt that reached a tier and that none answered
+  is held: closed for the person's return, where the lane was told to ask again. A lane's prompt with no tier in
+  reach still stays in its panel. A question the rubric leaves to the person may get a provisional answer.
 - **ADR 0011:** inside a window an ask a tier surfaces is parked or held, not relayed. What rises, and what a tier
   may handle, stand.
 - **ADR 0009:** neither a lead nor a conductor can open the go dialog inside a window.
