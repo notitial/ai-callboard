@@ -1062,13 +1062,14 @@ export async function checkinDue($: any, sid: string): Promise<boolean> {
   }
   return true
 }
-// The told set keeps only conditions that still hold: one that cleared and comes back has a new since. Returns the items not told yet.
-function owedItems(sid: string, items: c.AttentionItem[]): { told: Set<string>; owed: c.AttentionItem[] } {
+// The told set keeps only conditions that still hold (all: every observed item): one that cleared and comes back has a new since. Returns the items not told yet
+// among `askable`, the ones the session may be told of (all of them unless some are held back, as c.checkinSkipHeld does).
+function owedItems(sid: string, all: c.AttentionItem[], askable: c.AttentionItem[] = all): { told: Set<string>; owed: c.AttentionItem[] } {
   const told = attnTold.get(sid) ?? new Set<string>()
   attnTold.set(sid, told)
-  const keys = new Set(items.map(c.checkinKey))
+  const keys = new Set(all.map(c.checkinKey))
   for (const k of told) if (!keys.has(k)) told.delete(k)
-  return { told, owed: items.filter((i) => !told.has(c.checkinKey(i))) }
+  return { told, owed: askable.filter((i) => !told.has(c.checkinKey(i))) }
 }
 // The turn end a check-in counts the lead's idle time from: a done notice's own turn does not restart it (c.idleTurnEnd).
 function idleEnd(sid: string, turnEnd: unknown): unknown {
@@ -1153,7 +1154,7 @@ export async function checkinTick($: any, sid: string, submitsAtStart: number) {
   // A waiting prompt this tier already holds as an open request is told by the request's own notice: no check-in for it (the toast below still shows it).
   const held = items.some((i) => i.code === 'prompt') ? await promptHeldSids($, sid) : undefined
   if (epochOf(sid) !== ep) return
-  const { told, owed } = owedItems(sid, c.checkinSkipHeld(items, held, (l) => obs.get(l)?.sid))
+  const { told, owed } = owedItems(sid, items, c.checkinSkipHeld(items, held, (l) => obs.get(l)?.sid))
   const gate = owed.length === 0 ? 'off' : await checkinGates($, sid, now)
   const due = gate === 'off' ? [] : c.checkinDueItems(owed, gate === 'all')
   // The manager is told only of lanes no live lead reaches, by leadHere's rule (a lane naming its lead: a live
@@ -1247,7 +1248,7 @@ async function conductorCheckin($: any, sid: string, submitsAtStart: number) {
   const items = c.checkinItems(obs, now)
   const held = items.some((i) => i.code === 'prompt') ? await promptHeldSids($, sid) : undefined
   if (epochOf(sid) !== ep) return
-  const { owed: all } = owedItems(sid, c.checkinSkipHeld(items, held, (l) => obs.get(l)?.sid))
+  const { owed: all } = owedItems(sid, items, c.checkinSkipHeld(items, held, (l) => obs.get(l)?.sid))
   const gate = all.length === 0 ? 'off' : await checkinGates($, sid, now)
   const due = gate === 'off' ? [] : c.checkinDueItems(all, gate === 'all')
   // The gate reads wait: an off or a re-grant meanwhile has cleared this grant's memory.

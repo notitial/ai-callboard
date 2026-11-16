@@ -90,6 +90,17 @@ test('check-in: a lane waiting on a prompt that the lead holds as a request gets
   expect(toasts).toEqual([PROMPT_TOAST])
 })
 
+test('check-in: a prompt already told to the lead is not told again when a request later holds it and ends with the lane still waiting', async ($, on) => {
+  await ckLead($, on, [], WAITING)
+  await idleFor(8 * MIN)
+  expect(checkins()).toEqual([ckText(PROMPT)])
+  putOpenRequest()
+  await idleFor(4 * MIN)
+  endRequest()
+  await idleFor(8 * MIN)
+  expect(checkins()).toEqual([ckText(PROMPT)])
+})
+
 test('check-in: a request the lead has no part in (answering off, or a lane of another lead) leaves the check-in as it was', async ($, on) => {
   await ckLead($, on, [], WAITING)
   putOpenRequest({ leadName: 'OTHERLEAD' })

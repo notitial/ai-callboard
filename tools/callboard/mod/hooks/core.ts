@@ -2611,8 +2611,9 @@ export const checkinKey = (i: AttentionItem): string => `checkin:${i.lane}:${i.c
 export const checkinDueItems = (owed: AttentionItem[], idleLong: boolean): AttentionItem[] => (idleLong ? owed : owed.filter((i) => i.code === 'prompt'))
 // A waiting prompt that a tier already holds as an open request is told by the request's own notice: its check-in is skipped, in the idle turn, in the text beside
 // a tool result and in the manager's 10-minute notice alike. held: the session ids with an open request in this tier's reach (undefined: they could not be read,
-// so nothing is skipped); sidOf: the live session of the lane or lead an item names. A request that ends with the session still waiting leaves the item owed
-// as before. Only `prompt` items are skipped; the person's toast is fed the unfiltered items.
+// so nothing is skipped); sidOf: the live session of the lane or lead an item names. Only `prompt` items are skipped, and only from what is owed: the told marks
+// are pruned against the unfiltered items, so a prompt already told is not told again when a request later holds it and ends. A prompt never told stays owed while
+// held, and its check-in fires once the request ends with the session still waiting. The person's toast is fed the unfiltered items.
 export const checkinSkipHeld = (items: AttentionItem[], held: ReadonlySet<string> | undefined, sidOf: (lane: string) => string | undefined): AttentionItem[] => {
   if (held === undefined || held.size === 0) return items
   return items.filter((i) => {

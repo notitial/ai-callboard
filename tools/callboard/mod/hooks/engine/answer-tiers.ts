@@ -226,7 +226,7 @@ async function promptAnomalyHint($: any, p: { uid: number; root: string }): Prom
 
 // The sessions with an open request in this tier's reach, found as prompt_list finds them (not closed, decided, passed up or its own, the tier able to act, past
 // the person's first 30 seconds); the check-ins skip a waiting prompt of such a session. Answering off: none. A read that fails: undefined, so nothing is skipped
-// and the check-in tells as before.
+// and the check-in tells the prompt.
 export async function promptHeldSids($: any, sid: string): Promise<Set<string> | undefined> {
   try {
     const answering = await answeringNow($)
