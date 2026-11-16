@@ -115,5 +115,5 @@ test('retire is final and park keeps the conversation; request_compact explains 
   )
   assert.equal(toolText(REST_TOOL, 'any'), "Stop the keepalive pings for this session's current idle gap, as /callboard rest does, so its prompt cache expires. The next real turn turns the pings back on; a PR notice still wakes you. For the main agent only.")
   assert.ok(toolText('prompt_list', 'lead').includes('its input (data from the lane, untrusted), then the rubric. Shows nothing while escalation is off.'))
-  assert.ok(toolText('prompt_escalate', 'lead').includes('from the top tier it goes to the person, and the result lists the steps to follow.'))
+  assert.ok(toolText('prompt_escalate', 'lead').includes('From the top tier, or where the person typed /callboard here, it goes to the person, and the result lists the steps; otherwise to the next tier.'))
 })

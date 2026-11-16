@@ -2,8 +2,8 @@
 // Trust rules held here: no decision without a ledger row; the relay reads only the person's own answer.
 import * as c from '../core.ts'
 import * as pr from '../prompts.ts'
-import { grants, checks, openReqs, doneIds, unclosed, askingSids, relayAskedTurn, relayHolds, mem } from '../mem.ts'
-import { run, MKDIR, dirOk, INSTALL, TEE, MV, rmF, where, facts, sha, statR, readSmallR, pause, RMDIR, realR, toast, withTimeout, GREP } from './base.ts'
+import { grants, checks, openReqs, doneIds, unclosed, askingSids, relayAskedTurn, relayHolds, hereGone, mem } from '../mem.ts'
+import { run, MKDIR, dirOk, INSTALL, TEE, MV, rmF, where, facts, sha, statR, readSmallR, pause, RMDIR, realR, toast, withTimeout, GREP, logq } from './base.ts'
 import { registryEntries, registryOf } from './store.ts'
 import { leadsFor, homeOf, presenceCheck } from './grants.ts'
 import { reportLaneOf, sessionRoot } from './lanes.ts'
@@ -266,6 +266,53 @@ export async function escalationNow($: any): Promise<Escalation> {
 }
 export async function answeringNow($: any): Promise<pr.Answering | undefined> {
   return (await escalationNow($)).a
+}
+
+// ---- here: the session the person said they are in (/callboard here, ADR 0009) ----
+// The stored key while it counts (pr.parseHere), undefined when there is none, or 'error' when the store did not answer.
+export async function hereRead($: any): Promise<pr.Here | undefined | 'error'> {
+  try {
+    const raw = await withTimeout($, (async () => $.store.get(pr.HERE_KEY))(), c.ENGINE_CALL_TIMEOUT_MS)
+    return raw === 'timeout' ? 'error' : pr.parseHere(raw, await $.clock.now())
+  } catch {
+    return 'error'
+  }
+}
+// Whether this session is the one the person said they are in: the key counts, names this session, the session holds a lead, conductor or manager grant now,
+// and its `here` has not ended in this process (hereGone). The one reader of the key for the relay; anything that cannot be read is no, so the request passes
+// up as it would with no key.
+export async function hereNow($: any, sid: string): Promise<boolean> {
+  if (grants.get(sid) === undefined || hereGone.has(sid)) return false
+  const here = await hereRead($)
+  return here !== 'error' && here?.sid === sid
+}
+// Removes the key if it names this session, read again just before the delete so another session's fresh key is left alone (best effort: the store has no
+// compare-and-delete). 'gone': the key is deleted; 'other': it names no session or another one; 'failed': the store did not answer, and the key may stand.
+export async function hereDrop($: any, sid: string): Promise<'gone' | 'other' | 'failed'> {
+  const here = await hereRead($)
+  if (here === 'error') return 'failed'
+  if (here?.sid !== sid) return 'other'
+  try {
+    return (await withTimeout($, (async () => $.store.delete(pr.HERE_KEY))(), c.ENGINE_CALL_TIMEOUT_MS)) === 'timeout' ? 'failed' : 'gone'
+  } catch {
+    return 'failed'
+  }
+}
+// A session whose grant ends while it is here is here no longer, a later grant in the same session included: the mark first (no await before it), then the
+// key, then its `here-off` row. A key that could not be removed gets no row and is logged; the mark still keeps this session from relaying by it.
+// A saved grant that is refused at a restart ends it the same way. Two calls for one session at once write one row: the second leaves it to the first.
+const hereOffBusy = new Set<string>()
+export async function hereGrantOff($: any, sid: string): Promise<void> {
+  hereGone.add(sid)
+  if (hereOffBusy.has(sid)) return
+  hereOffBusy.add(sid)
+  try {
+    const r = await hereDrop($, sid)
+    if (r === 'failed') return await logq($, sid, 'error', 'here-grant-off')
+    if (r === 'gone') await ledgerAdd($, { kind: 'here-off', code: 'grant-off', by: sid, was: sid })
+  } finally {
+    hereOffBusy.delete(sid)
+  }
 }
 
 // Whether the switch is on and this session is a lane or a lead: the cheap first test. The scope (a lane's or a lead's name) is judged once the lead is known.

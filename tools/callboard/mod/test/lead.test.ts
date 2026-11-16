@@ -3,7 +3,7 @@ import { toolNames } from '../hooks/tool-text'
 import { PRESENCE_PRUNE_MS, PRESENCE_TOUCH_MS, badStoreToast, leadFileFresh, refusalText, LANES_CHANGED_NOTE, OFF_QUESTION, offLeavesLane, LEAD_YES, LEAD_NO, RESTORE_YES, RESTORE_NO, REASON_TEXT, OFF_NOTHING } from '../hooks/core'
 import { h, NO, ROOT, SID, T0, YES, extraStat, gitFiles, gitNoHead, laneSeed, leadFiles, longTest, realFails, realMap, resultFiles, statErr, storeFiles, toasts, toolDefs, toolDesc } from './harness'
 import type { Trace } from './harness'
-import { ATTACHED, LANES, LEADKEY, LEADPATH, LEADPS, LEADSID, LEAD_LANES, MFOLDER, OTHER, OTHERLEAD, PIN, REG, REGFILE, RESULT, SELFPATH, STATUS_NONE, STOREFILE, STORE_LANE, USAGE, allEvents, attRec, attacher, callCreate, created, creator, cue, cueSession, dirStat, doLane, drive, dropRec, grantAt, lane, laneTarget, lead, leadAt, leadCall, leadFileText, leadReg, leadSelfReg, selfAs, listCall, logged, newTrace, notices, ownReg, pause, putStore, rebinder, rebinds, recOf, renameThroughTick, started, statusTable, statusText, storeLaneNames, tickTwice, ticks } from './fixtures'
+import { ATTACHED, LANES, LEADKEY, LEADPATH, LEADPS, LEADSID, LEAD_LANES, MFOLDER, OTHER, OTHERLEAD, PIN, REG, REGFILE, RESULT, SELFPATH, STATUS_NONE, STOREFILE, STORE_LANE, USAGE, allEvents, attRec, attacher, callCreate, created, creator, cue, cueSession, dirStat, doLane, drive, dropRec, grantAt, lane, laneTarget, lead, leadAt, leadCall, leadFileText, leadReg, leadSelfReg, selfAs, listCall, logged, newTrace, notices, ownReg, pause, putStore, rebinder, rebinds, recOf, renameThroughTick, started, statusTable, statusText, storeLaneNames, tickTwice, ticks, waitFor } from './fixtures'
 
 test('the lead scope is the cwd at the grant, not the live cwd', async ($, on) => {
   await lead($, on, [])
@@ -831,6 +831,17 @@ test('a saved grant for another folder: no lead, and the key is deleted', async 
   expect(await statusText($)).toContain('| Lead | OFF |')
   expect(h.store.has(LEADKEY)).toBe(false)
   expect(leadLogs(stdins)).toEqual(['lead-restore-rejected:wrong-folder'])
+})
+
+const HERE_SELF = { v: 1, sid: SID, at: T0 - 1000, until: T0 + 3_600_000 }
+test('a saved grant for another folder, refused at start, ends the session\'s /callboard here: its key is removed', async ($, on) => {
+  await leadRestarter($, on, [], { cwd: `${PIN}/svc`, seed: () => h.store.set('relay-here', HERE_SELF) })
+  await waitFor(() => !h.store.has('relay-here'))
+})
+
+test('a saved grant that does not parse, refused at start, ends the session\'s /callboard here: its key is removed', async ($, on) => {
+  await leadRestarter($, on, [], { raw: { pin: '/', savedAt: T0 }, seed: () => h.store.set('relay-here', HERE_SELF) })
+  await waitFor(() => !h.store.has('relay-here'))
 })
 
 test('a saved grant that does not parse is deleted at start', async ($, on) => {

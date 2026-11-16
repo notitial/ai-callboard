@@ -65,7 +65,8 @@ Lead, then conductor, then manager, then the person. A tier denies only when cer
 deny is final**: the dialog closes and the lane gets the message. If it isn't sure, it passes. A tier that knows it
 can't answer passes as soon as its own window is open, and the next tier opens immediately. A missing tier is skipped. No live tier
 means the dialog stays, with no automatic deny. A tier's own prompt is never its to answer, and the highest live tier in
-reach, the top tier, is the one that asks the person (the relay, below).
+reach, the top tier, is the one that asks the person (the relay, below; since 2026-11-16 also the tier the person
+named with `/callboard here`, see "Who relays").
 
 | From | Who may decide |
 |---|---|
@@ -106,6 +107,11 @@ Trust rises with the tier.
 
 - **Who relays.** Only the top tier: the highest live tier in reach that is not the asker, has not passed the request
   up and is not itself asking. A tier below the top passes up (`prompt_escalate`); it never asks the person.
+  *Amended 2026-11-16 ([ADR 0009](0009-go-given-once.md), the relay):* only the top tier, or the tier in whose
+  session the person typed `/callboard here`, for requests in its reach; the tiers above keep their relay. The
+  windows, the 30 seconds, the rubric, the relay file and the apply check are unchanged: the apply side never asked
+  which tier relayed, only that the relay's author is a live tier in reach that has not passed the request up and
+  that the answer comes from that same session.
 - **A call the tier cannot understand** is denied, with a message that asks the lane for a cleaner one. Any tier may
   do this; nothing is put to the person for it.
 - **The risk list may go through the relay.** The floor never reaches any tier.
@@ -292,7 +298,7 @@ destructive deletes, and the live-checkout rule for shell writes (every shell wr
 checkout, whatever its target) left the floor, by the person's decision ("fully remove the floor for now, and then put
 it back in only if needed"; scope: all but self-protection). Those calls now reach the tiers like any other call, and the
 rubric's risk list (rule 4) names them: a merge, a force push, a push to main, master or production, and a delete that is not the lane's own work. A tier passes them up and
-the top tier asks the person through the relay. What that buys a forged decision file or a tier's wrong allow is stated in
+the top tier (or the tier named with `/callboard here`) asks the person through the relay. What that buys a forged decision file or a tier's wrong allow is stated in
 the security bound below. Where a call mixed a removed part with a kept one (an unreadable shell line, a database client,
 a git call near the mod's own code, a `rm -rf` of a folder that holds it), the reading that keeps self-protection whole
 was taken: the whole live checkout and the whole toolkit checkout stay protected targets, so a write that lands in them

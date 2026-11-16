@@ -67,7 +67,13 @@ caller.
    answers or relays is denied after 20 minutes, and the lane may ask again
    ([ADR 0011](../../docs/adr/0011-all-prompts-rise.md)). The time the Mac sleeps does not count toward that deny or toward a request's expiry; the windows
    in which each tier may answer do count it. A sleep
-   does not by itself end a request's wait. What cannot rise (a call with no usable
+   does not by itself end a request's wait.
+   The relay opens in the top tier's panel, which with a manager
+   live is the manager's. To have it open where you work, type `/callboard here` in that lead's, conductor's or
+   manager's session: for 12 hours a prompt or question in its reach that no tier settles is put to you there, in
+   that session's words. It moves when you type it in another session and ends at `/callboard here off`, when that
+   session stops being a tier, or after the 12 hours; the tiers above keep their relay, so one may still ask you in
+   its own panel if the session you named does not (ADR 0009). What cannot rise (a call with no usable
    `tool.check` entry, no live tier) stays in the lane's panel. While a tier is in reach, a subagent's ask is denied
    at once with a message that tells the main session to run the call itself, and a question with no answer form is
    ended after your first 30 seconds with a message that tells the lane to ask again as one single-choice question;
@@ -112,12 +118,13 @@ that fit, each with its help line. The families:
 - **Roles:** `lead [NAME]`, `lead join [CONDUCTOR]`, `lead leave`, `lane [NAME]`, `lane off`, `conductor [NAME]`,
   `conductor add|remove NAME|PATH`, `manager [NAME]`, and `off` to drop whatever the session holds.
 - **Settings:** `config SETTING VALUE`, `config reset`, `reserve [add] NAME`, `reserve remove NAME`,
-  `checkin pause [Nm|Nh]`, `checkin resume`, `escalation [off]`, `rest` (or `/rest`), `go [TEXT]`, `go off [SHORT]`.
+  `checkin pause [Nm|Nh]`, `checkin resume`, `escalation [off]`, `rest` (or `/rest`), `go [TEXT]`, `go off [SHORT]`,
+  `here`, `here off`.
 
 Anything that widens what a session may do (a role, a name, a setting, a reserved name, a go) needs your own prompt
 or phone: from a plugin, another session or a script it is refused, or asks you first. `off`, `rest`,
 `escalation off` and the prints take any origin; `off` from another origin asks you first; `go` and `go off` are your own prompt or phone only, with no
-ask-first path.
+ask-first path, and so is `here`; `here off` takes any origin, since it only narrows.
 
 `/callboard config` shows the settings with their defaults: keepalive, ping and stop times, the two compaction
 levels, check-ins, whether conductors may open leads, and escalation. `config reset` restores the defaults.
