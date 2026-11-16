@@ -6,49 +6,55 @@ const H = 'a'.repeat(64)
 const SID_A = '0a1b2c3d-0000-4000-8000-123456789abc'
 const SID_B = '1a1b2c3d-0000-4000-8000-123456789abc'
 const ID = '2a1b2c3d-0000-4000-8000-123456789abc'
-// ---- the dialog rule: a dialog is never answered by an agent ----
-test('isDialog: the plan-mode exit is a dialog; no other tool is', () => {
-  assert.equal(p.isDialog('ExitPlanMode'), true)
-  for (const t of ['Bash', 'Write', 'Edit', 'AskUserQuestion', 'mcp__github__merge_pull_request', 'mcp__git-mcp__git_push', 'exitplanmode']) assert.equal(p.isDialog(t), false, t)
+// ---- the plan-mode exit is a request like any other ----
+test('the plan-mode exit: classified by what raised it, and the rubric has its line', () => {
+  assert.deepEqual(p.classify(p.PLAN_EXIT_TOOL, { decision: 'ask' }), { judge: 'agents', raisedBy: 'mode' })
+  assert.ok(p.RUBRIC.includes("**A plan-mode exit.** The input is the lane's plan, and an allow lets the lane start on it. Allow it only when the plan is the work the lane was given and nothing in it is on the risk list; surface it otherwise."))
 })
 
 // ---- the classifier table from the probes ----
-test('classify: rule, hook, rule+hook, guard, imitator, setting, plugin, ceiling, mode', () => {
+test('classify: every ask is the agents\' to judge, named by what raised it (ceiling, setting, plugin, hook or guard, rule, mode); only a prompt that is not an ask stays the person\'s', () => {
   const ask = { decision: 'ask' }
-  assert.deepEqual(p.classify('Bash', { ...ask, rule: 'Bash(ssh:*)' }), { judge: 'agents', raisedBy: 'rule' })
-  assert.deepEqual(p.classify('Bash', ask), { judge: 'agents', raisedBy: 'mode' })
-  assert.deepEqual(p.classify('Bash', { ...ask, reason: 'because' }), { judge: 'agents', raisedBy: 'mode' })
+  const by = (tool: string, f: object) => p.classify(tool, f)
+  assert.deepEqual(by('Bash', { ...ask, rule: 'Bash(ssh:*)' }), { judge: 'agents', raisedBy: 'rule' })
+  assert.deepEqual(by('Bash', ask), { judge: 'agents', raisedBy: 'mode' })
+  assert.deepEqual(by('Bash', { ...ask, reason: 'because' }), { judge: 'agents', raisedBy: 'mode' })
   const guard = { ...ask, hook: 'PreToolUse', reason: `${p.GUARD_PREFIX}comment on a PR` }
-  for (const t of p.GUARD_TOOLS) assert.deepEqual(p.classify(t, guard), { judge: 'agents', raisedBy: 'guard' }, t)
-  // The same prefix on another tool, or on a rule-covered tool, or a guard of another name, stays his.
-  assert.equal(p.classify('Bash', guard).judge, 'person')
-  assert.equal(p.classify('mcp__github__actions_run_trigger', guard).judge, 'person')
-  assert.equal(p.classify('mcp__github__create_pull_request', { ...guard, rule: 'mcp__github__create_pull_request' }).judge, 'person')
-  assert.equal(p.classify('mcp__github__create_pull_request', { ...ask, hook: 'PreToolUse', reason: 'other-guard: x' }).judge, 'person')
-  assert.equal(p.classify('mcp__github__create_pull_request', { ...ask, hook: 'PreToolUse' }).judge, 'person')
-  assert.equal(p.classify('mcp__github__create_pull_request', { ...guard, hook: 'PostToolUse' }).judge, 'person')
-  // Any other hook ask, with or without a rule, is his.
-  assert.equal(p.classify('Bash', { ...ask, hook: 'PreToolUse', reason: 'x' }).judge, 'person')
-  assert.equal(p.classify('Bash', { ...ask, hook: 'PreToolUse', rule: 'Bash(rm:*)', reason: 'x' }).judge, 'person')
-  assert.equal(p.classify('Bash', { ...ask, setting: 'permissions.x' }).judge, 'person')
-  assert.equal(p.classify('Bash', { ...ask, plugin: 'other' }).judge, 'person')
-  assert.equal(p.classify('Bash', { ...ask, ceiling: 'ask' }).judge, 'person')
-  assert.equal(p.classify('Bash', { ...guard, plugin: 'other' }).judge, 'person')
-  // A question: the mode's own ask is judged by agents (the shape and the questions scope follow); behind a rule, hook, setting, plugin or ceiling it stays his. Only an ask is ever judged.
-  assert.deepEqual(p.classify('AskUserQuestion', ask), { judge: 'agents', raisedBy: 'mode' })
-  for (const extra of [{ rule: 'AskUserQuestion' }, { hook: 'PreToolUse' }, { setting: 's' }, { plugin: 'x' }, { ceiling: 'ask' }]) assert.deepEqual(p.classify('AskUserQuestion', { ...ask, ...extra }), { judge: 'person', why: 'question' }, JSON.stringify(extra))
-  assert.equal(p.classify('AskUserQuestion', { decision: 'allow' }).judge, 'person')
-  assert.equal(p.classify('Bash', { decision: 'allow' }).judge, 'person')
-  assert.equal(p.classify('Bash', {}).judge, 'person')
+  for (const t of p.GUARD_TOOLS) assert.deepEqual(by(t, guard), { judge: 'agents', raisedBy: 'guard' }, t)
+  // The same prefix on another tool, or on a rule-covered tool, or a guard of another name, is a plain hook ask: it reaches the tiers as `hook`, never as `guard`.
+  const hook = { judge: 'agents', raisedBy: 'hook' }
+  assert.deepEqual(by('Bash', guard), hook)
+  assert.deepEqual(by('mcp__github__actions_run_trigger', guard), hook)
+  assert.deepEqual(by('mcp__github__create_pull_request', { ...guard, rule: 'mcp__github__create_pull_request' }), hook)
+  assert.deepEqual(by('mcp__github__create_pull_request', { ...ask, hook: 'PreToolUse', reason: 'other-guard: x' }), hook)
+  assert.deepEqual(by('mcp__github__create_pull_request', { ...ask, hook: 'PreToolUse' }), hook)
+  assert.deepEqual(by('mcp__github__create_pull_request', { ...guard, hook: 'PostToolUse' }), hook)
+  assert.deepEqual(by('Bash', { ...ask, hook: 'PreToolUse', reason: 'x' }), hook)
+  assert.deepEqual(by('Bash', { ...ask, hook: 'PreToolUse', rule: 'Bash(rm:*)', reason: 'x' }), hook)
+  // A setting, a plugin and a ceiling; the widest source names the ask when several stand behind it.
+  assert.deepEqual(by('Bash', { ...ask, setting: 'permissions.x' }), { judge: 'agents', raisedBy: 'setting' })
+  assert.deepEqual(by('Bash', { ...ask, plugin: 'other' }), { judge: 'agents', raisedBy: 'plugin' })
+  assert.deepEqual(by('Bash', { ...ask, ceiling: 'ask' }), { judge: 'agents', raisedBy: 'ceiling' })
+  assert.deepEqual(by('Bash', { ...guard, plugin: 'other' }), { judge: 'agents', raisedBy: 'plugin' })
+  assert.deepEqual(by('mcp__github__create_pull_request', { ...guard, setting: 's' }), { judge: 'agents', raisedBy: 'setting' })
+  assert.deepEqual(by('Bash', { ...ask, ceiling: 'ask', setting: 's', plugin: 'x', hook: 'PreToolUse', rule: 'r' }), { judge: 'agents', raisedBy: 'ceiling' })
+  // A question is classified like any call (the shape and the questions scope follow).
+  assert.deepEqual(by('AskUserQuestion', ask), { judge: 'agents', raisedBy: 'mode' })
+  for (const [extra, raisedBy] of [[{ rule: 'AskUserQuestion' }, 'rule'], [{ hook: 'PreToolUse' }, 'hook'], [{ setting: 's' }, 'setting'], [{ plugin: 'x' }, 'plugin'], [{ ceiling: 'ask' }, 'ceiling']] as const) assert.deepEqual(by('AskUserQuestion', { ...ask, ...extra }), { judge: 'agents', raisedBy }, JSON.stringify(extra))
+  // Only an ask is ever judged.
+  assert.deepEqual(by('AskUserQuestion', { decision: 'allow' }), { judge: 'person', why: 'not-ask' })
+  assert.deepEqual(by('Bash', { decision: 'allow' }), { judge: 'person', why: 'not-ask' })
+  assert.deepEqual(by('Bash', { decision: 'deny', hook: 'PreToolUse' }), { judge: 'person', why: 'not-ask' })
+  assert.deepEqual(by('Bash', {}), { judge: 'person', why: 'not-ask' })
 })
 
-test('classify: marking a PR ready (update_pull_request, draft false) is the guard row: agents judge it, it is not his', () => {
+test('classify: marking a PR ready (update_pull_request, draft false) is the guard row', () => {
   // The reason as ai-toolkit's tools/github-mcp/guard.sh builds it for draft false (read from the script, not run).
   const reason = `${p.GUARD_PREFIX}update_pull_request on "o"/"r" #12 sets draft false; nothing else. Setting draft to false marks the PR ready for review, which starts the automatic paid Claude review. The title and body are shown to everyone on the PR and read by its automatic reviewer.`
   const input = { owner: 'o', repo: 'r', pullNumber: 12, draft: false }
   assert.deepEqual(p.classify('mcp__github__update_pull_request', { decision: 'ask', hook: 'PreToolUse', reason }), { judge: 'agents', raisedBy: 'guard' })
-  // With an ask rule on the tool, core's reason hides the guard's, so it stays his.
-  assert.equal(p.classify('mcp__github__update_pull_request', { decision: 'ask', hook: 'PreToolUse', rule: 'mcp__github__update_pull_request', reason: 'rule' }).judge, 'person')
+  // With an ask rule on the tool, core's reason hides the guard's, so it is a plain hook ask.
+  assert.deepEqual(p.classify('mcp__github__update_pull_request', { decision: 'ask', hook: 'PreToolUse', rule: 'mcp__github__update_pull_request', reason: 'rule' }), { judge: 'agents', raisedBy: 'hook' })
   assert.equal(p.patternOf('mcp__github__update_pull_request', input), 'mcp__github__update_pull_request o/r #12')
 })
 
@@ -158,7 +164,7 @@ test('awake clock: a gap is capped, a clock that ran back adds nothing, a sleep 
 // ---- apply: each code ----
 const baseReq = { id: ID, nonce: 'n1', inputHash: H, sid: SID_A }
 const baseDec = (o: Partial<p.Decision> = {}): p.Decision => ({ id: ID, inputHash: H, decision: 'allow', why: 'ok', by: { level: 'lead', sid: SID_B, name: 'LEAD' }, at: 1, nonce: 'n1', ...o })
-const apply = (o: Partial<p.ApplyIn> = {}): p.ApplyOut => p.applyCheck({ req: baseReq, decision: baseDec(), liveHash: H, awakeMs: 60_000, expiresAt: p.EXPIRES_MS, dialog: false, byOk: true, ledger: 'found', graceMs: 0, ...o })
+const apply = (o: Partial<p.ApplyIn> = {}): p.ApplyOut => p.applyCheck({ req: baseReq, decision: baseDec(), liveHash: H, awakeMs: 60_000, expiresAt: p.EXPIRES_MS, byOk: true, ledger: 'found', graceMs: 0, ...o })
 test('apply: a good decision applies', () => {
   assert.deepEqual(apply(), { ok: true })
 })
@@ -168,7 +174,6 @@ test('apply: each refusal has its code', () => {
   assert.deepEqual(apply({ decision: baseDec({ inputHash: 'b'.repeat(64) }) }), { drop: 'hash' })
   assert.deepEqual(apply({ decision: baseDec({ nonce: 'other' }) }), { drop: 'nonce' })
   assert.deepEqual(apply({ awakeMs: p.EXPIRES_MS }), { drop: 'expired' })
-  assert.deepEqual(apply({ dialog: true }), { drop: 'dialog' })
   assert.deepEqual(apply({ byOk: false }), { drop: 'by-sid' })
   assert.deepEqual(apply({ decision: baseDec({ by: { level: 'lead', sid: SID_A, name: 'A' } }) }), { drop: 'by-sid' })
   assert.deepEqual(apply({ decision: baseDec({ by: { level: 'lead', sid: 'not-a-sid', name: 'A' } }) }), { drop: 'by-sid' })
@@ -182,7 +187,6 @@ test('apply: early and a row that lags are held, not dropped; a refusal outranks
   assert.deepEqual(apply({ awakeMs: p.MIN_AGE_MS - 1 }), { hold: 'early' })
   assert.deepEqual(apply({ awakeMs: p.MIN_AGE_MS }), { ok: true })
   assert.deepEqual(apply({ ledger: 'missing', graceMs: p.LEDGER_GRACE_MS - 1 }), { hold: 'ledger' })
-  assert.deepEqual(apply({ awakeMs: 1000, dialog: true }), { drop: 'dialog' })
   assert.deepEqual(apply({ awakeMs: 1000, decision: baseDec({ nonce: 'x' }) }), { drop: 'nonce' })
 })
 test('parseDecision: only the exact shape, no answer decision yet, and a size cap', () => {
@@ -369,7 +373,7 @@ test('parseDecision: answer needs its object; an index of 0 to 3 and a label of 
   assert.ok(p.parseDecision(JSON.stringify({ ...base, decision: 'answer', answer: { index: 0, label: 'a'.repeat(200) } })))
 })
 test('applyCheck: a question takes only `answer`, bound to the live label; the order is kept', () => {
-  const base = { req: { id: ID, nonce: 'n-1', inputHash: H, sid: SID_A }, liveHash: H, awakeMs: 40_000, expiresAt: p.EXPIRES_MS, dialog: false, byOk: true, ledger: 'found' as const, graceMs: 0 }
+  const base = { req: { id: ID, nonce: 'n-1', inputHash: H, sid: SID_A }, liveHash: H, awakeMs: 40_000, expiresAt: p.EXPIRES_MS, byOk: true, ledger: 'found' as const, graceMs: 0 }
   const dec = (over: Record<string, unknown> = {}) => ({ id: ID, inputHash: H, decision: 'answer' as const, why: 'ok', by: { level: 'lead', sid: SID_B, name: 'L' }, at: 1, nonce: 'n-1', answer: { index: 1, label: 'Green' }, ...over }) as p.Decision
   const question = { labels: ['Red', 'Green'] }
   assert.deepEqual(p.applyCheck({ ...base, decision: dec(), question }), { ok: true })
@@ -391,9 +395,8 @@ test('applyCheck: a question takes only `answer`, bound to the live label; the o
   assert.deepEqual(p.applyCheck({ ...base, decision: dec({ via: 'person', answer: { index: 0, label: 'Green' } }), question, relay }), { drop: 'answer' })
   assert.deepEqual(p.applyCheck({ ...base, decision: dec({ via: 'person', decision: 'allow', answer: undefined }), question, relay }), { drop: 'kind' })
   assert.deepEqual(p.applyCheck({ ...base, decision: dec(), question, relay }), { drop: 'relay' }, 'an agent while a relay is in place')
-  // The order: a bad hash is reported before kind; a dialog too.
+  // The order: a bad hash is reported before kind.
   assert.deepEqual(p.applyCheck({ ...base, liveHash: 'b'.repeat(64), decision: dec({ decision: 'allow', answer: undefined }), question }), { drop: 'hash' })
-  assert.deepEqual(p.applyCheck({ ...base, dialog: true, decision: dec({ decision: 'allow', answer: undefined }), question }), { drop: 'dialog' })
 })
 test('answerText: the suffix names the checked tier; a name that is not a plain word falls back to the level; the person\'s pick is bare', () => {
   assert.equal(p.answerText('Green', { level: 'lead', name: 'ELDRITCH' }, false), 'Green (answered by lead ELDRITCH)')
@@ -442,4 +445,38 @@ test('matchLabel: a label with an invisible character the shape allows is matche
   assert.equal(p.matchLabel(labels, 'Ship now'), -1)
   const shape = p.questionShape({ questions: [{ question: 'q', header: 'h', options: [{ label: labels[0], description: 'd' }, { label: 'b', description: 'd' }], multiSelect: false }] })
   assert.equal(shape.ok, true)
+})
+
+// ---- every ask is the tiers' to judge: no list of asks is kept from them ----
+const HOOK = (reason: string, over: Record<string, unknown> = {}) => ({ decision: 'ask', hook: 'PreToolUse', reason, ...over })
+const JUDGED_CASES: [string, string, Record<string, unknown>, string][] = [
+  ['a ceiling', 'Bash', { decision: 'ask', ceiling: 'org' }, 'ceiling'],
+  ['a lock clear', 'Bash', HOOK('workspace-lock-guard: Clear the workspace lock at /w? Holder solo-1.'), 'hook'],
+  ['a forced turn give', 'Bash', HOOK('workspace-lock-guard: Free the turn on the workspace lock at /w? Asked by session 1.'), 'hook'],
+  ['an owner transfer', 'Bash', HOOK('workspace-lock-guard: Make session 1 the owner of the workspace lock at /w?'), 'hook'],
+  ['a delete the destructive-command guard asks about', 'Bash', HOOK('Destructive command: delete by absolute path. Approve only if you meant to.'), 'hook'],
+  ['a workflow dispatch, a cancel or a rerun', 'mcp__github__actions_run_trigger', HOOK('github-mcp-guard: workflow dispatch'), 'hook'],
+  ['a label write', 'mcp__github__label_write', HOOK('github-mcp-guard: label_write deletes'), 'hook'],
+  ['a project write', 'mcp__github__projects_write', HOOK('github-mcp-guard: projects_write'), 'hook'],
+  ['a hook ask whose reason an ask rule hides', 'Bash', HOOK('rule', { rule: 'Bash(ls:*)' }), 'hook'],
+]
+for (const [name, tool, facts, raisedBy] of JUDGED_CASES) {
+  test(`classify: ${name} is the tiers' to judge, raised by ${raisedBy}`, () => {
+    assert.deepEqual(p.classify(tool, facts), { judge: 'agents', raisedBy })
+  })
+}
+test('capReason: a string is trimmed; one over the cap keeps its head and its tail and is marked cut; nothing else is a reason', () => {
+  assert.deepEqual(p.capReason('  why  '), { text: 'why', cut: false })
+  assert.equal(p.capReason(''), undefined)
+  assert.equal(p.capReason(3), undefined)
+  const size = (t: string) => new TextEncoder().encode(t).length
+  assert.deepEqual(p.capReason('x'.repeat(p.REASON_CAP)), { text: 'x'.repeat(p.REASON_CAP), cut: false })
+  // A guard's warning at the end survives lane-set fields that fill the head.
+  const long = p.capReason(`guard: dispatch of ${'i'.repeat(5000)} WARNING: this run can deploy.`)!
+  assert.equal(long.cut, true)
+  assert.ok(size(long.text) <= p.REASON_CAP)
+  assert.ok(long.text.startsWith('guard: dispatch of iii') && long.text.includes(' [...] ') && long.text.endsWith('WARNING: this run can deploy.'))
+  // Multibyte text is cut on a character, at both ends.
+  const wide = p.capReason('\u00e9'.repeat(3000) + 'end')!
+  assert.ok(wide.cut && size(wide.text) <= p.REASON_CAP && !wide.text.includes('\ufffd') && wide.text.endsWith('end'))
 })
