@@ -222,6 +222,37 @@ test('prompts: classifier: a hook-raised ask outside the guard (a workflow rerun
   expect(rowKinds()).toEqual(['requested', 'answered allow', 'returned allow'])
 })
 
+// ---- the floor: an ask no tier may allow still becomes a request, and only a deny or the person's own answer lands ----
+const LOCK_ASK = { decision: 'ask', hook: 'PreToolUse', reason: 'workspace-lock-guard: Clear the workspace lock at /w? Holder solo-1.' }
+test('prompts: the floor: a guard\'s lock-clear ask becomes a request marked for the person, with the guard\'s reason; a tier\'s allow is dropped and its deny lands', async ($, on) => {
+  await answerer($, on, [], { verdict: LOCK_ASK })
+  const c2 = callOf('Bash', PRQ)
+  let seen: any
+  const r = await runRequest($, [at(4000, () => { seen = readReq() }), at(34_000, () => handDecision(readReq(), { decision: 'allow' })), at(40_000, () => { pfs.delete(`${PDIR}/${readReq().id}.decision.json`); handDecision(readReq(), { decision: 'deny', why: 'that holder is alive' }) })], c2.over, c2.check)
+  expect(seen.floor).toBe('lock')
+  expect(seen.reason).toBe(LOCK_ASK.reason)
+  expect(seen.raisedBy).toBe('hook')
+  expect(ledgerRows()[0]).toEqual(expect.objectContaining({ kind: 'requested', raised: 'hook', floor: 'lock' }))
+  expect(r).toMatchObject({ decision: { behavior: 'deny' } })
+  expect(rowKinds()).toEqual(['requested', 'answered allow', 'dropped floor', 'answered deny', 'returned deny'])
+})
+test('prompts: the floor: the person\'s own Yes through a relay lands on an ask no tier may allow', async ($, on) => {
+  await answerer($, on, [], { verdict: LOCK_ASK })
+  const c2 = callOf('Bash', PRQ)
+  const r = await runRequest($, [at(4000, () => { putRelay(readReq()); pfs.set(`${PDIR}/${readReq().id}.asked`, { text: '{}', mtimeSec: h.nowMs / 1000 }) }), at(40_000, () => handDecision(readReq(), { decision: 'allow', via: 'person', why: 'the person answered Yes via the lead LEAD' }, { via: 'person' }))], c2.over, c2.check)
+  expect(r).toMatchObject({ decision: { behavior: 'allow' } })
+  expect(rowKinds()).toEqual(['requested', 'answered allow', 'returned allow'])
+})
+test('prompts: the floor: a rerun of failed jobs is not on it and carries no floor in its file or row', async ($, on) => {
+  await answerer($, on, [], { verdict: { decision: 'ask', hook: 'PreToolUse', reason: 'github-mcp-guard: rerun_failed_jobs on ["o","r"].' } })
+  const c2 = callOf('mcp__github__actions_run_trigger', { owner: 'o', repo: 'r', method: 'rerun_failed_jobs', run_id: 7 })
+  let seen: any
+  await runRequest($, [at(4000, () => { seen = readReq() }), stop(8000)], c2.over, c2.check)
+  expect('floor' in seen).toBe(false)
+  expect(seen.reason).toBe('github-mcp-guard: rerun_failed_jobs on ["o","r"].')
+  expect('floor' in ledgerRows()[0]).toBe(false)
+})
+
 // ---- a dialog, at the request: no request is written and the dialog stays the person's ----
 test('prompts: a dialog (the plan-mode exit) at the request: no request, a dialog row, the dialog stays', async ($, on) => {
   const argv: string[][] = []

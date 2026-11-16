@@ -180,7 +180,7 @@ test('a: an answered row with no requested row, and one later than the return, a
 
 test('a: dropped rows with a forgery code are anomalies, the ordinary codes are not', () => {
   const fx = fixture()
-  const bad = ['no-answered-row', 'id', 'hash', 'nonce', 'by-sid', 'kind', 'answer']
+  const bad = ['no-answered-row', 'id', 'hash', 'nonce', 'by-sid', 'kind', 'answer', 'floor']
   const fine = ['expired', 'ledger-unreadable', 'file', 'shape', 'dialog']
   const rows = [ON()]
   bad.forEach((code, i) => rows.push(R('requested', BASE + i, { ...T, id: uid(10 + i), nonce: uid(110 + i), tier: 'lead' }), R('dropped', BASE + 1000 + i, { ...T, id: uid(10 + i), code }), R('abandoned', BASE + 2000 + i, { id: uid(10 + i), code: 'swept' })))
@@ -1239,10 +1239,35 @@ test('a note counts the agents\' allows of asks a hook, setting, plugin or ceili
   const fx = fixture()
   ledger(fx, [ON(), ...clean(uid(1), BASE, uid(101), { raised: 'hook' }), ...clean(uid(2), BASE + 60_000, uid(102), { raised: 'hook' }), ...clean(uid(3), BASE + 120_000, uid(103), { raised: 'ceiling' }), ...clean(uid(4), BASE + 180_000, uid(104), { raised: 'rule' }), ...clean(uid(5), BASE + 240_000, uid(105))])
   const rep = run(fx)
-  assert.ok(rep.notes.includes("agents' allows of asks raised by a hook, setting, plugin or ceiling: ceiling 1, hook 2"), rep.notes.join('|'))
+  assert.ok(rep.notes.includes("agents' allows and answers of asks raised by a hook, setting, plugin or ceiling: ceiling 1, hook 2"), rep.notes.join('|'))
   const none = fixture()
   ledger(none, [ON(), ...clean(uid(1), BASE, uid(101), { raised: 'rule' })])
-  assert.equal(run(none).notes.some((x) => x.startsWith("agents' allows of asks raised")), false)
+  assert.equal(run(none).notes.some((x) => x.startsWith("agents' allows and answers of asks raised")), false)
+})
+
+test('the note counts a tier\'s answer to a question a hook raised', () => {
+  const fx = fixture()
+  const q = qClean()
+  ledger(fx, [ON(), ASKS(), { ...q[0], raised: 'hook' }, q[1], q[2]])
+  const rep = run(fx)
+  assert.ok(rep.notes.includes("agents' allows and answers of asks raised by a hook, setting, plugin or ceiling: hook 1"), rep.notes.join('|'))
+})
+
+test('a: a requested row that names an unknown source of the ask is an anomaly; a known one and a row with none are not', () => {
+  const fx = fixture()
+  ledger(fx, [ON(), ...clean(uid(1), BASE, uid(101), { raised: 'other' }), ...clean(uid(2), BASE + 60_000, uid(102), { raised: 'guard' }), ...clean(uid(3), BASE + 120_000, uid(103))])
+  const rep = run(fx)
+  assert.deepEqual(rules(rep), ['raised-unknown'])
+  assert.equal(rep.anomalies[0].id, uid(1))
+})
+
+test('a: a tier\'s allow of an ask on the floor is an anomaly, once per request; its deny is not', () => {
+  const fx = fixture()
+  const denied = clean(uid(2), BASE + 60_000, uid(102), { raised: 'hook', floor: 'lock' }).map((r) => (r.kind === 'requested' ? r : { ...r, code: 'deny' }))
+  ledger(fx, [ON(), ...clean(uid(1), BASE, uid(101), { raised: 'hook', floor: 'lock' }), ...denied])
+  const rep = run(fx)
+  assert.deepEqual(rules(rep), ['floor-allowed'])
+  assert.equal(rep.anomalies[0].id, uid(1))
 })
 
 test('questions: the notes: no questions row, a row past 90 days, not-judgeable counts, and the QUESTIONS table', () => {

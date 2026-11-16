@@ -178,6 +178,17 @@ test('prompts: prompt_answer refuses while answering is off or the OFF file exis
   expect(decFile()).toBeUndefined()
 })
 
+test('prompts: an ask on the floor can be denied or passed up but never allowed by a tier', async ($, on) => {
+  await tier($, on)
+  putQ({ raisedBy: 'hook', floor: 'lock', reason: 'workspace-lock-guard: Clear the workspace lock at /w?' })
+  const list = said(await $.tool.call(pcall('prompt_list')))
+  expect(list).toContain('PERSON ONLY (')
+  expect(list).toContain('<untrusted-reason>\nworkspace-lock-guard: Clear the workspace lock at /w?\n</untrusted-reason>')
+  expect(said(await $.tool.call(answerCall()))).toContain(refusal('floor'))
+  expect(decFile()).toBeUndefined()
+  expect(said(await $.tool.call(answerCall({ decision: 'deny', why: 'that holder is alive: its heartbeat is a minute old' })))).toContain('Recorded: deny')
+})
+
 test('prompts: a truncated input can be denied but never allowed', async ($, on) => {
   await tier($, on)
   putQ({ truncated: true })

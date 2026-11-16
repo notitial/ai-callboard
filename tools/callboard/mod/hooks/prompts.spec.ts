@@ -449,3 +449,52 @@ test('matchLabel: a label with an invisible character the shape allows is matche
   const shape = p.questionShape({ questions: [{ question: 'q', header: 'h', options: [{ label: labels[0], description: 'd' }, { label: 'b', description: 'd' }], multiSelect: false }] })
   assert.equal(shape.ok, true)
 })
+
+// ---- the floor: asks no tier may allow ----
+const HOOK = (reason: string, over: Record<string, unknown> = {}) => ({ decision: 'ask', hook: 'PreToolUse', reason, ...over })
+const FLOOR_CASES: [string, string, unknown, Record<string, unknown>, string | undefined][] = [
+  ['a ceiling', 'Bash', { command: 'ls' }, { decision: 'ask', ceiling: 'org' }, 'ceiling'],
+  ['a ceiling behind a hook', 'Bash', { command: 'ls' }, HOOK('x', { ceiling: 'org' }), 'ceiling'],
+  ['a lock clear', 'Bash', { command: 'lock clear' }, HOOK('workspace-lock-guard: Clear the workspace lock at /w? Holder solo-1.'), 'lock'],
+  ['a forced turn give', 'Bash', { command: 'lock turn give --force' }, HOOK('workspace-lock-guard: Free the turn on the workspace lock at /w? Asked by session 1.'), 'lock'],
+  ['an owner transfer', 'Bash', { command: 'lock owner transfer' }, HOOK('workspace-lock-guard: Make session 1 the owner of the workspace lock at /w?'), 'lock'],
+  ['a delete the destructive-command guard asks about', 'Bash', { command: 'rm /x/y' }, HOOK('Destructive command: delete by absolute path. Approve only if you meant to.'), 'destructive'],
+  ['a workflow dispatch', 'mcp__github__actions_run_trigger', { method: 'run_workflow' }, HOOK('github-mcp-guard: workflow dispatch'), 'github-write'],
+  ['a run cancel', 'mcp__github__actions_run_trigger', { method: 'cancel_workflow_run' }, HOOK('github-mcp-guard: cancel'), 'github-write'],
+  ['a run trigger with no method', 'mcp__github__actions_run_trigger', {}, HOOK('github-mcp-guard: x'), 'github-write'],
+  ['a label delete', 'mcp__github__label_write', { method: 'delete' }, HOOK('github-mcp-guard: label_write deletes'), 'github-write'],
+  ['a project write', 'mcp__github__projects_write', { method: 'add_item' }, HOOK('github-mcp-guard: projects_write'), 'github-write'],
+  ['any other GitHub write a hook asks about, whatever its reason', 'mcp__github__issue_write', {}, HOOK('other'), 'github-write'],
+  ['a GitHub write behind a hook and an ask rule', 'mcp__github__issue_write', {}, HOOK('rule', { rule: 'mcp__github__issue_write' }), 'github-write'],
+  ['a hook ask whose reason an ask rule hides', 'Bash', { command: 'ls' }, HOOK('rule', { rule: 'Bash(ls:*)' }), 'hidden-reason'],
+  // What stays a tier's to judge.
+  ['a rerun of failed jobs', 'mcp__github__actions_run_trigger', { method: 'rerun_failed_jobs' }, HOOK('github-mcp-guard: rerun_failed_jobs'), undefined],
+  ['a rerun of a run', 'mcp__github__actions_run_trigger', { method: 'rerun_workflow_run' }, HOOK('github-mcp-guard: rerun_workflow_run'), undefined],
+  ['a rerun behind a hook and an ask rule', 'mcp__github__actions_run_trigger', { method: 'rerun_failed_jobs' }, HOOK('rule', { rule: 'x' }), undefined],
+  ["the guard's four tools", 'mcp__github__update_pull_request', {}, HOOK('github-mcp-guard: update_pull_request'), undefined],
+  ['a comment', 'mcp__github__add_issue_comment', {}, HOOK('github-mcp-guard: x'), undefined],
+  ['any other hook ask', 'Bash', { command: 'ls' }, HOOK('some other hook'), undefined],
+  ['a GitHub write the mode asks about (no hook)', 'mcp__github__issue_write', {}, { decision: 'ask' }, undefined],
+  ['a rule ask', 'Bash', { command: 'ls' }, { decision: 'ask', rule: 'Bash(ls:*)' }, undefined],
+  ["a guard's reason text with no hook behind it", 'Bash', { command: 'ls' }, { decision: 'ask', reason: 'workspace-lock-guard: Clear the workspace lock' }, undefined],
+  ['a setting and a plugin', 'Bash', { command: 'ls' }, { decision: 'ask', setting: 's', plugin: 'p' }, undefined],
+]
+for (const [name, tool, input, facts, want] of FLOOR_CASES) {
+  test(`floorOf: ${name}: ${want ?? 'not on the floor'}`, () => {
+    assert.equal(p.floorOf(tool, input, facts), want)
+  })
+}
+test('the floor: every entry has a case above, a code that is one word and a text', () => {
+  const seen = new Set(FLOOR_CASES.map((c) => c[4]).filter((c) => c !== undefined))
+  for (const e of p.FLOOR) {
+    assert.ok(seen.has(e.code), e.code)
+    assert.match(e.code, /^[a-z-]+$/)
+    assert.ok(e.what.length > 10)
+  }
+})
+test('capReason: a string is trimmed and capped; nothing else is a reason', () => {
+  assert.equal(p.capReason('  why  '), 'why')
+  assert.equal(p.capReason(''), undefined)
+  assert.equal(p.capReason(3), undefined)
+  assert.ok(new TextEncoder().encode(p.capReason('x'.repeat(5000))!).length <= p.REASON_CAP)
+})
