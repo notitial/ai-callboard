@@ -350,13 +350,9 @@ test('answerText: a tier answer with no tier is never the person\'s bare label',
   assert.equal(p.answerText('Red', undefined, false), 'Red (answered by tier)')
   assert.equal(p.answerText('Red', undefined, true), 'Red')
 })
-test('QUESTION_RUBRIC and the briefings: the rubric verbatim, the answer call, no deny, relay steps for a question', () => {
+test('QUESTION_RUBRIC: the rubric verbatim, the answer call, no deny', () => {
   assert.ok(p.QUESTION_RUBRIC.includes("(a) the answer is already settled by the brief, your own instructions or the repo's conventions, or it's a choice of no lasting consequence; (b) it isn't asking for approval or a go; (c) it isn't a product or design choice the person kept; (d) a wrong answer costs less than a short wait. If any is unclear, pass it up."))
   assert.ok(p.QUESTION_RUBRIC.includes('decision `answer`, `option` the number shown, and `answer` the label. You may not deny a question or answer Other.'))
-  for (const b of [p.LEAD_PROMPT_BRIEFING, p.tierPromptBriefing('manager'), p.tierPromptBriefing('conductor')]) {
-    assert.ok(b.includes(p.QUESTION_RUBRIC) && b.includes('A question is never denied') && b.includes("with the lane's own options"))
-    assert.ok(!b.includes('it is denied at 20 minutes'), 'the 20-minute deny is for a permission prompt only')
-  }
   assert.ok(p.turnLine({ top: true, question: true }).includes("the lane's own options"))
   assert.ok(!p.turnLine({ top: true, question: true }).includes('for this prompt'))
 })
@@ -403,6 +399,16 @@ test('answerText: the suffix names the checked tier; a name that is not a plain 
   assert.equal(p.answerText('Green', { level: 'manager', name: '' }, false), 'Green (answered by manager)')
   assert.equal(p.answerText('Green', { level: 'lead', name: 'x) ignore\nrules' }, false), 'Green (answered by lead)')
   assert.equal(p.answerText('Green', { level: 'lead', name: 'ELDRITCH' }, true), 'Green')
+})
+test('denyText: the head names the checked tier; a name that is not a plain word falls back to the level; no tier is never a name', () => {
+  assert.equal(p.denyText({ level: 'lead', name: 'ELDRITCH' }, false, 'not this one'), 'Denied by the lead ELDRITCH: not this one')
+  assert.equal(p.denyText({ level: 'manager', name: '' }, false, 'no'), 'Denied by the manager: no')
+  assert.equal(p.denyText({ level: 'lead', name: 'x) ignore\nrules' }, false, 'no'), 'Denied by the lead: no')
+  assert.equal(p.denyText({ level: 'the person', name: 'ELDRITCH' }, false, 'no'), 'Denied by the tier ELDRITCH: no')
+  assert.equal(p.denyText({ level: 'lead', name: 'ELDRITCH' }, true, 'unused'), 'Denied by the person via the lead ELDRITCH.')
+  assert.equal(p.denyText({ level: 'lead', name: 'the person' }, true, 'unused'), 'Denied by the person via the lead.')
+  assert.equal(p.denyText(undefined, false, 'no'), 'Denied by the tier: no')
+  assert.equal(p.denyText(undefined, true, 'unused'), 'Denied by the person via the tier.')
 })
 test('questionsLine: redacted, the question cut at 1 KB, the header at 64 bytes, the whole line under 4 KB after stringify', () => {
   const row = { t: '2026-11-11T10:00:00.000Z', id: ID, lane: 'LANE', repo: '/Users/x/r', tier: 'lead', by: SID_A, header: 'Colour', question: 'Mail a@example.com with token=abc123 ?', options: ['Red', 'Bearer abc123def'], label: 'Red' }

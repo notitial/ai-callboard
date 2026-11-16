@@ -76,6 +76,10 @@ Facts that bound the options:
   shows the sessions covered now as a count and not by name, and the short never-list with the full one left to
   `go_status`; the description of a new go is held to a few lines, with the detail in the brief or the plan. The
   names stay in the go file and in the result of the call.
+- **The person can read the full never-list** (amended 2026-11-16, PR #109): `/callboard go` prints it, and the dialog
+  points there, since `go_status` is a tool only a session calls. Where this ADR says the dialog lists or names
+  sessions, or prints the full list, the two amendments here hold instead: "the sessions the dialog listed" are the
+  lanes the lead had at the click, and probe P-G1 is about the short text.
 - **The mod keeps it**: a file under `~/.claude/callboard/go/` (0700 folder, 0600 file, one link, at most 8 KB) and a
   `go-grant` ledger row that holds the file's hash. The file stores the text the person was shown and the session ids
   the dialog listed. A go counts only while the file and its row agree. No tool lets an agent write either.

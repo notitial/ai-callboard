@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
-import { GRANT_NAME_ON, CONDUCTOR_NAME_NOT_PERSON, grantNameText, HINT_PREFIX, usageFileText, conductorFileText, conductorAddQuestion, conductorRefusalText, conductorAddedText, CONDUCTOR_NOT_PERSON, CONDUCTOR_USAGE, conductorQuestion, conductorRestoreQuestion, conductorBriefing, conductorBriefingNote, conductorRestoredToast, conductorUnansweredToast, conductorAskAgainToast, CONDUCTOR_RESTORE_ASKS, KEEPALIVE_TEXT, conductorFileBadToast, conductorNoReposToast, CONDUCTOR_ON_TEXT, CONDUCTOR_OFF_QUESTION, conductorStatus, leadBriefing, LANES_CHANGED_TEXT, reboundToast, REASON_TEXT, managerRefusalText, terminateQuestion, leadConductorText } from '../hooks/core'
-import { h, GOOD, LANESDIR, NO, PS_TABLE, ROOT, SID, T0, USAGE_DIR, YES, renames, condFiles, condStat, extraStat, laneSeed, leadFiles, longTest, pdirs, pfs, psDead, realFails, realMap, seen, storeFiles, submitted, toasts, toolDefs } from './harness'
+import { GRANT_NAME_ON, CONDUCTOR_NAME_NOT_PERSON, grantNameText, HINT_PREFIX, usageFileText, conductorFileText, conductorAddQuestion, conductorRefusalText, conductorAddedText, CONDUCTOR_NOT_PERSON, CONDUCTOR_USAGE, conductorQuestion, conductorRestoreQuestion, conductorBriefing, conductorBriefingNote, conductorRestoredToast, conductorUnansweredToast, conductorFileBadToast, conductorNoReposToast, CONDUCTOR_ON_TEXT, CONDUCTOR_OFF_QUESTION, conductorStatus, leadBriefing, LANES_CHANGED_TEXT, reboundToast, REASON_TEXT, managerRefusalText, terminateQuestion, leadConductorText, conductorAskAgainToast, CONDUCTOR_RESTORE_ASKS, KEEPALIVE_TEXT } from '../hooks/core'
+import { h, GOOD, LANESDIR, NO, PS_TABLE, ROOT, SID, T0, USAGE_DIR, YES, renames, condFiles, condStat, extraStat, laneSeed, leadFiles, longTest, pdirs, pfs, psDead, realFails, realMap, seen, storeFiles, submitted, toasts, toolDefs, toolDesc } from './harness'
 import type { Trace } from './harness'
 import { APISID, APP2, keptOwner, COMPOSE, COND, CONDFILE, CSESS, FAR, LANE_HINT, LEADKEY, LEADPATH, LEADPS, LEADSID, MGR_SESS, MIN, NO_LANES, NO_LANES_COND, OTHER, OTHERLEAD, OTHERPATH, PIN, SELFPATH, STATUS_NONE, TURN, allEvents, attacher, briefings, ckLane, ckRow, condAt, condOn, condPresenceOf, condRun, condSelf, cue, dirStat, doLane, grantAt, idleFor, killed, lane, leadAt, leadFileText, leadReg, leadSelfReg, listCall, listed, logged, madeLane, mgrAt, mgrCall, mgrFile, mgrRow, newTrace, noteRows, nudges, ownReg, bindOwner, putCond, putLeadRecs, putStore, regAs, renameThroughTick, selfAs, started, statusTable, statusText, ticks, unanswered, waitFor, noNote, ownedBy, ownTurn, sleepMs } from './fixtures'
 
@@ -280,7 +280,7 @@ test('/callboard conductor asks once with every repo and the restart sentence; C
   const names = toolDefs.slice(defs0).map((d) => JSON.parse(d).name).filter((n: string) => n.startsWith('lane_'))
   expect([...new Set(names)].sort()).toEqual(['lane_compact', 'lane_list', 'lane_terminate'])
   expect(toolDefs.slice(defs0).some((d) => JSON.parse(d).name === 'lead_open')).toBe(true)
-  expect(toolDefs.slice(defs0).find((d) => d.includes('"lane_terminate"'))).toContain('Every stop asks the person')
+  expect(toolDefs.slice(defs0).find((d) => d.includes('"lane_terminate"'))).toContain(toolDesc('lane_terminate', 'conductor'))
   const pres = JSON.parse(leadFiles.get(SELFPATH)!.text)
   expect(pres).toMatchObject({ sid: SID, pid: 4400, procStart: LEADPS, level: 'conductor', repos: [PIN, APP2, FAR], home: COND })
   expect('repo' in pres).toBe(false)
