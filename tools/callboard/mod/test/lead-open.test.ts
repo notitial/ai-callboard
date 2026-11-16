@@ -3,7 +3,7 @@ import { REASON_TEXT } from '../hooks/core'
 import * as c from '../hooks/core'
 import { toasts, h, SID, pdirs, teeTexts, OFFERS_DIR, longTest, PROMPTS_DIR, ROOT, T0, extraStat, leadFiles, pfs } from './harness'
 import { ledgerRows } from './answer-fixtures'
-import { APP2, ticks, CSESS, LEADPS, LEADSID, OTHERLEAD, PIN, condOn, leadAt, leadFileText, leadReg, putLeadRecs, regAs } from './fixtures'
+import { ticks, CSESS, LEADPS, LEADSID, OTHERLEAD, PIN, condOn, leadAt, leadFileText, leadReg, putLeadRecs, regAs } from './fixtures'
 
 const call = (over: Record<string, unknown> = {}) => ({ tool: 'mcp__callboard__lead_open', repo: PIN, name: 'LEAD-N', task: 'Do the work.', ...over }) as any
 const NEWSID = '12345678-aaaa-4bbb-8ccc-dddddddddddd'
@@ -150,18 +150,17 @@ longTest('lead_open refuses a fifth lead of a conductor, parked ones counted, an
   wroteNothing(argv)
 })
 
-longTest('lead_open counts the conductor\'s leads across its repos, `joined` ones too, and not those of a repo out of its reach', async ($, on) => {
+longTest('lead_open counts `made` and `joined` leads of the conductor, and not those of a repo out of its reach', async ($, on) => {
   const argv: string[][] = []
   await conductor($, on, argv, {
     seed: () => {
-      putLeadRecs([{ name: 'LEAD-A', conductorSid: SID, how: 'made' }, { name: 'LEAD-B', conductorSid: SID, how: 'joined' }])
-      putLeadRecs([{ name: 'LEAD-C', conductorSid: SID }], APP2)
-      putLeadRecs([{ name: 'LEAD-D', conductorSid: SID }], '/Users/x/elsewhere')
+      putLeadRecs([{ name: 'LEAD-A', conductorSid: SID, how: 'made' }, { name: 'LEAD-B', conductorSid: SID, how: 'joined' }, { name: 'LEAD-C', conductorSid: SID, how: 'joined' }])
+      putLeadRecs([{ name: 'LEAD-D', conductorSid: SID }, { name: 'LEAD-E', conductorSid: SID }], '/Users/x/elsewhere')
     },
   })
   expect(await open($, `ok ${NEWSID}\n`)).toContain('is on as session')
   pfs.delete(`${OFFERS_DIR}/${KEY}.json`)
-  putLeadRecs([{ name: 'LEAD-C', conductorSid: SID }, { name: 'LEAD-E', conductorSid: SID }], APP2)
+  putLeadRecs([{ name: 'LEAD-A', conductorSid: SID }, { name: 'LEAD-B', conductorSid: SID }, { name: 'LEAD-C', conductorSid: SID }, { name: 'LEAD-F', conductorSid: SID }])
   h.openResult = undefined
   const r = await open($, undefined, { name: 'LEAD-M' })
   expect(r).toContain('lead-cap: you already own 4 leads')
