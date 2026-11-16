@@ -13,7 +13,11 @@ const ID = '9a1b2c3d-0000-4000-8000-123456789abc'
 const T = 1_700_000_000_000
 const H = 3_600_000
 const HASH = 'a'.repeat(64)
-const go = (over: Partial<g.Go> = {}): g.Go => ({ v: 1, id: ID, by: { level: 'lead', sid: LEAD, name: 'LEAD', repo: '/Users/x/code/app' }, at: T, ends: T + 24 * H, text: 'Build the import step.', covered: [{ name: 'API', sid: LANE }], nonce: 'f'.repeat(32), ...over })
+const COND = '6a1b2c3d-0000-4000-8000-123456789abc'
+const LEAD2 = '7a1b2c3d-0000-4000-8000-123456789abc'
+const go = (over: Partial<g.GoLead> = {}): g.GoLead => ({ v: 1, id: ID, by: { level: 'lead', sid: LEAD, name: 'LEAD', repo: '/Users/x/code/app' }, at: T, ends: T + 24 * H, text: 'Build the import step.', covered: [{ name: 'API', sid: LANE }], nonce: 'f'.repeat(32), ...over })
+// A conductor's go: the dialog listed the lead LEAD and its lane API.
+const cgo = (over: Partial<g.GoConductor> = {}): g.GoConductor => ({ v: 2, id: ID, by: { level: 'conductor', sid: COND, name: 'COND', repo: '/Users/x/code/cond' }, at: T, ends: T + 24 * H, text: 'Build the import step.', leads: [{ name: 'LEAD', sid: LEAD, repo: '/Users/x/code/app' }], covered: [{ name: 'API', sid: LANE }], nonce: 'f'.repeat(32), ...over })
 const row = (kind: LedgerRow['kind'], over: Partial<LedgerRow> = {}): LedgerRow => ({ t: new Date(T).toISOString(), kind, id: ID, ...over })
 const grant = (over: Partial<LedgerRow> = {}) => row('go-grant', { by: LEAD, hash: HASH, ...over })
 
@@ -24,10 +28,58 @@ test('a go file round-trips, and its text is the same bytes for the same go', ()
   assert.deepEqual(g.parseGo(g.goFileText(go({ by: { level: 'lead', sid: LEAD, name: '', repo: '/r' }, covered: [] }))), go({ by: { level: 'lead', sid: LEAD, name: '', repo: '/r' }, covered: [] }))
 })
 
+test("a lead's go file is the same bytes as before the conductor form, and a conductor's go file round-trips as v 2", () => {
+  assert.equal(
+    g.goFileText(go()),
+    `{"v":1,"id":"${ID}","by":{"level":"lead","sid":"${LEAD}","name":"LEAD","repo":"/Users/x/code/app"},"at":${T},"ends":${T + 24 * H},"text":"Build the import step.","covered":[{"name":"API","sid":"${LANE}"}],"nonce":"${'f'.repeat(32)}"}`,
+  )
+  const text = g.goFileText(cgo())
+  assert.equal(
+    text,
+    `{"v":2,"id":"${ID}","by":{"level":"conductor","sid":"${COND}","name":"COND","repo":"/Users/x/code/cond"},"at":${T},"ends":${T + 24 * H},"text":"Build the import step.","leads":[{"name":"LEAD","sid":"${LEAD}","repo":"/Users/x/code/app"}],"covered":[{"name":"API","sid":"${LANE}"}],"nonce":"${'f'.repeat(32)}"}`,
+  )
+  assert.deepEqual(g.parseGo(text), cgo())
+  assert.equal(g.goFileText(g.parseGo(text)!), text)
+  assert.deepEqual(g.parseGo(g.goFileText(cgo({ by: { level: 'conductor', sid: COND, name: '', repo: '/r' }, leads: [], covered: [] }))), cgo({ by: { level: 'conductor', sid: COND, name: '', repo: '/r' }, leads: [], covered: [] }))
+  assert.deepEqual(g.parseGo(g.goFileText(cgo({ leads: Array.from({ length: g.GO_LEADS_MAX }, () => ({ name: 'L', sid: LEAD, repo: '/r' })) })))!.leads.length, g.GO_LEADS_MAX)
+})
+
+test("a conductor's go file is read all or nothing: the form and the level go together, and every lead is a name, a session id and a repo", () => {
+  const ok = JSON.parse(g.goFileText(cgo()))
+  const lead = ok.leads[0]
+  const { leads: _leads, ...noLeads } = ok
+  const bad: unknown[] = [
+    { ...ok, v: 1 },
+    { ...ok, v: 3 },
+    { ...ok, by: { ...ok.by, level: 'lead' } },
+    { ...ok, by: { ...ok.by, level: 'manager' } },
+    noLeads,
+    { ...ok, leads: 'LEAD' },
+    { ...ok, leads: [{ ...lead, name: 'a b' }] },
+    { ...ok, leads: [{ ...lead, sid: 'x' }] },
+    { ...ok, leads: [{ ...lead, repo: 'app' }] },
+    { ...ok, leads: [{ ...lead, repo: `/${'r'.repeat(1024)}` }] },
+    { ...ok, leads: [{ name: lead.name, sid: lead.sid }] },
+    { ...ok, leads: [{ ...lead, extra: 1 }] },
+    { ...ok, leads: [null] },
+    { ...ok, leads: Array.from({ length: g.GO_LEADS_MAX + 1 }, () => lead) },
+    { ...ok, covered: Array.from({ length: g.GO_COVERED_MAX + 1 }, () => ({ name: 'API', sid: LANE })) },
+  ]
+  for (const b of bad) assert.equal(g.parseGo(JSON.stringify(b)), undefined, JSON.stringify(b).slice(0, 80))
+  // A lead's file that carries leads is no go either.
+  assert.equal(g.parseGo(JSON.stringify({ ...JSON.parse(g.goFileText(go())), leads: [] })), undefined)
+  // The keys in another order.
+  const { nonce, ...rest } = ok
+  assert.equal(g.parseGo(JSON.stringify({ nonce, ...rest })), undefined)
+  // Sixteen leads with long repo paths pass the size limit; a file over it is no go.
+  assert.equal(g.parseGo(g.goFileText(cgo({ leads: Array.from({ length: 16 }, () => ({ name: 'L', sid: LEAD, repo: `/${'r'.repeat(1000)}` })) }))), undefined)
+})
+
 test('a go file is read all or nothing: any field out of shape, an extra key, other spacing or a file over the size limit is no go', () => {
   const ok = JSON.parse(g.goFileText(go()))
   const bad: unknown[] = [
     { ...ok, v: 2 },
+    { ...ok, v: 0 },
     { ...ok, id: 'x' },
     { ...ok, by: { ...ok.by, level: 'conductor' } },
     { ...ok, by: { ...ok.by, sid: 'LEAD' } },
@@ -102,6 +154,75 @@ test('a go covers its own session, the sessions the dialog listed, and a lane op
   // The lane's name alone covers nothing.
   assert.equal(g.goCovers(go(), OTHER, [made({ name: 'API', sid: undefined })]), undefined)
   assert.equal(g.goCovers(go(), 'API', []), undefined)
+})
+
+test("a conductor's go covers its own session, the leads and lanes its dialog listed, a lead its records give it later, and a lane of any of those leads", () => {
+  const made = (over: Partial<Lane> = {}): Lane => ({ name: 'NEW', folder: '/Users/x/code/app', brief: '/b', repo: '/Users/x/code/app', sid: LATER, leadSid: LEAD, leadName: 'LEAD', ...over })
+  assert.equal(g.goCovers(cgo(), COND, []), 'grantor')
+  // Listed: the lead and its lane, by the session ids in the go.
+  assert.equal(g.goCovers(cgo(), LEAD, []), 'listed')
+  assert.equal(g.goCovers(cgo(), LANE, []), 'listed')
+  // A lane opened later under a listed lead: two links, each a session id.
+  assert.equal(g.goCovers(cgo(), LATER, [made()]), 'later')
+  assert.equal(g.goCovers(cgo(), LATER, [made({ adopted: true, lead: LEAD, leadSid: undefined })]), 'later')
+  // A lead opened later: only when the engine found its bound record (owned), and then its lanes too.
+  assert.equal(g.goCovers(cgo(), LEAD2, []), undefined)
+  assert.equal(g.goCovers(cgo(), LEAD2, [], [LEAD2]), 'later')
+  assert.equal(g.goCovers(cgo(), LATER, [made({ leadSid: LEAD2 })]), undefined)
+  assert.equal(g.goCovers(cgo(), LATER, [made({ leadSid: LEAD2 })], [LEAD2]), 'later')
+  // No go: a lane whose record names the conductor itself, a lead by name only, no lead, another session's record, no record.
+  assert.equal(g.goCovers(cgo(), LATER, [made({ leadSid: COND })]), undefined)
+  assert.equal(g.goCovers(cgo(), LATER, [made({ leadSid: undefined })]), undefined)
+  assert.equal(g.goCovers(cgo(), LATER, [made({ leadSid: undefined, leadName: undefined })]), undefined)
+  assert.equal(g.goCovers(cgo(), LATER, [made({ sid: OTHER })], [LEAD2]), undefined)
+  assert.equal(g.goCovers(cgo(), LATER, [], [LEAD2]), undefined)
+  assert.equal(g.goCovers(cgo(), 'LEAD', [], ['LEAD']), undefined)
+  // A lead's go takes nothing from the lead records: owned is not read for it.
+  assert.equal(g.goCovers(go(), LEAD2, [], [LEAD2]), undefined)
+  assert.equal(g.goCovers(go(), LATER, [made({ leadSid: LEAD2 })], [LEAD2]), undefined)
+  // goReachesLead: whose lanes a go reaches.
+  assert.equal(g.goReachesLead(go(), LEAD), true)
+  assert.equal(g.goReachesLead(go(), LANE), false)
+  assert.equal(g.goReachesLead(go(), LEAD2, [LEAD2]), false)
+  assert.equal(g.goReachesLead(cgo(), LEAD), true)
+  assert.equal(g.goReachesLead(cgo(), COND), false)
+  assert.equal(g.goReachesLead(cgo(), LEAD2), false)
+  assert.equal(g.goReachesLead(cgo(), LEAD2, [LEAD2]), true)
+})
+
+test("the conductor's dialog groups the lanes under their leads, and names the conductor as the author", () => {
+  const q = g.goQuestion({ name: 'COND', covered: ['X', 'Y', 'Z'], ends: 'Sun 16 Nov 19:25', text: 'Build the import step.', author: 'tier', groups: [{ name: 'A', session: true, lanes: ['X', 'Y'] }, { name: 'B', session: true, lanes: [] }, { name: 'OLD', session: false, lanes: ['Z'] }] })
+  const parts = q.split('\n\n')
+  assert.equal(parts[0], 'Give one go for this work? It counts for conductor COND, the leads it owns and their lanes.')
+  assert.equal(parts[1], 'Covers now: lead A (lanes X, Y); lead B (no lane yet); lead OLD, no session (lane Z); and leads and lanes opened under it later, until the end.')
+  assert.equal(parts[2], 'Ends Sun 16 Nov 19:25, or when you type /callboard go off.')
+  assert.equal(parts[3], `A go never covers these; each still needs you, every time: ${g.GO_NEVER_TEXT}`)
+  assert.equal(parts[4], 'Everything below this line was written by conductor COND, not by callboard:')
+  assert.equal(parts[5], 'Build the import step.')
+  assert.equal(parts.length, 6)
+  const own = g.goQuestion({ name: '', covered: [], ends: 'x', text: 't', author: 'person', groups: [] })
+  assert.ok(own.includes('It counts for this conductor, the leads it owns and their lanes.'))
+  assert.ok(own.includes('Covers now: no lead yet; and leads and lanes opened under it later'))
+  assert.ok(own.includes('Everything below this line was typed with the command, not written by callboard:\n\nt'))
+  // The fullest dialog: sixteen leads and thirty-two lanes with the longest names and the longest text.
+  const full = g.goQuestion({ name: 'C'.repeat(40), covered: [], ends: 'Sun 16 Nov 19:25', text: 'x'.repeat(g.GO_TEXT_MAX), author: 'tier', groups: Array.from({ length: g.GO_LEADS_MAX }, () => ({ name: 'L'.repeat(40), session: true, lanes: ['N'.repeat(40), 'N'.repeat(40)] })) })
+  assert.ok(full.length < 5200, String(full.length))
+})
+
+test("the conductor's result texts: a go given, the lead_open tail, the list and go_status", () => {
+  const given = g.goGivenText(cgo(), 'Sun 16 Nov 19:25')
+  assert.ok(given.startsWith("Go 9a1b2c3d recorded: the person's own click. It covers the leads LEAD and the lanes API, and leads and lanes opened under this conductor later, until Sun 16 Nov 19:25 ("))
+  assert.ok(given.endsWith('Leads and lanes read it with go_status; it never covers a merge, a force push, a push to main, a production change, a delete outside your work, and the rest of the list go_status prints.'))
+  assert.ok(g.goGivenText(cgo({ leads: [], covered: [] }), 'x').includes('It covers no lead yet and no lane yet, and leads and lanes opened'))
+  assert.equal(g.goLeadTail(cgo(), 'Sun 16 Nov 19:25'), ' A go covers this lead: 9a1b2c3d, ends Sun 16 Nov 19:25.')
+  assert.equal(g.goLeadTail(undefined), ' No go covers this lead: call go_request before it starts risk-list work.')
+  assert.equal(g.goListText([cgo()], () => 'Sun 16 Nov 19:25'), 'Go 9a1b2c3d: conductor COND; ends Sun 16 Nov 19:25; leads at the click: LEAD; lanes at the click: API. Build the import step.')
+  assert.ok(g.goStatusText([cgo()]).includes(`Go 9a1b2c3d: given in conductor COND (session ${COND}) at ${new Date(T).toISOString()}; ends`))
+  assert.ok(g.goStatusText([cgo({ by: { level: 'conductor', sid: COND, name: '', repo: '/r' } })]).includes('given in this conductor (session'))
+  assert.equal(g.GO_REFUSE.conductor, undefined)
+  assert.equal(g.GO_REFUSE['not-lead'], "a go is given in a lead's or conductor's session. A lane, or any session a go only covers, cannot give, widen or extend one.")
+  assert.equal(g.GO_REFUSE['too-many'], 'more than 16 leads or 32 lanes to list.')
+  assert.ok(g.GO_USAGE.startsWith("Use /callboard go TEXT in a lead's or conductor's session to give one go"))
 })
 
 test('the dialog: fixed lines first, the mod\'s names, the end, the full never-list, then the description under a line naming its author', () => {

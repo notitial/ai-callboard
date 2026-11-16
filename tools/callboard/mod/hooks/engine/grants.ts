@@ -332,8 +332,8 @@ export function presenceDrop($: any, sid: string) {
 
 // Resolves true when the saved grant is gone, false when its delete failed (the off and Cancel replies then say lead may come back after a restart).
 export function leadDrop($: any, sid: string): Promise<boolean> {
-  // The goes this lead gave end with its grant (ADR 0009); the rows are written beside the drop, which does not wait for them.
-  if (grants.get(sid)?.level === 'lead') void goGrantorOff($, sid).catch(() => undefined)
+  // The goes this lead or conductor gave end with its grant (ADR 0009); the rows are written beside the drop, which does not wait for them.
+  if (grants.get(sid)?.level === 'lead' || grants.get(sid)?.level === 'conductor') void goGrantorOff($, sid).catch(() => undefined)
   leadEpoch.set(sid, epochOf(sid) + 1)
   grants.delete(sid)
   briefed.delete(sid)
@@ -1913,7 +1913,7 @@ export async function conductorReach($: any, sid: string): Promise<{ pins: strin
 }
 
 // ---- the conductor grant by dialog, its saved grant and restore, its tools ----
-// The conductor's tools (three lane tools, lead_open and the six lead tools), declared at its grant, then the three prompt tools (thirteen in all, c.CONDUCTOR_TOOLS). The handlers are the lead's (leadBase refuses every other lane tool at conductor level).
+// The conductor's tools (three lane tools, lead_open, the six lead tools and go_request), declared at its grant, then the three prompt tools (fourteen in all, c.CONDUCTOR_TOOLS). The handlers are the lead's (leadBase refuses every other lane tool at conductor level).
 async function conductorTools($: any, sid: string) {
   if (conductorDeclared.has(sid)) return
   const lane = { type: 'object', properties: { lane: { type: 'string' } }, required: ['lane'] }
@@ -1929,6 +1929,7 @@ async function conductorTools($: any, sid: string) {
     ['lead_unpark', `Reopen a parked lead you own in a new panel, as the lead, within ${c.UNPARK_MAX_MS / 86_400_000} days of its park. Needs the panels extension 1.4.0 or later. lead: the lead's name.`, lead],
     ['lead_retire', "Stop a lead you own once it confirms it can end: idle, empty prompt box, no background agents or shells, and its report signed done. Refused while any lane record names the lead (its lanes are retired or removed first). The call waits up to 40 seconds for the idle time. Once the session has stopped, the lead's record is deleted (its .archive folder and report stay). A lead record no live session carries is removed directly; for a parked lead the person confirms first. Retire is final. lead: the lead's name.", lead],
     ['lead_terminate', "Stop a lead you own with SIGTERM, whatever it is doing. Every stop asks the person: they confirm in a dialog that names the lead, its repo, the session, the pid and how many live lanes name it. Once the session has stopped, the lead's record is deleted, or kept with no session while any lane names the lead (then lead_retire removes it once its lanes are gone). lead: the lead's name.", lead],
+    ['go_request', "Ask the person for one go that counts in the leads you own and in their lanes (ADR 0009). It only opens the person's dialog in this session: text says what the work is (1 to 1500 bytes of plain text; the person reads it, and the leads and lanes read it back from go_status). The dialog lists your leads with their lanes, the end (24 hours) and what a go never covers. The result says whether the go was given. Main agent of a conductor only; at most 6 dialogs an hour. Call it when lead_open says no go covers a lead that has risk-list work.", { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] }],
   ]
   for (const [name, description, inputSchema] of tools) await $.tool.register({ name, description, inputSchema })
   await promptToolsRegister($)
@@ -2010,6 +2011,7 @@ async function conductorRestoreTry($: any, me: string, box: { hint: c.ConductorH
   if (cwd === 'timeout' || typeof cwd !== 'string') return 'cwd-unreadable'
   if (cwd !== hint.home) {
     await $.store.delete(key)
+    void goGrantorOff($, me).catch(() => undefined)
     return void (await end('wrong-folder'))
   }
   // A lane on its way back: its binding, its restore hint, or a store record naming this session. A pending rebind alone is tried again:
@@ -2112,6 +2114,7 @@ async function conductorRestoreAsk($: any, me: string, pend: CondPending) {
     if (r === 'no') {
       end()
       await Promise.resolve($.store.delete(key)).catch(logFail($, me, 'conductor-hint-delete'))
+      void goGrantorOff($, me).catch(() => undefined)
       return void (await log($, me, 'conductor-restore-cancelled'))
     }
     if (r !== 'yes') {

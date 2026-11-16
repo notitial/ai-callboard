@@ -1,9 +1,9 @@
 import { expect, test } from 'claude-code/testing'
 import * as g from '../hooks/go'
-import { HOUR_MS } from '../hooks/core'
-import { h, GO_DIR, ROOT, SID, T0, YES, extraStat, fakeSha, longTest, pdirs, pfs, targetLogs, toasts } from './harness'
+import { CONDUCTOR_HINT_PREFIX, HOUR_MS } from '../hooks/core'
+import { h, GO_DIR, LANESDIR, LEADRECDIR, ROOT, SID, T0, YES, extraStat, fakeSha, longTest, pdirs, pfs, repoKey, storeFiles, targetLogs, toasts } from './harness'
 import { ledgerRows, putLedger, wireGuard } from './answer-fixtures'
-import { LEADSID, OTHER, OTHERLEAD, PERSON, PIN, SVC, ckLane, ckRow, callCreate, creator, cueSession, dirStat, lane, leadAt, leadCall, leadSelfReg, mgrAt, putStore, started, waitFor } from './fixtures'
+import { APISID, APP2, COND, LEADSID, OTHER, OTHERLEAD, PERSON, PIN, SVC, bindOwner, ckLane, ckRow, callCreate, condOn, creator, cueSession, dirStat, lane, leadAt, leadCall, leadSelfReg, mgrAt, ownedBy, putLeadRecs, putStore, started, waitFor } from './fixtures'
 
 // ---- the go (ADR 0009): the dialog in a lead's session, the go file and its rows, go_request, go_status, /callboard go ----
 // The giver's side: this session (SID) is the lead LEAD of PIN, with the store lane API bound to session OTHER. The reader's side: this session is a plain one
@@ -326,12 +326,13 @@ test('a lead whose grant ends while the row and the file are written gets a void
   expect(await status($)).toBe(g.goNoneText())
 })
 
-test('the manager and a conductor read no go, whatever a go once listed', async ($, on) => {
+test('the manager reads no go, whatever a go once listed', async ($, on) => {
   await mgrAt($, on, [], { clock: true })
   await guardOn()
   putGo({ covered: [{ name: 'API', sid: SID }] })
+  putCondGo({ id: GOID.replace('9d', '9e'), leads: [{ name: 'LEAD', sid: SID, repo: PIN }] })
   expect(await status($)).toBe(g.goNoneText())
-  expect(goKinds()).toEqual(['go-grant'])
+  expect(goKinds()).toEqual(['go-grant', 'go-grant'])
 })
 
 test('with 64 go files kept a new go is refused before any dialog; files written more than 9 days ago are removed first', async ($, on) => {
@@ -469,4 +470,270 @@ test('a go file that cannot be read when goes are ended is told: the reply of go
   await waitFor(() => toasts.includes(g.GO_END_FAILED_TOAST))
   expect(goKinds()).toEqual(['go-grant'])
   h.pfsFails = undefined
+})
+
+// ---- a conductor's own go: one click in a conductor covers the leads it owns and their lanes, the ones opened later included ----
+// The giver's side: this session (SID) is the conductor COND over PIN and APP2, owning lead LEAD (session LEADSID) of PIN, whose lane API is session APISID.
+// The reader's side: this session is a lead or a lane, and the go is seeded as the conductor CONDSID wrote it.
+const CONDSID = '7a1b2c3d-0000-4000-8000-123456789abc'
+const COND2 = '8a1b2c3d-0000-4000-8000-123456789abc'
+const cgoOf = (over: Partial<g.GoConductor> = {}): g.GoConductor => ({ v: 2, id: GOID, by: { level: 'conductor', sid: CONDSID, name: 'COND', repo: COND }, at: T0 - 60_000, ends: T0 + 24 * HOUR_MS, text: WORK, leads: [], covered: [], nonce: '0'.repeat(32), ...over })
+function putCondGo(over: Partial<g.GoConductor> = {}): g.GoConductor {
+  const go = cgoOf(over)
+  const body = g.goFileText(go)
+  pdirs.add(GO_DIR)
+  pfs.set(`${GO_DIR}/${go.id}.json`, { text: body, mtimeSec: go.at / 1000 })
+  putLedger([{ t: new Date(go.at).toISOString(), kind: 'go-grant', id: go.id, by: go.by.sid, tier: 'conductor', hash: fakeSha(body), end: new Date(go.ends).toISOString(), repo: COND }])
+  return go
+}
+async function condGiver($: any, on: any, opts: Parameters<typeof condOn>[3] = {}) {
+  await condOn($, on, [], { clock: true, ...opts })
+  await guardOn()
+  h.askAnswer = GIVE
+}
+// This session as the lead LEAD of PIN (the reader of a conductor's go).
+async function leadReader($: any, on: any, seed: () => void = () => undefined) {
+  await leadAt($, on, [], { clock: true, sess: { ...leadSelfReg(), ...ckRow() }, seed: () => {
+    putStore([ckLane()])
+    seed()
+  } })
+  await guardOn()
+}
+const reads = () => goRows().filter((r) => r.kind === 'go-read').map((r) => [r.by, r.code, r.lane])
+const givenGo = () => g.parseGo(pfs.get(goFiles()[0])!.text)!
+
+test('/callboard go TEXT typed by the person in a conductor opens the dialog with its leads and their lanes; Give go writes the row, then a v 2 file', async ($, on) => {
+  await condGiver($, on)
+  const asked = h.askCount
+  const r = await goCmd($, WORK)
+  expect(h.askCount).toBe(asked + 1)
+  expect(h.lastHeader).toBe(g.GO_HEADER)
+  expect(h.askedOptions.at(-1)).toEqual([g.GO_NO, g.GO_YES])
+  expect(h.lastQuestion).toContain('the leads it owns and their lanes.')
+  expect(h.lastQuestion).toContain('Covers now: lead LEAD (lane API); and leads and lanes opened under it later, until the end.')
+  for (const part of [WORK, 'a merge', 'a force push']) expect(h.lastQuestion).toContain(part)
+  expect(goFiles()).toHaveLength(1)
+  const f = pfs.get(goFiles()[0])!
+  const go = g.parseGo(f.text)!
+  expect(go).toMatchObject({ v: 2, by: { level: 'conductor', sid: SID, name: 'COND', repo: COND }, text: WORK, leads: [{ name: 'LEAD', sid: LEADSID, repo: PIN }], covered: [{ name: 'API', sid: APISID }], ends: go.at + 24 * HOUR_MS })
+  expect(JSON.parse(f.text).v).toBe(2)
+  expect(goRows()).toEqual([expect.objectContaining({ kind: 'go-grant', id: go.id, by: SID, tier: 'conductor', hash: fakeSha(f.text), end: new Date(go.ends).toISOString(), repo: COND, lane: 'COND' })])
+  expect(r.text).toContain(`Go ${g.goShort(go.id)} recorded`)
+  expect(r.text).toContain('the leads LEAD and the lanes API')
+  // The conductor reads its own go, with no go-read row, and the bare command lists it with its leads.
+  expect(await status($)).toContain(`<<<go ${g.goShort(go.id)}\n${WORK}\n>>>`)
+  expect(goKinds()).toEqual(['go-grant'])
+  expect((await goCmd($, '')).text).toContain('leads at the click: LEAD; lanes at the click: API.')
+})
+
+test("go_request from a conductor's main agent opens the same dialog; a subagent is refused; a conductor that owns nothing gives a go that lists no lead", async ($, on) => {
+  await condGiver($, on, { owns: [] })
+  const asked = h.askCount
+  expect(String((await $.tool.call(tool('go_request', { text: WORK, agentId: 'a1' }))).deny)).toBe(`go_request refused: subagent: ${g.GO_REFUSE.subagent}`)
+  expect(h.askCount).toBe(asked)
+  h.askAnswer = g.GO_NO as any
+  expect((await $.tool.call(tool('go_request', { text: WORK }))).result).toBe(`No go was given: ${g.GO_REFUSE.cancelled}`)
+  expect(h.lastQuestion).toContain('Covers now: no lead yet; and leads and lanes opened under it later')
+  expect(goFiles()).toEqual([])
+  h.askAnswer = GIVE
+  const r = await $.tool.call(tool('go_request', { text: WORK, hours: 48 }))
+  const go = givenGo()
+  expect(go).toMatchObject({ v: 2, leads: [], covered: [] })
+  expect(go.ends - go.at).toBeLessThanOrEqual(24 * HOUR_MS)
+  expect(String(r.result)).toContain('It covers no lead yet and no lane yet')
+  expect(goKinds()).toEqual(['go-grant'])
+})
+
+test("a lead the conductor's dialog listed reads the go by its session id; one go-read row that carries its name", async ($, on) => {
+  await leadReader($, on)
+  const go = putCondGo({ leads: [{ name: 'LEAD', sid: SID, repo: PIN }] })
+  const t = await status($)
+  expect(t).toContain(`Go ${g.goShort(GOID)}: given in conductor COND (session ${CONDSID})`)
+  expect(t).toContain(`<<<go ${g.goShort(GOID)}\n${WORK}\n>>>`)
+  expect(t).toContain(`ends ${new Date(go.ends).toISOString()}`)
+  expect(await status($)).toBe(t)
+  expect(reads()).toEqual([[SID, 'listed', 'LEAD']])
+})
+
+test("a lead opened after the conductor's go reads it once its record names that conductor and it is bound to it; lane_create says its next lane is covered", async ($, on) => {
+  await leadReader($, on, () => ownedBy(CONDSID, { name: 'LEAD', leadSid: SID }))
+  putCondGo()
+  expect(await status($)).toContain(WORK)
+  expect(reads()).toEqual([[SID, 'later', 'LEAD']])
+  extraStat.set(`${PIN}/api`, dirStat)
+  const made = String((await callCreate($, { name: 'WEB', folder: `${PIN}/api`, task: 'Build the page.' })).result)
+  expect(made).toContain(`A go covers this lane: ${g.goShort(GOID)}`)
+})
+
+test("a lane reads a conductor's go through its lead: a lead the dialog listed, or one whose bound record names the conductor", async ($, on) => {
+  await reader($, on)
+  putCondGo({ leads: [{ name: 'LEAD', sid: LEADSID, repo: PIN }] })
+  expect(await status($)).toContain(WORK)
+  expect(reads()).toEqual([[SID, 'later', 'API']])
+  // Another go of the same conductor that listed nobody: the lane's lead is found in the lead records.
+  const other = GOID.replace('9d', '9e')
+  putCondGo({ id: other })
+  expect(await status($)).toContain('A go covers this session.')
+  ownedBy(CONDSID, { name: 'LEAD', leadSid: LEADSID })
+  expect(await status($)).toContain('2 goes cover this session.')
+  expect(reads()).toEqual([[SID, 'later', 'API'], [SID, 'later', 'API']])
+  // A lane the dialog listed is covered by its own session id, whatever its record says.
+  putStore([ckLane({ sid: SID, leadSid: OTHERLEAD })])
+  const third = GOID.replace('9d', '9f')
+  putCondGo({ id: third, covered: [{ name: 'API', sid: SID }] })
+  expect(await status($)).toContain('A go covers this session.')
+  expect(reads().at(-1)).toEqual([SID, 'listed', 'API'])
+})
+
+test("no go under a conductor's go: a lead of another conductor, an unowned lead, a record that names another conductor session, a record that is not bound", async ($, on) => {
+  await leadReader($, on)
+  putCondGo()
+  // No lead record at all.
+  expect(await status($)).toBe(g.goNoneText())
+  // Owned by another conductor, and bound to it.
+  ownedBy(COND2, { name: 'LEAD', leadSid: SID })
+  expect(await status($)).toBe(g.goNoneText())
+  // The record names the granting conductor, but this lead's binding still names the other one.
+  putLeadRecs([{ name: 'LEAD', conductorSid: CONDSID, sid: SID }])
+  expect(await status($)).toBe(g.goNoneText())
+  // The record names the granting conductor and nothing is bound to it.
+  h.store.delete(`owner:${SID}`)
+  expect(await status($)).toBe(g.goNoneText())
+  // A record of that conductor that carries another lead's session.
+  putLeadRecs([{ name: 'LEAD', conductorSid: CONDSID, sid: OTHERLEAD }])
+  bindOwner(OTHERLEAD, CONDSID, 'LEAD')
+  expect(await status($)).toBe(g.goNoneText())
+  expect(goKinds()).toEqual(['go-grant'])
+  // Bound to the granting conductor: covered.
+  ownedBy(CONDSID, { name: 'LEAD', leadSid: SID })
+  expect(await status($)).toContain(WORK)
+})
+
+test("no go under a conductor's go for a lane whose lead is not covered", async ($, on) => {
+  // The lane's record names OTHERLEAD as its lead; the conductor owns LEADSID.
+  await reader($, on, [ckLane({ sid: SID, leadSid: OTHERLEAD })])
+  ownedBy(CONDSID, { name: 'LEAD', leadSid: LEADSID })
+  putCondGo({ leads: [{ name: 'LEAD', sid: LEADSID, repo: PIN }] })
+  expect(await status($)).toBe(g.goNoneText())
+  // The lane's lead is owned by another conductor.
+  ownedBy(COND2, { name: 'OTHER-LEAD', leadSid: OTHERLEAD })
+  expect(await status($)).toBe(g.goNoneText())
+  // A lane that names its lead by name only, and one whose record names the conductor itself as its lead.
+  putStore([ckLane({ sid: SID, leadName: 'LEAD' })])
+  expect(await status($)).toBe(g.goNoneText())
+  putStore([ckLane({ sid: SID, leadSid: CONDSID })])
+  expect(await status($)).toBe(g.goNoneText())
+  expect(goKinds()).toEqual(['go-grant'])
+})
+
+test("lead records that cannot be read are no go under a conductor's go, with the reason; a session the dialog listed needs none", async ($, on) => {
+  await leadReader($, on, () => ownedBy(CONDSID, { name: 'LEAD', leadSid: SID }))
+  putCondGo()
+  extraStat.set(LEADRECDIR, '501 755 2 Directory 11 64 1700000000\n')
+  expect(await status($)).toBe(g.goNoneText('The lead records could not be read. Tell the person.'))
+  expect(goKinds()).toEqual(['go-grant'])
+  // A binding that cannot be read is no go either: the link is not known.
+  extraStat.delete(LEADRECDIR)
+  h.storeThrowSync = 'get'
+  expect(await status($)).toBe(g.goNoneText('The lead records could not be read. Tell the person.'))
+  h.storeThrowSync = undefined
+  expect(goKinds()).toEqual(['go-grant'])
+  extraStat.set(LEADRECDIR, '501 755 2 Directory 11 64 1700000000\n')
+  // A session the dialog listed is covered by its own session id: no record is read for that link.
+  const listed = GOID.replace('9d', '9e')
+  putCondGo({ id: listed, leads: [{ name: 'LEAD', sid: SID, repo: PIN }] })
+  expect(await status($)).toContain('A go covers this session.')
+  extraStat.delete(LEADRECDIR)
+  expect(await status($)).toContain('2 goes cover this session.')
+})
+
+test("a conductor reads only the goes given in its own session: none that lists it as a lead or a lane, none of another conductor", async ($, on) => {
+  await condGiver($, on)
+  putGo({ covered: [{ name: 'API', sid: SID }] })
+  putCondGo({ id: GOID.replace('9d', '9e'), leads: [{ name: 'LEAD', sid: SID, repo: PIN }], covered: [{ name: 'API', sid: SID }] })
+  expect(await status($)).toBe(g.goNoneText())
+  expect(goRows().filter((r) => r.kind === 'go-read')).toEqual([])
+})
+
+test('/callboard off in a conductor ends the goes it gave, and no other', async ($, on) => {
+  await condGiver($, on)
+  await goCmd($, WORK)
+  const mine = givenGo()
+  putGo()
+  putCondGo({ id: GOID.replace('9d', '9e') })
+  h.askAnswer = '<yes button>' as any
+  await $.command.run(lane('off'))
+  await waitFor(() => goKinds().includes('go-end grantor-off'))
+  expect(goRows().filter((r) => r.kind === 'go-end')).toEqual([expect.objectContaining({ id: mine.id, code: 'grantor-off', by: SID })])
+})
+
+test('more than 32 lanes or 16 leads refuse before any dialog', async ($, on) => {
+  const WORKREPO = '/data/x/work'
+  const sid = (i: number) => `${String(i).padStart(8, '0')}-0000-4000-8000-00000000abcd`
+  // Lanes that name no lead: each follows its repo's only lead record.
+  const laneStore = (repo: string, n: number, from: number) =>
+    storeFiles.set(`${LANESDIR}/${repoKey(repo)}.json`, JSON.stringify({ repo, lanes: Array.from({ length: n }, (_, i) => ({ name: `LN-${from + i}`, folder: repo, brief: `${repo}/BRIEF.md`, createdAt: 1, sid: sid(100 + from + i) })), creates: [] }))
+  await condGiver($, on, { repos: ['../app', '../app2', WORKREPO] })
+  ownedBy(SID, { name: 'LEAD2', leadSid: sid(1), repo: APP2 })
+  ownedBy(SID, { name: 'LEAD3', leadSid: sid(2), repo: WORKREPO })
+  laneStore(PIN, 16, 0)
+  laneStore(APP2, 16, 16)
+  laneStore(WORKREPO, 1, 32)
+  // 33 lanes in reach, over three repos.
+  const asked = h.askCount
+  expect((await goCmd($, WORK)).text).toBe(`No go was given: too-many: ${g.GO_REFUSE['too-many']}`)
+  expect(String((await $.tool.call(tool('go_request', { text: WORK }))).deny)).toBe(`go_request refused: too-many: ${g.GO_REFUSE['too-many']}`)
+  expect(h.askCount).toBe(asked)
+  // 32 lanes and three leads pass the count.
+  laneStore(PIN, 15, 0)
+  expect((await goCmd($, WORK)).text).toContain('recorded')
+  expect(givenGo().covered).toHaveLength(32)
+  expect(givenGo().leads.map((x) => x.name)).toEqual(['LEAD', 'LEAD2', 'LEAD3'])
+  // 18 leads: sixteen records in APP2 beside the ones of the two other repos.
+  putLeadRecs(Array.from({ length: 16 }, (_, i) => ({ name: `L-${i}`, conductorSid: SID, sid: sid(200 + i) })), APP2)
+  for (let i = 0; i < 16; i++) bindOwner(sid(200 + i), SID, `L-${i}`, APP2)
+  const before = h.askCount
+  expect((await goCmd($, WORK)).text).toBe(`No go was given: too-many: ${g.GO_REFUSE['too-many']}`)
+  // Sixteen leads pass it.
+  putLeadRecs(Array.from({ length: 14 }, (_, i) => ({ name: `L-${i}`, conductorSid: SID, sid: sid(200 + i) })), APP2)
+  for (let i = 0; i < 14; i++) bindOwner(sid(200 + i), SID, `L-${i}`, APP2)
+  expect(h.askCount).toBe(before)
+  expect((await goCmd($, WORK)).text).toContain('recorded')
+  expect(h.askCount).toBe(before + 1)
+})
+
+longTest("the conductor sees one toast the first time a lead or a lane opened after its go reads it, and none for one the dialog listed", async ($, on) => {
+  await condGiver($, on)
+  await goCmd($, WORK)
+  const go = givenGo()
+  const read = (by: string, code: string, name: string) => putLedger([{ t: new Date(h.nowMs).toISOString(), kind: 'go-read', id: go.id, by, code, lane: name }])
+  read(LEADSID, 'listed', 'LEAD')
+  read(OTHERLEAD, 'later', 'NEW-LEAD')
+  read(OTHER, 'later', 'WEB')
+  await h.clock!.advance(61_000)
+  await waitFor(() => toasts.includes(g.goReadToast('WEB', go.id)))
+  await h.clock!.advance(121_000)
+  for (const name of ['NEW-LEAD', 'WEB']) expect(toasts.filter((t) => t === g.goReadToast(name, go.id))).toHaveLength(1)
+  expect(toasts).not.toContain(g.goReadToast('LEAD', go.id))
+})
+
+test("a conductor's go is read from the records alone: with the conductor not live and no list file in sight the lead stays covered, until go off", async ($, on) => {
+  await leadReader($, on, () => ownedBy(CONDSID, { name: 'LEAD', leadSid: SID }))
+  putCondGo()
+  expect(await status($)).toContain(WORK)
+  expect((await goCmd($, 'off')).text).toBe(g.goOffText([GOID]))
+  expect(await status($)).toBe(g.goNoneText())
+})
+
+test('a saved conductor grant that is refused when the session starts ends the goes that conductor gave, and no other', async ($, on) => {
+  await started($, on, [], {
+    clock: true,
+    seed: () => {
+      h.store.set(`${CONDUCTOR_HINT_PREFIX}${SID}`, { home: 'not a path' })
+      putCondGo({ by: { level: 'conductor', sid: SID, name: 'COND', repo: COND } })
+      putCondGo({ id: GOID.replace('9d', '9e') })
+    },
+  })
+  await waitFor(() => goKinds().includes('go-end grantor-off'))
+  expect(goRows().filter((r) => r.kind === 'go-end')).toEqual([expect.objectContaining({ id: GOID, code: 'grantor-off', by: SID })])
 })

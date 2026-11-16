@@ -29,12 +29,12 @@
 //              resume cue; written before the cue, so a row with no cue after it is a refused or failed send
 //   lead-stop  the lead-resume fields (target absent for a record no session carried) and code (park | unpark | retire | terminate | remove)   a lead tool parked,
 //              reopened, retired, force-stopped or removed a lead; written before the action
-//   go-grant   id (the go's), by (the session it was given in), tier, hash (the SHA-256 of the go file's bytes), end (when it ends), repo, lane (the giver's name then)
+//   go-grant   id (the go's), by (the session it was given in), tier (lead | conductor), hash (the SHA-256 of the go file's bytes), end (when it ends), repo, lane (the giver's name then)
 //              the person clicked Give go in the mod's own dialog (ADR 0009); written before the go file
-//   go-end     id, code (off | expired | grantor-off | void), by?   a go ended: the person's /callboard go off, its end time, its lead losing the grant, or a file that could not be written
-//   go-read    id, by (the reading session), code (listed | later), lane?   a covered session read the go from go_status for the first time; written before the go is reported
+//   go-end     id, code (off | expired | grantor-off | void), by?   a go ended: the person's /callboard go off, its end time, its lead or conductor losing the grant, or a file that could not be written
+//   go-read    id, by (the reading session), code (listed | later), lane? (the reader's name: a lane's, or a lead's under a conductor's go)   a covered session read the go from go_status for the first time; written before the go is reported
 // The go files (--goes, default the go folder beside the prompts folder; read only, each file whole) are checked against the go-grant rows (rule j), and each go is
-// listed with its text and the sessions that read it.
+// listed with its tier, its text, the leads a conductor's go file lists and the sessions that read it. A lead's go file is `v: 1`, a conductor's `v: 2`; rule j reads both.
 //   pr-watch   code (new | renew | expired | lost | merged | closed), lane, target (owner/repo#number)   a lane's PR tracking began, was renewed or ended (ADR 0010)
 //   pr-notice  code (the note's kind), tier (the level of the session told), lane?, target? (owner/repo#number)   one PR note was delivered; no request of its own
 // The lead records (--records, default the lead-records folder beside the prompts folder; read only, each file whole) are checked against the lead-owner rows (rule i).
@@ -676,6 +676,8 @@ function readLeadRecords(dir, explicit, problems) {
 // read (go-row-no-file). Each go of the range is listed with the text the person approved (from its file, while that is kept) and the sessions that read it.
 const GO_FILE_MAX_BYTES = 8192
 const GO_FILES_MAX = 1000
+// The leads of a conductor's go file that the list names (the mod writes at most this many).
+const GO_LEADS_SHOWN = 16
 // The go files of a folder, read only: each <id>.json a regular file (no link followed), at most GO_FILE_MAX_BYTES, read whole. undefined: the folder is not a
 // readable folder, and rule j is then not run (a problem when it was named with --goes, or when it is there and cannot be read). A missing folder is no go files.
 function readGoFiles(dir, explicit, problems) {
@@ -723,7 +725,7 @@ function readGoFiles(dir, explicit, problems) {
         closeSync(fd)
       }
       const j = parseObj(buf.toString('utf8'))
-      out.push({ id, hash: createHash('sha256').update(buf).digest('hex'), by: typeof j?.by?.sid === 'string' ? j.by.sid : undefined, text: j && j.id === id && typeof j.text === 'string' ? j.text : undefined })
+      out.push({ id, hash: createHash('sha256').update(buf).digest('hex'), by: typeof j?.by?.sid === 'string' ? j.by.sid : undefined, text: j && j.id === id && typeof j.text === 'string' ? j.text : undefined, leads: j && j.id === id && Array.isArray(j.leads) ? j.leads.slice(0, GO_LEADS_SHOWN).map((x) => (typeof x?.name === 'string' ? x.name : '?')) : undefined })
     } catch (e) {
       problems.push(`goes: ${d.name}: ${e instanceof AuditError ? e.message : (e.code ?? e.message)}, not read`)
     }
@@ -745,7 +747,7 @@ function ruleGoes({ rows, flag, inRange, now }, files) {
     if (files && !file && !end && Number.isFinite(endMs) && endMs > now) flag('j', 'go-row-no-file', `the go-grant row of go ${r.id.slice(0, 8)} (${r.t}) ends ${r.end}, has no go-end row and no go file: no session can read it`, { t: r.t })
     if (!inRange(r.ms)) continue
     const readers = rows.filter((x) => x.kind === 'go-read' && x.id === r.id).map((x) => ({ t: x.t, by: x.by ?? '', lane: x.lane ?? '', code: x.code ?? '' }))
-    list.push({ id: r.id, t: r.t, by: r.by ?? '', lane: r.lane ?? '', repo: r.repo ?? '', end: r.end ?? '', state: end ? `ended (${end.code ?? '?'}, ${end.t})` : Number.isFinite(endMs) && endMs <= now ? 'ended (end time)' : 'live', text: file?.text ?? null, readers: readers.slice(0, LIST_MAX) })
+    list.push({ id: r.id, t: r.t, by: r.by ?? '', tier: r.tier ?? '', lane: r.lane ?? '', repo: r.repo ?? '', end: r.end ?? '', ...(file?.leads ? { leads: file.leads } : {}), state: end ? `ended (${end.code ?? '?'}, ${end.t})` : Number.isFinite(endMs) && endMs <= now ? 'ended (end time)' : 'live', text: file?.text ?? null, readers: readers.slice(0, LIST_MAX) })
   }
   return list.slice(0, LIST_MAX)
 }
@@ -873,8 +875,9 @@ export function render(rep) {
   if (rep.goes.length > 0) {
     out.push('', `GOES (the text the person approved, and the sessions that read it)${s.goFiles === null ? '; the go files were not read' : ''}`)
     for (const x of rep.goes) {
-      out.push(`  ${x.t.replace(/\.\d+Z$/, 'Z')} ${x.id.slice(0, 8)} given in ${x.lane || '?'} (${x.by || '?'}), repo ${x.repo || '?'}, ends ${x.end || '?'}: ${x.state}`)
+      out.push(`  ${x.t.replace(/\.\d+Z$/, 'Z')} ${x.id.slice(0, 8)} given in ${x.tier || 'tier ?'} ${x.lane || '?'} (${x.by || '?'}), repo ${x.repo || '?'}, ends ${x.end || '?'}: ${x.state}`)
       out.push(`    text: ${x.text === null ? '(no go file)' : cut(x.text.replace(/\s+/g, ' '), 1600)}`)
+      if (x.leads) out.push(`    leads at the click: ${x.leads.length === 0 ? '(none)' : x.leads.map((n) => cut(n, 40)).join(', ')}`)
       out.push(`    read by: ${x.readers.length === 0 ? '(none)' : x.readers.map((r) => `${r.lane || '?'} (${r.by}, ${r.code})`).join(', ')}`)
     }
   }

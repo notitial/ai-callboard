@@ -32,7 +32,8 @@ A session takes a role with one `/callboard` command and a confirmation dialog. 
   listed in `.claude/callboard-conductor.json`: it lists their lanes, resumes, compacts, parks and retires those
   leads, and opens a new lead in a listed repo without asking you (`lead_open`). It holds at most four leads at
   once, and a parked lead keeps its slot until it is retired (ADR 0006). It never creates, starts or retires a lane
-  itself, and a force stop of any lane or lead asks you.
+  itself, and a force stop of any lane or lead asks you. A conductor can also hold a go (below), which counts in
+  the leads it owns and in their lanes.
 - **Manager.** `/callboard manager [NAME]`: one per machine, reaching every lane and lead in any repo. It resumes and
   compacts lanes; every stop, every removal and every call to a lead asks you. Its role is in `docs/manager/README.md`.
 
@@ -77,7 +78,10 @@ caller.
    not ask again for each step (it counts only while the protected-paths guard is in place). A go never covers a merge, a force push, a push to
    main or production, or a delete outside the lane's own work, and the rest of the list the dialog and `go_status`
    print (ADR 0009). `go_status` shows a session what covers it. A closed, parked or crashed panel ends no go; `go off`
-   does.
+   does. Typed in a conductor, the same command gives one go for the leads it owns and their lanes, the ones it
+   opens later included; its main agent can ask you for one with `go_request`, as a lead's can. Such a go ends at
+   its end time, at `go off`, or when the conductor turns off; taking a repo off the conductor's list does not end
+   it. The manager gives no go.
 
 A lead that you leave idle is told when a lane needs it (its session is gone, it waits on a prompt, it went
 quiet without signing), unless you pause that with `/callboard checkin pause` (an hour, or the time you give;
@@ -303,7 +307,10 @@ case small (ADR 0002, Consequences). Beyond that, specific to what you see:
 - The `/callboard` typeahead is tested against the test kit only: how a terminal, a VS Code panel or a phone draws
   the rows is not checked against a live engine.
 - A go dialog left open for 10 minutes inside a tool call may be cut off by the engine, and its text can run long with
-  many lanes: unverified live (ADR 0009, probes).
+  many lanes, or in a conductor with many leads and lanes (at most 16 leads and 32 lanes): unverified live (ADR
+  0009, probes).
+- A session whose mod was loaded before the conductor's go existed cannot read a conductor's go file and reports no
+  go: it asks you as before, until it restarts.
 
 ## Tests
 

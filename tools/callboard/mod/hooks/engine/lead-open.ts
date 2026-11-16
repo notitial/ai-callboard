@@ -11,6 +11,7 @@ import { leadTool, leadBase, openExchange } from './lanes.ts'
 import { ledgerAdd, ledgerRowsFor, promptNewId } from './answer-hook.ts'
 import { promptLinkOnce } from './answer-tiers.ts'
 import { loadLeadRecords, leadNameHeld } from './lead-records.ts'
+import { goLeadTailFor } from './go.ts'
 
 // The conductors that have an open running, by session id, and the names those opens carry (lower case): held until the offer is gone.
 const opening = new Set<string>()
@@ -176,7 +177,7 @@ async function openLead($: any, e: any, sid: string, base: { live: RegRow[]; lan
   }
   if (out.outcome === 'ok') {
     await rmF($, [offer, `${p.root}/offers/${key}.claim`])
-    return { result: c.leadOpenedText(a.name, r.sid, out.reason === c.LEAD_MODEL_UNSET || out.reason === c.LEAD_BOTH_UNSET, out.reason === c.LEAD_OWNER_UNSET || out.reason === c.LEAD_BOTH_UNSET) }
+    return { result: `${c.leadOpenedText(a.name, r.sid, out.reason === c.LEAD_MODEL_UNSET || out.reason === c.LEAD_BOTH_UNSET, out.reason === c.LEAD_OWNER_UNSET || out.reason === c.LEAD_BOTH_UNSET)}${await goLeadTailFor($, r.sid)}` }
   }
   // A refusal that names no reason (the panel's own tick failed) is as unclear as no answer: nothing is taken back.
   if (out.outcome === 'refused' && out.reason === 'other') return { result: c.leadNoAnswerText(a.name, r.sid) }

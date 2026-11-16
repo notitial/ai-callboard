@@ -281,7 +281,7 @@ async function tick($: any) {
       if (await checkinDue($, s).catch(() => false)) bgStep($, s, checkinBusy, 'checkin', () => checkinTick($, s, submitsAtStart).then(() => laneEndTick($, s, submitsAtStart)))
       // The deadline of an order, for a lead, a conductor or the manager; once a minute, and only while the session has an order out.
       if (await orderDue($, s).catch(() => false)) bgStep($, s, orderBusy, 'order', () => orderTick($, s, submitsAtStart))
-      // A lead's look at who read its goes, once a minute: a lane opened after the click is told to the person the first time it reads one.
+      // A lead's or a conductor's look at who read its goes, once a minute: a lane or a lead opened after the click is told to the person the first time it reads one.
       if (!goBusy.has(s) && goWatchOn(s) && goWatchDue(s, await Promise.resolve($.clock.now()).catch(() => NaN))) bgStep($, s, goBusy, 'go-watch', () => goWatchTick($, s))
       // The PR poll, every two minutes while this session tracks a PR (a lead also looks for the trackers of its gone lanes); not awaited, as the check-in.
       if (await prPollDue($, s).catch(() => false)) bgStep($, s, prBusy, 'pr-watch', () => prPollTick($, s))
@@ -385,6 +385,7 @@ export async function sessionStart($: any, e: any, next: any) {
         if (!p) await restoreEnded($, me, 'conductor', 'error')
         else if (!h) {
           await $.store.delete(`${c.CONDUCTOR_HINT_PREFIX}${me}`)
+          void goGrantorOff($, me).catch(() => undefined)
           await restoreEnded($, me, 'conductor', 'invalid')
         } else await conductorRestore($, me, h, 0)
       }
