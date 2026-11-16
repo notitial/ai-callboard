@@ -1574,8 +1574,8 @@ export const REASON_TEXT: Record<string, string> = {
   'name-in-open': 'a request for that name is already waiting in the open folder.',
   'offer-open': 'an open for that repo is still waiting, or was never cleared. Retry in a few minutes.',
   'open-in-flight': 'you already have an open running. Wait for it.',
-  'lead-cap': `you already own ${LEADS_PER_CONDUCTOR} leads, the most a conductor owns at once. A parked lead keeps its slot. Retire one with lead_retire, then open again.`,
-  'open-backstop': `you opened ${OPENS_PER_CONDUCTOR_HOUR} leads in the last hour, the most a conductor opens an hour. Retry when the oldest of them is an hour old.`,
+  'lead-cap': `you hold ${LEADS_PER_CONDUCTOR} lead slots, the most a conductor holds at once. A parked lead keeps its slot. Retire one with lead_retire, then open again.`,
+  'open-backstop': `you have opened, or are opening, ${OPENS_PER_CONDUCTOR_HOUR} leads in the last hour, the most a conductor opens an hour. Retry when the oldest of them is an hour old.`,
   'ledger-unreadable': 'the ledger could not be read, so the open limits cannot be checked. Retry in a moment.',
   'offer-write': 'the open offer could not be written.',
   'ledger-write': 'the ledger did not take the row, so nothing was written. Retry in a moment.',
@@ -1802,9 +1802,10 @@ export function leadOpenArgs(a: { repo?: unknown; name?: unknown; task?: unknown
 // Whether a conductor (`sid`) may open another lead. `recs` are the lead records that name it, in the repos it lists now (the caller filters; a lead of a repo that left the list is not counted), `rows` the ledger rows by it and every lead-offer-void
 // row. Two limits, the cap first:
 // - lead-cap: LEADS_PER_CONDUCTOR leads at once, a parked lead and an offer still open (written under OFFER_STALE_MS ago, no grant or void of its nonce yet) included.
-//   `held` lists them, parked ones marked.
-// - open-backstop: OPENS_PER_CONDUCTOR_HOUR successful opens in the last hour; only a lead-grant row by it counts, and not one whose nonce has a lead-offer-void row
-//   (a grant told to have failed). `retryAt` is when the oldest open that has to leave has left the hour. A row's time is the ISO stamp the ledger writes; one that
+//   A record with no session id is a lead that was force stopped while lanes still name it: it is no live or parked lead and does not count. `held` lists them, parked
+//   and opening ones marked.
+// - open-backstop: OPENS_PER_CONDUCTOR_HOUR opens in the last hour; a lead-grant row by it counts, and so does an offer still open (it is about to be one), but not a
+//   grant whose nonce has a lead-offer-void row (a grant told to have failed). `retryAt` is when the oldest open that has to leave has left the hour. A row's time is the ISO stamp the ledger writes; one that
 //   does not parse, or lies ahead, counts as now.
 export type LeadOpenRow = { kind: string; t: string; nonce?: string; by?: string; lane?: string }
 export type LeadOpenLimit = { ok: true } | { ok: false; code: 'lead-cap'; held: { name: string; parked: boolean; opening: boolean }[] } | { ok: false; code: 'open-backstop'; retryAt: number }
@@ -1816,12 +1817,11 @@ export function leadOpenLimit(recs: LeadRec[], rows: LeadOpenRow[], sid: string,
   const voided = new Set(rows.filter((r) => r.kind === 'lead-offer-void').map((r) => r.nonce))
   const mine = rows.filter((r) => r.by === sid)
   const granted = new Set(mine.filter((r) => r.kind === 'lead-grant').map((r) => r.nonce))
-  const held = recs.filter((r) => r.conductorSid === sid).map((r) => ({ name: r.name, parked: r.parked !== undefined, opening: false }))
-  for (const o of mine) {
-    if (o.kind === 'lead-offer' && now - at(o) < OFFER_STALE_MS && !granted.has(o.nonce) && !voided.has(o.nonce)) held.push({ name: o.lane ?? '?', parked: false, opening: true })
-  }
+  const held = recs.filter((r) => r.conductorSid === sid && r.sid !== undefined).map((r) => ({ name: r.name, parked: r.parked !== undefined, opening: false }))
+  const pending = mine.filter((o) => o.kind === 'lead-offer' && now - at(o) < OFFER_STALE_MS && !granted.has(o.nonce) && !voided.has(o.nonce))
+  for (const o of pending) held.push({ name: o.lane ?? '?', parked: false, opening: true })
   if (held.length >= LEADS_PER_CONDUCTOR) return { ok: false, code: 'lead-cap', held }
-  const opens = mine.filter((r) => r.kind === 'lead-grant' && !voided.has(r.nonce) && now - at(r) < HOUR_MS).map(at).sort((a, b) => a - b)
+  const opens = [...mine.filter((r) => r.kind === 'lead-grant' && !voided.has(r.nonce) && now - at(r) < HOUR_MS), ...pending].map(at).sort((a, b) => a - b)
   if (opens.length >= OPENS_PER_CONDUCTOR_HOUR) return { ok: false, code: 'open-backstop', retryAt: opens[opens.length - OPENS_PER_CONDUCTOR_HOUR] + HOUR_MS }
   return { ok: true }
 }
@@ -1829,9 +1829,9 @@ export function leadOpenLimit(recs: LeadRec[], rows: LeadOpenRow[], sid: string,
 // Rounded up to the minute, as the minutes to wait are: the time shown is never before the one allowed.
 const utcClock = (ms: number): string => new Date(Math.ceil(ms / 60_000) * 60_000).toISOString().slice(11, 16)
 export const leadCapText = (held: { name: string; parked: boolean; opening: boolean }[]): string =>
-  `you already own ${held.length} leads, the most a conductor owns at once: ${held.map((h) => `${h.name}${h.parked ? ' (parked)' : h.opening ? ' (still opening)' : ''}`).join(', ')}. A parked lead keeps its slot. Retire one with lead_retire, then open again.`
+  `you hold ${held.length} lead slots (a conductor may hold ${LEADS_PER_CONDUCTOR} at once): ${held.map((h) => `${h.name}${h.parked ? ' (parked)' : h.opening ? ' (still opening)' : ''}`).join(', ')}. A parked lead keeps its slot. Retire one with lead_retire, then open again.`
 export const openBackstopText = (retryAt: number, now: number): string =>
-  `you opened ${OPENS_PER_CONDUCTOR_HOUR} leads in the last hour, the most a conductor opens an hour. The next open is allowed in ${Math.max(1, Math.ceil((retryAt - now) / 60_000))} min, at ${utcClock(retryAt)} UTC.`
+  `you have opened, or are opening, ${OPENS_PER_CONDUCTOR_HOUR} leads in the last hour, the most a conductor opens an hour. The next open is allowed in ${Math.max(1, Math.ceil((retryAt - now) / 60_000))} min, at ${utcClock(retryAt)} UTC.`
 
 // ---- the new panel's side: it takes a conductor's offer only after every check here and in engine/lead-accept.ts (ADR 0006) ----
 // The panel must act within this long of the cue file's mtime; every check that can refuse is made inside it, and the conductor waits longer (a tick, then this).

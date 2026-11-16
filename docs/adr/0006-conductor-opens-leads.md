@@ -73,9 +73,12 @@ For waking a lead:
   time). (1) A conductor owns at most 4 leads at once: its lead records (ADR 0007) are the count, across the repos
   the conductor lists now (a lead in a repo that left its list is not counted: `lead_retire` cannot reach it, so the
   person ends it; adding the repo back can take the count past 4, which is accepted), a parked lead keeping its slot, and an offer of its own still open (under ten minutes old, with no grant or void
-  of its nonce yet) holds one too, so an open whose panel is slow to answer cannot be followed by a fifth. The
-  conductor retires a lead to free a slot. (2) A backstop of 8 successful opens an hour per conductor, counted from
-  `lead-grant` rows by its session; a grant whose nonce was voided, and every refused or failed try, does not count.
+  of its nonce yet) holds one too, so an open whose panel is slow to answer cannot be followed by a fifth. A record
+  with no session id (a lead force stopped while lanes still name it) is no live or parked lead and holds no slot,
+  and neither does a lead granted whose record could not be written (`owner-unset`: it has no conductor until the
+  person assigns one). The conductor retires a lead to free a slot. (2) A backstop of 8 opens an hour per conductor, counted from
+  `lead-grant` rows by its session and from an offer of its own still open (it is about to be a grant); a grant whose
+  nonce was voided, and a refused or failed try once its row is voided, does not count.
   The cap is checked first. The refusal names the limit: for the cap, the leads that hold the slots and that one
   must be retired (`lead_retire`); for the backstop, the time the next open is allowed, when the oldest counted open
   leaves the hour. Nothing is written before either check. The offer and claim stay per repo. The bound on a

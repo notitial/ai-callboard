@@ -141,9 +141,9 @@ longTest('lead_open refuses when an offer or a claim is in place; each writes no
 // The per-conductor limits: nothing is written when one holds, and the refusal says which limit it is and what to do.
 longTest('lead_open refuses a fifth lead of a conductor, parked ones counted, and names the leads that hold the slots; another conductor\'s leads do not count', async ($, on) => {
   const argv: string[][] = []
-  await conductor($, on, argv, { seed: () => putLeadRecs([{ name: 'LEAD-A', conductorSid: SID }, { name: 'LEAD-B', conductorSid: SID, sid: LEADSID, parked: 5 }, { name: 'LEAD-C', conductorSid: SID }, { name: 'LEAD-D', conductorSid: SID }, { name: 'OTHER', conductorSid: OTHERLEAD }]) })
+  await conductor($, on, argv, { seed: () => putLeadRecs([{ name: 'LEAD-A', conductorSid: SID, sid: '00000001-aaaa-4bbb-8ccc-dddddddddddd' }, { name: 'LEAD-B', conductorSid: SID, sid: LEADSID, parked: 5 }, { name: 'LEAD-C', conductorSid: SID, sid: '00000003-aaaa-4bbb-8ccc-dddddddddddd' }, { name: 'LEAD-D', conductorSid: SID, sid: '00000004-aaaa-4bbb-8ccc-dddddddddddd' }, { name: 'OTHER', conductorSid: OTHERLEAD }]) })
   const r = await open($)
-  expect(r).toContain('lead-cap: you already own 4 leads')
+  expect(r).toContain('lead-cap: you hold 4 lead slots')
   expect(r).toContain('LEAD-A, LEAD-B (parked), LEAD-C, LEAD-D')
   expect(r).toContain('Retire one with lead_retire')
   expect(r).not.toContain('OTHER')
@@ -154,24 +154,30 @@ longTest('lead_open counts `made` and `joined` leads of the conductor, and not t
   const argv: string[][] = []
   await conductor($, on, argv, {
     seed: () => {
-      putLeadRecs([{ name: 'LEAD-A', conductorSid: SID, how: 'made' }, { name: 'LEAD-B', conductorSid: SID, how: 'joined' }, { name: 'LEAD-C', conductorSid: SID, how: 'joined' }])
-      putLeadRecs([{ name: 'LEAD-D', conductorSid: SID }, { name: 'LEAD-E', conductorSid: SID }], '/Users/x/elsewhere')
+      putLeadRecs([{ name: 'LEAD-A', conductorSid: SID, sid: '00000001-aaaa-4bbb-8ccc-dddddddddddd', how: 'made' }, { name: 'LEAD-B', conductorSid: SID, sid: '00000002-aaaa-4bbb-8ccc-dddddddddddd', how: 'joined' }, { name: 'LEAD-C', conductorSid: SID, sid: '00000003-aaaa-4bbb-8ccc-dddddddddddd', how: 'joined' }])
+      putLeadRecs([{ name: 'LEAD-D', conductorSid: SID, sid: '00000004-aaaa-4bbb-8ccc-dddddddddddd' }, { name: 'LEAD-E', conductorSid: SID, sid: '00000005-aaaa-4bbb-8ccc-dddddddddddd' }], '/Users/x/elsewhere')
     },
   })
   expect(await open($, `ok ${NEWSID}\n`)).toContain('is on as session')
   pfs.delete(`${OFFERS_DIR}/${KEY}.json`)
-  putLeadRecs([{ name: 'LEAD-A', conductorSid: SID }, { name: 'LEAD-B', conductorSid: SID }, { name: 'LEAD-C', conductorSid: SID }, { name: 'LEAD-F', conductorSid: SID }])
+  putLeadRecs([{ name: 'LEAD-A', conductorSid: SID, sid: '00000001-aaaa-4bbb-8ccc-dddddddddddd' }, { name: 'LEAD-B', conductorSid: SID, sid: '00000002-aaaa-4bbb-8ccc-dddddddddddd' }, { name: 'LEAD-C', conductorSid: SID, sid: '00000003-aaaa-4bbb-8ccc-dddddddddddd' }, { name: 'LEAD-F', conductorSid: SID, sid: '00000006-aaaa-4bbb-8ccc-dddddddddddd' }])
   h.openResult = undefined
   const r = await open($, undefined, { name: 'LEAD-M' })
   // The first open's offer has no grant in this test, so it still holds a slot beside the four records.
-  expect(r).toContain('lead-cap: you already own 5 leads')
+  expect(r).toContain('lead-cap: you hold 5 lead slots')
   expect(r).toContain('LEAD-A, LEAD-B, LEAD-C, LEAD-F, LEAD-N (still opening)')
   expect(r).not.toContain('LEAD-D')
 })
 
+longTest('lead_open: a record with no session id (a lead force stopped while lanes name it) holds no slot', async ($, on) => {
+  const argv: string[][] = []
+  await conductor($, on, argv, { seed: () => putLeadRecs([{ name: 'LEAD-A', conductorSid: SID, sid: '00000001-aaaa-4bbb-8ccc-dddddddddddd' }, { name: 'LEAD-B', conductorSid: SID, sid: '00000002-aaaa-4bbb-8ccc-dddddddddddd' }, { name: 'LEAD-C', conductorSid: SID, sid: '00000003-aaaa-4bbb-8ccc-dddddddddddd' }, { name: 'LEAD-D', conductorSid: SID, sid: undefined }]) })
+  expect(await open($, `ok ${NEWSID}\n`)).toContain('is on as session')
+})
+
 longTest('lead_open allows three owned leads, and an eighth open an hour; the ninth is refused with the time the oldest leaves the hour; nothing is written', async ($, on) => {
   const argv: string[][] = []
-  await conductor($, on, argv, { seed: () => putLeadRecs([{ name: 'LEAD-A', conductorSid: SID }, { name: 'LEAD-B', conductorSid: SID }, { name: 'LEAD-C', conductorSid: SID }]) })
+  await conductor($, on, argv, { seed: () => putLeadRecs([{ name: 'LEAD-A', conductorSid: SID, sid: '00000001-aaaa-4bbb-8ccc-dddddddddddd' }, { name: 'LEAD-B', conductorSid: SID, sid: '00000002-aaaa-4bbb-8ccc-dddddddddddd' }, { name: 'LEAD-C', conductorSid: SID, sid: '00000003-aaaa-4bbb-8ccc-dddddddddddd' }]) })
   const grants = (ages: number[]) => ages.map((m) => ({ kind: 'lead-grant', t: iso(m * 60_000) }))
   seedRows(...grants([59, 50, 40, 30, 20, 10, 5]))
   expect(await open($, `ok ${NEWSID}\n`)).toContain('lead LEAD-N is on as session 12345678')
@@ -180,7 +186,7 @@ longTest('lead_open allows three owned leads, and an eighth open an hour; the ni
   seedRows(...grants([59, 50, 40, 30, 20, 10, 5, 1]))
   h.openResult = undefined
   const r = await open($, undefined, { name: 'LEAD-M' })
-  expect(r).toContain('open-backstop: you opened 8 leads in the last hour')
+  expect(r).toContain('open-backstop: you have opened, or are opening, 8 leads in the last hour')
   expect(r).toContain(`allowed in 1 min, at ${new Date(Math.ceil((T0 + 60_000) / 60_000) * 60_000).toISOString().slice(11, 16)} UTC`)
   expect(mvs(argv, '.lead').length).toBe(1)
   expect(offers()).toEqual([])
@@ -246,7 +252,7 @@ longTest('lead_open: failed and refused opens spend nothing; the next open still
 
 longTest('lead_open: an offer of this conductor still open holds a slot; one the panel answered or one older than ten minutes does not', async ($, on) => {
   const argv: string[][] = []
-  await conductor($, on, argv, { seed: () => putLeadRecs([{ name: 'LEAD-A', conductorSid: SID }, { name: 'LEAD-B', conductorSid: SID }, { name: 'LEAD-C', conductorSid: SID }]) })
+  await conductor($, on, argv, { seed: () => putLeadRecs([{ name: 'LEAD-A', conductorSid: SID, sid: '00000001-aaaa-4bbb-8ccc-dddddddddddd' }, { name: 'LEAD-B', conductorSid: SID, sid: '00000002-aaaa-4bbb-8ccc-dddddddddddd' }, { name: 'LEAD-C', conductorSid: SID, sid: '00000003-aaaa-4bbb-8ccc-dddddddddddd' }]) })
   seedRows({ kind: 'lead-offer', hash: 'f'.repeat(64), nonce: 'p1', lane: 'LEAD-P', t: iso(2 * 60_000) })
   const r = await open($)
   expect(r).toContain('LEAD-P (still opening)')

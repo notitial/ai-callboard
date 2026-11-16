@@ -244,7 +244,7 @@ longTest('/callboard off typed while the accept runs refuses off-meanwhile and g
   h.renameGate = new Promise<void>((r) => (release = r))
   h.cueFile = { ino: 130, text: CUE, present: true }
   const ticking = tickTwice()
-  await new Promise((r) => setTimeout(r, 50))
+  await waitFor(() => h.renameWaiting)
   await $.command.run(lane('off'))
   release()
   await ticking
@@ -270,7 +270,7 @@ longTest('a panel that took over 25 s is refused late after the rename, writes n
   h.renameGate = new Promise<void>((r) => (release = r))
   h.cueFile = { ino: 132, text: CUE, present: true }
   const ticking = tickTwice()
-  await new Promise((r) => setTimeout(r, 50))
+  await waitFor(() => h.renameWaiting)
   await h.clock!.advance(26_000)
   release()
   await ticking

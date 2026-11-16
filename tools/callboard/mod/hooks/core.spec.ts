@@ -2951,7 +2951,7 @@ test('leadOpenArgs: a clean repo path, a lane-style name that is not reserved, a
 
 const OPEN_NOW = Date.parse('2026-11-16T12:00:00Z')
 const openRow = (kind: string, minAgo: number, nonce: string, by = 'S1', lane = 'LEAD-X') => ({ kind, nonce, by, lane, t: new Date(OPEN_NOW - minAgo * 60_000).toISOString() })
-const openRec = (name: string, conductorSid = 'S1', parked?: number): c.LeadRec => ({ name, createdAt: 1, how: 'made', conductorSid, ...(parked !== undefined ? { parked } : {}) })
+const openRec = (name: string, conductorSid = 'S1', parked?: number): c.LeadRec => ({ name, createdAt: 1, how: 'made', conductorSid, sid: `sid-${name}`, ...(parked !== undefined ? { parked } : {}) })
 
 test('leadOpenLimit: four leads a conductor owns at once, parked ones included, other conductors not', () => {
   const four = ['A', 'B', 'C', 'D'].map((n) => openRec(`LEAD-${n}`))
@@ -2961,6 +2961,9 @@ test('leadOpenLimit: four leads a conductor owns at once, parked ones included, 
   const withParked = [...four.slice(0, 3), openRec('LEAD-D', 'S1', 5)]
   assert.deepEqual(c.leadOpenLimit(withParked, [], 'S1', OPEN_NOW), { ok: false, code: 'lead-cap', held: [...four.slice(0, 3).map((r) => ({ name: r.name, parked: false, opening: false })), { name: 'LEAD-D', parked: true, opening: false }] })
   assert.deepEqual(c.leadOpenLimit([...four.slice(0, 3), openRec('LEAD-D', 'S2')], [], 'S1', OPEN_NOW), { ok: true })
+  // A record with no session id is a lead force stopped while lanes still name it: no live or parked lead, so no slot.
+  const { sid: _sid, ...noSession } = openRec('LEAD-D')
+  assert.deepEqual(c.leadOpenLimit([...four.slice(0, 3), noSession], [], 'S1', OPEN_NOW), { ok: true })
   assert.deepEqual(c.leadOpenLimit(four, [], 'S2', OPEN_NOW), { ok: true })
 })
 
@@ -2987,6 +2990,15 @@ test('leadOpenLimit: eight successful opens an hour per conductor; the retry tim
   assert.deepEqual(c.leadOpenLimit([], [...grants(ages8.slice(0, 7)), ...Array.from({ length: 5 }, (_, k) => openRow('lead-offer', 5, `o${k}`))], 'S1', OPEN_NOW).ok, false)
 })
 
+test('leadOpenLimit: an offer still open counts toward the backstop too, so seven grants and one open offer are eight', () => {
+  const grants = [59, 50, 40, 30, 20, 10, 5].map((m, k) => openRow('lead-grant', m, `g${k}`))
+  const pending = openRow('lead-offer', 3, 'p1', 'S1', 'LEAD-P')
+  assert.deepEqual(c.leadOpenLimit([], grants, 'S1', OPEN_NOW), { ok: true })
+  assert.deepEqual(c.leadOpenLimit([], [...grants, pending], 'S1', OPEN_NOW), { ok: false, code: 'open-backstop', retryAt: OPEN_NOW + 1 * 60_000 })
+  assert.deepEqual(c.leadOpenLimit([], [...grants, openRow('lead-offer', 3, 'p1', 'S1'), openRow('lead-grant', 2, 'p1')], 'S1', OPEN_NOW), { ok: false, code: 'open-backstop', retryAt: OPEN_NOW + 1 * 60_000 })
+  assert.deepEqual(c.leadOpenLimit([], [...grants, pending, openRow('lead-offer-void', 2, 'p1', 'S1')], 'S1', OPEN_NOW), { ok: true })
+})
+
 test('leadOpenLimit: refused or failed tries do not count against the backstop; a bad or future time counts as now', () => {
   const offers = Array.from({ length: 9 }, (_, k) => openRow('lead-offer', 30 + k, `o${k}`, 'S1'))
   assert.deepEqual(c.leadOpenLimit([], [...offers, ...offers.map((o) => ({ ...o, kind: 'lead-offer-void', by: undefined }))], 'S1', OPEN_NOW), { ok: true })
@@ -2997,9 +3009,10 @@ test('leadOpenLimit: refused or failed tries do not count against the backstop; 
 test('lead cap and backstop texts name the limit, what holds it and what to do', () => {
   assert.equal(
     c.leadCapText([{ name: 'LEAD-A', parked: false, opening: false }, { name: 'LEAD-B', parked: true, opening: false }, { name: 'LEAD-C', parked: false, opening: true }, { name: 'LEAD-D', parked: false, opening: false }]),
-    'you already own 4 leads, the most a conductor owns at once: LEAD-A, LEAD-B (parked), LEAD-C (still opening), LEAD-D. A parked lead keeps its slot. Retire one with lead_retire, then open again.',
+    'you hold 4 lead slots (a conductor may hold 4 at once): LEAD-A, LEAD-B (parked), LEAD-C (still opening), LEAD-D. A parked lead keeps its slot. Retire one with lead_retire, then open again.',
   )
-  assert.equal(c.openBackstopText(OPEN_NOW + 7 * 60_000 + 1, OPEN_NOW), 'you opened 8 leads in the last hour, the most a conductor opens an hour. The next open is allowed in 8 min, at 12:08 UTC.')
+  assert.equal(c.openBackstopText(OPEN_NOW + 7 * 60_000 + 1, OPEN_NOW), 'you have opened, or are opening, 8 leads in the last hour, the most a conductor opens an hour. The next open is allowed in 8 min, at 12:08 UTC.')
+  assert.match(c.leadCapText(Array.from({ length: 5 }, (_, k) => ({ name: `L${k}`, parked: false, opening: false }))), /^you hold 5 lead slots \(a conductor may hold 4 at once\): L0, L1, L2, L3, L4\./)
   assert.match(c.openBackstopText(OPEN_NOW + 1, OPEN_NOW), /allowed in 1 min, at 12:01 UTC/)
   assert.ok(c.reasonWhy('lead-cap').startsWith('lead-cap: ') && c.reasonWhy('open-backstop').startsWith('open-backstop: '))
   assert.ok(!c.hasText('open-rate'))

@@ -180,7 +180,7 @@ async function openLead($: any, e: any, sid: string, base: { live: RegRow[]; lan
   }
   // A refusal that names no reason (the panel's own tick failed) is as unclear as no answer: nothing is taken back.
   if (out.outcome === 'refused' && out.reason === 'other') return { result: c.leadNoAnswerText(a.name, r.sid) }
-  // Refused, or not ready twice: the offer and the claim go, the row is voided (the hour is not spent), and the panel stays an ordinary one.
+  // Refused, or not ready twice: the offer and the claim go, the row is voided (it counts against no limit), and the panel stays an ordinary one.
   await rmF($, [offer, `${p.root}/offers/${key}.claim`])
   await voided(out.reason)
   const why = `${out.outcome === 'held' ? 'it was not ready: ' : ''}${c.reasonWhy(out.reason)}`
