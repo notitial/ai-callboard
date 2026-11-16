@@ -125,13 +125,17 @@ test('check-in: a request left open past its expiresAt holds nothing: the lead i
   expect(toasts).toEqual([PROMPT_TOAST])
 })
 
-test('check-in: a request put to the person holds past its expiresAt, as its wait does', async ($, on) => {
+longTest('check-in: a request put to the person holds past its expiresAt, as its wait does, and no longer than that wait', async ($, on) => {
   await ckLead($, on, [], WAITING)
   putOpenRequest()
   pfs.set(`${PROMPTS_DIR}/${OTHER}/${REQ_ID}.relay.json`, { text: JSON.stringify({ id: REQ_ID, short: REQ_ID.slice(0, 8), by: { level: 'lead', sid: SID, name: 'LEAD' }, at: T0 + MIN, nonce: 'n-1' }), mtimeSec: T0 / 1000 })
   await idleFor(24 * MIN)
   expect(checkins()).toEqual([])
   expect(toasts).toEqual([PROMPT_TOAST])
+  await idleFor(92 * MIN)
+  expect(checkins()).toEqual([])
+  await idleFor(8 * MIN)
+  expect(checkins()).toEqual([ckText(PROMPT)])
 })
 
 test('check-in: a busy lead is not told beside a tool result of a lane waiting on a prompt it holds as a request, until the request ends', async ($, on) => {
