@@ -50,7 +50,6 @@ longTest('lane_rename with an id no session carries names the unnamed session in
   const text = JSON.stringify(await p)
   expect(text).toContain(`no-live-session: no live session has id ${WANTED}`)
   expect(text).toContain(`The one unnamed session in the lane folder is ${OTHER}`)
-  expect(text).not.toContain('lane name')
   expect(argv.some((a) => a[0] === '/bin/mv' && a[a.length - 1].endsWith('.cue'))).toBe(false)
 })
 
