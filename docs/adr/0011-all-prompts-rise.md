@@ -76,6 +76,9 @@ The mod keeps no list of asks from the tiers. The rubric carries the guidance, i
 end of every `prompt_list` result, so a tier reads it whenever escalation is on and a request is open. The rubric's
 five rules hold for both lists.
 
+*2026-11-16: the rubric is now at the end of every `prompt_list` result that lists a request, and nowhere else; a
+tier's briefing no longer carries it (ADR 0004, Generic judgment).*
+
 | A tier handles, after the check named | A tier surfaces to the person (`prompt_escalate`) |
 |---|---|
 | A rerun of a CI run, once the tier has looked the run up and its head branch is the lane's pull request branch | Any workspace-lock clear, forced turn give or owner transfer |
