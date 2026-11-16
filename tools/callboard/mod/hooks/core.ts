@@ -2763,10 +2763,13 @@ export const MANAGER_ASK_AGAIN_TOAST = 'Manager not restored: the question was n
 
 // How one try of a manager restore ended, and what comes next. `code` is what the try reported: undefined or a quiet code when the person ended it or another
 // path took over (an off, a Cancel, a grant by hand), 'unanswered' when the question got no answer, else the refusal. fails and unanswered count this try too.
-// retry: the tick tries again (a refusal that can clear by itself, at most MANAGER_RESTORE_RETRIES times). wait: the entry is kept and the same question is asked
+// retry: the tick tries again (a refusal that can clear by itself, at most MANAGER_RESTORE_RETRIES times; one that comes only after the yes, where each new try
+// asks the person again or grants and steps back again, at most MANAGER_RESTORE_RETRIES_AFTER_YES times). wait: the entry is kept and the same question is asked
 // again once the person has sent a prompt in this session (it is asked at most MANAGER_RESTORE_ASKS times). end: final, with the toast that tells the person.
 // Nothing here grants: every try runs the whole restore again, the question and each check included.
 export const MANAGER_RESTORE_RETRIES = 15
+export const MANAGER_RESTORE_RETRIES_AFTER_YES = 2
+const MANAGER_RESTORE_AFTER_YES: ReadonlySet<string> = new Set(['manager-check-slow', 'manager-presence', 'tools-timeout'])
 export const MANAGER_RESTORE_ASKS = 3
 export const MANAGER_RESTORE_PASSING: ReadonlySet<string> = new Set(['registry-unreadable', 'manager-check-slow', 'manager-presence', 'tools-timeout', 'error'])
 const MANAGER_RESTORE_QUIET: ReadonlySet<string> = new Set(['changed', 'cancelled', 'off-meanwhile'])
@@ -2774,7 +2777,7 @@ export type RestoreStep = { next: 'retry' } | { next: 'wait'; toast: string } | 
 export function managerRestoreStep(code: string | undefined, fails: number, unanswered: number): RestoreStep {
   if (code === undefined || MANAGER_RESTORE_QUIET.has(code)) return { next: 'end' }
   if (code === 'unanswered') return unanswered < MANAGER_RESTORE_ASKS ? { next: 'wait', toast: MANAGER_ASK_AGAIN_TOAST } : { next: 'end', toast: MANAGER_UNANSWERED_TOAST }
-  if (MANAGER_RESTORE_PASSING.has(code) && fails <= MANAGER_RESTORE_RETRIES) return { next: 'retry' }
+  if (MANAGER_RESTORE_PASSING.has(code) && fails <= (MANAGER_RESTORE_AFTER_YES.has(code) ? MANAGER_RESTORE_RETRIES_AFTER_YES : MANAGER_RESTORE_RETRIES)) return { next: 'retry' }
   return { next: 'end', toast: notRestoredToast('manager', code) }
 }
 
@@ -2787,6 +2790,7 @@ const RESTORE_END_TEXT: Record<string, string> = {
   tools: 'its tools could not be registered.',
   'tools-timeout': 'registering its tools took too long.',
   'lanes-error': 'the lane list could not be read.',
+  'lane-check-slow': 'the check for a lane binding took too long.',
   'rebind-pending': 'a lane restore for this session did not finish.',
   'not-person': 'could not read the session list safely.',
   'manager-presence': 'its presence file could not be written.',

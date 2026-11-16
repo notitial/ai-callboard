@@ -402,9 +402,10 @@ async function leadClickQuestion($: any, sid: string, res: { text: string; code?
 // same conversation asks again when it starts or resumes (managerRestoreAsk runs this function with restore set: the restore question, and its own log lines;
 // `saved` is the hint it restores from: when it names this session's start folder and is younger than MANAGER.silentGraceMs, nothing is asked and every other
 // check runs as after a yes). A restore's result also carries a `code` saying how it ended (the refusal, 'unanswered', 'cancelled'), which managerRestoreAsk
-// reads to try again, wait for the person's next prompt or tell them; the person's own command gets no code.
+// reads to try again, wait for the person's next prompt or tell them; the person's own command gets no code. `asked` is called when a restore is
+// not silent, so the caller can keep every later try of the same restore from being silent.
 // After the grant the presence file must be written (one per machine rests on it), and a second manager that won the same moment makes both step back.
-export async function managerCommand($: any, sid: string, code: c.OriginCode, want: string | undefined, busy: () => Promise<{ text: string }>, restore = false, alive: () => boolean = () => true, saved?: c.ManagerHint): Promise<{ text: string; code?: string }> {
+export async function managerCommand($: any, sid: string, code: c.OriginCode, want: string | undefined, busy: () => Promise<{ text: string }>, restore = false, alive: () => boolean = () => true, saved?: c.ManagerHint, asked?: () => void): Promise<{ text: string; code?: string }> {
   // The off counter before any await: for a restore with no question, an off typed during the checks below counts as one meanwhile.
   const seq = offSeq.get(sid) ?? 0
   await reservedGet($, sid, true)
@@ -438,6 +439,7 @@ export async function managerCommand($: any, sid: string, code: c.OriginCode, wa
   const root = await withTimeout($, sessionRoot($), c.ENGINE_CALL_TIMEOUT_MS).catch(() => undefined)
   const here = typeof root === 'string' && root !== '' && root !== 'timeout' ? root : undefined
   const silent = restore && saved !== undefined && c.managerSilentOk(saved, here, await $.clock.now(), MANAGER.silentGraceMs)
+  if (restore && !silent) asked?.()
   let live: Awaited<ReturnType<typeof registryEntries>>
   return grantDialog($, sid, MANAGER, {
     silent,
@@ -477,7 +479,8 @@ export async function managerCommand($: any, sid: string, code: c.OriginCode, wa
       } catch {
         set = 'error'
       }
-      if (set !== undefined || offNow()) {
+      // A restore whose pending entry went while the tools registered (an off) grants nothing, as an off does.
+      if (set !== undefined || offNow() || (restore && !alive())) {
         await logq($, sid, 'error', set === undefined ? 'off-meanwhile' : `manager-register-${set}`)
         return coded(c.MANAGER_FAILED, set === undefined ? 'off-meanwhile' : set === 'timeout' ? 'tools-timeout' : 'tools')
       }

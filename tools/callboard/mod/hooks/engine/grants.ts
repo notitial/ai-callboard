@@ -463,10 +463,10 @@ export const LEAD_RESTORE_TRIES = 15
 // One try: a code when it is to be tried again, undefined when it ended (made lead, or refused and logged).
 async function leadRestoreTry($: any, me: string, hint: c.LeadHint): Promise<string | undefined> {
   const reject = (code: string) => log($, me, 'lead-restore-rejected', code)
-  // A final end that no toast of its own tells.
-  const end = async (code: string) => {
+  // A final end that no toast of its own tells. `told`: the reason the person reads, when the log's code would say more than is known.
+  const end = async (code: string, told = code) => {
     await reject(code)
-    toast($, c.notRestoredToast('lead', code))
+    toast($, c.notRestoredToast('lead', told))
   }
   const epoch = epochOf(me)
   const dropped = () => epochOf(me) !== epoch
@@ -490,7 +490,7 @@ async function leadRestoreTry($: any, me: string, hint: c.LeadHint): Promise<str
   // A lane is never a lead too (the rebind refuses a lead in turn); a read that does not answer counts as a binding.
   const held = await withTimeout($, getLane($), c.ENGINE_CALL_TIMEOUT_MS)
   if (dropped()) return
-  if (held === 'timeout' || held?.value != null || laneBinding.has(me)) return void (await end('lane-holder'))
+  if (held === 'timeout' || held?.value != null || laneBinding.has(me)) return void (await end('lane-holder', held === 'timeout' ? 'lane-check-slow' : undefined))
   // The person granted lead meanwhile: that grant stands.
   if (leadBusy(me)) return
   leadGranting.add(me)
@@ -1395,7 +1395,8 @@ export async function managerForget($: any, sid: string): Promise<boolean> {
 // (c.managerSilentOk, judged in managerCommand) is granted with no question and every one of those checks; any silent-only condition that fails asks as
 // before. Cancel: the saved grant goes. No answer: it stays, nothing is restored, and the same question is asked again once the person has sent a prompt in
 // this session (managerRestoreWake), a few times at most. A check that fails: logged, nothing restored, the saved grant stays; a failure that can clear by
-// itself is tried again from the tick, each try the whole restore with its question and checks (c.managerRestoreStep holds the limits). Every final end that
+// itself is tried again from the tick, each try the whole restore with its question and checks (c.managerRestoreStep holds the limits); once a try had to ask,
+// every later try asks too. Every final end that
 // is not the person's own (an off, a Cancel, a grant by hand) gets one toast. The tries count only the ticks before the registry shows the session's own row.
 const MANAGER_RESTORE_TRIES = 15
 
@@ -1414,7 +1415,8 @@ async function managerRestoreAsk($: any, me: string, pend: MgrPending) {
     code = (await managerCommand($, me, 'prompt', pend.hint.name, async () => {
       busy = true
       return { text: '' }
-    }, true, () => managerRestorePending.get(me) === pend, pend.hint)).code
+      // A restore that once had to ask never comes back with no question on a later try: the saved grant is passed only until then.
+    }, true, () => managerRestorePending.get(me) === pend, pend.asked ? undefined : pend.hint, () => (pend.asked = true))).code
   } catch {
     code = 'error'
     await logq($, me, 'manager-restore-rejected', 'error')
@@ -1467,7 +1469,12 @@ export async function managerTick($: any, sid: string) {
   const reject = (why: string) => managerRestoreEnd($, sid, pend, why)
   if (c.parseHint(await $.store.get(`${c.HINT_PREFIX}${sid}`).catch(() => undefined), await $.clock.now())?.lane) return void (await reject('lane-holder'))
   const lanes = await loadLanes($).catch(() => 'lanes-error')
-  if (typeof lanes === 'string') return
+  // A lane list that cannot be read is tried again at the next tick, within the same limit as a failed try.
+  if (typeof lanes === 'string') {
+    if (managerRestorePending.get(sid) !== pend) return
+    pend.fails = (pend.fails ?? 0) + 1
+    return pend.fails <= c.MANAGER_RESTORE_RETRIES ? undefined : void (await reject('lanes-error'))
+  }
   if (lanes.some((l) => l.sid === sid)) return void (await reject('lane-holder'))
   if ((await idleCheck($, sid)) !== undefined) return
   if (managerRestorePending.get(sid) !== pend) return
@@ -1784,10 +1791,10 @@ async function conductorRestoreTry($: any, me: string, box: { hint: c.ConductorH
   const hint = box.hint
   const key = `${c.CONDUCTOR_HINT_PREFIX}${me}`
   const reject = (code: string) => log($, me, 'conductor-restore-rejected', code)
-  // A final end that no toast of its own tells.
-  const end = async (code: string) => {
+  // A final end that no toast of its own tells. `told`: the reason the person reads, when the log's code would say more than is known.
+  const end = async (code: string, told = code) => {
     await reject(code)
-    toast($, c.notRestoredToast('conductor', code, hint.home))
+    toast($, c.notRestoredToast('conductor', told, hint.home))
   }
   const epoch = epochOf(me)
   const dropped = () => epochOf(me) !== epoch
@@ -1813,7 +1820,7 @@ async function conductorRestoreTry($: any, me: string, box: { hint: c.ConductorH
   // rebindTick clears it once it finds no record, and waits for this restore while it is pending.
   const held = await withTimeout($, getLane($), c.ENGINE_CALL_TIMEOUT_MS)
   if (dropped()) return
-  if (held === 'timeout' || held?.value != null || laneBinding.has(me)) return void (await end('lane-holder'))
+  if (held === 'timeout' || held?.value != null || laneBinding.has(me)) return void (await end('lane-holder', held === 'timeout' ? 'lane-check-slow' : undefined))
   const now = await $.clock.now()
   if (c.parseHint(await $.store.get(`${c.HINT_PREFIX}${me}`).catch(() => undefined), now)?.lane) return void (await end('lane-holder'))
   const lanes = await loadLanes($).catch(() => 'lanes-error')
@@ -1918,14 +1925,14 @@ async function conductorRestoreAsk($: any, me: string, pend: CondPending) {
     }
     end()
     // A check that fails after the click is a final end: logged, and the person is told.
-    const refused = async (code: string) => {
+    const refused = async (code: string, told = code) => {
       await log($, me, 'conductor-restore-rejected', code)
-      toast($, c.notRestoredToast('conductor', code, hint.home))
+      toast($, c.notRestoredToast('conductor', told, hint.home))
     }
     if (leadBusy(me) || leadRestorePending.has(me)) return void (await refused('lead-holder'))
     // Every check again after the click.
     const held = await withTimeout($, getLane($), c.ENGINE_CALL_TIMEOUT_MS)
-    if (held === 'timeout' || held?.value != null || laneBinding.has(me)) return void (await refused('lane-holder'))
+    if (held === 'timeout' || held?.value != null || laneBinding.has(me)) return void (await refused('lane-holder', held === 'timeout' ? 'lane-check-slow' : undefined))
     const used = await conductorRepoInUse($, hint.home)
     if (used) return void (await refused(used))
     const f = await readConductorFile($, hint.home)
