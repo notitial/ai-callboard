@@ -195,6 +195,10 @@ engine forces it. Any later change that lets callboard's `tool.check` alter a ve
 
 ### What agents may judge
 
+*Amended 2026-11-16 ([ADR 0011](0011-all-prompts-rise.md), proposed): every ask becomes a request, whatever raised it. A hook's ask outside the
+named guard, and one raised by a setting, a plugin or an organisation ceiling, reach the tiers and are judged by the
+same rubric; the request records what raised it. The two paragraphs below record the rule before this note.*
+
 Asks from a rule (`rule` only) and the mode's own asks. One named guard, ai-toolkit's GitHub MCP guard
 (`tools/github-mcp/guard.sh`), recognised by `hook: PreToolUse`, no `rule`, the reason prefix `github-mcp-guard: `
 and one of its four comment and pull request tools. Any other hook-raised ask, and anything raised by a setting, a

@@ -157,24 +157,29 @@ function pathArgs(input: Record<string, unknown>): string[] {
   return [input.file_path, input.notebook_path, input.path].filter((x): x is string => typeof x === 'string')
 }
 
-// ---- the classifier: which asks agents may judge ----
+// ---- the classifier: what raised an ask ----
+// Every ask of a lane's or a lead's call reaches the tiers, whatever raised it (ADR 0011): the rubric judges the call, and the top live tier relays what no tier
+// may allow. Only a prompt that tool.check did not report as an ask stays the person's: the mod does not know why it exists.
 export type CheckFacts = { decision?: unknown; reason?: unknown; rule?: unknown; hook?: unknown; setting?: unknown; plugin?: unknown; ceiling?: unknown }
 export const GUARD_PREFIX = 'github-mcp-guard: '
 export const GUARD_TOOLS: readonly string[] = ['mcp__github__create_pull_request', 'mcp__github__add_issue_comment', 'mcp__github__add_reply_to_pull_request_comment', 'mcp__github__update_pull_request']
-type Raised = 'mode' | 'rule' | 'guard'
+export const RAISED = ['mode', 'rule', 'guard', 'hook', 'setting', 'plugin', 'ceiling'] as const
+type Raised = (typeof RAISED)[number]
 type Judge = { judge: 'agents'; raisedBy: Raised } | { judge: 'person'; why: string }
 const set = (v: unknown) => v !== undefined && v !== null && v !== ''
+// raisedBy names what stands behind the ask, the widest source first: an organisation ceiling, a setting, a plugin, a hook, a rule, else the mode's own ask. It is
+// shown to the tier in prompt_list and changes nothing about who may answer.
 export function classify(tool: string, f: CheckFacts): Judge {
   if (f.decision !== 'ask') return { judge: 'person', why: 'not-ask' }
-  // A question is the mode's own ask (no rule, hook, setting, plugin or ceiling behind it) or it stays the person's; questionShape and the questions scope apply after this.
-  if (tool === 'AskUserQuestion') return !set(f.rule) && !set(f.hook) && !set(f.setting) && !set(f.plugin) && !set(f.ceiling) ? { judge: 'agents', raisedBy: 'mode' } : { judge: 'person', why: 'question' }
-  if (set(f.setting) || set(f.plugin) || set(f.ceiling)) return { judge: 'person', why: 'setting-plugin-ceiling' }
+  if (set(f.ceiling)) return { judge: 'agents', raisedBy: 'ceiling' }
+  if (set(f.setting)) return { judge: 'agents', raisedBy: 'setting' }
+  if (set(f.plugin)) return { judge: 'agents', raisedBy: 'plugin' }
   if (set(f.hook)) {
-    // The named guard: a PreToolUse ask, no rule (an ask rule hides the guard's own reason), its prefix, one of its four tools.
-    if (f.hook === 'PreToolUse' && !set(f.rule) && typeof f.reason === 'string' && f.reason.startsWith(GUARD_PREFIX) && GUARD_TOOLS.includes(tool)) return { judge: 'agents', raisedBy: 'guard' }
-    return { judge: 'person', why: 'hook' }
+    // The named guard: a PreToolUse ask, no rule (an ask rule hides the guard's own reason), its prefix, one of its four tools. Any other hook ask is `hook`.
+    const guard = f.hook === 'PreToolUse' && !set(f.rule) && typeof f.reason === 'string' && f.reason.startsWith(GUARD_PREFIX) && GUARD_TOOLS.includes(tool)
+    return { judge: 'agents', raisedBy: guard ? 'guard' : 'hook' }
   }
-  return set(f.rule) ? { judge: 'agents', raisedBy: 'rule' } : { judge: 'agents', raisedBy: 'mode' }
+  return { judge: 'agents', raisedBy: set(f.rule) ? 'rule' : 'mode' }
 }
 
 // ---- the switch: stored under `answering`; nothing stored means the default, on while the guard holds ----
@@ -858,7 +863,7 @@ export function parseRequest(text: string): Request | undefined {
   if (typeof o.id !== 'string' || !SID_RE.test(o.id) || typeof o.sid !== 'string' || !SID_RE.test(o.sid) || !Number.isInteger(o.pid) || typeof o.procStart !== 'string') return undefined
   if (o.level !== 'lane' && o.level !== 'lead') return undefined
   if (typeof o.repo !== 'string' || typeof o.tool !== 'string' || typeof o.inputHash !== 'string' || !HASH_RE.test(o.inputHash) || typeof o.nonce !== 'string' || o.nonce === '') return undefined
-  if (o.raisedBy !== 'mode' && o.raisedBy !== 'rule' && o.raisedBy !== 'guard') return undefined
+  if (!(RAISED as readonly unknown[]).includes(o.raisedBy)) return undefined
   if (!finite(o.at) || !finite(o.expiresAt) || typeof o.truncated !== 'boolean') return undefined
   if ((o.lane !== undefined && typeof o.lane !== 'string') || (o.leadName !== undefined && typeof o.leadName !== 'string') || (o.leadSid !== undefined && (typeof o.leadSid !== 'string' || !SID_RE.test(o.leadSid))) || (o.agentType !== undefined && typeof o.agentType !== 'string') || (o.noLead !== undefined && typeof o.noLead !== 'boolean')) return undefined
   return { id: o.id, sid: o.sid, pid: o.pid as number, procStart: o.procStart, level: o.level, lane: o.lane as string | undefined, leadName: o.leadName as string | undefined, ...(o.leadSid !== undefined ? { leadSid: o.leadSid as string } : {}), ...(o.noLead === true ? { noLead: true } : {}), repo: o.repo, tool: o.tool, agentType: o.agentType as string | undefined, inputHash: o.inputHash, raisedBy: o.raisedBy, at: o.at, expiresAt: o.expiresAt, nonce: o.nonce, input: o.input, truncated: o.truncated }

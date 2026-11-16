@@ -178,12 +178,14 @@ const CLASSIFY: [string, any, string, unknown, string][] = [
   ['the guard on a PR open', GUARD(), 'mcp__github__create_pull_request', { owner: 'o', repo: 'r', title: 't', head: 'h', base: 'b' }, 'requested guard'],
   ['the guard on a comment', GUARD(), 'mcp__github__add_issue_comment', { owner: 'o', repo: 'r', issue_number: 3, body: 'hi' }, 'requested guard'],
   ['the guard marking a PR ready (draft false)', GUARD({ reason: 'github-mcp-guard: update_pull_request on "o"/"r" #3 sets draft false; nothing else. Setting draft to false marks the PR ready for review' }), 'mcp__github__update_pull_request', { owner: 'o', repo: 'r', pullNumber: 3, draft: false }, 'requested guard'],
-  ['a hook ask', { decision: 'ask', hook: 'PreToolUse', reason: 'x' }, 'Bash', PRQ, 'not-judgeable hook'],
-  ['a rule and a hook', { decision: 'ask', rule: 'Bash(ssh:*)', hook: 'PreToolUse', reason: 'rule' }, 'Bash', PRQ, 'not-judgeable hook'],
-  ['the guard\'s prefix on another tool (an imitator)', GUARD(), 'Bash', PRQ, 'not-judgeable hook'],
-  ['the guard on a tool an ask rule also covers', GUARD({ rule: 'mcp__github__actions_run_trigger' }), 'mcp__github__actions_run_trigger', { owner: 'o', repo: 'r' }, 'not-judgeable hook'],
-  ['a setting', { decision: 'ask', setting: 'permissions.x' }, 'Bash', PRQ, 'not-judgeable setting-plugin-ceiling'],
-  ['a plugin', { decision: 'ask', plugin: 'other' }, 'Bash', PRQ, 'not-judgeable setting-plugin-ceiling'],
+  ['a hook ask', { decision: 'ask', hook: 'PreToolUse', reason: 'x' }, 'Bash', PRQ, 'requested hook'],
+  ['a rule and a hook', { decision: 'ask', rule: 'Bash(ssh:*)', hook: 'PreToolUse', reason: 'rule' }, 'Bash', PRQ, 'requested hook'],
+  ['the guard\'s prefix on another tool (an imitator)', GUARD(), 'Bash', PRQ, 'requested hook'],
+  ['the guard on a tool an ask rule also covers', GUARD({ rule: 'mcp__github__actions_run_trigger' }), 'mcp__github__actions_run_trigger', { owner: 'o', repo: 'r' }, 'requested hook'],
+  ['a hook ask on a workflow rerun', { decision: 'ask', hook: 'PreToolUse', reason: 'x' }, 'mcp__github__actions_run_trigger', { owner: 'o', repo: 'r', method: 'rerun_failed_jobs', run_id: 7 }, 'requested hook'],
+  ['a setting', { decision: 'ask', setting: 'permissions.x' }, 'Bash', PRQ, 'requested setting'],
+  ['a plugin', { decision: 'ask', plugin: 'other' }, 'Bash', PRQ, 'requested plugin'],
+  ['a ceiling', { decision: 'ask', ceiling: 'ask' }, 'Bash', PRQ, 'requested ceiling'],
   ['a question with no asks scope (stays his)', { decision: 'ask' }, 'AskUserQuestion', { questions: [{ question: 'q', header: 'h', options: [{ label: 'a' }, { label: 'b' }] }] }, 'not-judgeable question-scope'],
 ]
 for (const [name, verdict, tool, input, want] of CLASSIFY) {
@@ -207,6 +209,14 @@ test('prompts: classifier: a request raised by the guard says so in its file', a
   await answerer($, on, [], { verdict: GUARD() })
   const c2 = callOf('mcp__github__create_pull_request', { owner: 'o', repo: 'r', title: 't', head: 'h', base: 'b' })
   await runRequest($, [at(4000, () => { expect(readReq().raisedBy).toBe('guard') }), stop(6000)], c2.over, c2.check)
+})
+
+test('prompts: classifier: a hook-raised ask outside the guard (a workflow rerun) becomes a request that says so in its file, and a tier\'s allow lands', async ($, on) => {
+  await answerer($, on, [], { verdict: { decision: 'ask', hook: 'PreToolUse', reason: 'x' } })
+  const c2 = callOf('mcp__github__actions_run_trigger', { owner: 'o', repo: 'r', method: 'rerun_failed_jobs', run_id: 7 })
+  const r = await runRequest($, [at(4000, () => { expect(readReq().raisedBy).toBe('hook') }), at(34_000, () => handDecision(readReq(), { decision: 'allow' }))], c2.over, c2.check)
+  expect(r).toMatchObject({ decision: { behavior: 'allow' } })
+  expect(rowKinds()).toEqual(['requested', 'answered allow', 'returned allow'])
 })
 
 // ---- a dialog, at the request: no request is written and the dialog stays the person's ----

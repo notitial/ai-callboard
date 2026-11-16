@@ -597,7 +597,7 @@ async function promptHook($: any, e: any, nextOnce: (x: any) => Promise<any>, si
     }
     // 4. Nobody can be asked, or a host answers: not ours.
     if (entry.approver !== 'person') return beneath
-    // 5. Which asks agents may judge.
+    // 5. What raised the ask. Every ask goes on to the tiers; a prompt that is not an ask stays the person's.
     const judged = pr.classify(tool, entry.facts)
     if (judged.judge === 'person') {
       await ledgerAdd($, { ...base, kind: 'not-judgeable', code: judged.why })

@@ -13,42 +13,48 @@ test('isDialog: the plan-mode exit is a dialog; no other tool is', () => {
 })
 
 // ---- the classifier table from the probes ----
-test('classify: rule, hook, rule+hook, guard, imitator, setting, plugin, ceiling, mode', () => {
+test('classify: every ask is the agents\' to judge, named by what raised it (ceiling, setting, plugin, hook or guard, rule, mode); only a prompt that is not an ask stays the person\'s', () => {
   const ask = { decision: 'ask' }
-  assert.deepEqual(p.classify('Bash', { ...ask, rule: 'Bash(ssh:*)' }), { judge: 'agents', raisedBy: 'rule' })
-  assert.deepEqual(p.classify('Bash', ask), { judge: 'agents', raisedBy: 'mode' })
-  assert.deepEqual(p.classify('Bash', { ...ask, reason: 'because' }), { judge: 'agents', raisedBy: 'mode' })
+  const by = (tool: string, f: object) => p.classify(tool, f)
+  assert.deepEqual(by('Bash', { ...ask, rule: 'Bash(ssh:*)' }), { judge: 'agents', raisedBy: 'rule' })
+  assert.deepEqual(by('Bash', ask), { judge: 'agents', raisedBy: 'mode' })
+  assert.deepEqual(by('Bash', { ...ask, reason: 'because' }), { judge: 'agents', raisedBy: 'mode' })
   const guard = { ...ask, hook: 'PreToolUse', reason: `${p.GUARD_PREFIX}comment on a PR` }
-  for (const t of p.GUARD_TOOLS) assert.deepEqual(p.classify(t, guard), { judge: 'agents', raisedBy: 'guard' }, t)
-  // The same prefix on another tool, or on a rule-covered tool, or a guard of another name, stays his.
-  assert.equal(p.classify('Bash', guard).judge, 'person')
-  assert.equal(p.classify('mcp__github__actions_run_trigger', guard).judge, 'person')
-  assert.equal(p.classify('mcp__github__create_pull_request', { ...guard, rule: 'mcp__github__create_pull_request' }).judge, 'person')
-  assert.equal(p.classify('mcp__github__create_pull_request', { ...ask, hook: 'PreToolUse', reason: 'other-guard: x' }).judge, 'person')
-  assert.equal(p.classify('mcp__github__create_pull_request', { ...ask, hook: 'PreToolUse' }).judge, 'person')
-  assert.equal(p.classify('mcp__github__create_pull_request', { ...guard, hook: 'PostToolUse' }).judge, 'person')
-  // Any other hook ask, with or without a rule, is his.
-  assert.equal(p.classify('Bash', { ...ask, hook: 'PreToolUse', reason: 'x' }).judge, 'person')
-  assert.equal(p.classify('Bash', { ...ask, hook: 'PreToolUse', rule: 'Bash(rm:*)', reason: 'x' }).judge, 'person')
-  assert.equal(p.classify('Bash', { ...ask, setting: 'permissions.x' }).judge, 'person')
-  assert.equal(p.classify('Bash', { ...ask, plugin: 'other' }).judge, 'person')
-  assert.equal(p.classify('Bash', { ...ask, ceiling: 'ask' }).judge, 'person')
-  assert.equal(p.classify('Bash', { ...guard, plugin: 'other' }).judge, 'person')
-  // A question: the mode's own ask is judged by agents (the shape and the questions scope follow); behind a rule, hook, setting, plugin or ceiling it stays his. Only an ask is ever judged.
-  assert.deepEqual(p.classify('AskUserQuestion', ask), { judge: 'agents', raisedBy: 'mode' })
-  for (const extra of [{ rule: 'AskUserQuestion' }, { hook: 'PreToolUse' }, { setting: 's' }, { plugin: 'x' }, { ceiling: 'ask' }]) assert.deepEqual(p.classify('AskUserQuestion', { ...ask, ...extra }), { judge: 'person', why: 'question' }, JSON.stringify(extra))
-  assert.equal(p.classify('AskUserQuestion', { decision: 'allow' }).judge, 'person')
-  assert.equal(p.classify('Bash', { decision: 'allow' }).judge, 'person')
-  assert.equal(p.classify('Bash', {}).judge, 'person')
+  for (const t of p.GUARD_TOOLS) assert.deepEqual(by(t, guard), { judge: 'agents', raisedBy: 'guard' }, t)
+  // The same prefix on another tool, or on a rule-covered tool, or a guard of another name, is a plain hook ask: it reaches the tiers as `hook`, never as `guard`.
+  const hook = { judge: 'agents', raisedBy: 'hook' }
+  assert.deepEqual(by('Bash', guard), hook)
+  assert.deepEqual(by('mcp__github__actions_run_trigger', guard), hook)
+  assert.deepEqual(by('mcp__github__create_pull_request', { ...guard, rule: 'mcp__github__create_pull_request' }), hook)
+  assert.deepEqual(by('mcp__github__create_pull_request', { ...ask, hook: 'PreToolUse', reason: 'other-guard: x' }), hook)
+  assert.deepEqual(by('mcp__github__create_pull_request', { ...ask, hook: 'PreToolUse' }), hook)
+  assert.deepEqual(by('mcp__github__create_pull_request', { ...guard, hook: 'PostToolUse' }), hook)
+  assert.deepEqual(by('Bash', { ...ask, hook: 'PreToolUse', reason: 'x' }), hook)
+  assert.deepEqual(by('Bash', { ...ask, hook: 'PreToolUse', rule: 'Bash(rm:*)', reason: 'x' }), hook)
+  // A setting, a plugin and a ceiling; the widest source names the ask when several stand behind it.
+  assert.deepEqual(by('Bash', { ...ask, setting: 'permissions.x' }), { judge: 'agents', raisedBy: 'setting' })
+  assert.deepEqual(by('Bash', { ...ask, plugin: 'other' }), { judge: 'agents', raisedBy: 'plugin' })
+  assert.deepEqual(by('Bash', { ...ask, ceiling: 'ask' }), { judge: 'agents', raisedBy: 'ceiling' })
+  assert.deepEqual(by('Bash', { ...guard, plugin: 'other' }), { judge: 'agents', raisedBy: 'plugin' })
+  assert.deepEqual(by('mcp__github__create_pull_request', { ...guard, setting: 's' }), { judge: 'agents', raisedBy: 'setting' })
+  assert.deepEqual(by('Bash', { ...ask, ceiling: 'ask', setting: 's', plugin: 'x', hook: 'PreToolUse', rule: 'r' }), { judge: 'agents', raisedBy: 'ceiling' })
+  // A question is classified like any call (the shape and the questions scope follow).
+  assert.deepEqual(by('AskUserQuestion', ask), { judge: 'agents', raisedBy: 'mode' })
+  for (const [extra, raisedBy] of [[{ rule: 'AskUserQuestion' }, 'rule'], [{ hook: 'PreToolUse' }, 'hook'], [{ setting: 's' }, 'setting'], [{ plugin: 'x' }, 'plugin'], [{ ceiling: 'ask' }, 'ceiling']] as const) assert.deepEqual(by('AskUserQuestion', { ...ask, ...extra }), { judge: 'agents', raisedBy }, JSON.stringify(extra))
+  // Only an ask is ever judged.
+  assert.deepEqual(by('AskUserQuestion', { decision: 'allow' }), { judge: 'person', why: 'not-ask' })
+  assert.deepEqual(by('Bash', { decision: 'allow' }), { judge: 'person', why: 'not-ask' })
+  assert.deepEqual(by('Bash', { decision: 'deny', hook: 'PreToolUse' }), { judge: 'person', why: 'not-ask' })
+  assert.deepEqual(by('Bash', {}), { judge: 'person', why: 'not-ask' })
 })
 
-test('classify: marking a PR ready (update_pull_request, draft false) is the guard row: agents judge it, it is not his', () => {
+test('classify: marking a PR ready (update_pull_request, draft false) is the guard row', () => {
   // The reason as ai-toolkit's tools/github-mcp/guard.sh builds it for draft false (read from the script, not run).
   const reason = `${p.GUARD_PREFIX}update_pull_request on "o"/"r" #12 sets draft false; nothing else. Setting draft to false marks the PR ready for review, which starts the automatic paid Claude review. The title and body are shown to everyone on the PR and read by its automatic reviewer.`
   const input = { owner: 'o', repo: 'r', pullNumber: 12, draft: false }
   assert.deepEqual(p.classify('mcp__github__update_pull_request', { decision: 'ask', hook: 'PreToolUse', reason }), { judge: 'agents', raisedBy: 'guard' })
-  // With an ask rule on the tool, core's reason hides the guard's, so it stays his.
-  assert.equal(p.classify('mcp__github__update_pull_request', { decision: 'ask', hook: 'PreToolUse', rule: 'mcp__github__update_pull_request', reason: 'rule' }).judge, 'person')
+  // With an ask rule on the tool, core's reason hides the guard's, so it is a plain hook ask.
+  assert.deepEqual(p.classify('mcp__github__update_pull_request', { decision: 'ask', hook: 'PreToolUse', rule: 'mcp__github__update_pull_request', reason: 'rule' }), { judge: 'agents', raisedBy: 'hook' })
   assert.equal(p.patternOf('mcp__github__update_pull_request', input), 'mcp__github__update_pull_request o/r #12')
 })
 

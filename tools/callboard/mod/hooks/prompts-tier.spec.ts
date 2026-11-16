@@ -81,7 +81,8 @@ const REQ = { id: ID, sid: SID_A, pid: 4300, procStart: 'Tue Oct 27 20:37:50 202
 test('parseRequest: the exact shape only, at most REQUEST_MAX bytes', () => {
   assert.deepEqual(p.parseRequest(JSON.stringify(REQ)), { ...REQ, agentType: undefined })
   assert.equal(p.parseRequest(JSON.stringify({ ...REQ, lane: undefined, leadName: undefined }))?.lane, undefined)
-  for (const bad of [{ id: 'x' }, { sid: 'x' }, { pid: 'x' }, { pid: 1.5 }, { level: 'conductor' }, { inputHash: 'abc' }, { raisedBy: 'hook' }, { at: 'x' }, { expiresAt: null }, { truncated: 'no' }, { nonce: '' }, { lane: 3 }, { tool: 4 }, { procStart: 1 }]) assert.equal(p.parseRequest(JSON.stringify({ ...REQ, ...bad })), undefined, JSON.stringify(bad))
+  for (const bad of [{ id: 'x' }, { sid: 'x' }, { pid: 'x' }, { pid: 1.5 }, { level: 'conductor' }, { inputHash: 'abc' }, { raisedBy: 'other' }, { raisedBy: 3 }, { at: 'x' }, { expiresAt: null }, { truncated: 'no' }, { nonce: '' }, { lane: 3 }, { tool: 4 }, { procStart: 1 }]) assert.equal(p.parseRequest(JSON.stringify({ ...REQ, ...bad })), undefined, JSON.stringify(bad))
+  for (const raisedBy of p.RAISED) assert.equal(p.parseRequest(JSON.stringify({ ...REQ, raisedBy }))?.raisedBy, raisedBy)
   assert.equal(p.parseRequest(JSON.stringify({ ...REQ, leadSid: SID_A }))?.leadSid, SID_A)
   assert.equal('leadSid' in p.parseRequest(JSON.stringify(REQ))!, false)
   for (const bad of [{ leadSid: 'x' }, { leadSid: 4 }, { leadSid: null }]) assert.equal(p.parseRequest(JSON.stringify({ ...REQ, ...bad })), undefined, JSON.stringify(bad))
