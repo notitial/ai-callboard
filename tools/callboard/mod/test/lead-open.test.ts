@@ -161,7 +161,7 @@ longTest('lead_open counts the conductor\'s leads across its repos, `joined` one
   })
   expect(await open($, `ok ${NEWSID}\n`)).toContain('is on as session')
   pfs.delete(`${OFFERS_DIR}/${KEY}.json`)
-  putLeadRecs([{ name: 'LEAD-E', conductorSid: SID }], APP2)
+  putLeadRecs([{ name: 'LEAD-C', conductorSid: SID }, { name: 'LEAD-E', conductorSid: SID }], APP2)
   h.openResult = undefined
   const r = await open($, undefined, { name: 'LEAD-M' })
   expect(r).toContain('lead-cap: you already own 4 leads')
