@@ -1,10 +1,12 @@
 #!/usr/bin/env node
-// callboard prompt-audit [--since DATE] [--root DIR] [--projects DIR] [--records DIR] [--goes DIR] [--json]
+// callboard prompt-audit [--since DATE] [--root DIR] [--records DIR] [--goes DIR] [--json]
 // Read-only audit of prompt answering (ADR 0004, "Rollout, off switch and audit"; ADR 0011 for what raised an ask): one table of every request, the anomalies
 // that must stay empty, what is deliberately not an anomaly, and wait counts. Nothing here writes: it never creates, edits,
 // renames, removes or touches a file, and it follows no symlink inside the folders it reads. Convenience only: every real
 // limit lives in the mod. Exit 0: no anomalies. 1: anomalies. 2: usage error, an unreadable root, or a ledger file that could
-// not be read (an audit that missed a ledger file proves nothing, so it never exits 0).
+// not be read (an audit that missed a ledger file proves nothing, so it never exits 0), a ledger row of a kind it does not know, or the mod's definitions not loading.
+// It imports the row kinds, the forged-drop codes, the sources of an ask, the id shape and a conductor's hourly open backstop from the mod's own sources (mod/hooks/prompts.ts, core.ts), so it
+// runs from this checkout and needs node 22.18 or later.
 //
 // The ledger rows it reads (prompts.ts, LedgerRow): { t, kind, code?, id?, lane?, repo?, tool?, pattern?, hash?, tier?, why?, nonce?, opt?, lh?, dialog?, end?, raised? }.
 //   requested  id, nonce, lane, repo, tool, pattern, hash, tier, raised?     the hook asked a tier. raised: what raised the ask (mode | rule | guard | hook |
@@ -41,76 +43,74 @@
 //   answered / returned rows of the person's own answer carry via: "person", short and by = the relaying tier's session id (no prompt_answer call exists for them)
 //   dialog, not-judgeable, no-tier, escalated, answering-on, answering-off   no request of their own
 //
-// Rule c (a hook-sourced decision in a transcript that the ledger never saw), and its blind spot. A result line's
-// `permissionDecision.source: "hook"` does not say which hook event decided: PreToolUse guards allow and deny with the same source. Real
-// transcripts show the difference in two places only. The engine writes an attachment line { type: "hook_permission_decision",
-// hookEvent: "PermissionRequest", toolUseID, decision } for a PermissionRequest hook's decision (seen: 32 of 32 such decisions, each
-// with a result line of source hook at the same second), and a PreToolUse deny carries reasonCode "hook:PreToolUse". So an allow is
-// checked only when its tool_use id has that attachment, or its reasonCode names PermissionRequest. Blind spot: an allow that the
-// engine records as source hook but without that attachment is not checked and is only counted ("hook allows with no PermissionRequest
-// record"); if a later engine stops writing the attachment, rule c goes quiet while that count rises, so read the count. A hook deny
-// is never flagged: it grants nothing.
+// It reads the ledger and the files beside it (questions, request files, lead records, go files), never a session's transcript. So two things are outside what it
+// sees: a hook decision that reached a session with no ledger row, and an answered row written by hand together with its decision file.
 import { openSync, closeSync, readSync, fstatSync, lstatSync, readdirSync, realpathSync, constants } from 'node:fs'
 import { createHash } from 'node:crypto'
-import { join, basename } from 'node:path'
+import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { pathToFileURL } from 'node:url'
 
+// The mod's own definitions. A load that fails (an older node, the script copied out of its checkout, a renamed export) ends the run with exit 2, never 1.
+let ID_RE, OPENS_PER_CONDUCTOR_HOUR, ROW_KINDS, DROP_FORGED, RAISED_BY
+try {
+  ;({ SID_RE: ID_RE, OPENS_PER_CONDUCTOR_HOUR } = await import('./mod/hooks/core.ts'))
+  ;({ ROW_KINDS, DROP_FORGED, RAISED: RAISED_BY } = await import('./mod/hooks/prompts.ts'))
+  if (!(ID_RE instanceof RegExp) || !Number.isInteger(OPENS_PER_CONDUCTOR_HOUR) || !Array.isArray(ROW_KINDS) || !Array.isArray(DROP_FORGED) || !Array.isArray(RAISED_BY)) throw new Error('an export is missing')
+} catch (e) {
+  console.error(`prompt audit: cannot load the mod's definitions from mod/hooks beside this script (node 22.18 or later is needed): ${String(e?.message ?? e).slice(0, 300)}`)
+  process.exit(2)
+}
+
 export const LEDGER_MAX_BYTES = 16 * 1024 * 1024
 const LEDGER_LINE_MAX = 64 * 1024
-// A transcript line holds a whole tool result or attachment, so real ones pass 1 MB. Lines up to this size are read and tested like any other;
-// a longer one is streamed past, looking only for the text a decision needs (TRANSCRIPT_MARKERS), and is a problem only if it holds one.
-const TRANSCRIPT_LINE_MAX = 32 * 1024 * 1024
-const TRANSCRIPT_MARKERS = ['permissionDecision', 'hook_permission_decision']
 // A request whose hook ended without a row is closed by the mod's tick within seconds; a request with no ending row and no request file after this long is a fault.
 const CLOSE_GRACE_MS = 10 * 60 * 1000
-const TRANSCRIPT_MAX_BYTES = 1024 * 1024 * 1024
-const TRANSCRIPT_TOTAL_MAX_BYTES = 2 * 1024 * 1024 * 1024
-const TRANSCRIPT_FILES_MAX = 2000
-const DIR_ENTRIES_MAX = 50000
-const WALK_DEPTH_MAX = 6
-const JSON_DEPTH_MAX = 8
-const JSON_NODES_MAX = 5000
 const DAY_MS = 24 * 60 * 60 * 1000
-const WINDOW_MS = 10 * 60 * 1000
 const LIST_MAX = 200
 const QUESTION_TOOL = 'AskUserQuestion'
 const QUESTION_DAYS = 90
-// A conductor's backstop on successful lead opens an hour (OPENS_PER_CONDUCTOR_HOUR in mod/hooks/core.ts).
-const OPENS_PER_CONDUCTOR_HOUR = 8
-// The longest answer label the audit reads from a transcript (the mod caps a label at 200 bytes).
-const LABEL_MAX = 256
 
-const ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
-const KINDS = new Set(['requested', 'answered', 'escalated', 'dropped', 'returned', 'superseded', 'expired-denied', 'off', 'abandoned', 'dialog', 'not-judgeable', 'no-tier', 'answering-on', 'answering-off', 'relayed', 'relay-lost', 'relay-left', 'relay-late', 'relay-closed', 'deny-unclear', 'lead-offer', 'lead-offer-void', 'lead-grant', 'lead-owner', 'lead-resume', 'lead-stop', 'go-grant', 'go-end', 'go-read', 'pr-watch', 'pr-notice'])
+const KINDS = new Set(ROW_KINDS)
 const FIELDS = ['code', 'id', 'lane', 'repo', 'tool', 'pattern', 'hash', 'tier', 'why', 'nonce', 'tuid', 'by', 'via', 'short', 'opt', 'lh', 'target', 'was', 'dialog', 'end', 'raised']
-// The rows of a go carry the go's id, which is no request's.
-const GO_KINDS = new Set(['go-grant', 'go-end', 'go-read'])
-const ENDS = new Set(['returned', 'superseded', 'expired-denied', 'off', 'abandoned'])
+// Where the audit puts each kind of row: `request` a row of a request (grouped by the request id it carries), `end` a row that ends a request, `go` a row of a go
+// (its id is the go's, no request's), `other` a row of no request (the switch, the lead rows, the PR rows). A kind the mod writes that has no place here makes
+// every run incomplete (UNPLACED), so a new kind cannot be read as something it is not.
+export const KIND_CLASS = {
+  requested: 'request', answered: 'request', escalated: 'request', dropped: 'request', relayed: 'request', 'relay-lost': 'request', 'relay-left': 'request', 'relay-late': 'request',
+  'relay-closed': 'request', 'deny-unclear': 'request', dialog: 'request', 'not-judgeable': 'request', 'no-tier': 'request',
+  returned: 'end', superseded: 'end', 'expired-denied': 'end', off: 'end', abandoned: 'end',
+  'go-grant': 'go', 'go-end': 'go', 'go-read': 'go',
+  'answering-on': 'other', 'answering-off': 'other', 'lead-offer': 'other', 'lead-offer-void': 'other', 'lead-grant': 'other', 'lead-owner': 'other', 'lead-resume': 'other', 'lead-stop': 'other',
+  'pr-watch': 'other', 'pr-notice': 'other',
+}
+const UNPLACED = ROW_KINDS.filter((k) => !Object.hasOwn(KIND_CLASS, k))
+const ofClass = (c) => new Set(ROW_KINDS.filter((k) => KIND_CLASS[k] === c))
+const GO_KINDS = ofClass('go')
+const ENDS = ofClass('end')
 // A `dropped` row with one of these codes is a decision the hook refused as forged or wrong: an anomaly. The others are ordinary.
-const DROP_ANOMALY = new Set(['no-answered-row', 'id', 'hash', 'nonce', 'by-sid', 'kind', 'answer'])
-// What may raise an ask (prompts.ts, RAISED). A requested row that names anything else was not written by the hook.
-const RAISED = new Set(['mode', 'rule', 'guard', 'hook', 'setting', 'plugin', 'ceiling'])
-
+const DROP_ANOMALY = new Set(DROP_FORGED)
+// What may raise an ask (the mod's RAISED). A requested row that names anything else was not written by the hook.
+const RAISED = new Set(RAISED_BY)
 
 class AuditError extends Error {}
 
 // ---- bounded, symlink-refusing reads ----
-// Reads a regular file line by line through O_NOFOLLOW and an fstat of the open descriptor. A line over maxLine is skipped, never
-// buffered whole (with `markers`, it is streamed past and counted in skippedMarked when it held one of them). Throws AuditError('symlink' | 'not-a-file' | 'too-large' | ...) with a short code in .code.
 function codeErr(code, path) {
   const e = new AuditError(`${code}: ${path}`)
   e.code = code
   return e
 }
-export function eachLine(path, { maxLine, maxFileBytes, maxRead, markers = [] }, onLine) {
+// Reads a regular file line by line through O_NOFOLLOW and an fstat of the open descriptor. A line over maxLine is skipped and counted, never buffered whole.
+// Throws AuditError('symlink' | 'not-a-file' | 'too-large' | ...) with a short code in .code.
+export function eachLine(path, { maxLine, maxFileBytes }, onLine) {
   let fd
   try {
     fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW)
   } catch (e) {
     throw codeErr(e.code === 'ELOOP' ? 'symlink' : e.code === 'ENOENT' ? 'missing' : 'unreadable', path)
   }
-  const stats = { skippedLong: 0, skippedMarked: 0, truncated: false, bytes: 0 }
+  const stats = { skippedLong: 0 }
   try {
     const st = fstatSync(fd)
     if (!st.isFile()) throw codeErr('not-a-file', path)
@@ -119,37 +119,16 @@ export function eachLine(path, { maxLine, maxFileBytes, maxRead, markers = [] },
     let parts = []
     let len = 0
     let skipping = false
-    // A line being skipped is searched for the markers across chunk borders: the last bytes of what was seen are kept and put before the next piece.
-    const mk = markers.map((m) => Buffer.from(m))
-    const keep = Math.max(0, ...mk.map((m) => m.length - 1))
-    let marked = false
-    let tail = Buffer.alloc(0)
-    const scan = (seg) => {
-      if (mk.length === 0) return
-      const hay = tail.length > 0 ? Buffer.concat([tail, seg]) : seg
-      if (!marked && mk.some((m) => hay.includes(m))) marked = true
-      tail = Buffer.from(hay.subarray(Math.max(0, hay.length - keep)))
-    }
     const flush = () => {
-      if (skipping) {
-        stats.skippedLong++
-        if (marked) stats.skippedMarked++
-      } else if (len > 0) onLine(Buffer.concat(parts, len).toString('utf8'))
+      if (skipping) stats.skippedLong++
+      else if (len > 0) onLine(Buffer.concat(parts, len).toString('utf8'))
       parts = []
       len = 0
       skipping = false
-      marked = false
-      tail = Buffer.alloc(0)
     }
     for (;;) {
-      if (maxRead !== undefined && stats.bytes >= maxRead) {
-        // At the limit: truncated only when more data follows (a file of exactly the limit is complete).
-        stats.truncated = readSync(fd, buf, 0, 1, null) > 0
-        break
-      }
-      const n = readSync(fd, buf, 0, Math.min(buf.length, maxRead === undefined ? buf.length : maxRead - stats.bytes), null)
+      const n = readSync(fd, buf, 0, buf.length, null)
       if (n === 0) break
-      stats.bytes += n
       const chunk = buf.subarray(0, n)
       let from = 0
       while (from < n) {
@@ -159,11 +138,10 @@ export function eachLine(path, { maxLine, maxFileBytes, maxRead, markers = [] },
           len += end - from
           if (len > maxLine) {
             skipping = true
-            scan(Buffer.concat([...parts, chunk.subarray(from, end)]))
             parts = []
             len = 0
           } else parts.push(Buffer.from(chunk.subarray(from, end)))
-        } else scan(chunk.subarray(from, end))
+        }
         if (nl === -1) break
         flush()
         from = nl + 1
@@ -230,18 +208,30 @@ function eachMonthFile(root, entries, prefix, problems, onLine) {
   return { files, skippedLong }
 }
 
-function readLedger(root, entries, problems, notes) {
+function readLedger(root, entries, since, problems, notes) {
   const rows = []
   let garbage = 0
+  // Rows of a kind the mod's list does not hold (written by another version of the mod), by kind: not read, and reported.
+  const unknown = new Map()
   const { files, skippedLong } = eachMonthFile(root, entries, 'ledger', problems, (line, file) => {
     if (line.trim() === '') return
-    if (parseObj(line)?.kind === 'floor') return // a row of the removed floor judge: not a row now, and not damage
+    const j = parseObj(line)
+    if (j?.kind === 'floor') return // a row of the removed floor judge: not a row now, and not damage
+    if (typeof j?.kind === 'string' && !KINDS.has(j.kind)) {
+      const ms = typeof j.t === 'string' ? Date.parse(j.t) : NaN
+      if (since === undefined || !Number.isFinite(ms) || ms >= since) {
+        const k = j.kind.slice(0, 40)
+        unknown.set(k, (unknown.get(k) ?? 0) + 1)
+      }
+      return
+    }
     const r = parseRow(line)
     if (r) rows.push({ ...r, seq: rows.length, file })
     else garbage++
   })
   garbage += skippedLong
   if (garbage > 0) notes.push(`${garbage} ledger line(s) were not valid rows and were ignored`)
+  if (unknown.size > 0) problems.push(`ledger: ${[...unknown.values()].reduce((a, b) => a + b, 0)} row(s) of a kind the audit does not know were not read (${[...unknown.entries()].sort().slice(0, 20).map(([k, n]) => `${k} ${n}`).join(', ')})`)
   rows.sort((a, b) => a.ms - b.ms || a.seq - b.seq)
   return { rows, garbage, files }
 }
@@ -285,262 +275,6 @@ function readQuestions(root, entries, since, problems, now) {
   return out
 }
 
-// A label as the audit's escaped listing shows it (\\u003c, \\ufe0f, \\u{e0001}), back to its characters; an escape past U+10FFFF stays as it is.
-const unescape = (t) => t.replace(/\\u\{([0-9a-f]+)\}|\\u([0-9a-f]{4})/gi, (m, big, small) => { const n = parseInt(big ?? small, 16); return n <= 0x10ffff ? String.fromCodePoint(n) : m })
-
-// The salted label hash the mod writes in `lh` (prompts.ts): the first 16 hex of SHA-256(id + "\n" + label).
-const labelHash = (id, label) => createHash('sha256').update(`${id}\n${label}`).digest('hex').slice(0, 16)
-
-// ---- transcripts (rule c) ----
-function findDecision(root0) {
-  // Walks the parsed line to a bounded depth and node count for an object whose `permissionDecision` is an object with a string
-  // `source` (the real shape puts it on the top level of a tool_result line; the spec also accepts it under message,
-  // toolUseResult or attachment). Also returns the first tool_use_id found.
-  let nodes = 0
-  let pd
-  let toolUseId
-  const stack = [[root0, 0]]
-  while (stack.length > 0 && nodes < JSON_NODES_MAX) {
-    const [o, depth] = stack.pop()
-    nodes++
-    if (o === null || typeof o !== 'object') continue
-    if (!Array.isArray(o)) {
-      if (pd === undefined && o.permissionDecision && typeof o.permissionDecision === 'object' && typeof o.permissionDecision.source === 'string') pd = o.permissionDecision
-      if (toolUseId === undefined) for (const k of ['tool_use_id', 'toolUseID', 'toolUseId']) if (typeof o[k] === 'string') toolUseId = o[k].slice(0, 100)
-    }
-    if (depth >= JSON_DEPTH_MAX) continue
-    for (const v of Object.values(o)) if (v !== null && typeof v === 'object') stack.push([v, depth + 1])
-  }
-  return pd === undefined ? undefined : { pd, toolUseId }
-}
-
-function collectTranscriptFiles(projects, since, problems) {
-  const found = []
-  let visited = 0
-  let deep = false
-  let unreadable = 0
-  const walk = (dir, depth) => {
-    if (depth > WALK_DEPTH_MAX) {
-      deep = true
-      return
-    }
-    let ents
-    try {
-      ents = list(dir)
-    } catch {
-      unreadable++
-      return
-    }
-    for (const d of ents) {
-      if (++visited > DIR_ENTRIES_MAX) return
-      const p = join(dir, d.name)
-      if (d.isSymbolicLink()) continue
-      if (d.isDirectory()) walk(p, depth + 1)
-      else if (d.isFile() && d.name.endsWith('.jsonl')) {
-        let st
-        try {
-          st = lstatSync(p)
-        } catch {
-          continue
-        }
-        if (!st.isFile()) continue
-        if (since !== undefined && st.mtimeMs < since) continue
-        found.push({ path: p, mtimeMs: st.mtimeMs })
-      }
-    }
-  }
-  walk(projects, 0)
-  // A transcript that is not listed is a transcript that is not read: the run is incomplete, whatever the anomalies say.
-  if (visited > DIR_ENTRIES_MAX) problems.push(`transcripts: stopped listing after ${DIR_ENTRIES_MAX} entries`)
-  if (deep) problems.push(`transcripts: folders deeper than ${WALK_DEPTH_MAX} levels were not listed`)
-  if (unreadable > 0) problems.push(`transcripts: ${unreadable} folder(s) could not be listed`)
-  found.sort((a, b) => b.mtimeMs - a.mtimeMs)
-  if (found.length > TRANSCRIPT_FILES_MAX) {
-    problems.push(`transcripts: only the ${TRANSCRIPT_FILES_MAX} newest of ${found.length} files were scanned; narrow it with --since`)
-    found.length = TRANSCRIPT_FILES_MAX
-  }
-  return found
-}
-
-// The label of a relay answer in the result's text form `"<question>"="<label>"`: undefined when the question's pair is not in the text, null when it is and its
-// label cannot be read, else the label.
-export function labelFromText(text, question) {
-  const at = text.indexOf(`"${question}"="`)
-  if (at === -1) return undefined
-  // The text form is `"<question>"="<label>"`, with a quote inside a label left as it is, so the cut at the first quote is the label only when what follows it
-  // is the closing quote of the pair (end of text, `.` or `,`); otherwise the label cannot be read from here.
-  const rest = text.slice(at + question.length + 4)
-  const cutLabel = new RegExp(`^[^"]{0,${LABEL_MAX}}`).exec(rest)?.[0] ?? ''
-  if (rest[cutLabel.length] === '"' && !/^"(?:$|[.,])/.test(rest.slice(cutLabel.length))) return null
-  return cutLabel
-}
-
-// The per-file state `st`: the transcript file `f`, its `since` cut, its session id `fileSid`, the line number, and what is read from it: the tool names by tool_use id
-// (`names`), the relay questions by tool_use id (`relayIds`), the tool_use ids a PermissionRequest hook decided (`permReq`), the sessions the file speaks for
-// (`fileSessions`); the rest is shared by all files (the collections scanTranscripts returns).
-
-// A tool_use block (b, in the line j): its tool's name, a relay question it asks, a prompt_answer call it makes.
-function noteToolUse(b, j, st) {
-  const { names, relayIds, fileSessions, fileSid, relayQs, relayAsks, answerCalls } = st
-  if (typeof b.id === 'string' && typeof b.name === 'string' && names.size < 100000) names.set(b.id, b.name.slice(0, 200))
-  if (typeof b.name === 'string' && /(^|__)AskUserQuestion$/.test(b.name) && Array.isArray(b.input?.questions) && typeof b.id === 'string' && relayIds.size < 100000) {
-    for (const q of b.input.questions.slice(0, 8)) {
-      const m = typeof q?.header === 'string' ? /^Relay ([0-9a-f]{8})$/.exec(q.header) : null
-      if (!m) continue
-      const sidKey = typeof j.sessionId === 'string' ? j.sessionId : fileSid
-      fileSessions.add(sidKey)
-      // One call may carry several relay questions (a tier coalesces): each is kept with its own text, which keys its answer.
-      const list = relayIds.get(b.id) ?? []
-      const entry = { sid: sidKey, short: m[1], question: typeof q.question === 'string' ? q.question : '' }
-      list.push(entry)
-      if (relayQs.length < 5000) relayQs.push({ ...entry, label: undefined })
-      relayIds.set(b.id, list)
-      let per = relayAsks.get(sidKey)
-      if (!per) relayAsks.set(sidKey, (per = new Map()))
-      if (!per.has(m[1])) per.set(m[1], [])
-    }
-  }
-  // A lead's answer is a prompt_answer call of the callboard tool, whose input names the request id.
-  if (typeof b.name === 'string' && /(^|__)prompt_answer$/.test(b.name) && typeof b.input?.id === 'string') {
-    const sidKey = typeof j.sessionId === 'string' ? j.sessionId : fileSid
-    fileSessions.add(sidKey)
-    let set = answerCalls.get(sidKey)
-    if (!set) answerCalls.set(sidKey, (set = new Set()))
-    if (set.size < 100000) set.add(b.input.id.slice(0, 100))
-  }
-}
-
-// The result of a relay question's call (the tool_result block b of the line j; asks: the call's relay questions): the label each question was answered with.
-function noteRelayAnswer(asks, b, j, st) {
-  const { relayAsks, relayQs, relayUnreadable } = st
-  // Each answer belongs to the question whose text keys it (the result's `answers` is keyed by question text); with the structured form missing, to the
-  // quoted `"question"="label"` pair of the result's text. Never pooled across the call's questions.
-  const ans = j.toolUseResult?.answers
-  const text = typeof b.content === 'string' ? b.content : Array.isArray(b.content) ? b.content.map((x) => (typeof x?.text === 'string' ? x.text : '')).join('\n') : ''
-  for (const ask of asks) {
-    let label
-    if (ans && typeof ans === 'object' && Object.prototype.hasOwnProperty.call(ans, ask.question) && typeof ans[ask.question] === 'string') label = ans[ask.question].slice(0, LABEL_MAX)
-    else if (!ans && ask.question !== '') {
-      label = labelFromText(text, ask.question)
-      if (label === null) {
-        relayUnreadable.add(`${ask.sid}\n${ask.short}`)
-        const rec0 = relayQs.find((x) => x.sid === ask.sid && x.short === ask.short && x.question === ask.question && x.label === undefined)
-        if (rec0) rec0.label = '(not readable from the result text)'
-        continue
-      }
-    }
-    if (label !== undefined) relayAsks.get(ask.sid)?.get(ask.short)?.push(label)
-    const rec = relayQs.find((x) => x.sid === ask.sid && x.short === ask.short && x.question === ask.question && x.label === undefined)
-    if (rec) rec.label = label
-  }
-}
-
-// A permission decision: the attachment of a PermissionRequest hook's decision, and a result line that holds one (hasPd, hasAtt: the line's text names them).
-function noteDecision(j, hasPd, hasAtt, st) {
-  const { f, since, names, permReq, decisions } = st
-  const att = j.attachment
-  if (hasAtt && att && typeof att === 'object' && att.type === 'hook_permission_decision' && att.hookEvent === 'PermissionRequest' && typeof att.toolUseID === 'string' && permReq.size < 100000) permReq.add(att.toolUseID.slice(0, 100))
-  if (!hasPd) return
-  const found = findDecision(j)
-  if (!found) return
-  const tsRaw = typeof j.timestamp === 'string' ? j.timestamp : typeof j.message?.timestamp === 'string' ? j.message.timestamp : undefined
-  const ts = tsRaw !== undefined && Number.isFinite(Date.parse(tsRaw)) ? Date.parse(tsRaw) : f.mtimeMs
-  if (since !== undefined && ts < since) return
-  decisions.push({
-    file: basename(f.path),
-    line: st.lineNo,
-    sid: typeof j.sessionId === 'string' ? j.sessionId : typeof j.session_id === 'string' ? j.session_id : basename(f.path, '.jsonl'),
-    ms: ts,
-    source: found.pd.source.slice(0, 40),
-    decision: typeof found.pd.decision === 'string' ? found.pd.decision.slice(0, 20) : '',
-    reasonCode: typeof found.pd.reasonCode === 'string' ? found.pd.reasonCode.slice(0, 60) : '',
-    toolUseId: found.toolUseId,
-    tool: found.toolUseId !== undefined ? names.get(found.toolUseId) : undefined,
-  })
-}
-
-function scanTranscripts(projects, since, notes, problems, budget, lineMax) {
-  const decisions = []
-  // The prompt_answer calls each session made (session id -> request ids), and the sessions whose transcript was read at all (rule c2).
-  const answerCalls = new Map()
-  // The person-relay questions each session asked (session id -> short -> the labels it was answered with): an AskUserQuestion whose header is `Relay <8 hex>`.
-  const relayAsks = new Map()
-  // Every relay question as the tier asked it, with the answer it got (for the list the person reads).
-  const relayQs = []
-  // The relay questions (session id + "\n" + short) whose answer was only in the result's text and holds a quote that cuts it short: not verifiable.
-  const relayUnreadable = new Set()
-  const sessions = new Set()
-  let longUnmarked = 0
-  let scanned = 0
-  let total = 0
-  const files = collectTranscriptFiles(projects, since, problems)
-  for (const [n, f] of files.entries()) {
-    // A total byte budget over all transcripts: running out of it leaves the rest unread, which makes the audit incomplete.
-    if (total >= budget) {
-      problems.push(`transcripts: the byte budget of ${budget} was used up; ${files.length - n} file(s) were not read`)
-      break
-    }
-    const room = budget - total
-    const names = new Map()
-    const relayIds = new Map()
-    // tool_use ids the engine records as decided by a PermissionRequest hook (an attachment line, hookEvent PermissionRequest).
-    const permReq = new Set()
-    const first = decisions.length
-    const fileSid = basename(f.path, '.jsonl')
-    // The sessions this file speaks for, counted as read only once the whole file was (a partly read transcript says nothing about a missing call).
-    const fileSessions = new Set([fileSid])
-    const st = { f, since, fileSid, fileSessions, names, relayIds, permReq, lineNo: 0, decisions, answerCalls, relayAsks, relayQs, relayUnreadable }
-    try {
-      const s = eachLine(f.path, { maxLine: lineMax, maxRead: Math.min(TRANSCRIPT_MAX_BYTES, room), markers: TRANSCRIPT_MARKERS }, (line) => {
-        st.lineNo++
-        const hasPd = line.includes('permissionDecision')
-        const hasAtt = line.includes('hook_permission_decision')
-        if (!hasPd && !hasAtt && !line.includes('"tool_use"') && !(relayIds.size > 0 && line.includes('"tool_use_id"'))) return
-        let j
-        try {
-          j = JSON.parse(line)
-        } catch {
-          return
-        }
-        if (!j || typeof j !== 'object') return
-        // A tool_use block names the tool; its result line (which holds the decision) does not.
-        const content = j.message?.content
-        if (Array.isArray(content)) {
-          for (const b of content) {
-            if (!b || b.type !== 'tool_use') continue
-            noteToolUse(b, j, st)
-          }
-        }
-        // The answer to a relay question: the labels of the tool result (toolUseResult.answers, or the quoted pairs of its text).
-        if (relayIds.size > 0 && Array.isArray(content)) {
-          for (const b of content) {
-            const asks = b && b.type === 'tool_result' && typeof b.tool_use_id === 'string' ? relayIds.get(b.tool_use_id) : undefined
-            if (!asks) continue
-            noteRelayAnswer(asks, b, j, st)
-          }
-        }
-        noteDecision(j, hasPd, hasAtt, st)
-      })
-      // The attachment may come before or after the result line, so it is matched once the file is read.
-      for (let i = first; i < decisions.length; i++) decisions[i].permissionRequest = decisions[i].toolUseId !== undefined && permReq.has(decisions[i].toolUseId)
-      scanned++
-      total += s.bytes
-      if (!s.truncated) for (const k of fileSessions) sessions.add(k)
-      if (s.skippedMarked > 0) problems.push(`transcripts: ${basename(f.path)}: ${s.skippedMarked} line(s) over ${lineMax} bytes held permission-decision text and were not parsed, so a decision on one was not checked`)
-      longUnmarked += s.skippedLong - s.skippedMarked
-      if (s.truncated && room < TRANSCRIPT_MAX_BYTES) {
-        problems.push(`transcripts: the byte budget of ${budget} was used up inside ${basename(f.path)}; the rest of it and ${files.length - n - 1} more file(s) were not read`)
-        break
-      }
-      if (s.truncated) problems.push(`transcripts: ${basename(f.path)} was read only to its first ${TRANSCRIPT_MAX_BYTES} bytes`)
-    } catch (e) {
-      problems.push(`transcripts: ${basename(f.path)}: ${e instanceof AuditError ? e.code : e.message}, not read`)
-    }
-  }
-  if (longUnmarked > 0) notes.push(`transcripts: ${longUnmarked} line(s) over ${lineMax} bytes held no permission-decision text and were streamed past unparsed`)
-  return { decisions, scanned, filesFound: files.length, answerCalls, relayAsks, relayQs, relayUnreadable, sessions }
-}
-
 // ---- stats ----
 export function percentile(sorted, p) {
   if (sorted.length === 0) return undefined
@@ -553,7 +287,7 @@ function waitStats(values) {
 
 // ---- the audit ----
 // What the rules share: the grouped rows and the lists they add to. Built once in audit().
-// (ctx: { rows, groups, byId, qById, inRange, flag, notes, problems, now, onOff, table, waits, lostRaces, abandoned, dropsFine })
+// (ctx: { rows, groups, qById, inRange, flag, notes, problems, now, onOff, table, waits, lostRaces, abandoned, dropsFine })
 
 // The relayed row of g before ms that the request was still with the person after (no relay-lost row between it and ms), or undefined.
 const withPerson = (g, ms) => {
@@ -657,6 +391,17 @@ function ruleTiers(g, { flag }) {
   }
 }
 
+// The person's own answer (via person) needs a relayed row of the same tier session and the request's own short id before it. The short id is the request's first
+// eight characters, never the row's say-so.
+function rulePersonAnswers(g, { flag }) {
+  const short = g.id.slice(0, 8)
+  for (const a of g.answered) {
+    if (a.via !== 'person' || a.by === undefined) continue
+    if (a.short !== undefined && a.short !== short) flag('a', 'person-answer-short-mismatch', `request ${g.id}: the answered row (${a.t}) carries the short id ${a.short}, not the request's ${short}`, { id: g.id, t: a.t })
+    if (!g.relayed.some((x) => x.ms <= a.ms && x.by === a.by && (x.short ?? short) === short)) flag('a', 'person-answer-without-relayed-row', `request ${g.id}: the answered row (${a.t}) is the person's, but no relayed row of tier session ${a.by} with that short id came before it`, { id: g.id, t: a.t })
+  }
+}
+
 // b. a request nothing ended, older than 24 h.
 function ruleUnended(g, { flag, now }) {
   const req = g.requested[0]
@@ -668,7 +413,7 @@ function noteBenign(g, { abandoned, lostRaces, dropsFine }) {
   const ret = g.returned[0]
   const meta = metaOf(g)
   for (const r of g.ends.filter((x) => x.kind === 'abandoned')) abandoned.push({ id: g.id, t: r.t, code: r.code ?? '', tool: meta.tool ?? '' })
-  if (ret && g.ends.some((r) => r.kind === 'superseded')) lostRaces.push({ id: g.id, t: ret.t, via: 'ledger', detail: 'a returned row and a superseded row for one request' })
+  if (ret && g.ends.some((r) => r.kind === 'superseded')) lostRaces.push({ id: g.id, t: ret.t, detail: 'a returned row and a superseded row for one request' })
   for (const d of g.dropped) if (!DROP_ANOMALY.has(d.code)) dropsFine.push({ id: g.id, t: d.t, code: d.code ?? '' })
 }
 
@@ -777,120 +522,6 @@ function ruleClosedWithoutRow({ groups, flag, table, problems, now }, { requestI
   }
 }
 
-// Reads the transcripts (rule c's input), once, in time order.
-function loadTranscripts({ projects, projectsExplicit, since, notes, problems, transcriptBudget, transcriptLineMax }) {
-  let tx = { decisions: [], scanned: 0, filesFound: 0, answerCalls: new Map(), relayAsks: new Map(), relayQs: [], relayUnreadable: new Set(), sessions: new Set() }
-  let txRan = false
-  if (projects !== undefined) {
-    try {
-      // The folder may itself be a link (a dotfiles setup): its real path is what is checked and read, as for the prompts root.
-      const projectsReal = realpathSync(projects)
-      if (!lstatSync(projectsReal).isDirectory()) throw new Error('not a directory')
-      tx = scanTranscripts(projectsReal, since, notes, problems, transcriptBudget, transcriptLineMax)
-      txRan = true
-    } catch {
-      // A folder named with --projects that cannot be read is a problem (rule c did not run); the default folder may simply not exist.
-      if (projectsExplicit) problems.push(`--projects ${projects}: not a readable folder; rule c was not checked`)
-      else notes.push(`transcripts: ${projects} is not a readable folder; rule c was not checked`)
-    }
-  }
-  tx.decisions.sort((x, y) => x.ms - y.ms || (x.file < y.file ? -1 : x.file > y.file ? 1 : 0) || x.line - y.line)
-  return { tx, txRan }
-}
-
-// c. hook-sourced decisions in lane transcripts. Matching is one to one and decision-aware: a transcript allow is backed only by a
-// `returned allow` row (a deny only by a `returned deny`), and each `returned` row backs at most one hook decision.
-//  - A returned row with `tuid` backs the decision whose tool_use_id equals it exactly (no time window).
-//  - A returned row without `tuid` (an older ledger) backs the nearest decision within 10 minutes with the same tool (the tool named by
-//    the tool_use block of the same tool_use_id in the same file; when that block is not seen, any tool). The ledger holds no session id.
-// Decisions are taken in time order, so the result does not depend on file order.
-function ruleHookDecisions({ rows, byId, flag, lostRaces }, tx) {
-  const returnedRows = rows.filter((r) => r.kind === 'returned')
-  const used = new Set()
-  const backing = (d, want, consume) => {
-    // A question's `returned answer` row backs a hook allow, but only when the request's tool is AskUserQuestion: the 10-minute fallback must not pair it with another tool's allow.
-    const questionAnswer = (r) => r.code === 'answer' && (byId.get(r.id)?.requested[0]?.tool ?? r.tool) === QUESTION_TOOL
-    const codeOk = (r) => want === undefined || r.code === want || (want === 'allow' && questionAnswer(r))
-    let hit
-    if (d.toolUseId !== undefined) hit = returnedRows.find((r) => r.tuid === d.toolUseId && !used.has(r) && codeOk(r))
-    if (!hit) {
-      let best
-      for (const r of returnedRows) {
-        if (r.tuid !== undefined || used.has(r) || !codeOk(r) || Math.abs(r.ms - d.ms) > WINDOW_MS || (d.tool !== undefined && r.tool !== d.tool)) continue
-        if (!best || Math.abs(r.ms - d.ms) < Math.abs(best.ms - d.ms)) best = r
-      }
-      hit = best
-    }
-    if (hit && consume) used.add(hit)
-    return hit
-  }
-  let hookBacked = 0
-  let hookAllowOther = 0
-  const hookDenies = []
-  for (const d of tx.decisions) {
-    const allow = d.decision === 'accept' || d.decision === 'allow'
-    if (d.source === 'hook') {
-      // Only a PermissionRequest hook can be callboard's: the engine writes an attachment line (hookEvent PermissionRequest) with the
-      // same tool_use id for it, and a reasonCode naming PermissionRequest on its denies. A hook allow with neither came from another
-      // hook event (in practice a PreToolUse guard) and is counted, not flagged.
-      const permReq = d.permissionRequest === true || /PermissionRequest/.test(d.reasonCode)
-      if (allow && !permReq) {
-        hookAllowOther++
-        continue
-      }
-      const b = backing(d, allow ? 'allow' : 'deny', true)
-      if (b) hookBacked++
-      else if (allow) flag('c', 'hook-decision-unmatched', `transcript ${d.file}:${d.line} (${d.tool ?? 'tool unknown'}${d.toolUseId ? `, ${d.toolUseId}` : ''}) holds a hook-sourced ${d.decision} at ${new Date(d.ms).toISOString()} with no unused returned allow row (by tool_use_id, or by tool within 10 minutes)`, { t: new Date(d.ms).toISOString(), file: d.file, line: d.line })
-      else hookDenies.push({ file: d.file, line: d.line, t: new Date(d.ms).toISOString(), tool: d.tool ?? '' })
-    } else if (d.source.startsWith('user')) {
-      // A lost race: the person's click won while the ledger returned a decision. It consumes nothing, since no hook decision stands in the transcript.
-      const b = backing(d, undefined, false)
-      if (b && d.source === 'user_temporary') lostRaces.push({ id: b.id ?? '', t: new Date(d.ms).toISOString(), via: 'transcript', detail: `${d.file}:${d.line}: ${d.source} while the ledger returned a decision at ${b.t}` })
-    }
-  }
-  return { hookBacked, hookAllowOther, hookDenies }
-}
-
-// c2. a lead's answer must be a real call: for each answered row, the answering lead's own transcript holds a prompt_answer call for that request id. This is what shows a
-// decision file and an answered row written by hand. Its bound: someone who also writes that call into the lead's transcript passes, as does one who
-// writes both with the lead's own tool; it is a check against a forged row, not against a forger who can rewrite files the lead's session owns.
-function ruleLeadCalls({ groups, flag, notes, problems }, tx, txRan) {
-  if (txRan) {
-    const missingLead = new Set()
-    for (const g of groups) {
-      for (const a of g.answered) {
-        if (a.by === undefined || a.id === undefined) continue
-        if (!tx.sessions.has(a.by)) {
-          missingLead.add(a.by)
-          continue
-        }
-        // The person's own answer (via person) is not a prompt_answer call: the relaying tier's transcript must hold the `Relay <short>` question, answered Yes (allow) or No (deny),
-        // or, for a question (code answer), answered with a label whose salted hash is the row's `lh`.
-        if (a.via === 'person') {
-          // The short id is the request's own (its first eight characters), never the row's say-so.
-          const short = a.id.slice(0, 8)
-          if (a.short !== undefined && a.short !== short) flag('c', 'person-answer-short-mismatch', `request ${g.id}: the answered row (${a.t}) carries the short id ${a.short}, not the request's ${short}`, { id: g.id, t: a.t })
-          const rel = g.relayed.find((x) => x.ms <= a.ms && x.by === a.by && (x.short ?? short) === short)
-          if (!rel) flag('c', 'person-answer-without-relayed-row', `request ${g.id}: the answered row (${a.t}) is the person's, but no relayed row of tier session ${a.by} with that short id came before it`, { id: g.id, t: a.t })
-          const labels = tx.relayAsks.get(a.by)?.get(short)
-          if (a.code === 'answer') {
-            // Each answer read from the transcript is trimmed and hashed as it is: the tier copied the label from prompt_list, already redacted; a `<` or an invisible character in it is listed as an escape (\\u003c, \\ufe0f, \\u{e0001}), so the unescaped form is tried too.
-            if (a.lh !== undefined && labels?.some((l) => labelHash(g.id, l.trim()) === a.lh || labelHash(g.id, unescape(l.trim())) === a.lh)) continue
-            if (a.lh !== undefined && tx.relayUnreadable.has(`${a.by}\n${short}`)) notes.push(`question-label-unverifiable: request ${g.id}: the person's pick through tier session ${a.by} could not be read from the result text (a quote in the label, and no structured answers), so its label hash was not checked`)
-            else flag('c', 'person-answer-without-relay-question', `request ${g.id}: the answered row (${a.t}) is the person's pick through tier session ${a.by}, whose transcript holds no "Relay ${short}" question answered with a label that matches the row's label hash`, { id: g.id, t: a.t })
-            continue
-          }
-          const want = a.code === 'allow' ? 'Yes' : a.code === 'deny' ? 'No' : undefined
-          if (!labels || want === undefined || !labels.includes(want)) flag('c', 'person-answer-without-relay-question', `request ${g.id}: the answered row (${a.t}) is the person's ${a.code ?? '?'} through tier session ${a.by}, whose transcript holds no "Relay ${short}" question answered ${want ?? '?'}`, { id: g.id, t: a.t })
-          continue
-        }
-        if (!tx.answerCalls.get(a.by)?.has(a.id)) flag('c', 'answered-without-prompt-answer', `request ${g.id}: the answered row (${a.t}) names lead session ${a.by}, whose transcript holds no prompt_answer call for it`, { id: g.id, t: a.t })
-      }
-    }
-    for (const sidMissing of missingLead) problems.push(`transcripts: the transcript of lead session ${sidMissing} was not found, so its answered rows were not checked against a prompt_answer call`)
-  }
-}
-
 // A note (not an anomaly): the tiers' own allows of asks that a hook, a setting, a plugin or a ceiling raised (ADR 0011), by what raised them, and their
 // answers to a question behind one. A person's answer through a relay is not counted.
 function noteRaised({ groups, notes }) {
@@ -905,18 +536,13 @@ function noteRaised({ groups, notes }) {
 }
 
 // Question notes (not anomalies).
-function noteQuestions({ groups, rows, notes, inRange, qById }, questions, tx, txRan) {
+function noteQuestions({ groups, rows, notes, inRange, qById }, questions) {
   const noQuestionRow = groups.filter((g) => g.returned[0]?.code === 'answer' && !qById.has(g.id)).length
   if (noQuestionRow > 0) notes.push(`${noQuestionRow} returned question answer(s) have no questions row (a failed write, or the row was pruned)`)
   if (questions.old > 0) notes.push(`${questions.old} questions row(s) are older than ${QUESTION_DAYS} days (the prune is behind)`)
   const notJudged = {}
   for (const r of rows) if (r.kind === 'not-judgeable' && /^question(-|$)/.test(r.code ?? '') && inRange(r.ms)) notJudged[r.code] = (notJudged[r.code] ?? 0) + 1
   if (Object.keys(notJudged).length > 0) notes.push(`not-judgeable question rows by code: ${Object.entries(notJudged).sort().map(([c, n]) => `${c} ${n}`).join(', ')}`)
-  if (txRan) {
-    const hooked = new Set(tx.decisions.filter((d) => d.source === 'hook' && d.toolUseId !== undefined).map((d) => d.toolUseId))
-    const noHook = groups.filter((g) => g.returned[0]?.code === 'answer' && g.returned[0].tuid !== undefined && !hooked.has(g.returned[0].tuid)).length
-    if (noHook > 0) notes.push(`${noHook} returned question answer(s) have a tool_use id with no hook decision in the transcripts read (the card closed first: a lost race)`)
-  }
 }
 
 function buildCounts({ rows, inRange, table, waits }) {
@@ -943,7 +569,7 @@ function buildCounts({ rows, inRange, table, waits }) {
   return { byTier: group('tier'), byTool: group('tool'), rowsByKind: kinds, wait: waitStats(waits.map((w) => w.age)) }
 }
 
-function buildRelay({ rows, groups, inRange, qById }, tx) {
+function buildRelay({ rows, groups, inRange, qById }) {
   // The tier rows that are not anomalies, counted by kind (and by code where one is recorded): what happened to the requests that went to the person, and the cleaner-command denies.
   const relayCounts = {}
   for (const k of ['relayed', 'relay-lost', 'relay-left', 'relay-late', 'relay-closed', 'expired-denied', 'deny-unclear']) {
@@ -956,17 +582,15 @@ function buildRelay({ rows, groups, inRange, qById }, tx) {
     }
     relayCounts[k] = { n: mine.length, codes }
   }
-  // Each relayed request with the question as the tier put it to the person, from the tier's own transcript, beside the request's tool and pattern: the one place a tier's
-  // wrong summary can be seen after the fact. Needs the tier's transcript (rule c); without it the question reads "(transcript not read)".
+  // Each relayed request with its tool and pattern and, when the lane asked a question, the lane's own question from the questions file. The tier's wording to the
+  // person is in the tier's transcript, which the audit does not read.
   const relayedList = []
   for (const g of groups) {
     for (const r of g.relayed) {
       if (!inRange(r.ms) || relayedList.length >= LIST_MAX) continue
-      const short = g.id.slice(0, 8)
-      const qs = tx.relayQs.filter((x) => x.sid === r.by && x.short === short)
       const req = g.requested[0] ?? g.rows[0]
       const lq = qById.get(g.id)
-      relayedList.push({ id: g.id, t: r.t, tier: r.code ?? '', tool: req.tool ?? '', pattern: req.pattern ?? '', laneQuestion: lq ? { header: lq.header, question: lq.question.slice(0, 400), options: lq.options } : undefined, questions: qs.length > 0 ? qs.map((x) => ({ question: x.question.slice(0, 400), answer: x.label ?? '(none)' })) : [{ question: '(transcript not read)', answer: '' }] })
+      relayedList.push({ id: g.id, t: r.t, tier: r.code ?? '', tool: req.tool ?? '', pattern: req.pattern ?? '', laneQuestion: lq ? { header: lq.header, question: lq.question.slice(0, 400), options: lq.options } : undefined })
     }
   }
   const personAnswers = rows.filter((r) => r.kind === 'answered' && r.via === 'person' && inRange(r.ms)).length
@@ -1126,7 +750,7 @@ function ruleGoes({ rows, flag, inRange, now }, files) {
   return list.slice(0, LIST_MAX)
 }
 
-export function audit({ root, projects, since, now = Date.now(), projectsExplicit = false, records, recordsExplicit = false, goes, goesExplicit = false, transcriptBudget = TRANSCRIPT_TOTAL_MAX_BYTES, transcriptLineMax = TRANSCRIPT_LINE_MAX }) {
+export function audit({ root, since, now = Date.now(), records, recordsExplicit = false, goes, goesExplicit = false }) {
   const problems = []
   const notes = []
   let rootReal
@@ -1142,7 +766,8 @@ export function audit({ root, projects, since, now = Date.now(), projectsExplici
   } catch (e) {
     throw new AuditError(`cannot list the prompts folder: ${e.code ?? e.message}`)
   }
-  const { rows, files: ledgerFiles } = readLedger(rootReal, entries, problems, notes)
+  if (UNPLACED.length > 0) problems.push(`the mod writes row kind(s) the audit has no place for: ${UNPLACED.join(', ')}`)
+  const { rows, files: ledgerFiles } = readLedger(rootReal, entries, since, problems, notes)
   const questions = readQuestions(rootReal, entries, since, problems, now)
   const qById = questions.byId
   const inRange = (ms) => since === undefined || ms >= since
@@ -1173,12 +798,13 @@ export function audit({ root, projects, since, now = Date.now(), projectsExplici
   const waits = []
 
   const onOff = rows.filter((r) => r.kind === 'answering-on' || r.kind === 'answering-off')
-  const ctx = { rows, groups, byId, qById, inRange, flag, notes, problems, now, onOff, table, waits, lostRaces, abandoned, dropsFine }
+  const ctx = { rows, groups, qById, inRange, flag, notes, problems, now, onOff, table, waits, lostRaces, abandoned, dropsFine }
   for (const g of groups) {
     tableRow(g, ctx)
     ruleDecisions(g, ctx)
     ruleQuestions(g, ctx)
     ruleTiers(g, ctx)
+    rulePersonAnswers(g, ctx)
     ruleUnended(g, ctx)
     noteBenign(g, ctx)
   }
@@ -1196,19 +822,16 @@ export function audit({ root, projects, since, now = Date.now(), projectsExplici
   ruleLeadOwnerLogged(ctx, recs)
   const goFiles = readGoFiles(goes ?? join(rootReal, '..', 'go'), goesExplicit, problems)
   const goList = ruleGoes(ctx, goFiles)
-  const { tx, txRan } = loadTranscripts({ projects, projectsExplicit, since, notes, problems, transcriptBudget, transcriptLineMax })
-  const { hookBacked, hookAllowOther, hookDenies } = ruleHookDecisions(ctx, tx)
-  ruleLeadCalls(ctx, tx, txRan)
-  noteQuestions(ctx, questions, tx, txRan)
+  noteQuestions(ctx, questions)
   noteRaised(ctx)
   anomalies.sort((x, y) => (x.rule < y.rule ? -1 : x.rule > y.rule ? 1 : 0))
 
-  const { relayCounts, relayedList } = buildRelay(ctx, tx)
+  const { relayCounts, relayedList } = buildRelay(ctx)
 
   return {
     root: rootReal,
     since: since === undefined ? null : new Date(since).toISOString(),
-    scanned: { ledgerFiles, rows: rows.length, requests: table.length, transcriptFiles: tx.scanned, transcriptDecisions: tx.decisions.length, requestFiles: files.requestFiles, leadRecordFiles: recs ? recs.length : null, goFiles: goFiles ? goFiles.length : null },
+    scanned: { ledgerFiles, rows: rows.length, requests: table.length, requestFiles: files.requestFiles, leadRecordFiles: recs ? recs.length : null, goFiles: goFiles ? goFiles.length : null },
     table,
     goes: goList,
     anomalies,
@@ -1217,10 +840,7 @@ export function audit({ root, projects, since, now = Date.now(), projectsExplici
       abandoned: abandoned.slice(0, LIST_MAX),
       dropped: dropsFine.slice(0, LIST_MAX),
       relay: relayCounts,
-      relayedQuestions: relayedList,
-      hookDeniesWithoutRow: hookDenies.length,
-      hookDecisionsBacked: hookBacked,
-      hookAllowsOtherEvent: hookAllowOther,
+      relayedRequests: relayedList,
     },
     counts: buildCounts(ctx),
     questions: { files: questions.files, count: questions.count, rows: questions.rows, list: questions.list, unreadable: questions.unreadable },
@@ -1243,7 +863,7 @@ export function render(rep) {
   const out = []
   out.push(`prompt audit: ${rep.root}${rep.since ? `, since ${rep.since}` : ''}`)
   const s = rep.scanned
-  out.push(`ledger files ${s.ledgerFiles}, rows ${s.rows}, requests ${s.requests}; transcript files ${s.transcriptFiles}, hook/user decisions seen ${s.transcriptDecisions}; request files ${s.requestFiles}; ${s.leadRecordFiles === null ? 'lead records not checked (no folder)' : `lead record files ${s.leadRecordFiles}`}`)
+  out.push(`ledger files ${s.ledgerFiles}, rows ${s.rows}, requests ${s.requests}; request files ${s.requestFiles}; ${s.leadRecordFiles === null ? 'lead records not checked (no folder)' : `lead record files ${s.leadRecordFiles}`}`)
   out.push('', 'REQUESTS')
   if (rep.table.length === 0) out.push('(none)')
   else {
@@ -1266,7 +886,7 @@ export function render(rep) {
   const n = rep.notAnomalies
   out.push('', 'NOT ANOMALIES')
   out.push(`lost races: ${n.lostRaces.length}`)
-  for (const r of n.lostRaces) out.push(`  ${r.t} ${r.id} (${r.via}) ${r.detail}`)
+  for (const r of n.lostRaces) out.push(`  ${r.t} ${r.id} ${r.detail}`)
   out.push(`abandoned: ${n.abandoned.length}`)
   const byCode = {}
   for (const r of n.abandoned) byCode[r.code || '(none)'] = (byCode[r.code || '(none)'] ?? 0) + 1
@@ -1276,18 +896,13 @@ export function render(rep) {
   for (const r of n.dropped) dc[r.code || '(none)'] = (dc[r.code || '(none)'] ?? 0) + 1
   for (const [c, k] of Object.entries(dc).sort()) out.push(`  ${c}: ${k}`)
   for (const [k, v] of Object.entries(n.relay)) out.push(`${k === 'personAnswers' ? 'answered by the person (relay)' : k}: ${v.n}${Object.keys(v.codes).length > 0 ? ` (${Object.entries(v.codes).sort().map(([c, m]) => `${c} ${m}`).join(', ')})` : ''}`)
-  if (n.relayedQuestions.length > 0) {
-    out.push('', 'RELAYED QUESTIONS (as the tier put them to the person; read them: a tier\'s summary is its own)')
-    for (const r of n.relayedQuestions) {
+  if (n.relayedRequests.length > 0) {
+    out.push('', 'RELAYED (each request taken to the person; a lane\'s question is shown as the lane asked it)')
+    for (const r of n.relayedRequests) {
       out.push(`  ${r.t} ${r.id.slice(0, 8)} ${r.tier} ${r.tool} ${r.pattern}`)
       if (r.laneQuestion) out.push(`    the lane asked: ${r.laneQuestion.header ? `[${r.laneQuestion.header}] ` : ''}${r.laneQuestion.question.replace(/\s+/g, ' ')}${r.laneQuestion.options.length > 0 ? ` (options: ${r.laneQuestion.options.join(' | ')})` : ''}`)
-      for (const x of r.questions) out.push(`    ${x.question.replace(/\s+/g, ' ')}${x.answer ? ` -> ${x.answer}` : ''}`)
     }
-    out.push('')
   }
-  out.push(`hook decisions in transcripts backed by a returned row: ${n.hookDecisionsBacked}`)
-  out.push(`hook allows with no PermissionRequest record, not callboard's (see the header, rule c): ${n.hookAllowsOtherEvent}`)
-  out.push(`hook denies in transcripts with no returned row (a deny grants nothing): ${n.hookDeniesWithoutRow}`)
   out.push('', 'COUNTS (wait = seconds from request to decision, returned rows)')
   const c = rep.counts
   out.push(`all: n ${c.wait.n}, median ${sec(c.wait.median)}, p90 ${sec(c.wait.p90)}`)
@@ -1307,15 +922,15 @@ export function render(rep) {
   }
   if (rep.problems.length > 0) out.push('', 'PROBLEMS (the audit is incomplete)', ...rep.problems.map((p) => `  ${p}`))
   if (rep.notes.length > 0) out.push('', 'NOTES', ...rep.notes.map((p) => `  ${p}`))
-  // Every line is escaped as a whole, so no value from a ledger row, a transcript, a file name or a path can carry a control character.
+  // Every line is escaped as a whole, so no value from a ledger row, a file name or a path can carry a control character.
   return `${out.map(escapeControls).join('\n')}\n`
 }
 
 // ---- command line ----
-const USAGE = 'usage: prompt-audit.mjs [--since DATE] [--root DIR] [--projects DIR] [--records DIR] [--goes DIR] [--json]'
+const USAGE = 'usage: prompt-audit.mjs [--since DATE] [--root DIR] [--records DIR] [--goes DIR] [--json]'
 function parseArgs(argv, env = process.env) {
   const cfg = env.CLAUDE_CONFIG_DIR && env.CLAUDE_CONFIG_DIR !== '' ? env.CLAUDE_CONFIG_DIR : join(homedir(), '.claude')
-  const o = { root: join(cfg, 'callboard', 'prompts'), projects: join(cfg, 'projects'), since: undefined, json: false }
+  const o = { root: join(cfg, 'callboard', 'prompts'), since: undefined, json: false }
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]
     const val = () => {
@@ -1324,10 +939,6 @@ function parseArgs(argv, env = process.env) {
     }
     if (a === '--json') o.json = true
     else if (a === '--root') o.root = val()
-    else if (a === '--projects') {
-      o.projects = val()
-      o.projectsExplicit = true
-    }
     else if (a === '--records') {
       o.records = val()
       o.recordsExplicit = true

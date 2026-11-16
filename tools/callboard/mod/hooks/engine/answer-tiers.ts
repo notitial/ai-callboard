@@ -220,7 +220,7 @@ export async function promptLinkOnce($: any, path: string, text: string): Promis
 async function promptAnomalyHint($: any, p: { uid: number; root: string }): Promise<string | undefined> {
   const rows = await ledgerRowsFor($, p, '"kind":"dropped"')
   if (rows === 'unreadable') return undefined
-  const n = rows.filter((r) => r.kind === 'dropped' && ['no-answered-row', 'id', 'hash', 'nonce', 'by-sid', 'kind', 'answer'].includes(String(r.code))).length
+  const n = rows.filter((r) => r.kind === 'dropped' && (pr.DROP_FORGED as readonly string[]).includes(String(r.code))).length
   return n > 0 ? `${n} decision${n === 1 ? ' was' : 's were'} dropped in the last two months for a reason that can mean a forged or stale file; tell the person (tools/callboard/prompt-audit.mjs lists them).` : undefined
 }
 

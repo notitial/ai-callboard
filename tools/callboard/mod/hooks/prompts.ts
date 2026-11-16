@@ -383,6 +383,8 @@ export type ApplyIn = {
 }
 export type ApplyOut = { ok: true } | { hold: 'early' | 'ledger' | 'lookup' } | { drop: DropCode }
 type DropCode = 'id' | 'hash' | 'nonce' | 'expired' | 'by-sid' | 'no-answered-row' | 'ledger-unreadable' | 'cap' | 'relay' | 'kind' | 'answer'
+// The drop codes that can mean a forged or stale decision file: prompt_list counts them and the prompt audit flags them. The others are ordinary.
+export const DROP_FORGED: readonly DropCode[] = ['no-answered-row', 'id', 'hash', 'nonce', 'by-sid', 'kind', 'answer']
 // Every check, in this order; a failure is a dropped row and the wait goes on. A decision that is early is held, not dropped, so no retry costs a model turn.
 export function applyCheck(a: ApplyIn): ApplyOut {
   const { req, decision: d } = a
@@ -405,7 +407,9 @@ export function applyCheck(a: ApplyIn): ApplyOut {
 }
 
 // ---- the ledger: machine-wide, one JSON row per line, no input text ----
-export type RowKind = 'requested' | 'answered' | 'escalated' | 'dropped' | 'returned' | 'superseded' | 'expired-denied' | 'off' | 'abandoned' | 'dialog' | 'not-judgeable' | 'no-tier' | 'answering-on' | 'answering-off' | 'relayed' | 'relay-lost' | 'relay-left' | 'relay-late' | 'relay-closed' | 'deny-unclear' | 'lead-offer' | 'lead-offer-void' | 'lead-grant' | 'lead-owner' | 'lead-resume' | 'lead-stop' | 'go-grant' | 'go-end' | 'go-read' | 'pr-watch' | 'pr-notice'
+// Every kind of row the mod writes. The prompt audit reads its kinds from this list.
+export const ROW_KINDS = ['requested', 'answered', 'escalated', 'dropped', 'returned', 'superseded', 'expired-denied', 'off', 'abandoned', 'dialog', 'not-judgeable', 'no-tier', 'answering-on', 'answering-off', 'relayed', 'relay-lost', 'relay-left', 'relay-late', 'relay-closed', 'deny-unclear', 'lead-offer', 'lead-offer-void', 'lead-grant', 'lead-owner', 'lead-resume', 'lead-stop', 'go-grant', 'go-end', 'go-read', 'pr-watch', 'pr-notice'] as const
+export type RowKind = (typeof ROW_KINDS)[number]
 // A `lead-owner` row (ADR 0007), written before the lead record changes: code made | joined | left | off, hash the repo's key, repo, lane the lead's name at the
 // time (for reading only), target the lead's session id, by the conductor's session id (made, joined), was the conductor the lead left (left, off), nonce (made).
 // A `pr-watch` row (ADR 0010): code new | renew | expired | lost | merged | closed, lane the lane's name, target owner/repo#number. A `pr-notice` row: one note
