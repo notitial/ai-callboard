@@ -72,6 +72,10 @@ Facts that bound the options:
   go never covers; and, as its last block under a fixed line naming its author, the tier's description of the work.
   Its buttons are `Cancel`, first, and `Give go`. It has its own limit of 10 minutes. A dismissal, a timeout or
   `Cancel` writes nothing, and a click after the limit records nothing and the person is told so.
+- **The dialog is short** (amended 2026-11-16, PR #105). The person did not read the long form, so the dialog now
+  shows the sessions covered now as a count and not by name, and the short never-list with the full one left to
+  `go_status`; the description of a new go is held to a few lines, with the detail in the brief or the plan. The
+  names stay in the go file and in the result of the call.
 - **The mod keeps it**: a file under `~/.claude/callboard/go/` (0700 folder, 0600 file, one link, at most 8 KB) and a
   `go-grant` ledger row that holds the file's hash. The file stores the text the person was shown and the session ids
   the dialog listed. A go counts only while the file and its row agree. No tool lets an agent write either.
