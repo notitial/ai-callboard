@@ -500,3 +500,95 @@ test('capReason: a string is trimmed; one over the cap keeps its head and its ta
   const wide = p.capReason('\u00e9'.repeat(3000) + 'end')!
   assert.ok(wide.cut && size(wide.text) <= p.REASON_CAP && !wide.text.includes('\ufffd') && wide.text.endsWith('end'))
 })
+
+// ---- the unattended window ----
+const WIN: p.Unattended = { v: 1, from: 1_700_000_000_000, until: 1_700_000_000_000 + 8 * 3_600_000, by: 'prompt', manager: 'MANAGER', savedAt: 1_700_000_000_000 }
+test('parseUnattended: only the whole value, opened from the person\'s prompt or phone and naming a manager, is a window', () => {
+  assert.deepEqual(p.parseUnattended({ ...WIN, extra: 1 }), WIN)
+  assert.deepEqual(p.parseUnattended({ ...WIN, by: 'phone' }), { ...WIN, by: 'phone' })
+  for (const bad of [undefined, null, 'on', [], {}, { ...WIN, v: 2 }, { ...WIN, from: '1' }, { ...WIN, until: 1.5 }, { ...WIN, until: Infinity }, { ...WIN, savedAt: 0 }, { ...WIN, by: 'plugin' }, { ...WIN, by: 'session' }, { ...WIN, by: 'other' }, { ...WIN, manager: '' }, { ...WIN, manager: 'a b' }, { ...WIN, manager: 7 }, { off: true }]) assert.equal(p.parseUnattended(bad), undefined, JSON.stringify(bad))
+})
+
+test('unattendedTime: a span outside 30 minutes to 14 hours is invalid, an end that has come is expired, a clock more than 5 minutes before the start is no answer', () => {
+  const at = (ms: number) => p.unattendedTime(WIN, WIN.from + ms)
+  assert.equal(at(0), 'fits')
+  assert.equal(at(8 * 3_600_000 - 1), 'fits')
+  assert.equal(at(8 * 3_600_000), 'expired')
+  assert.equal(at(-5 * 60_000), 'fits')
+  assert.equal(at(-6 * 60_000), 'early')
+  const span = (ms: number) => p.unattendedTime({ ...WIN, until: WIN.from + ms }, WIN.from)
+  assert.equal(span(p.UNATTENDED_MIN_MS), 'fits')
+  assert.equal(span(p.UNATTENDED_MIN_MS - 1), 'invalid')
+  assert.equal(span(p.UNATTENDED_MAX_MS), 'fits')
+  assert.equal(span(p.UNATTENDED_MAX_MS + 1), 'invalid')
+  assert.equal(span(-1), 'invalid')
+  // A span out of bounds is invalid whatever the clock says.
+  assert.equal(p.unattendedTime({ ...WIN, until: WIN.from + 1 }, WIN.from + 10), 'invalid')
+})
+
+test('unattendedBind: the on row of the same hash binds a value, an off row of it ends it for good, and a value with no row waits out its grace', () => {
+  const row = (kind: p.RowKind, hash = H): p.LedgerRow => ({ t: 'x', kind, hash })
+  const at = WIN.savedAt + 1000
+  assert.equal(p.unattendedBind([row('unattended-on')], H, WIN, at), 'bound')
+  assert.equal(p.unattendedBind([row('unattended-on'), row('unattended-off')], H, WIN, at), 'ended')
+  assert.equal(p.unattendedBind([row('unattended-off')], H, WIN, at), 'ended')
+  // A row of another hash, or of another kind with this hash, binds nothing.
+  assert.equal(p.unattendedBind([row('unattended-on', 'b'.repeat(64)), row('unattended-unknown'), row('answering-on')], H, WIN, at), 'wait')
+  assert.equal(p.unattendedBind([row('unattended-off', 'b'.repeat(64)), row('unattended-on')], H, WIN, at), 'bound')
+  assert.equal(p.unattendedBind([], H, WIN, WIN.savedAt + p.UNATTENDED_GRACE_MS), 'wait')
+  assert.equal(p.unattendedBind([], H, WIN, WIN.savedAt + p.UNATTENDED_GRACE_MS + 1), 'unbound')
+  assert.equal(p.unattendedBind([], H, WIN, WIN.savedAt - 60_000), 'wait')
+})
+
+test('what unknown means: held after a sure on and never otherwise, and on for nothing', () => {
+  const on: p.Window = { state: 'on', value: WIN, u: 'aaaaaaaa' }
+  const unknown: p.Window = { state: 'unknown', cause: 'store', key: false }
+  assert.equal(p.unattendedHeldOf(on, undefined), true)
+  assert.equal(p.unattendedHeldOf(on, 'off'), true)
+  assert.equal(p.unattendedHeldOf({ state: 'off' }, 'on'), false)
+  assert.equal(p.unattendedHeldOf(unknown, 'on'), true)
+  assert.equal(p.unattendedHeldOf(unknown, 'off'), false)
+  assert.equal(p.unattendedHeldOf(unknown, undefined), false)
+  assert.equal(p.unattendedOnOf(on), true)
+  assert.equal(p.unattendedOnOf(unknown), false)
+  assert.equal(p.unattendedOnOf({ state: 'off' }), false)
+  assert.equal(p.windowShort(H), 'aaaaaaaa')
+})
+
+test('escalationSureOf: only a stored off or an OFF file that a stat showed is a sure off; a failed read, an odd value and an OFF path of another kind are no answer', () => {
+  const read = (raw: unknown) => ({ read: true as const, raw })
+  const on = { scope: 'all', asks: false, asksScope: 'all', savedAt: 1 }
+  assert.deepEqual(p.escalationSureOf(read({ off: true, savedAt: 1 }), 'absent'), { state: 'off', which: 'stored' })
+  assert.deepEqual(p.escalationSureOf(read({ off: true }), 'error'), { state: 'off', which: 'stored' })
+  assert.deepEqual(p.escalationSureOf(read(on), 'file'), { state: 'off', which: 'file' })
+  assert.deepEqual(p.escalationSureOf(read(undefined), 'file'), { state: 'off', which: 'file' })
+  assert.deepEqual(p.escalationSureOf(read(on), 'absent'), { state: 'on' })
+  assert.deepEqual(p.escalationSureOf(read(undefined), 'absent'), { state: 'on' })
+  assert.deepEqual(p.escalationSureOf(read(null), 'absent'), { state: 'on' })
+  for (const off of ['absent', 'file', 'other', 'error'] as const) assert.deepEqual(p.escalationSureOf({ read: false }, off), { state: 'unread' }, off)
+  assert.deepEqual(p.escalationSureOf(read(on), 'error'), { state: 'unread' })
+  assert.deepEqual(p.escalationSureOf(read(on), 'other'), { state: 'unread' })
+  assert.deepEqual(p.escalationSureOf(read({ scope: 7 }), 'absent'), { state: 'unread' })
+  assert.deepEqual(p.escalationSureOf(read('garbage'), 'absent'), { state: 'unread' })
+})
+
+test('the unattended command and its texts: bare is the state, off ends, and no other word is read', () => {
+  assert.equal(p.parseUnattendedArgs(undefined), 'state')
+  assert.equal(p.parseUnattendedArgs('  '), 'state')
+  assert.equal(p.parseUnattendedArgs(' off'), 'off')
+  for (const bad of ['on', 'on until 09:00', 'on for 3 h', 'off now', 'OFF', 'status']) assert.equal(p.parseUnattendedArgs(bad), 'bad', bad)
+  const when = (ms: number) => `<${ms}>`
+  const on: p.Window = { state: 'on', value: WIN, u: 'aaaaaaaa' }
+  assert.equal(p.unattendedStatus(on, when), `ON until <${WIN.until}>`)
+  assert.equal(p.unattendedStatus({ state: 'off' }, when), 'OFF')
+  assert.equal(p.unattendedStatus({ state: 'unknown', cause: 'ledger', key: true }, when), 'UNKNOWN (the ledger did not answer)')
+  assert.equal(p.unattendedState(on, when), `Unattended mode is on until <${WIN.until}>, with manager MANAGER (window aaaaaaaa). /callboard unattended off ends it.`)
+  assert.equal(p.unattendedState({ state: 'off' }, when), 'Unattended mode is off.')
+  assert.equal(p.unattendedState({ state: 'unknown', cause: 'store', key: false }, when), 'Unattended mode cannot be read right now: the store did not answer. Nothing was changed.')
+})
+
+test('the unattended rows: the three kinds are ledger kinds, and a row keeps its window mark and its origin', () => {
+  for (const k of ['unattended-on', 'unattended-off', 'unattended-unknown'] as const) assert.ok(p.ROW_KINDS.includes(k), k)
+  const line = p.ledgerLine({ t: 'x', kind: 'unattended-off', code: 'command', hash: H, u: 'aaaaaaaa', origin: 'session', by: SID_A })
+  assert.deepEqual(JSON.parse(line), { t: 'x', kind: 'unattended-off', code: 'command', hash: H, u: 'aaaaaaaa', origin: 'session', by: SID_A })
+})

@@ -47,6 +47,12 @@
 //   here-off   code (off | grant-off | moved | void), by, was? (the session that was here)   it ended: /callboard here off, that session's grant ending, the command typed in another session, or a key that could not be written; the end after 12 hours has no row (here-on carries it)
 //   dialog, not-judgeable, no-tier, escalated, answering-on, answering-off, here-on, here-off   no request of their own
 //   subagent-denied, question-denied (code: the shape's)   the mod's own denial of an ask that cannot rise (ADR 0011): no request, no tier and no answer of the person's
+//   unattended-on   hash (the SHA-256 of the stored value's canonical text), u (the window's short id: the hash's first 8 hex), end (when it ends), origin (the
+//              origin code of the command that opened it), by (its session), lane (the manager's name)   an unattended window opened (ADR 0008); written before the stored value
+//   unattended-off  code (command | escalation-off | escalation-off:stored | escalation-off:file | expired | invalid | unbound | ended | void), hash?, u?,
+//              origin? (the origin code of a command that ended it), by (the session that ended it)   a window ended; written after the stored value was removed
+//   unattended-unknown   code (the cause), by   the first read of a run of reads that could not tell whether a window is open; it ended nothing
+//              The unattended rows are counted by kind only: no rule reads them.
 //
 // It reads the ledger and the files beside it (questions, request files, lead records, go files), never a session's transcript. So two things are outside what it
 // sees: a hook decision that reached a session with no ledger row, and an answered row written by hand together with its decision file.
@@ -77,7 +83,7 @@ const QUESTION_TOOL = 'AskUserQuestion'
 const QUESTION_DAYS = 90
 
 const KINDS = new Set(ROW_KINDS)
-const FIELDS = ['code', 'id', 'lane', 'repo', 'tool', 'pattern', 'hash', 'tier', 'why', 'nonce', 'tuid', 'by', 'via', 'short', 'opt', 'lh', 'target', 'was', 'dialog', 'end', 'raised']
+const FIELDS = ['code', 'id', 'lane', 'repo', 'tool', 'pattern', 'hash', 'tier', 'why', 'nonce', 'tuid', 'by', 'via', 'short', 'opt', 'lh', 'target', 'was', 'dialog', 'end', 'raised', 'u', 'origin']
 // Where the audit puts each kind of row: `request` a row of a request (grouped by the request id it carries), `end` a row that ends a request, `go` a row of a go
 // (its id is the go's, no request's), `other` a row of no request (the switch, the lead rows, the PR rows). A kind the mod writes that has no place here makes
 // every run incomplete (UNPLACED), so a new kind cannot be read as something it is not.
@@ -88,6 +94,7 @@ export const KIND_CLASS = {
   'go-grant': 'go', 'go-end': 'go', 'go-read': 'go',
   'answering-on': 'other', 'answering-off': 'other', 'lead-offer': 'other', 'lead-offer-void': 'other', 'lead-grant': 'other', 'lead-owner': 'other', 'lead-resume': 'other', 'lead-stop': 'other',
   'pr-watch': 'other', 'pr-notice': 'other', 'here-on': 'other', 'here-off': 'other',
+  'unattended-on': 'other', 'unattended-off': 'other', 'unattended-unknown': 'other',
 }
 const UNPLACED = ROW_KINDS.filter((k) => !Object.hasOwn(KIND_CLASS, k))
 const ofClass = (c) => new Set(ROW_KINDS.filter((k) => KIND_CLASS[k] === c))

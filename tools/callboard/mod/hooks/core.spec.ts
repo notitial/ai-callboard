@@ -708,8 +708,21 @@ test('createRefusal checks name, reach, task, brief, clashes, the lane cap and t
   assert.equal(why(a, [{ name: 'API', folder: '/x', brief: '/x/b' }]), 'name-taken')
   const full = { repo: pin, lanes: Array.from({ length: STORE_MAX_LANES }, (_, i) => ({ name: `L${i}`, folder: pin, brief: `${pin}/b`, createdAt: 1 })), creates: [] }
   assert.equal(why(a, [], full), 'lane-cap')
-  assert.equal(why(a, [], { repo: pin, lanes: [], creates: Array.from({ length: 12 }, () => 4) }), 'create-rate')
-  assert.equal((createRefusal(a, pin, [], { repo: pin, lanes: [], creates: Array.from({ length: 12 }, () => 4) }, 4 + 3_600_001) as any).ok, true)
+  const made = (n: number) => ({ repo: pin, lanes: [], creates: Array.from({ length: n }, () => 4) })
+  // The hourly rate: 30 creates by default, else the lanes-per-hour setting handed in.
+  assert.equal(c.CONFIG_DEFAULTS.lanesPerHour, 30)
+  assert.equal((createRefusal(a, pin, [], made(29), 5) as any).ok, true)
+  assert.equal(why(a, [], made(30)), 'create-rate')
+  assert.equal((createRefusal(a, pin, [], made(30), 4 + 3_600_001) as any).ok, true)
+  for (const [limit, n, ok] of [[1, 0, true], [1, 1, false], [12, 11, true], [12, 12, false], [60, 59, true], [60, 60, false]] as const)
+    assert.equal(createRefusal(a, pin, [], made(n), 5, limit).ok, ok, `${n} creates at a limit of ${limit}`)
+  // A create time in the future does not count.
+  assert.equal(createRefusal(a, pin, [], { repo: pin, lanes: [], creates: [6, 7] }, 5, 1).ok, true)
+  // A store holds every create time the highest setting needs, and a rewrite keeps as many.
+  assert.equal(c.CONFIG_RANGE.lanesPerHour[1], c.STORE_KEEP_CREATES)
+  const storeOf = (n: number) => JSON.stringify({ repo: pin, lanes: [], creates: Array.from({ length: n }, () => 4) })
+  assert.equal(c.parseStore(storeOf(c.STORE_KEEP_CREATES + 1)).ok, true)
+  assert.equal(c.parseStore(storeOf(65)).ok, false)
 })
 
 test('createRefusal: the folder defaults to the repo root, and the brief is <folder>/.archive/<NAME>/BRIEF.md', () => {
@@ -1197,14 +1210,14 @@ test('helpText is a header and a two-column table with one row per subcommand, m
   assert.deepEqual(lines.slice(0, 4), ['**Callboard commands**', '', '| Command | What it does |', '|---|---|'])
   const rows = lines.slice(4)
   const words = rows.map((l) => /^\| ([^ \\|]+)/.exec(l)![1])
-  assert.deepEqual(words, ['lanes', 'status', 'lead', 'lead', 'lead', 'lane', 'lane', 'escalation', 'go', 'go', 'here', 'here', 'conductor', 'conductor', 'conductor', 'manager', 'config', 'config', 'config', 'config', 'reserve', 'reserve', 'reserve', 'checkin', 'checkin', 'rest', 'off', 'help'])
+  assert.deepEqual(words, ['lanes', 'status', 'lead', 'lead', 'lead', 'lane', 'lane', 'escalation', 'go', 'go', 'here', 'here', 'unattended', 'unattended', 'conductor', 'conductor', 'conductor', 'manager', 'config', 'config', 'config', 'config', 'reserve', 'reserve', 'reserve', 'checkin', 'checkin', 'rest', 'off', 'help'])
   assert.ok(lines.some((l) => l.startsWith('| lead join \\[CONDUCTOR\\] |')) && lines.some((l) => l.startsWith('| lead leave |')))
   assert.ok(lines.includes('| lane \\[NAME\\] | Make this session a lane, named NAME if given. |'))
   assert.ok(lines.includes('| checkin pause \\[Nm\\|Nh\\] | Pause check-ins for N minutes or hours (1 minute to 24 hours), or for 1 hour if you give no time. |'))
   for (const l of rows) assert.equal(l.replace(/\\\|/g, '').split('|').length, 4, l)
   assert.ok(!c.helpText().includes(c.DIALOG_LINE), 'the dialog line belongs to the escalation output only')
   assert.match(c.HELP_USAGE, /manager/)
-  assert.equal(c.HELP_USAGE, 'Use /callboard lanes, status, lead, lane, escalation, go, here, conductor, manager, config, reserve, checkin, rest, off or help. Run /callboard help for the full list.')
+  assert.equal(c.HELP_USAGE, 'Use /callboard lanes, status, lead, lane, escalation, go, here, unattended, conductor, manager, config, reserve, checkin, rest, off or help. Run /callboard help for the full list.')
   assert.ok(c.HELP_USAGE.endsWith('Run /callboard help for the full list.'))
 })
 
@@ -1422,16 +1435,16 @@ test('thresholdKind: the size alone decides, 300k soft and 400k hard, for every 
 })
 
 test('parseConfig: defaults, each range edge, wrong types and extra fields', () => {
-  const D = { keepalive: true, pingAfterMin: 50, stopAfterH: 2, idleK: 300, workingK: 400, checkin: true, conductorLeads: true }
+  const D = { keepalive: true, pingAfterMin: 50, stopAfterH: 2, idleK: 300, workingK: 400, checkin: true, conductorLeads: true, lanesPerHour: 30 }
   assert.deepEqual(c.CONFIG_DEFAULTS, D)
   assert.deepEqual(c.parseConfig(undefined), { cfg: D, invalid: [] })
   assert.deepEqual(c.parseConfig({}), { cfg: D, invalid: [] })
   for (const bad of ['x', 5, [], [1], true]) assert.deepEqual(c.parseConfig(bad), { cfg: D, invalid: ['config'] }, JSON.stringify(bad))
-  const edges: [string, number, number][] = [['pingAfterMin', 30, 55], ['stopAfterH', 1, 8], ['idleK', 150, 400], ['workingK', 300, 900]]
+  const edges: [string, number, number][] = [['pingAfterMin', 30, 55], ['stopAfterH', 1, 8], ['idleK', 150, 400], ['workingK', 300, 900], ['lanesPerHour', 1, 60]]
   for (const [f, lo, hi] of edges) {
     for (const v of [lo, hi]) assert.deepEqual(c.parseConfig({ [f]: v }), { cfg: { ...D, [f]: v }, invalid: [] }, `${f}=${v}`)
   }
-  for (const [f, v] of [['pingAfterMin', 29], ['pingAfterMin', 56], ['stopAfterH', 0], ['stopAfterH', 9], ['idleK', 149], ['idleK', 801], ['workingK', 901], ['pingAfterMin', 50.5], ['pingAfterMin', '50'], ['stopAfterH', null], ['idleK', Infinity], ['workingK', NaN]] as [string, unknown][])
+  for (const [f, v] of [['pingAfterMin', 29], ['pingAfterMin', 56], ['stopAfterH', 0], ['stopAfterH', 9], ['idleK', 149], ['idleK', 801], ['workingK', 901], ['pingAfterMin', 50.5], ['pingAfterMin', '50'], ['stopAfterH', null], ['idleK', Infinity], ['workingK', NaN], ['lanesPerHour', 0], ['lanesPerHour', 61], ['lanesPerHour', 12.5], ['lanesPerHour', '12']] as [string, unknown][])
     assert.deepEqual(c.parseConfig({ [f]: v }), { cfg: D, invalid: [f] }, `${f}=${String(v)}`)
   assert.deepEqual(c.parseConfig({ keepalive: false }), { cfg: { ...D, keepalive: false }, invalid: [] })
   assert.deepEqual(c.parseConfig({ keepalive: 'off' }), { cfg: D, invalid: ['keepalive'] })
@@ -1443,7 +1456,7 @@ test('parseConfig: defaults, each range edge, wrong types and extra fields', () 
   // Extra fields (savedAt, anything else) are dropped, never carried into the settings.
   const r = c.parseConfig({ pingAfterMin: 40, savedAt: 1, path: '/etc', __proto__x: 1 })
   assert.deepEqual(r, { cfg: { ...D, pingAfterMin: 40 }, invalid: [] })
-  assert.deepEqual(Object.keys(r.cfg).sort(), ['checkin', 'conductorLeads', 'idleK', 'keepalive', 'pingAfterMin', 'stopAfterH', 'workingK'])
+  assert.deepEqual(Object.keys(r.cfg).sort(), ['checkin', 'conductorLeads', 'idleK', 'keepalive', 'lanesPerHour', 'pingAfterMin', 'stopAfterH', 'workingK'])
   // A stored working level below the idle level: both levels fall back to the defaults.
   assert.deepEqual(c.parseConfig({ idleK: 500, workingK: 300 }), { cfg: D, invalid: ['idleK', 'workingK'] })
   assert.deepEqual(c.parseConfig({ idleK: 500, workingK: 500 }), { cfg: { ...D, idleK: 500, workingK: 500 }, invalid: [] })
@@ -1476,7 +1489,9 @@ test('parseCommandArgs: config forms; out of range, unknown and trailing junk ar
   assert.deepEqual(c.parseCommandArgs('config idle 800k'), { config: { field: 'idleK', value: 800 } })
   assert.deepEqual(c.parseCommandArgs('config working 350k'), { config: { field: 'workingK', value: 350 } })
   assert.deepEqual(c.parseCommandArgs('config working 900'), { config: { field: 'workingK', value: 900 } })
-  for (const bad of ['config ping 29', 'config ping 56', 'config stop 0', 'config stop 9', 'config idle 149', 'config idle 801', 'config working 149', 'config working 901', 'config ping 50k', 'config stop 3k', 'config ping 050', 'config ping 50 x', 'config reset now', 'config keepalive', 'config keepalive yes', 'config keepalive on x', 'config conductor-leads', 'config conductor-leads yes', 'config conductorLeads on', 'config Ping 50', 'config idle 350K', 'config idle 350000', 'config idle -200', 'config ping 4.5', 'config verbose 1', 'config show'])
+  assert.deepEqual(c.parseCommandArgs('config lanes 1'), { config: { field: 'lanesPerHour', value: 1 } })
+  assert.deepEqual(c.parseCommandArgs('config lanes 60'), { config: { field: 'lanesPerHour', value: 60 } })
+  for (const bad of ['config ping 29', 'config ping 56', 'config stop 0', 'config stop 9', 'config idle 149', 'config idle 801', 'config working 149', 'config working 901', 'config lanes 0', 'config lanes 61', 'config lanes 30k', 'config lanes', 'config ping 50k', 'config stop 3k', 'config ping 050', 'config ping 50 x', 'config reset now', 'config keepalive', 'config keepalive yes', 'config keepalive on x', 'config conductor-leads', 'config conductor-leads yes', 'config conductorLeads on', 'config Ping 50', 'config idle 350K', 'config idle 350000', 'config idle -200', 'config ping 4.5', 'config verbose 1', 'config show'])
     assert.deepEqual(c.parseCommandArgs(bad), { config: 'bad' }, bad)
   for (const bad of ['configs', 'config\nping 50', 'Config', 'CONFIG reset']) assert.equal(c.parseCommandArgs(bad), undefined, JSON.stringify(bad))
 })
@@ -1484,19 +1499,22 @@ test('parseCommandArgs: config forms; out of range, unknown and trailing junk ar
 test('config texts: no Default column while every setting is at its default, else a check mark or the default value; the level cross-check', () => {
   const D = c.parseConfig(undefined).cfg
   const head = ['**Callboard settings**', '', '| Setting | Value |', '|---|---|']
-  assert.equal(c.configText(D), [...head, '| Keepalive | ON |', '| Ping after | 50 min |', '| Stop after | 2 h |', '| Idle level | 300k |', '| Working level | 400k |', '| Check-ins | ON |', '| Conductor leads | ON |', '| Escalation | ON |'].join('\n'))
+  assert.equal(c.configText(D), [...head, '| Keepalive | ON |', '| Ping after | 50 min |', '| Stop after | 2 h |', '| Idle level | 300k |', '| Working level | 400k |', '| Check-ins | ON |', '| Conductor leads | ON |', '| Lanes per hour | 30 |', '| Escalation | ON |'].join('\n'))
   const withDefault = ['**Callboard settings**', '', '| Setting | Value | Default |', '|---|---|---|']
-  assert.equal(c.configText({ ...D, keepalive: false, pingAfterMin: 45, workingK: 450, checkin: false }, true), [...withDefault, '| Keepalive | OFF | ON |', '| Ping after | 45 min | 50 min |', '| Stop after | 2 h | ✓ |', '| Idle level | 300k | ✓ |', '| Working level | 450k | 400k |', '| Check-ins | OFF | ON |', '| Conductor leads | ON | ✓ |', '| Escalation | ON | ✓ |'].join('\n'))
+  assert.equal(c.configText({ ...D, keepalive: false, pingAfterMin: 45, workingK: 450, checkin: false }, true), [...withDefault, '| Keepalive | OFF | ON |', '| Ping after | 45 min | 50 min |', '| Stop after | 2 h | ✓ |', '| Idle level | 300k | ✓ |', '| Working level | 450k | 400k |', '| Check-ins | OFF | ON |', '| Conductor leads | ON | ✓ |', '| Lanes per hour | 30 | ✓ |', '| Escalation | ON | ✓ |'].join('\n'))
   assert.equal(c.configText(D, true), c.configText(D))
-  assert.equal(c.configText({ ...D, pingAfterMin: 45 }, false), [...withDefault, '| Keepalive | ON | ✓ |', '| Ping after | 45 min | 50 min |', '| Stop after | 2 h | ✓ |', '| Idle level | 300k | ✓ |', '| Working level | 400k | ✓ |', '| Check-ins | ON | ✓ |', '| Conductor leads | ON | ✓ |', '| Escalation | OFF | ON |'].join('\n'))
+  assert.equal(c.configText({ ...D, pingAfterMin: 45 }, false), [...withDefault, '| Keepalive | ON | ✓ |', '| Ping after | 45 min | 50 min |', '| Stop after | 2 h | ✓ |', '| Idle level | 300k | ✓ |', '| Working level | 400k | ✓ |', '| Check-ins | ON | ✓ |', '| Conductor leads | ON | ✓ |', '| Lanes per hour | 30 | ✓ |', '| Escalation | OFF | ON |'].join('\n'))
   assert.equal(c.configSetText('pingAfterMin', { ...D, pingAfterMin: 45 }), 'Callboard setting changed: ping after 45 min. It applies to every session on this Mac within a minute.')
-  assert.equal(c.CONFIG_USAGE, 'Use /callboard config [keepalive on|off, ping 30-55, stop 1-8, idle 150-800, working IDLE-900, checkin on|off, conductor-leads on|off, reset].')
+  assert.equal(c.configText({ ...D, lanesPerHour: 45 }).split('\n').at(-2), '| Lanes per hour | 45 | 30 |')
+  assert.equal(c.configSetText('lanesPerHour', { ...D, lanesPerHour: 45 }), 'Callboard setting changed: lanes per hour 45. It applies to every session on this Mac within a minute.')
+  assert.equal(c.CONFIG_USAGE, 'Use /callboard config [keepalive on|off, ping 30-55, stop 1-8, idle 150-800, working IDLE-900, checkin on|off, conductor-leads on|off, lanes 1-60, reset].')
   assert.equal(c.CONFIG_NOT_PERSON, 'Only you can change callboard settings: type /callboard config yourself.')
   assert.equal(c.configLevelRefusal({ field: 'idleK', value: 450 }, D), 'Raise working first (now 400k).')
   assert.equal(c.configLevelRefusal({ field: 'idleK', value: 400 }, D), undefined)
   assert.equal(c.configLevelRefusal({ field: 'workingK', value: 250 }, D), 'Lower idle first (now 300k).')
   assert.equal(c.configLevelRefusal({ field: 'workingK', value: 300 }, D), undefined)
   assert.equal(c.configLevelRefusal({ field: 'pingAfterMin', value: 30 }, D), undefined)
+  assert.equal(c.configLevelRefusal({ field: 'lanesPerHour', value: 60 }, D), undefined)
 })
 
 test('the closing sentence of the mod\'s own turns: the two forms, byte for byte, and every text that carries one ends with it', () => {
@@ -2765,7 +2783,8 @@ test('the refusal and toast texts that name a limit are fixed word for word', ()
   assert.equal(c.REASON_TEXT["report-file"], "the lane report must be a plain file of yours, at most 1 MB.")
   assert.equal(c.REASON_TEXT["bad-task"], "the task must be 1 to 8000 characters of text, with no control characters other than newline and tab.")
   assert.equal(c.REASON_TEXT["lane-cap"], "the repo already has 16 lanes.")
-  assert.equal(c.REASON_TEXT["create-rate"], "12 lanes were created in this repo in the last hour, the most allowed. Retry when the oldest of them is an hour old.")
+  assert.equal(c.REASON_TEXT["create-rate"], "this repo is at its limit of 30 lanes created in an hour (the person sets it with /callboard config lanes). Retry when the oldest create of the last hour is an hour old.")
+  assert.equal(c.createRateText(12), "this repo is at its limit of 12 lanes created in an hour (the person sets it with /callboard config lanes). Retry when the oldest create of the last hour is an hour old.")
   assert.equal(c.REASON_TEXT.nudged, "the lane was ordered to compact. It is told at the end of its current turn (now, if idle) and compacts itself when it asks on-cue, whatever its context size. If it has not asked within 15 minutes, you are told: then ask the person whether to lane_terminate it.")
   assert.equal(c.orderText(['LAB']), "[callboard] Lane `LAB` did not compact after your order (15 minutes). Ask the person whether to lane_terminate it; they confirm in a dialog every time. Do not stop it any other way. Submitted by the callboard mod, not by the user; it carries no approval, go or answer; never record it as one.")
 })

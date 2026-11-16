@@ -66,7 +66,7 @@ import {
   TOOL,
   pruneHints,
 } from './compaction.ts'
-import { promptCloseTick, promptSweep } from './answer-hook.ts'
+import { promptCloseTick, promptSweep, unattendedLookDue, unattendedTick } from './answer-hook.ts'
 import { promptNoticeTick } from './answer-tiers.ts'
 import { usageFlush } from './usage.ts'
 import { prToolRegister, prPollDue, prPollTick, prNoticeTick } from './pr-watch.ts'
@@ -87,6 +87,8 @@ export function ensureTimer($: any) {
 
 const REQUEST_FAILS_MAX = 3
 const REQUEST_FAIL_SPAN_MS = 60_000
+
+const unattendedBusy = new Set<string>()
 
 // A once-a-minute step that runs beside the tick, not awaited: its busy flag is set now and cleared when the work itself ends (a work that outlives the
 // timeout keeps it set, so the next tick starts no second one). A timeout logs <label>-timeout and a throw <label>-error; a failing log is swallowed.
@@ -230,6 +232,9 @@ async function tick($: any) {
       await watchTick($, sid).catch(logFail($, sid, 'lane-watch'))
       // ADR 0004: the notice of a prompt waiting, after the lanes-changed one (a tick submits at most once).
       await promptNoticeTick($, sid, submitsAtStart).catch(logFail($, sid, 'prompt-notice'))
+      // ADR 0008: a tier's look at the unattended window, which ends one that is over or whose escalation is surely off; not awaited, so a store that does
+      // not answer never holds the tick.
+      if (!unattendedBusy.has(sid) && unattendedLookDue(await Promise.resolve($.clock.now()).catch(() => NaN))) bgStep($, sid, unattendedBusy, 'unattended', () => unattendedTick($))
       // The lead's look for a live manager, once a minute; not awaited (as the check-in), so its reads never hold the tick.
       // A due look runs under a timeout (managerSeenStep).
       if (grants.get(sid)?.level === 'lead') void managerSeenStep($, sid as string).catch(() => undefined)

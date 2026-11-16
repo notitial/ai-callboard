@@ -857,6 +857,21 @@ test('the audit reads a row of every kind the mod writes, and has a place for ea
   assert.ok(!rep.notes.some((n) => /not valid rows/.test(n)))
 })
 
+test('the unattended rows are read with their window mark and origin, belong to no request, and raise nothing; a mark that is not a string is no row', () => {
+  const fx = fixture()
+  const h = 'f'.repeat(64)
+  ledger(fx, [ON(), ...clean(), R('unattended-on', BASE, { hash: h, u: 'ffffffff', end: iso(BASE + 3_600_000), origin: 'prompt', by: uid(7), lane: 'MANAGER' }), R('unattended-unknown', BASE + 1000, { code: 'ledger', by: uid(7) }), R('unattended-off', BASE + 2000, { code: 'command', hash: h, u: 'ffffffff', origin: 'session', by: uid(8) })])
+  const rep = run(fx)
+  assert.deepEqual(rep.anomalies, [])
+  assert.deepEqual(rep.problems, [])
+  assert.deepEqual(['unattended-on', 'unattended-off', 'unattended-unknown'].map((k) => rep.counts.rowsByKind[k]), [1, 1, 1])
+  assert.equal(rep.table.length, 1)
+  assert.ok(!rep.notes.some((n) => /not valid rows/.test(n)))
+  const bad = fixture()
+  ledger(bad, [ON(), ...clean(), R('unattended-off', BASE, { code: 'command', u: 7 }), R('unattended-off', BASE + 1, { code: 'command', origin: { kind: 'composer' } })])
+  assert.match(run(bad).notes.join('\n'), /2 ledger line\(s\) were not valid rows/)
+})
+
 test('a row of a kind the mod does not write is a problem that names the kind (exit 2), not a quiet note; --since keeps an older one out', () => {
   const fx = fixture()
   ledger(fx, [ON(), ...clean(), R('go-extend', BASE, { id: uid(5) }), R('go-extend', BASE + 1), R('no-such-kind', BASE - 7200_000), { kind: 'no-time' }])

@@ -2,7 +2,7 @@
 // The hooks that use it are in engine/answer-hook.ts and engine/answer-tiers.ts. Nothing in this file lets an agent decide anything: it recognises what
 // raised an ask (the classifier), what a request file may hold (redaction, caps), and when a decision file is valid (the apply checks).
 
-import { SID_RE, HOUR_MS, SUBMITTED_NOTE_NEVER_RECORD } from './core.ts'
+import { NAME_RE, SID_RE, HOUR_MS, SUBMITTED_NOTE_NEVER_RECORD } from './core.ts'
 
 const HASH_RE = /^[0-9a-f]{64}$/
 
@@ -411,7 +411,7 @@ export function applyCheck(a: ApplyIn): ApplyOut {
 
 // ---- the ledger: machine-wide, one JSON row per line, no input text ----
 // Every kind of row the mod writes. The prompt audit reads its kinds from this list.
-export const ROW_KINDS = ['requested', 'answered', 'escalated', 'dropped', 'returned', 'superseded', 'expired-denied', 'off', 'abandoned', 'dialog', 'not-judgeable', 'subagent-denied', 'question-denied', 'no-tier', 'answering-on', 'answering-off', 'relayed', 'relay-lost', 'relay-left', 'relay-late', 'relay-closed', 'deny-unclear', 'lead-offer', 'lead-offer-void', 'lead-grant', 'lead-owner', 'lead-resume', 'lead-stop', 'go-grant', 'go-end', 'go-read', 'pr-watch', 'pr-notice', 'here-on', 'here-off'] as const
+export const ROW_KINDS = ['requested', 'answered', 'escalated', 'dropped', 'returned', 'superseded', 'expired-denied', 'off', 'abandoned', 'dialog', 'not-judgeable', 'subagent-denied', 'question-denied', 'no-tier', 'answering-on', 'answering-off', 'relayed', 'relay-lost', 'relay-left', 'relay-late', 'relay-closed', 'deny-unclear', 'lead-offer', 'lead-offer-void', 'lead-grant', 'lead-owner', 'lead-resume', 'lead-stop', 'go-grant', 'go-end', 'go-read', 'pr-watch', 'pr-notice', 'here-on', 'here-off', 'unattended-on', 'unattended-off', 'unattended-unknown'] as const
 export type RowKind = (typeof ROW_KINDS)[number]
 // A `lead-owner` row (ADR 0007), written before the lead record changes: code made | joined | left | off, hash the repo's key, repo, lane the lead's name at the
 // time (for reading only), target the lead's session id, by the conductor's session id (made, joined), was the conductor the lead left (left, off), nonce (made).
@@ -427,7 +427,12 @@ export type RowKind = (typeof ROW_KINDS)[number]
 // written before the store key; `here-off` (code off | grant-off | moved | void, by the session that ended it, was the session that was here, absent when the key could not be read; a failed `here` that also ended another session's writes one row for each). The end after 12 hours writes no row: the `here-on` row carries it.
 // raised (a `requested` row): what raised the ask (one of RAISED), so the audit can count the tiers' allows by it after the request file is gone.
 // opt, lh (a question's `answer` rows, code 'answer'): the chosen option's index as a string, and the first 16 hex of SHA-256(id + "\n" + label); no label text. Strings, since the audit drops a row with another type.
-export type LedgerRow = { t: string; kind: RowKind; code?: string; id?: string; lane?: string; repo?: string; tool?: string; pattern?: string; hash?: string; tier?: string; why?: string; nonce?: string; cap?: CapKind; target?: string; by?: string; tuid?: string; via?: 'person'; short?: string; opt?: string; lh?: string; was?: string; dialog?: 'yes' | 'none'; end?: string; raised?: string }
+// The unattended window's rows (ADR 0008). `unattended-on`, written before the stored value: hash the SHA-256 of the value's canonical text, u the window's short
+// id (the hash's first 8 hex), end the window's end as an ISO time, origin the origin code of the command that opened it, by its session, lane the manager's name.
+// `unattended-off`, written after the stored value is removed: code how it ended (command | escalation-off | escalation-off:stored | escalation-off:file |
+// expired | invalid | unbound | ended | void), hash and u the window's when its value was read, origin the origin code of a command that ended it, by the session
+// that ended it. `unattended-unknown`: the first read of an episode that did not answer, code the cause, by the reading session.
+export type LedgerRow = { t: string; kind: RowKind; code?: string; id?: string; lane?: string; repo?: string; tool?: string; pattern?: string; hash?: string; tier?: string; why?: string; nonce?: string; cap?: CapKind; target?: string; by?: string; tuid?: string; via?: 'person'; short?: string; opt?: string; lh?: string; was?: string; dialog?: 'yes' | 'none'; end?: string; raised?: string; u?: string; origin?: string }
 export function ledgerLine(row: LedgerRow): string {
   const r: LedgerRow = { ...row }
   if (r.why !== undefined) r.why = capBytes(redact(r.why).replace(/[\r\n]+/g, ' '), WHY_MAX).text
@@ -625,6 +630,85 @@ export function escalationState(a: Answering | undefined, offFile: boolean, sour
   const by = source === 'default' ? ' (the default)' : source === 'guard' ? ` (the default, but ${why ?? 'the guard fails'})` : ''
   return `Escalation: ${on}${by}${questions === undefined ? '' : `; questions: ${questions}`}.${offFile ? ` ${OFF_FILE_NOTE}` : ''}`
 }
+// ---- the unattended window (ADR 0008): the stored value, when it counts and how it reads ----
+// The value under the store key: when the window opened and ends, the person's origin that opened it, and the manager named in its dialog.
+export type Unattended = { v: 1; from: number; until: number; by: 'prompt' | 'phone'; manager: string; savedAt: number }
+export const UNATTENDED_MIN_MS = 30 * 60_000
+export const UNATTENDED_MAX_MS = 14 * 3_600_000
+// A stored value with no `unattended-on` row is left alone for this long after its savedAt, then removed.
+export const UNATTENDED_GRACE_MS = 60_000
+// A clock up to this far before the window's start still reads the window; further back, the read is no answer.
+export const UNATTENDED_CLOCK_SLACK_MS = 5 * 60_000
+export function parseUnattended(raw: unknown): Unattended | undefined {
+  const o = obj(raw)
+  const time = (x: unknown): x is number => typeof x === 'number' && Number.isSafeInteger(x) && x > 0
+  if (o.v !== 1 || !time(o.from) || !time(o.until) || !time(o.savedAt) || (o.by !== 'prompt' && o.by !== 'phone') || typeof o.manager !== 'string' || !NAME_RE.test(o.manager)) return undefined
+  return { v: 1, from: o.from, until: o.until, by: o.by, manager: o.manager, savedAt: o.savedAt }
+}
+// What the clock says of a value that parsed. invalid: a span outside the bounds; expired: its end has come; early: the clock is before its start by more than
+// the slack, which is no answer.
+export function unattendedTime(v: Unattended, now: number): 'fits' | 'invalid' | 'expired' | 'early' {
+  const span = v.until - v.from
+  if (!(span >= UNATTENDED_MIN_MS && span <= UNATTENDED_MAX_MS)) return 'invalid'
+  if (v.until <= now) return 'expired'
+  return now < v.from - UNATTENDED_CLOCK_SLACK_MS ? 'early' : 'fits'
+}
+// What the ledger says of a value, from the rows that carry its hash: ended once an `unattended-off` row names it (a value put back after its end opens nothing),
+// bound by its `unattended-on` row, else unbound once the grace has passed and `wait` before.
+export function unattendedBind(rows: LedgerRow[], hash: string, v: Unattended, now: number): 'bound' | 'ended' | 'unbound' | 'wait' {
+  if (rows.some((r) => r.kind === 'unattended-off' && r.hash === hash)) return 'ended'
+  if (rows.some((r) => r.kind === 'unattended-on' && r.hash === hash)) return 'bound'
+  return now - v.savedAt > UNATTENDED_GRACE_MS ? 'unbound' : 'wait'
+}
+// A read of the window. on: the value and the window's short id (the first 8 hex of its row's hash). unknown: a read did not answer, with the cause and whether a
+// stored value was seen; it ends nothing and permits nothing.
+export type UnattendedCause = 'store' | 'value' | 'clock' | 'hash' | 'ledger' | 'unbound' | 'error'
+export type Window = { state: 'on'; value: Unattended; u: string } | { state: 'off' } | { state: 'unknown'; cause: UnattendedCause; key: boolean }
+export const windowShort = (hash: string): string => hash.slice(0, 8)
+// What `unknown` means to a caller, given the last sure state this process read. Held: what a window forbids stays forbidden. On: what only a window permits.
+export const unattendedHeldOf = (w: Window, sure: 'on' | 'off' | undefined): boolean => w.state === 'on' || (w.state === 'unknown' && sure === 'on')
+export const unattendedOnOf = (w: Window): boolean => w.state === 'on'
+const UNATTENDED_CAUSE: Record<UnattendedCause, string> = {
+  store: 'the store did not answer',
+  value: 'the stored value does not parse',
+  clock: 'the clock is before the window\'s start',
+  hash: 'the stored value could not be hashed',
+  ledger: 'the ledger did not answer',
+  unbound: 'the stored value has no ledger row yet',
+  error: 'the read failed',
+}
+// The status row's value. when: the end time as the person reads it.
+export function unattendedStatus(w: Window, when: (ms: number) => string): string {
+  if (w.state === 'on') return `ON until ${when(w.value.until)}`
+  return w.state === 'off' ? 'OFF' : `UNKNOWN (${UNATTENDED_CAUSE[w.cause]})`
+}
+// The answer of /callboard unattended.
+export function unattendedState(w: Window, when: (ms: number) => string): string {
+  if (w.state === 'on') return `Unattended mode is on until ${when(w.value.until)}, with manager ${w.value.manager} (window ${w.u}). /callboard unattended off ends it.`
+  return w.state === 'off' ? 'Unattended mode is off.' : `Unattended mode cannot be read right now: ${UNATTENDED_CAUSE[w.cause]}. Nothing was changed.`
+}
+export type UnattendedOp = 'state' | 'off' | 'bad'
+export function parseUnattendedArgs(rest: string | undefined): UnattendedOp {
+  const a = (rest ?? '').trim()
+  return a === '' ? 'state' : a === 'off' ? 'off' : 'bad'
+}
+export const UNATTENDED_NOT_PERSON = 'Only you can read the unattended state: type /callboard unattended yourself. /callboard unattended off works from any session.'
+export const UNATTENDED_ENDED = 'Unattended mode is off on this Mac.'
+export const UNATTENDED_NOT_ON = 'Unattended mode is not on.'
+export const UNATTENDED_OFF_FAILED = 'Unattended mode could not be checked or ended: the store did not answer. Try again. To stop every tier answering prompts now, create ~/.claude/callboard/prompts/OFF.'
+
+// Whether escalation is surely off, from one read of the stored switch and one stat of the OFF file. Only the person's own off counts: a stored `{ off: true }`,
+// or an OFF path whose stat succeeded and shows a file. A read that failed, a stored value that is neither a switch nor that off, and an OFF path of another kind
+// are `unread`: no answer, so nothing may be ended on them.
+export type EscalationSure = { state: 'on' } | { state: 'off'; which: 'stored' | 'file' } | { state: 'unread' }
+export function escalationSureOf(stored: { read: false } | { read: true; raw: unknown }, offFile: 'absent' | 'file' | 'other' | 'error'): EscalationSure {
+  if (!stored.read) return { state: 'unread' }
+  if (obj(stored.raw).off === true) return { state: 'off', which: 'stored' }
+  if (offFile === 'file') return { state: 'off', which: 'file' }
+  if (offFile !== 'absent') return { state: 'unread' }
+  return stored.raw === undefined || stored.raw === null || parseAnswering(stored.raw) ? { state: 'on' } : { state: 'unread' }
+}
+
 // ---- the conductor and manager tiers, and the person relay at the top tier (ADR 0004, amended) ----
 export type TierLevel = 'lead' | 'conductor' | 'manager'
 export const TIER_LEVELS: readonly TierLevel[] = ['lead', 'conductor', 'manager']

@@ -130,7 +130,7 @@ test('config: /callboard config prints the settings from any origin and logs not
   const stdins: string[] = []
   await person($, on, stdins)
   for (const origin of [PERSON, { kind: 'bridge' }, { kind: 'plugin' }, { kind: 'peer' }, { kind: 'script' }])
-    expect((await $.command.run(lane('config', origin))).text).toBe(['**Callboard settings**', '', '| Setting | Value | Default |', '|---|---|---|', '| Keepalive | ON | ✓ |', '| Ping after | 50 min | ✓ |', '| Stop after | 2 h | ✓ |', '| Idle level | 300k | ✓ |', '| Working level | 400k | ✓ |', '| Check-ins | ON | ✓ |', '| Conductor leads | ON | ✓ |', '| Escalation | OFF | ON |'].join('\n'))
+    expect((await $.command.run(lane('config', origin))).text).toBe(['**Callboard settings**', '', '| Setting | Value | Default |', '|---|---|---|', '| Keepalive | ON | ✓ |', '| Ping after | 50 min | ✓ |', '| Stop after | 2 h | ✓ |', '| Idle level | 300k | ✓ |', '| Working level | 400k | ✓ |', '| Check-ins | ON | ✓ |', '| Conductor leads | ON | ✓ |', '| Lanes per hour | 30 | ✓ |', '| Escalation | OFF | ON |'].join('\n'))
   expect(logged(stdins)).toEqual([])
   expect(h.store.has('config')).toBe(false)
   expect((await $.command.run(lane('bogus'))).text).toBe(USAGE)
@@ -161,6 +161,7 @@ test('config: the person sets each setting from the prompt or the phone; it is s
     ['idle 800k', 'idleK', 800, PERSON],
     ['checkin off', 'checkin', false, PERSON],
     ['conductor-leads off', 'conductorLeads', false, PERSON],
+    ['lanes 45', 'lanesPerHour', 45, PERSON],
   ] as const) {
     want = { ...want, [field]: value }
     expect((await $.command.run(lane(`config ${args}`, origin))).text).toBe(configSetText(field, want))
@@ -180,7 +181,7 @@ test('config: a change from a plugin, another session or a script is refused wit
   await person($, on, stdins)
   const asked = h.askCount
   for (const [origin, code] of [[{ kind: 'plugin' }, 'plugin'], [{ kind: 'peer' }, 'session'], [{ kind: 'script' }, 'other']] as const) {
-    for (const args of ['config keepalive off', 'config ping 30', 'config conductor-leads off', 'config reset']) expect((await $.command.run(lane(args, origin))).text).toBe(CONFIG_NOT_PERSON)
+    for (const args of ['config keepalive off', 'config ping 30', 'config conductor-leads off', 'config lanes 60', 'config reset']) expect((await $.command.run(lane(args, origin))).text).toBe(CONFIG_NOT_PERSON)
     expect(logged(stdins)).toContain(`refused:config-not-person:${code}`)
   }
   expect(h.askCount).toBe(asked)
@@ -190,7 +191,7 @@ test('config: a change from a plugin, another session or a script is refused wit
 test('config: out of range or unknown is refused with the usage; the two levels are checked against each other as stored', async ($, on) => {
   const stdins: string[] = []
   await person($, on, stdins)
-  for (const args of ['config ping 29', 'config ping 56', 'config stop 9', 'config idle 149', 'config working 901', 'config ping 50 now', 'config loud on', 'config conductor-leads'])
+  for (const args of ['config ping 29', 'config ping 56', 'config stop 9', 'config idle 149', 'config working 901', 'config lanes 0', 'config lanes 61', 'config ping 50 now', 'config loud on', 'config conductor-leads'])
     expect((await $.command.run(lane(args))).text).toBe(CONFIG_USAGE)
   expect(h.store.has('config')).toBe(false)
   expect((await $.command.run(lane('config idle 450'))).text).toBe('Raise working first (now 400k).')
@@ -208,7 +209,7 @@ test('config: invalid stored fields fall back to their defaults, logged once per
   await person($, on, stdins)
   h.store.set('config', { keepalive: 'no', pingAfterMin: 99, stopAfterH: 4, idleK: 350, workingK: 450, path: '/etc/x', savedAt: 1 })
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
-  expect((await $.command.run(lane('config'))).text).toBe(['**Callboard settings**', '', '| Setting | Value | Default |', '|---|---|---|', '| Keepalive | ON | ✓ |', '| Ping after | 50 min | ✓ |', '| Stop after | 4 h | 2 h |', '| Idle level | 350k | 300k |', '| Working level | 450k | 400k |', '| Check-ins | ON | ✓ |', '| Conductor leads | ON | ✓ |', '| Escalation | OFF | ON |'].join('\n'))
+  expect((await $.command.run(lane('config'))).text).toBe(['**Callboard settings**', '', '| Setting | Value | Default |', '|---|---|---|', '| Keepalive | ON | ✓ |', '| Ping after | 50 min | ✓ |', '| Stop after | 4 h | 2 h |', '| Idle level | 350k | 300k |', '| Working level | 450k | 400k |', '| Check-ins | ON | ✓ |', '| Conductor leads | ON | ✓ |', '| Lanes per hour | 30 | ✓ |', '| Escalation | OFF | ON |'].join('\n'))
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
   expect(logged(stdins).filter((x) => x.startsWith('config-invalid'))).toEqual(['config-invalid:keepalive', 'config-invalid:pingAfterMin'])
 })
