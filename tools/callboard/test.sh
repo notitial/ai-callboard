@@ -3,10 +3,11 @@
 # CALLBOARD_SKIP_MOD_TESTS=1 skips only `claude plugin test mod` (the slow part: about 2 minutes), and says so. It is for a quick
 # local run; CI does not set it. Run this script without it before any PR that touches tools/callboard/mod.
 # It takes the machine-wide test turn first (../test-turn.sh) and waits while another run holds it, then runs every
-# step under `nice -n 10`. Exit 3: the turn is stale (older than 25 minutes); the message says how to clear it.
+# step under `nice -n 10`. Exit 2: ../test-turn.sh is missing. Exit 3: the turn is stale (older than 25 minutes, its
+# holder not known to be gone); the message says how to clear it.
 set -uo pipefail
 cd "$(dirname "$0")"
-. ../test-turn.sh
+. ../test-turn.sh || exit 2
 trap release_test_turn EXIT
 trap 'exit 129' HUP
 trap 'exit 130' INT

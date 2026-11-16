@@ -49,13 +49,47 @@ mkdir "$LOCK"
 make_stale "$LOCK"
 out=$(bash -c '. "$0/tools/test-turn.sh"; take_test_turn; rc=$?; release_test_turn; exit "$rc"' "$ROOT" 2>&1)
 check "a stale turn: exit 3" [ "$?" = 3 ]
-check "a stale turn: says how to clear it" grep -q "older than 25 minutes.*rmdir $LOCK" <<< "$(echo "$out" | tr '\n' ' ')"
+check "a stale turn: says how to clear it" grep -q "older than 25 minutes.*rm -r $LOCK" <<< "$(echo "$out" | tr '\n' ' ')"
 check "a stale turn: never deleted" [ -d "$LOCK" ]
 out=$(bash "$ROOT/tools/test-all.sh" --quick callboard 2>&1)
 check "test-all.sh: a stale turn is exit 3 and stays" [ "$?" = 3 -a -d "$LOCK" ]
 out=$(bash "$ROOT/tools/callboard/test.sh" 2>&1)
 check "callboard/test.sh: a stale turn is exit 3 and stays" [ "$?" = 3 -a -d "$LOCK" ]
+echo "$$" > "$LOCK/pid"
+make_stale "$LOCK"
+out=$(bash -c '. "$0/tools/test-turn.sh"; take_test_turn' "$ROOT" 2>&1)
+check "a stale turn whose holder still runs: exit 3, the lock stays" [ "$?" = 3 -a "$(cat "$LOCK/pid")" = "$$" ]
+rm "$LOCK/pid"
 rmdir "$LOCK"
+
+# The lock carries its holder's pid, and only that run gives it back.
+out=$(bash -c '. "$0/tools/test-turn.sh"; take_test_turn || exit 9; [ "$(cat "$AI_MANAGER_TEST_LOCK/pid")" = "$$" ] || exit 8
+  echo 1 > "$AI_MANAGER_TEST_LOCK/pid"; release_test_turn; [ -d "$AI_MANAGER_TEST_LOCK" ]' "$ROOT" 2>&1)
+check "the lock carries the holder's pid; another run's lock is not given back" [ "$?" = 0 ]
+rm "$LOCK/pid"
+rmdir "$LOCK"
+
+# A holder that still runs is waited for; one that is gone loses the turn at once, with one line saying so.
+mkdir "$LOCK"
+echo "$$" > "$LOCK/pid"
+bash -c '. "$0/tools/test-turn.sh"; take_test_turn || exit 9; echo taken; release_test_turn' "$ROOT" > "$TMP/live.out" 2>&1 &
+pid=$!
+check "a holder that still runs: the next run waits" wait_for 5 said_waiting "$TMP/live.out"
+sleep 0.5
+check "a holder that still runs: its turn is not taken over" [ "$(cat "$LOCK/pid")/$(grep -c . "$TMP/live.out")" = "$$/1" ]
+sleep 0 &
+gone=$!
+wait "$gone"
+echo "$gone" > "$LOCK/pid"
+wait "$pid"
+check "a holder that is gone: the waiting run takes the turn over" [ "$?/$(tail -n 1 "$TMP/live.out")" = "0/taken" ]
+check "a holder that is gone: one line says so" [ "$(grep -c "pid $gone) is gone" "$TMP/live.out")" = 1 ]
+check "a turn taken over is given back" [ ! -e "$LOCK" ]
+mkdir "$LOCK"
+echo "$gone" > "$LOCK/pid"
+make_stale "$LOCK"
+out=$(bash "$ROOT/tools/test-all.sh" --quick callboard 2>&1)
+check "test-all.sh: takes over a gone holder's turn, however old, and gives it back" [ "$?" = 0 -a ! -e "$LOCK" ]
 
 # test-all.sh takes the turn for its run and gives it back; a wrong argument never takes it.
 out=$(bash "$ROOT/tools/test-all.sh" --quick callboard 2>&1)
@@ -74,6 +108,8 @@ for script in tools/test-all.sh tools/callboard/test.sh; do
   wait "$pid"
   check "$script: stopped while waiting, exit 143 and the lock stays" [ "$?" = 143 -a -d "$LOCK" ]
 done
+out=$(cd "$TMP" && cp "$ROOT/tools/callboard/test.sh" . && bash ./test.sh 2>&1)
+check "callboard/test.sh: a missing test-turn.sh is exit 2, not a stale turn" [ "$?" = 2 ]
 rmdir "$LOCK"
 
 # A run that is stopped while it holds the turn gives it back.

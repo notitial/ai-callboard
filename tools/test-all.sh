@@ -6,7 +6,8 @@
 # A suite whose tool is missing (node, claude, python3, plutil) shows as skip, never as pass. Exit 1 if any suite fails,
 # 2 on an unknown option or suite name (checked before anything runs).
 # It takes the machine-wide test turn first (tools/test-turn.sh) and waits while another run holds it, then runs each
-# suite under `nice -n 10`. Exit 3: the turn is stale (older than 25 minutes); the message says how to clear it.
+# suite under `nice -n 10`. Exit 3: the turn is stale (older than 25 minutes, its holder not known to be gone); the
+# message says how to clear it.
 # Adding a suite: add one `suite` line below and the same name to the Build / Test list in CLAUDE.md.
 
 set -u
@@ -16,14 +17,14 @@ ONLY=" "
 for a in "$@"; do
   case $a in
     --quick) QUICK=1 ;;
-    -h | --help) sed -n '2,10p' "$0"; exit 0 ;;
+    -h | --help) sed -n '2,11p' "$0"; exit 0 ;;
     -*) echo "unknown option: $a" >&2; exit 2 ;;
     *) ONLY="$ONLY$a " ;;
   esac
 done
 LOG=$(mktemp -d "${TMPDIR:-/tmp}/test-all-XXXXXX") || exit 2
 [ -n "$LOG" ] && [ -d "$LOG" ] || exit 2
-. "$ROOT/tools/test-turn.sh"
+. "$ROOT/tools/test-turn.sh" || exit 2
 trap 'release_test_turn; rm -rf "$LOG"' EXIT
 trap 'exit 129' HUP
 trap 'exit 130' INT
