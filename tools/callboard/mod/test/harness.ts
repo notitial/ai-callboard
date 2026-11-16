@@ -1,4 +1,6 @@
 import { mock, test } from 'claude-code/testing'
+import { toolText } from '../hooks/tool-text'
+import type { Role } from '../hooks/tool-text'
 
 // A test that simulates an hour or more of the mod's 2 s timer runs thousands of ticks, and each one costs the kit host round trips: half a millisecond to
 // two on a fast machine, by how much the mod does in a tick (280 simulated minutes: 8,400 ticks, 3.5 s; an hour of a lead's ticks: 1,800, 2 to 3.5 s). The kit's 5 s wall-time limit then measures the runner's speed, not whether the test hangs, and a runner
@@ -239,6 +241,8 @@ export const renames: string[] = []
 export const modelRuns: string[] = []
 export const colorRuns: string[] = []
 export const toolDefs: string[] = []
+// A role's description of a tool (tool-text.ts) as it stands inside a toolDefs entry.
+export const toolDesc = (tool: string, role: Role): string => JSON.stringify(toolText(tool, role)).slice(1, -1)
 export const storeReads: string[] = []
 // trace: the plugin's own state calls, in order, with an in-memory state of the test's own; failCounters makes a write of the counters fail every time.
 export type Trace = { log: string[]; failCounters: boolean; setHook?: (key: string) => Promise<void> | void; failKeys?: Set<string>; st?: Map<string, { value: unknown; version: number }> }
@@ -932,7 +936,7 @@ export function engine(on0: any, argvSeen: string[][], stdins: string[] = [], cl
     }
     if (a[0] === '/usr/bin/shasum' && h.shaFailsFor?.(typeof e.init?.stdin === 'string' ? e.init.stdin : '')) return ok('', 1)
     if (a[0] === '/usr/bin/shasum' && h.recShaFails && typeof e.init?.stdin === 'string' && e.init.stdin.startsWith('LABLANE\n')) return ok('', 1)
-    if (a[0] === '/usr/bin/shasum') return ok(`${typeof e.init?.stdin === 'string' && (e.init.stdin.startsWith('LABLANE\n') || e.init.stdin.startsWith('lead-record\n') || e.init.stdin.startsWith('lead-watch\n') || e.init.stdin.startsWith('{"v":1,"id":"') || /^(ok|bad|absent)\n/.test(e.init.stdin) || e.init.stdin.includes('\nadopted\n')) ? fakeSha(e.init.stdin) : e.init?.stdin === '/Users/x/code/app2' ? 'b'.repeat(64) : e.init?.stdin === '/Users/x/code/cond' ? 'c'.repeat(64) : e.init?.stdin === '/data/x/work' ? 'd'.repeat(64) : 'a'.repeat(64)}  -\n`)
+    if (a[0] === '/usr/bin/shasum') return ok(`${typeof e.init?.stdin === 'string' && (e.init.stdin.startsWith('LABLANE\n') || e.init.stdin.startsWith('lead-record\n') || e.init.stdin.startsWith('lead-watch\n') || e.init.stdin.startsWith('{"v":1,"id":"') || e.init.stdin.startsWith('{"v":2,"id":"') || /^(ok|bad|absent)\n/.test(e.init.stdin) || e.init.stdin.includes('\nadopted\n')) ? fakeSha(e.init.stdin) : e.init?.stdin === '/Users/x/code/app2' ? 'b'.repeat(64) : e.init?.stdin === '/Users/x/code/cond' ? 'c'.repeat(64) : e.init?.stdin === '/data/x/work' ? 'd'.repeat(64) : 'a'.repeat(64)}  -\n`)
     if (a[0] === '/usr/bin/install') installed.add(a[a.length - 1])
     if (a[0] === '/usr/bin/tee' && a[1] === '--' && typeof e.init?.stdin === 'string') teeTexts.set(a[2], e.init.stdin)
     const last = a[a.length - 1]

@@ -112,6 +112,8 @@ import { leadCue } from './lead-cues.ts'
 import { leadCompactTo } from './lead-tools.ts'
 import { recordViews } from './lead-records.ts'
 import { goTailFor } from './go.ts'
+import { toolText } from '../tool-text.ts'
+import type { Role } from '../tool-text.ts'
 
 const stopCallKey = (sid: string, verb: string, lane: unknown) => `${sid}\n${verb}\n${String(lane)}`
 
@@ -210,12 +212,7 @@ async function leadTools($: any, sid: string) {
   for (const verb of c.LEAD_VERBS) {
     await $.tool.register({
       name: `lane_${verb}`,
-      description:
-        verb === 'rename'
-          ? 'Bind a brand-new session to a lane: writes a rename cue for the session with this id. sid: its session id. lane: the lane name. The session must be in the lane folder, empty and unnamed, and less than 2 minutes old.'
-          : verb === 'compact'
-            ? "Ask the lane's session to compact. If it asked for that with request_compact on-cue, it compacts now; otherwise it orders the lane to compact: the plugin tells it to save its notes and call request_compact on-cue, whatever its context size, and it compacts at the end of that turn. lane: the lane name."
-            : `Cue the lane's session to ${verb}. lane: the lane name. The session applies its own limits. A start only works within 2 minutes of the session opening.`,
+      description: toolText(`lane_${verb}`, 'lead'),
       inputSchema: {
         type: 'object',
         properties: verb === 'rename' ? { sid: text, lane: text } : { lane: text },
@@ -226,66 +223,57 @@ async function leadTools($: any, sid: string) {
   for (const verb of c.STOP_VERBS) {
     await $.tool.register({
       name: `lane_${verb}`,
-      description:
-        verb === 'terminate'
-          ? "Stop the lane's session with SIGTERM, whatever it is doing. The person is asked to confirm every time. Once the session has stopped, the lane's record is deleted too (the .archive/<LANE> folder and report stay). A lane with no live session is removed directly. lane: the lane name."
-          : verb === 'park'
-            ? "Park the lane's session: stop it and close its tab, but keep the conversation. lane_unpark reopens it later. The session must confirm first: idle for 30 seconds, an empty prompt box, no background agents or shells. No report is needed; the lane's record stays, the only stop that keeps it. The call itself waits up to 40 seconds for the idle time, so call it right after the lane's last turn; if it still refuses not-idle, wait the seconds it names and try once, never in a loop. Works for lanes you made and lanes a session joined. lane: the lane name."
-            : "Stop the lane's session once it confirms it can end: idle, empty prompt box, no background agents or shells, and the last line of <repo>/.archive/<LANE>/REPORT.md reads `status: done <its session id>` in a file newer than its last prompt. Does nothing otherwise. The call itself waits up to 40 seconds for the idle time, so call it right after the lane's last turn; if it still refuses not-idle, wait the seconds it names and try once, never in a loop. Once the session has stopped, the lane's record is deleted too (the .archive/<LANE> folder and signed report stay). A lane with no live session is removed directly, with no signed report. Retire is final: the conversation cannot be reopened with lane_unpark. Use lane_park for a lane you may need again, the only stop that keeps the lane. lane: the lane name.",
+      description: toolText(`lane_${verb}`, 'lead'),
       inputSchema: { type: 'object', properties: { lane: text }, required: ['lane'] },
     })
   }
   await $.tool.register({
     name: 'lane_create',
-    description:
-      "Create a lane in the repo this lead was allowed in: name and task (what the lane should do: plain text, 1 to 8000 characters, newlines allowed). The mod writes the task to <folder>/.archive/<name>/BRIEF.md, which the lane reads as its first instructions. folder is optional: an absolute path to an existing folder inside the repo; the repo root by default. model is optional: opus, sonnet, haiku or fable, sonnet by default; the lane switches to it when it starts. No sudo needed. At most 16 lanes per repo and 12 creates an hour. Then lane_open, lane_rename with the session id it returns, and lane_start.",
+    description: toolText('lane_create', 'lead'),
     inputSchema: { type: 'object', properties: { name: text, task: text, folder: text, model: { type: 'string', enum: [...c.LANE_MODELS] } }, required: ['name', 'task'] },
   })
   await $.tool.register({
     name: 'lane_open',
-    description:
-      'Open a new panel in the lane folder (VS Code only) and return its session id. Then call lane_rename with that id and the lane, and lane_start. lane: the lane name. Refused when a live session already carries the lane name. Refused for a parked lane: use lane_unpark.',
+    description: toolText('lane_open', 'lead'),
     inputSchema: { type: 'object', properties: { lane: text }, required: ['lane'] },
   })
   await $.tool.register({
     name: 'lane_unpark',
-    description:
-      "Reopen a lane's saved conversation in its VS Code window, with its full history. Use it for a parked lane, or one whose session was closed. Not for a retired lane: retire is final, so lane_open starts a new conversation for it. The session becomes the lane again by itself within a few seconds; then call lane_resume. lane: the lane name.",
+    description: toolText('lane_unpark', 'lead'),
     inputSchema: { type: 'object', properties: { lane: text }, required: ['lane'] },
   })
   await $.tool.register({
     name: 'lane_list',
-    description: 'List the lanes of the repo this lead was allowed in, as one table (a plain header line, then one row per lane with its lead, repo folder name, session and waiting columns; a lead no live session carries is marked not live): each lane, its folder when it is outside the repo root, whether a live session carries its name or it is parked, and how many minutes it has waited on a prompt. Call it when told the lanes changed.',
+    description: toolText('lane_list', 'lead'),
     inputSchema: { type: 'object', properties: {} },
   })
   await $.tool.register({
     name: 'go_request',
-    description:
-      "Ask the person for one go that counts in your lanes (ADR 0009). It only opens the person's dialog in this session: text says what the work is (1 to 300 bytes of plain text on at most 3 lines, none empty, with the detail in the brief or the plan; the person reads it, and the lanes read it back from go_status). The dialog shows how many of your lanes have a session now, the end (24 hours) and the short list of what a go never covers. The result says whether the go was given. Main agent of a lead only; at most 6 dialogs an hour. Call it when lane_create or lane_start says no go covers a lane that has risk-list work.",
+    description: toolText('go_request', 'lead'),
     inputSchema: { type: 'object', properties: { text }, required: ['text'] },
   })
   // ADR 0004 (prompt answering): the three tools of every tier.
-  await promptToolsRegister($)
+  await promptToolsRegister($, 'lead')
   leadDeclared.add(sid)
 }
 
 // The three prompt tools, declared for a lead, a conductor and the manager alike (the handlers are shared; what a tier may do with a request depends on its place in
 // the chain). They answer only while the person has turned escalation on.
-export async function promptToolsRegister($: any) {
+export async function promptToolsRegister($: any, role: Exclude<Role, 'any'>) {
   const text = { type: 'string' }
   await $.tool.register({
     name: 'prompt_list',
-    description: "List the permission prompts and the lane questions in your reach that are waiting for an answer: each one's id, lane, tool, how long it has been open, where it stands for you (whether you are the top tier, whether your window has opened) and its input (data from the lane, in an untrusted frame), then the rubric to judge it by. Call it when told a lane has a prompt waiting. Shows nothing while escalation is off.",
+    description: toolText('prompt_list', role),
     inputSchema: { type: 'object', properties: {} },
   })
   await $.tool.register({
     name: 'prompt_answer',
-    description: "Answer one waiting prompt or question in your reach: id (from prompt_list), decision (allow or deny; for a question only `answer`, with option, the number shown in prompt_list, and optionally answer, that option's label) and why (one line, at most 200 characters, no data values). Your answer is yours, never the person's, and carries no approval for anything else. It lands once the prompt has been open 30 seconds; the person's click always wins. Allow only by the rubric; deny only if you are certain; a call you cannot follow whole (truncated, encoded, built at run time) is denied with the cleaner-command message, never allowed; a question is never denied or answered Other; otherwise prompt_escalate.",
+    description: toolText('prompt_answer', role),
     inputSchema: { type: 'object', properties: { id: text, decision: { type: 'string', enum: ['allow', 'deny', 'answer'] }, why: text, option: { type: 'integer', minimum: 1, maximum: 4 }, answer: text }, required: ['id', 'decision', 'why'] },
   })
   await $.tool.register({
     name: 'prompt_escalate',
-    description: "Pass one waiting prompt up: id (from prompt_list) and why (one line, at most 200 characters). A tier that is not the top one passes it to the next tier. The top tier (the highest one live) puts it to the person instead: the result lists the steps (for a permission prompt a Haiku summary, then one AskUserQuestion headed `Relay <short>` with the options Yes and No; for a lane's question one AskUserQuestion headed `Relay <short>` whose options are exactly the lane's own labels, as prompt_list numbers them). Use it for anything you cannot judge from the rubric, at once.",
+    description: toolText('prompt_escalate', role),
     inputSchema: { type: 'object', properties: { id: text, why: text }, required: ['id', 'why'] },
   })
 }
@@ -954,7 +942,7 @@ export async function leadBase($: any, e: unknown, sid: string) {
   if ((e as { agentId?: string }).agentId !== undefined) return { err: SUBAGENT }
   // The manager has fourteen tools (c.MANAGER_TOOLS: five lane tools, six lead tools and the three prompt tools); every other lane tool refuses it, declared or not.
   if (grantOf(sid)?.level === 'manager' && !c.MANAGER_TOOLS.includes(String((e as { tool?: unknown }).tool))) return { err: ['manager-tool', c.REASON_TEXT['manager-tool']] as const }
-  // The conductor has thirteen (c.CONDUCTOR_TOOLS: three lane tools, lead_open, six lead tools and the three prompt tools).
+  // The conductor has fourteen (c.CONDUCTOR_TOOLS: three lane tools, lead_open, six lead tools, go_request and the three prompt tools).
   if (grantOf(sid)?.level === 'conductor' && !c.CONDUCTOR_TOOLS.includes(String((e as { tool?: unknown }).tool))) return { err: ['conductor-tool', c.REASON_TEXT['conductor-tool']] as const }
   return leadCore($, sid)
 }

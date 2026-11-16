@@ -1,5 +1,6 @@
 import { expect, test } from 'claude-code/testing'
-import { h, LEADRECDIR, ROOT, SID, T0, extraStat, leadFiles, longTest, pfs, toolDefs } from './harness'
+import { toolNames } from '../hooks/tool-text'
+import { h, LEADRECDIR, ROOT, SID, T0, extraStat, leadFiles, longTest, pfs, toolDefs, toolDesc } from './harness'
 import { APISID, COND, LEADPATH, LEADSID, OTHERLEAD, PIN, condOn, condPresenceOf, leadRecsJson, listCall, mgrCall, ownedBy, putCond, putLeadRecs, regAs } from './fixtures'
 import { APIQ, CNDT, LDIR, LEAD2, PDIR, TID, TID2, addCondT, answerCall, answerer, asConductor, at, byCond, decideBy, pcall, putQ, readReq, refusal, rowKinds, runRequest, said } from './answer-fixtures'
 
@@ -137,10 +138,8 @@ test('the records of a repo are the conductor\'s own only: the file of a repo it
   expect(((await $.tool.call(listCall())).result as string)).not.toContain('API')
 })
 
-test('the conductor\'s tool descriptions say it reaches the leads it owns', async ($, on) => {
+test('the conductor\'s tools are declared with the conductor\'s descriptions, which say it reaches the leads it owns', async ($, on) => {
   await condOn($, on)
   const d = toolDefs.join('\n')
-  expect(d).toContain('your leads and their lanes')
-  expect(d).toContain('a live lead you own')
-  expect(d).toContain('a lane of a lead you own')
+  for (const name of toolNames('conductor')) expect(d).toContain(toolDesc(name, 'conductor'))
 })

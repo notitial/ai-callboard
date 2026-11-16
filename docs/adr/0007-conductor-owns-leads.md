@@ -67,6 +67,12 @@ Facts that bound the options:
   and retire or stop it.
 - **The approved list still fences everything.** A conductor reaches a lead it owns only while that lead's repo is in
   its approved list and its list file. Ownership narrows reach; it never widens it.
+- *2026-11-16 ([ADR 0009](0009-go-given-once.md)): **ownership also carries a go downward.** A go the person gives in
+  a conductor's session, in callboard's own dialog, covers the leads it owns and their lanes, the ones opened later
+  included: a lead by its record naming that conductor's session and its binding to the record, a lane by its
+  record naming such a lead. The conductor asks for one with `go_request`, which only opens the person's dialog.
+  This one reading does not follow the approved list: a go lasts until its end or `/callboard go off`, also for a
+  lead whose repo has left the list.*
 
 ### The lead record and the binding
 
@@ -271,11 +277,12 @@ made and joined) and `was` (the conductor a lead left, for left and off).*
   once it is idle. So a prompt-injected conductor can end any of its idle leads that has no lane records, and the retire deletes the saved
   lead grant: the conversation stays on disk and the person can resume it and type `/callboard lead` again, but
   `lead_unpark` cannot bring it back. This is the same exposure a lead already has over its lanes, whose reports it can
-  write. `lead_terminate` always asks. A conductor cannot reach a lead it does not own: ownership needs the person's
+  write. `lead_terminate` always asks. *2026-11-16 (ADR 0009): under a live go it can open sessions that the go
+  covers.* A conductor cannot reach a lead it does not own: ownership needs the person's
   Join or the accept of its own offer.
 - **Accepted residual: a prompt-injected lead.** Its shell can rewrite its own record or the lane records to steer its
   prompts to another approved conductor, inside ADR 0004's bound (the same shell can forge a decision file). It cannot
-  make a conductor obey it.
+  make a conductor obey it. *2026-11-16 (ADR 0009): under a live go it can open sessions that the go covers.*
 - **Accepted residual: same-uid forgery, wider than before.** A process running as the person can write a record and
   the binding, and so make any approved, live conductor a lead's owner, with its prompts and its stop powers. It could
   already send the signal itself (ADR 0002). New: the owner it picks can then park or retire that lead with no dialog,

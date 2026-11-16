@@ -334,8 +334,8 @@ export const ownerFlagged = new Set<string>()
 // A lead's rename whose new name is taken: the `old\ncur` pair the person was already told about, so the toast comes once per pair.
 export const renameRefused = new Map<string, string>()
 
-// The go (engine/go.ts). goAsked: when each session's go_request calls reached the dialog (the hourly cap). goWatch: what a lead has seen of the `go-read` rows of
-// its own goes, so a lane that reads one later is told to the person once (since: when this watch began; a read before it is not told). goBusy: its once-a-minute step.
+// The go (engine/go.ts). goAsked: when each session's go_request calls reached the dialog (the hourly cap). goWatch: what a lead or a conductor has seen of the `go-read` rows of
+// its own goes, so a lane or a lead that reads one later is told to the person once (since: when this watch began; a read before it is not told). goBusy: its once-a-minute step.
 export const goAsked = new Map<string, number[]>()
 export const goWatch = new Map<string, { since: number; at: number | undefined; told: Map<string, Set<string>> }>()
 export const goBusy = new Set<string>()

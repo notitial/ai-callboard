@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 import { nudgeText, compactResumeText, OFF_NOTHING } from '../hooks/core'
-import { h, GOOD, PS_TABLE, YES, laneSeed, longTest, psCalls, resultFiles, seen, submitted, toolDefs } from './harness'
+import { h, GOOD, PS_TABLE, YES, laneSeed, longTest, psCalls, resultFiles, seen, submitted, toolDefs, toolDesc } from './harness'
 import type { Trace } from './harness'
 import { LEAD_LANES, MIN, NOT_ENABLED, NOW, OWN_ROW, REG, REGFILE, RESULT, SELF_PS, TURN, cue, lane, lead, leadAt, leadCall, logged, midCtx, newTrace, nudges, person, postBeneath, renameThroughTick, retireTarget, tickTwice, ticks, advanceQuiet } from './fixtures'
 
@@ -25,7 +25,7 @@ test('a compact cue with no request nudges an idle lane: held nudged, and the ti
 
 longTest('the lead reads a nudge as held, with its fixed text', async ($, on) => {
   await lead($, on, [])
-  expect(toolDefs.filter((d) => d.includes('"lane_compact"')).at(-1)).toContain("Ask the lane's session to compact. If it asked for that with request_compact on-cue, it compacts now; otherwise it orders the lane to compact: the plugin tells it to save its notes and call request_compact on-cue, whatever its context size, and it compacts at the end of that turn. lane: the lane name.")
+  expect(toolDefs.filter((d) => d.includes('"lane_compact"')).at(-1)).toContain(toolDesc('lane_compact', 'lead'))
   h.autoAnswer = 'held nudged'
   expect(JSON.stringify(await $.tool.call(leadCall('compact')))).toContain('lane_compact refused: held, nudged: the lane was ordered to compact. It is told at the end of its current turn (now, if idle) and compacts itself when it asks on-cue, whatever its context size. If it has not asked within 15 minutes, you are told: then ask the person whether to lane_terminate it. Do not repeat this call unless the text says to retry.')
   h.autoAnswer = 'refused nudge-limit'

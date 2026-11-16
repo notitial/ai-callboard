@@ -32,7 +32,8 @@ A session takes a role with one `/callboard` command and a confirmation dialog. 
   listed in `.claude/callboard-conductor.json`: it lists their lanes, resumes, compacts, parks and retires those
   leads, and opens a new lead in a listed repo without asking you (`lead_open`). It holds at most four leads at
   once, and a parked lead keeps its slot until it is retired (ADR 0006). It never creates, starts or retires a lane
-  itself, and a force stop of any lane or lead asks you.
+  itself, and a force stop of any lane or lead asks you. A conductor can also hold a go (below), which counts in
+  the leads it owns and in their lanes.
 - **Manager.** `/callboard manager [NAME]`: one per machine, reaching every lane and lead in any repo. It resumes and
   compacts lanes; every stop, every removal and every call to a lead asks you. Its role is in `docs/manager/README.md`.
 
@@ -59,14 +60,19 @@ caller.
 3. The lanes work. When a lane waits on a permission prompt, the dialog stays in front of you; with escalation on,
    the lead (then the conductor, then the manager) may answer it, never in your first 30 seconds, and your click
    normally wins (a Yes that lands in a short gap can be missed: ADR 0004). Merges, force pushes, pushes to main or production and destructive deletes are always passed up
-   to you. Every prompt of a lane's or a lead's own call rises this way, whatever raised it (a rule, a hook or
-   guard, a setting, a plugin) and whatever the tool, a plan-mode exit included: the tier sees what raised it and
+   to you. Every ask that `tool.check` reports for a lane's or a lead's own call rises this way, whatever raised it
+   (a rule, a hook or guard, a setting, a plugin) and whatever the tool, a plan-mode exit included: the tier sees what raised it and
    the hook's reason, handles the routine cases its rubric names (a rerun of the lane's own CI run, a delete inside
    the lane's own clone) and passes the rest up, and the top live tier relays it to you. A request that no tier
    answers or relays is denied after 20 minutes, and the lane may ask again
-   ([ADR 0011](../../docs/adr/0011-all-prompts-rise.md)). A prompt that has waited 5 minutes is put in front of the lane's lead at once, in the middle of its turn
-   if it is busy, and in front of the manager after 10 minutes; you get one toast per wait in each window that
-   watches the lane. That alert lets no one answer the prompt: it only says that one is waiting.
+   ([ADR 0011](../../docs/adr/0011-all-prompts-rise.md)). What cannot rise (a subagent's ask, a call with no usable
+   `tool.check` entry, no live tier, a question with no answer form) stays in the lane's panel; a prompt that a host
+   answers is not yours to click, and nothing waits on you there. A prompt that has waited 5 minutes and that no
+   tier holds as a request is put in front of the lane's lead at once, in the middle of its turn if it is busy, and
+   in front of the manager after 10 minutes; a prompt a tier already holds as a request was told by that request's
+   own notice, so its check-in is skipped, and it comes back if the request ends (answered, withdrawn, denied) or
+   runs past its time with the lane still waiting. You get one toast per wait in each window that watches the
+   lane, held or not. That alert lets no one answer the prompt: it only says that one is waiting.
 4. A lane that waits on a pull request registers it with `pr_watch` and is told when checks finish, reviews arrive
    or the PR is mergeable, merged or closed. A merge is still yours.
 5. A big lane is asked to compact before it loses its notes, and a lead can order it to. You never type that.
@@ -75,9 +81,15 @@ caller.
    report unsigned shows a toast in the lead's window. A lane you may need again is parked instead.
 7. Before a long stretch, give the lead one go for the whole body of work (`/callboard go TEXT`) so its lanes do
    not ask again for each step (it counts only while the protected-paths guard is in place). A go never covers a merge, a force push, a push to
-   main or production, or a delete outside the lane's own work, and the rest of the list `go_status` prints
+   main or production, or a delete outside the lane's own work, and the rest of the list `/callboard go` prints
    (ADR 0009). The dialog is short, and so is TEXT: two or three lines, with the detail in the brief or the plan.
    `go_status` shows a session what covers it. A closed, parked or crashed panel ends no go; `go off` does.
+   Typed in a conductor, the same command gives one go for the leads it owns and their lanes, the ones it
+   opens later included; its main agent can ask you for one with `go_request`, as a lead's can. It counts a lane only when the lane's record names one of those leads by
+   session id. Such a go ends at its end time, at `go off`, when the conductor turns off, or when its saved
+   conductor grant is refused for good at a restart; taking a repo off the conductor's list does not end
+   it, and a lead or lane it held at the click keeps it until then, also if that lead leaves the conductor. The
+   manager gives no go.
 
 A lead that you leave idle is told when a lane needs it (its session is gone, it waits on a prompt, it went
 quiet without signing), unless you pause that with `/callboard checkin pause` (an hour, or the time you give;
@@ -304,6 +316,9 @@ case small (ADR 0002, Consequences). Beyond that, specific to what you see:
   the rows is not checked against a live engine.
 - A go dialog left open for 10 minutes inside a tool call may be cut off by the engine, and a window may join its
   lines into one block: unverified live (ADR 0009, probes).
+- A session whose mod was loaded before the conductor's go existed cannot read a conductor's go file and reports no
+  go: it asks you as before, until it restarts. Its `/callboard go off` cannot end such a go either and says there is
+  none: type it in a session that has restarted.
 
 ## Tests
 
