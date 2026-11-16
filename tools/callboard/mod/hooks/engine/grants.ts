@@ -36,6 +36,7 @@ import {
   conductorApproved,
   conductorSavedAt,
   conductorRestorePending,
+  conductorRestoreAsked,
   conductorReadAt,
   managerSavedAt,
   managerCwd,
@@ -114,6 +115,7 @@ import { loadLeadRecords, boundState } from './lead-records.ts'
 import { managerCommand } from './commands.ts'
 import { ownerLeave, ownerRename, leadNameHeld } from './lead-records.ts'
 import { goGrantorOff } from './go.ts'
+import { hereGrantOff } from './answer-hook.ts'
 import { toolText } from '../tool-text.ts'
 import { promptHeldSids } from './answer-tiers.ts'
 import { epochOf, heldNo, levelBrief, levelSave } from './levels.ts'
@@ -380,6 +382,8 @@ export function leadDrop($: any, sid: string): Promise<boolean> {
   // failed manager grant, must not delete a mark the person never answered (managerForget, from /callboard off and the restore's Cancel, does).
   managerSavedAt.delete(sid)
   managerCwd.delete(sid)
+  // A session that was `here` (/callboard here) is here no longer: the key goes beside the drop, which does not wait for it.
+  void hereGrantOff($, sid).catch(() => undefined)
   // The saved grant goes too, so the session is not lead again after a restart.
   const unsave = Promise.resolve()
     .then(() => $.store.delete(`${c.LEAD_HINT_PREFIX}${sid}`))
@@ -509,6 +513,7 @@ async function leadRestoreTry($: any, me: string, hint: c.LeadHint): Promise<str
   if (cwd !== hint.pin) {
     void goGrantorOff($, me).catch(() => undefined)
     await $.store.delete(`${c.LEAD_HINT_PREFIX}${me}`)
+    void hereGrantOff($, me).catch(() => undefined)
     return void (await end('wrong-folder'))
   }
   // A lane is never a lead too (the rebind refuses a lead in turn); a read that does not answer counts as a binding.
@@ -2036,6 +2041,7 @@ async function conductorRestoreTry($: any, me: string, box: { hint: c.ConductorH
   if (cwd !== hint.home) {
     noGoes()
     await $.store.delete(key)
+    void hereGrantOff($, me).catch(() => undefined)
     return void (await end('wrong-folder'))
   }
   // A lane on its way back: its binding, its restore hint, or a store record naming this session. A pending rebind alone is tried again:
@@ -2120,7 +2126,8 @@ export async function conductorRestore($: any, me: string, hint: c.ConductorHint
   conductorRestorePending.set(me, { hint: box.hint, tries, last: again })
 }
 // The restore dialog, when the list names repos the person has not approved: every repo shown, the new ones named. Conductor restores with the
-// whole shown list (the approved list becomes it); Cancel is the person's no (the saved grant goes); no answer restores nothing and keeps the key. An
+// whole shown list (the approved list becomes it); Cancel is the person's no (the saved grant goes); no answer restores nothing and keeps the key, and the
+// same question is asked again once a prompt that is not the mod's own has reached this session, a few times at most (c.conductorUnansweredStep). An
 // off or a lead grant while it is open grants nothing, and the list resolved after the click must be the one shown.
 async function conductorRestoreAsk($: any, me: string, pend: CondPending) {
   const { hint } = pend
@@ -2132,10 +2139,12 @@ async function conductorRestoreAsk($: any, me: string, pend: CondPending) {
     if (conductorRestorePending.get(me) === pend) conductorRestorePending.delete(me)
   }
   pend.asking = true
+  conductorRestoreAsked.add(me)
   try {
     const p = await where($)
     const question = c.conductorRestoreQuestion(hint.home, shown, added, p ? homeOf(p) : undefined)
-    const r = question.length > c.QUESTION_MAX ? 'error' : await askOnce($, me, question, c.CONDUCTOR_YES, c.CONDUCTOR_NO, c.HEADER.conductor)
+    const fits = question.length <= c.QUESTION_MAX
+    const r = fits ? await askOnce($, me, question, c.CONDUCTOR_YES, c.CONDUCTOR_NO, c.HEADER.conductor) : 'error'
     if (r === 'busy') return
     if (!mine()) return void (await log($, me, 'conductor-restore-rejected', 'changed'))
     if (r === 'no') {
@@ -2145,9 +2154,13 @@ async function conductorRestoreAsk($: any, me: string, pend: CondPending) {
       return void (await log($, me, 'conductor-restore-cancelled'))
     }
     if (r !== 'yes') {
-      end()
+      // Kept waiting for the next prompt in this session, a few times at most (conductorRestoreWake); then, or for a question too long to show, the final end.
+      pend.unanswered = (pend.unanswered ?? 0) + 1
+      const step = c.conductorUnansweredStep(hint.home, pend.unanswered, fits)
+      if (step.next === 'wait') pend.waiting = true
+      else end()
       await log($, me, 'conductor-restore-unanswered')
-      return void toast($, c.conductorUnansweredToast(hint.home))
+      return void (step.toast !== undefined && toast($, step.toast))
     }
     end()
     // A check that fails after the click is a final end: logged, and the person is told.
@@ -2187,13 +2200,28 @@ async function conductorRestoreAsk($: any, me: string, pend: CondPending) {
     pend.asking = false
   }
 }
+// A prompt that is not the mod's own reached this session (the person's, or a message another session sent: the hook cannot tell them apart): a conductor
+// restore question that got no answer is asked again at the next idle tick, as the manager's (managerRestoreWake). The person's click in the dialog is still
+// the only yes, and every check runs again after it.
+export function conductorRestoreWake(sid: string) {
+  const pend = conductorRestorePending.get(sid)
+  if (pend?.waiting) pend.waiting = false
+}
 // The tick's part: a running conductor's reach (the ratchet, the presence text, an empty reach) at most every CONDUCTOR_REFRESH_MS and its saved grant once a
-// day; a pending restore's next try, or its dialog once the session is idle with an empty prompt box (not awaited: the dialog waits up to 90 s).
+// day; a pending restore's next try, or its dialog once the session is idle with an empty prompt box (not awaited: the dialog waits up to 90 s). A question
+// that got no answer waits for the next prompt first.
 const CONDUCTOR_REFRESH_MS = 10_000
 
 export async function conductorTick($: any, sid: string) {
   const pend = conductorRestorePending.get(sid)
-  if (pend && !pend.asking) {
+  if (pend && !pend.asking && pend.unanswered && grants.has(sid)) {
+    // The person made the session a lead while the unanswered question waited, or before it was asked again: that grant stands and the restore ends at this
+    // tick, so the session no longer counts as a conductor on its way back. It is no conductor after it, so the goes its conductor grant gave end too (the
+    // lead's own goes stay), as at the other refusals (conductorRestoreTry).
+    conductorRestorePending.delete(sid)
+    void goGrantorOff($, sid, 'conductor').catch(() => undefined)
+    await log($, sid, 'conductor-restore-rejected', 'lead-holder')
+  } else if (pend && !pend.asking && !pend.waiting) {
     if (!pend.ask) {
       const r = await withTimeout($, conductorRestore($, sid, pend.hint, pend.tries + 1, pend.last), ACTION_TIMEOUT_MS).catch(() => 'error' as const)
       if (r === 'timeout' || r === 'error') await logq($, sid, 'error', `conductor-restore-${r}`)

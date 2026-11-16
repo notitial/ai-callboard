@@ -66,7 +66,13 @@ caller.
    the lane's own clone) and passes the rest up, and the top live tier relays it to you. A request that no tier
    answers or relays is denied after 20 minutes, and the lane may ask again
    ([ADR 0011](../../docs/adr/0011-all-prompts-rise.md)). The time the Mac sleeps does not count, and a sleep
-   does not by itself end a request's wait. What cannot rise (a subagent's ask, a call with no usable
+   does not by itself end a request's wait.
+   The relay opens in the top tier's panel, which with a manager
+   live is the manager's. To have it open where you work, type `/callboard here` in that lead's, conductor's or
+   manager's session: for 12 hours a prompt or question in its reach that no tier settles is put to you there, in
+   that session's words. It moves when you type it in another session and ends at `/callboard here off`, when that
+   session stops being a tier, or after the 12 hours; the tiers above keep their relay, so one may still ask you in
+   its own panel if the session you named does not (ADR 0009). What cannot rise (a subagent's ask, a call with no usable
    `tool.check` entry, no live tier, a question with no answer form) stays in the lane's panel; a prompt that a host
    answers is not yours to click, and nothing waits on you there. A prompt that has waited 5 minutes and that no
    tier holds as a request is put in front of the lane's lead at once, in the middle of its turn if it is busy, and
@@ -108,12 +114,13 @@ that fit, each with its help line. The families:
 - **Roles:** `lead [NAME]`, `lead join [CONDUCTOR]`, `lead leave`, `lane [NAME]`, `lane off`, `conductor [NAME]`,
   `conductor add|remove NAME|PATH`, `manager [NAME]`, and `off` to drop whatever the session holds.
 - **Settings:** `config SETTING VALUE`, `config reset`, `reserve [add] NAME`, `reserve remove NAME`,
-  `checkin pause [Nm|Nh]`, `checkin resume`, `escalation [off]`, `rest` (or `/rest`), `go [TEXT]`, `go off [SHORT]`.
+  `checkin pause [Nm|Nh]`, `checkin resume`, `escalation [off]`, `rest` (or `/rest`), `go [TEXT]`, `go off [SHORT]`,
+  `here`, `here off`.
 
 Anything that widens what a session may do (a role, a name, a setting, a reserved name, a go) needs your own prompt
 or phone: from a plugin, another session or a script it is refused, or asks you first. `off`, `rest`,
 `escalation off` and the prints take any origin; `off` from another origin asks you first; `go` and `go off` are your own prompt or phone only, with no
-ask-first path.
+ask-first path, and so is `here`; `here off` takes any origin, since it only narrows.
 
 `/callboard config` shows the settings with their defaults: keepalive, ping and stop times, the two compaction
 levels, check-ins, whether conductors may open leads, and escalation. `config reset` restores the defaults.
@@ -277,8 +284,9 @@ Other symptoms:
 - **A role did not come back after a restart.** A restore that ends without restoring shows one toast with the
   reason ("Lead not restored: ...", "Conductor not restored: ...", "Manager not restored: ..."); run the role's
   command again by hand. A failure that can clear by itself is tried again first. The manager's restore asks you,
-  and a question left unanswered is asked again after the next prompt in that session, three times in all; then a
-  toast says to run `/callboard manager`. Your click in the dialog stays the only yes.
+  and so does a conductor's when its list names a repo you have not approved. A question left unanswered is asked
+  again after the next prompt in that session, three times in all; then a toast says to run the role's command.
+  Your click in the dialog stays the only yes.
 - **A prompt stays in the lane's panel and no tier sees it.** Some prompts cannot rise: a subagent's, one with no
   live tier in reach, a question that is not one single-choice question, and the others ADR 0011 lists. The
   waiting-prompt toast is what tells you. After a fast-forward of the checkout, reload the lead, conductor and

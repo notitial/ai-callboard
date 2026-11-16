@@ -36,13 +36,12 @@ export const mem = {
   guard: undefined as { at: number; missing?: pr.GuardMissing } | undefined,
   defaultSyncing: undefined as Promise<boolean> | undefined,
   // The unattended window (engine/answer-hook.ts). unattended: the last read, kept for its TTL. unattendedSure: the last state a read was sure of. unattendedUnknown:
-  // the run of unknown reads now under way has its ledger row. unattendedBound: the hash this process found bound in the ledger. unattendedHash: the last value
+  // the run of unknown reads now under way has its ledger row. unattendedHash: the last value
   // hashed, by its canonical text. unattendedLookedAt: when the tick last looked. unattendedCloses: how many windows this process has ended, so a read under way
   // across an end is not kept.
   unattended: undefined as { at: number; w: pr.Window } | undefined,
   unattendedSure: undefined as 'on' | 'off' | undefined,
   unattendedUnknown: false,
-  unattendedBound: undefined as string | undefined,
   unattendedHash: undefined as { text: string; hash: string } | undefined,
   unattendedLookedAt: undefined as number | undefined,
   unattendedCloses: 0,
@@ -81,6 +80,9 @@ export const restoredOnce = new Set<string>()
 export const dialogOpen = new Set<string>()
 // Counts the `off` commands that ran, so a restore or a join that waited on a dialog can see an `off` came in meanwhile and stop.
 export const offSeq = new Map<string, number>()
+// Sessions whose `here` (/callboard here) ended in this process, by a dropped grant or a key that could not be written: such a session is not here again until the
+// person types the command there, whatever the store key says (its delete may have failed, or a slow write may land late).
+export const hereGone = new Set<string>()
 
 // The lead grant lives only in this module's memory: a reload or a restart drops it, and /callboard lead has to be run and allowed again.
 // It keeps the cwd the lead had when the person gave it, so a later cd cannot move the lead into another repo's lanes.
@@ -288,8 +290,13 @@ export const conductorApproved = new Map<string, string[]>()
 export const conductorSavedAt = new Map<string, number>()
 export const conductorDeclared = new Set<string>()
 
-export type CondPending = { hint: c.ConductorHint; tries: number; last?: string; ask?: { shown: string[]; added: string[] }; asking?: boolean }
+// unanswered: the times the restore question got no answer. waiting: it got no answer and is asked again only once a prompt that is not the mod's own has
+// reached this session (conductorRestoreWake).
+export type CondPending = { hint: c.ConductorHint; tries: number; last?: string; ask?: { shown: string[]; added: string[] }; asking?: boolean; unanswered?: number; waiting?: boolean }
 export const conductorRestorePending = new Map<string, CondPending>()
+// The sessions whose restore question was shown in this process: a session.start that is not a start (a compaction) starts no second restore for them, so
+// the question is asked again only as its own limits allow. Module memory: a reload of the mod empties it, and the restore then starts over.
+export const conductorRestoreAsked = new Set<string>()
 
 export const conductorReadAt = new Map<string, number>()
 

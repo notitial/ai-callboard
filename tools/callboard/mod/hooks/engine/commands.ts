@@ -6,6 +6,7 @@ import * as pr from '../prompts.ts'
 import {
   grants,
   offSeq,
+  hereGone,
   restoredOnce,
   managerDeclared,
   conductorDeclared,
@@ -76,7 +77,7 @@ import { ensureTimer } from './tick.ts'
 import { grantNameNo } from './lead-open.ts'
 import { epochOf, heldNo, holdsOf, levelSave } from './levels.ts'
 import type { LevelDesc } from './levels.ts'
-import { ANSWERING_KEY, ledgerAdd, promptsOff, escalationNow, defaultForget, unattendedNow, unattendedClose } from './answer-hook.ts'
+import { ANSWERING_KEY, ledgerAdd, promptsOff, escalationNow, defaultForget, hereRead, hereDrop, unattendedNow, unattendedClose } from './answer-hook.ts'
 import { ledgerRestore } from './answer-tiers.ts'
 import * as go from '../go.ts'
 import { goCommand, goGrantorOff } from './go.ts'
@@ -855,7 +856,7 @@ async function escalationCommand($: any, sid: string, code: c.OriginCode, op: pr
       await logq($, sid, 'error', 'escalation-store')
       // The command is an off for an unattended window whether or not its own write landed.
       const ended = await unattendedClose($, { code: 'escalation-off', origin: code }).catch(() => 'store-failed' as const)
-      return { text: `Escalation could not be changed: the store did not answer. Create ~/.claude/callboard/prompts/OFF to stop it now.${ended === 'closed' ? ` ${pr.UNATTENDED_ENDED}` : ''}` }
+      return { text: `Escalation could not be changed: the store did not answer. Create ~/.claude/callboard/prompts/OFF to stop it now.${ended === 'closed' ? ` ${pr.UNATTENDED_ENDED}` : ended === 'store-failed' ? ` ${pr.UNATTENDED_OFF_FAILED}` : ''}` }
     }
     if (!(await ledgerAdd($, { kind: 'answering-off', code: 'off' }))) await logq($, sid, 'error', 'escalation-ledger')
     // An unattended window needs escalation: this off ends it.
@@ -897,6 +898,71 @@ async function escalationCommand($: any, sid: string, code: c.OriginCode, op: pr
     return { text: 'Escalation could not be turned on: the ledger did not answer. Nothing changed.' }
   }
   return { text: `${pr.escalationState(value, await promptsOff($))} ${c.DIALOG_LINE}` }
+}
+
+// /callboard here (the person's own command, in a lead's, conductor's or manager's session) and /callboard here off (any origin: it only narrows). On: the
+// `here-on` row first, then the one store key, which replaces the session that was here before. Off: the key goes first, then its `here-off` row.
+async function hereCommand($: any, sid: string, code: c.OriginCode, op: pr.HereOp): Promise<{ text: string }> {
+  if (op === 'bad') return { text: pr.HERE_USAGE }
+  const before = await hereRead($)
+  if (op === 'off') {
+    try {
+      if ((await withTimeout($, (async () => $.store.delete(pr.HERE_KEY))(), c.ENGINE_CALL_TIMEOUT_MS)) === 'timeout') throw new Error('timeout')
+    } catch {
+      await logq($, sid, 'error', 'here-store')
+      return { text: pr.HERE_OFF_FAILED }
+    }
+    if (before === undefined) return { text: pr.HERE_OFF_NONE }
+    // A key that could not be read may have named a session: its end gets a row too, with no session in it.
+    if (!(await ledgerAdd($, { kind: 'here-off', code: 'off', by: sid, ...(before === 'error' ? {} : { was: before.sid }) }))) await logq($, sid, 'error', 'here-ledger')
+    await logq($, sid, 'here-off', code)
+    return { text: pr.HERE_OFF_TEXT }
+  }
+  // On is the person's own command: any other origin is refused before any write.
+  if (!c.originIsPerson(code)) return notPerson($, sid, 'here', code, pr.HERE_NOT_PERSON)
+  const level = grants.get(sid)?.level
+  if (level !== 'lead' && level !== 'conductor' && level !== 'manager') {
+    await logq($, sid, 'refused', 'here-no-tier')
+    return { text: pr.HERE_NO_TIER }
+  }
+  const epoch = epochOf(sid)
+  const at = await $.clock.now()
+  const until = at + pr.HERE_HOURS * c.HOUR_MS
+  const name = grants.get(sid)?.name
+  if (!(await ledgerAdd($, { kind: 'here-on', by: sid, tier: level, end: new Date(until).toISOString(), ...(typeof name === 'string' && name !== '' ? { lane: name } : {}) }))) {
+    await logq($, sid, 'error', 'here-ledger')
+    return { text: pr.HERE_LEDGER_FAILED }
+  }
+  // A key that cannot be written, or a grant that went while it was, leaves no `here`: the session is marked (a write that timed out may still land, and
+  // the mark keeps it from counting), a key that may be there is removed, and the row gets its end.
+  // The write may have replaced the key of the session that was here before: unless that key is read back, that session's `here` has ended too, which gets
+  // its own row and a sentence in the reply.
+  const prev = before !== 'error' && before !== undefined && before.sid !== sid ? before.sid : undefined
+  const undo = async (text: string, drop: boolean) => {
+    hereGone.add(sid)
+    if (drop) await hereDrop($, sid)
+    await ledgerAdd($, { kind: 'here-off', code: 'void', by: sid, was: sid })
+    await logq($, sid, 'error', 'here-void')
+    if (prev === undefined) return { text }
+    const now = await hereRead($)
+    if (now !== 'error' && now?.sid === prev) return { text }
+    if (!(await ledgerAdd($, { kind: 'here-off', code: 'void', by: sid, was: prev }))) await logq($, sid, 'error', 'here-ledger')
+    return { text: `${text} ${pr.HERE_PREV_ENDED}` }
+  }
+  const value: pr.Here = { v: 1, sid, at, until }
+  hereGone.delete(sid)
+  let wrote: unknown
+  try {
+    wrote = await withTimeout($, (async () => $.store.set(pr.HERE_KEY, value))(), c.ENGINE_CALL_TIMEOUT_MS)
+  } catch {
+    return undo(pr.HERE_STORE_FAILED, false)
+  }
+  if (wrote === 'timeout') return undo(pr.HERE_STORE_FAILED, true)
+  if (grants.get(sid)?.level !== level || epochOf(sid) !== epoch) return undo(pr.HERE_GRANT_CHANGED, true)
+  // The session that was here before is here no longer: its end gets a row.
+  if (prev !== undefined && !(await ledgerAdd($, { kind: 'here-off', code: 'moved', by: sid, was: prev }))) await logq($, sid, 'error', 'here-ledger')
+  await logq($, sid, 'here-on', code)
+  return { text: pr.hereOnText(go.goWhen(until, -new Date(until).getTimezoneOffset()), prev !== undefined) }
 }
 
 // What a caller other than the person's command adds to a lead grant (the new panel taking a conductor's offer, engine/lead-accept.ts): the grant's question is
@@ -1058,6 +1124,8 @@ export async function commandRun($: any, e: any) {
   if (line === 'escalation' || line.startsWith('escalation ')) return escalationCommand($, sid, code, pr.parseEscalationArgs(line.slice(10)))
   // The go (ADR 0009): read here, as escalation is; its text keeps its own words.
   if (line === 'go' || line.startsWith('go ')) return goCommand($, sid, code, go.parseGoArgs(line.slice(2)))
+  // Here (ADR 0009, the relay): read here too; `here off` only narrows, so any origin may type it.
+  if (line === 'here' || line.startsWith('here ')) return hereCommand($, sid, code, pr.parseHereArgs(line.slice(4)))
   // The unattended window (ADR 0008): read here, as escalation is.
   if (line === 'unattended' || line.startsWith('unattended ')) return unattendedCommand($, sid, code, pr.parseUnattendedArgs(line.slice(10)))
   if (line === '' || line === 'help') return { text: c.helpText() }

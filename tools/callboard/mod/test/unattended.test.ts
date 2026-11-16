@@ -76,7 +76,7 @@ async function proc($: any, on0: any) {
   newProcess()
   return { $$, knob }
 }
-const newProcess = () => Object.assign(mem, { unattended: undefined, unattendedSure: undefined, unattendedUnknown: false, unattendedBound: undefined, unattendedHash: undefined, unattendedLookedAt: undefined })
+const newProcess = () => Object.assign(mem, { unattended: undefined, unattendedSure: undefined, unattendedUnknown: false, unattendedHash: undefined, unattendedLookedAt: undefined })
 // Past the reader's 10 s and the tick's 30 s.
 const later = (ms = 31_000) => (h.nowMs += ms)
 
@@ -214,14 +214,18 @@ for (const [name, fault, cause] of [
   })
 }
 
-test('unattended: a ledger that does not answer ends nothing: a process that found the row keeps the window, one that did not reads unknown', async ($, on) => {
+test('unattended: a ledger that does not answer ends nothing and permits nothing: the window is unknown, held after an on read, and never on', async ($, on) => {
   const { $$ } = await proc($, on)
   const v = putWindow()
   expect((await unattendedNow($$)).state).toBe('on')
-  h.pfsFails = (a: string[]) => a[0] === '/usr/bin/grep' || a[0] === '/usr/bin/tee'
+  h.pfsFails = (a: string[]) => a[0] === '/usr/bin/grep'
   later()
   await unattendedTick($$)
-  expect((await unattendedNow($$)).state).toBe('on')
+  expect(await unattendedNow($$)).toEqual({ state: 'unknown', cause: 'ledger', key: true })
+  expect(await unattendedOn($$)).toBe(false)
+  expect(await unattendedHeld($$)).toBe(true)
+  expect(uKinds()).toEqual(['unattended-on', 'unattended-unknown ledger'])
+  // A process that never read the window on holds nothing.
   newProcess()
   expect(await unattendedNow($$)).toEqual({ state: 'unknown', cause: 'ledger', key: true })
   expect(await unattendedOn($$)).toBe(false)
@@ -232,7 +236,7 @@ test('unattended: a ledger that does not answer ends nothing: a process that fou
   h.pfsFails = undefined
   later()
   expect((await unattendedNow($$)).state).toBe('on')
-  expect(uKinds()).toEqual(['unattended-on'])
+  expect(uRows().filter((r) => r.kind === 'unattended-off')).toEqual([])
 })
 
 test('unattended: a value that does not parse is unknown and stays stored; the off command is what removes it', async ($, on) => {
@@ -396,6 +400,22 @@ test('unattended: /callboard escalation off from any origin ends the window, wit
   expect(h.store.has(UNATTENDED_KEY)).toBe(false)
   // With no window, the answer is the one it always was.
   expect((await $.command.run(lane('escalation off', { kind: 'plugin' }))).text).toBe('Escalation is off on this Mac.')
+})
+
+test('unattended: /callboard escalation off whose own write fails still ends the window, and says so when it cannot', async ($, on) => {
+  await started($, on, [])
+  const v = putWindow()
+  h.storeThrowSync = 'set'
+  const failed = 'Escalation could not be changed: the store did not answer. Create ~/.claude/callboard/prompts/OFF to stop it now.'
+  h.storeDeleteFails = true
+  expect((await $.command.run(lane('escalation off', { kind: 'plugin' }))).text).toBe(`${failed} ${prm.UNATTENDED_OFF_FAILED}`)
+  expect(h.store.get(UNATTENDED_KEY)).toEqual(v)
+  expect(uKinds()).toEqual(['unattended-on'])
+  h.storeDeleteFails = false
+  expect((await $.command.run(lane('escalation off', { kind: 'plugin' }))).text).toBe(`${failed} ${prm.UNATTENDED_ENDED}`)
+  expect(h.store.has(UNATTENDED_KEY)).toBe(false)
+  expect(uRows()[1]).toMatchObject({ kind: 'unattended-off', code: 'escalation-off', hash: hashOf(v), origin: 'plugin', by: SID })
+  expect((await $.command.run(lane('escalation off', { kind: 'plugin' }))).text).toBe(failed)
 })
 
 // Escalation reads off for each of these, and none is the person's own off: the window stays stored.

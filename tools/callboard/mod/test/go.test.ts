@@ -3,7 +3,7 @@ import * as g from '../hooks/go'
 import { CONDUCTOR_HINT_PREFIX, HOUR_MS } from '../hooks/core'
 import { h, GO_DIR, LANESDIR, LEADRECDIR, ROOT, SID, T0, YES, extraStat, fakeSha, longTest, pdirs, pfs, repoKey, storeFiles, targetLogs, toasts } from './harness'
 import { ledgerRows, putLedger, wireGuard } from './answer-fixtures'
-import { APISID, APP2, COND, condSelf, putCond, LEADSID, OTHER, OTHERLEAD, PERSON, PIN, SVC, bindOwner, ckLane, ckRow, callCreate, condOn, creator, cueSession, dirStat, lane, leadAt, leadCall, leadSelfReg, mgrAt, ownedBy, putLeadRecs, putStore, started, waitFor } from './fixtures'
+import { APISID, APP2, COND, condSelf, putCond, LEADSID, OTHER, OTHERLEAD, PERSON, PIN, SVC, bindOwner, ckLane, ckRow, callCreate, condOn, creator, cueSession, dirStat, grantAt, lane, leadAt, leadCall, leadSelfReg, mgrAt, ownedBy, putLeadRecs, putStore, started, ticks, waitFor } from './fixtures'
 
 // ---- the go (ADR 0009): the dialog in a lead's session, the go file and its rows, go_request, go_status, /callboard go ----
 // The giver's side: this session (SID) is the lead LEAD of PIN, with the store lane API bound to session OTHER. The reader's side: this session is a plain one
@@ -799,6 +799,20 @@ const ended = () => goRows().filter((r) => r.kind === 'go-end')
 test('a saved conductor grant that is refused for good at a restart (no approved repo left) ends the goes that conductor gave, and no other', async ($, on) => {
   // The list file holds none of the approved repos: nothing is restored.
   await condRestart($, on, [])
+  await waitFor(() => goKinds().includes('go-end grantor-off'))
+  expect(ended()).toEqual([expect.objectContaining({ id: GOID, code: 'grantor-off', by: SID })])
+})
+
+test('a lead grant made while the unanswered conductor restore question waits ends the goes that conductor gave, and no other', async ($, on) => {
+  // The list file names a repo the person has not approved: the restore asks, and nobody answers.
+  await condRestart($, on, ['../app', '../app2'])
+  h.askAnswer = ''
+  await ticks(3)
+  await waitFor(() => h.askCount === 1)
+  await ticks(2)
+  expect(ended()).toEqual([])
+  await grantAt($, COND)
+  await ticks(2)
   await waitFor(() => goKinds().includes('go-end grantor-off'))
   expect(ended()).toEqual([expect.objectContaining({ id: GOID, code: 'grantor-off', by: SID })])
 })

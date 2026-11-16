@@ -2,7 +2,7 @@
 // Trust rules held here: no decision without a ledger row; the relay reads only the person's own answer.
 import * as c from '../core.ts'
 import * as pr from '../prompts.ts'
-import { grants, checks, openReqs, doneIds, unclosed, askingSids, relayAskedTurn, relayHolds, mem } from '../mem.ts'
+import { grants, checks, openReqs, doneIds, unclosed, askingSids, relayAskedTurn, relayHolds, hereGone, mem } from '../mem.ts'
 import { run, MKDIR, dirOk, INSTALL, TEE, MV, rmF, where, facts, sha, statR, readSmallR, pause, RMDIR, realR, toast, withTimeout, GREP, logq } from './base.ts'
 import { registryEntries, registryOf } from './store.ts'
 import { leadsFor, homeOf, presenceCheck } from './grants.ts'
@@ -343,7 +343,6 @@ export async function unattendedClose($: any, how: { code: string; origin?: c.Or
   mem.unattended = undefined
   mem.unattendedSure = 'off'
   mem.unattendedUnknown = false
-  mem.unattendedBound = undefined
   mem.unattendedCloses++
   const sid = await ownSid($)
   const row: Omit<pr.LedgerRow, 't'> = { kind: 'unattended-off', code: how.code, ...(hash !== undefined ? { hash, u: pr.windowShort(hash) } : {}), ...(how.origin !== undefined ? { origin: how.origin } : {}), ...(sid !== undefined ? { by: sid } : {}) }
@@ -351,15 +350,12 @@ export async function unattendedClose($: any, how: { code: string; origin?: c.Or
   return 'closed'
 }
 
-// One read of the window from the store and the ledger. A ledger that does not answer keeps a value this process has already found bound, and is `unknown` for
-// any other. A value that was read and is over is off whether or not it could be removed: the next reader tries again.
+// One read of the window from the store and the ledger: `on` needs both to answer in this read. A value that was read and is over is off whether or not it
+// could be removed: the next reader tries again.
 async function windowRead($: any, now: number): Promise<pr.Window> {
   const got = await storeRead($, UNATTENDED_KEY)
   if (!got.read) return windowUnknown('store', false)
-  if (got.raw === undefined || got.raw === null) {
-    mem.unattendedBound = undefined
-    return { state: 'off' }
-  }
+  if (got.raw === undefined || got.raw === null) return { state: 'off' }
   const value = pr.parseUnattended(got.raw)
   if (!value) return windowUnknown('value', true)
   const text = pr.canonical(value)
@@ -374,14 +370,10 @@ async function windowRead($: any, now: number): Promise<pr.Window> {
   if (hash === undefined) return windowUnknown('hash', true)
   const p = await where($)
   const rows = p ? await ledgerRowsFor($, p, `"hash":"${hash}"`) : 'unreadable'
-  if (rows === 'unreadable') {
-    if (mem.unattendedBound !== hash) return windowUnknown('ledger', true)
-  } else {
-    const bind = pr.unattendedBind(rows, hash, value, now)
-    if (bind === 'ended' || bind === 'unbound') return over(bind)
-    if (bind === 'wait') return windowUnknown('unbound', true)
-    mem.unattendedBound = hash
-  }
+  if (rows === 'unreadable') return windowUnknown('ledger', true)
+  const bind = pr.unattendedBind(rows, hash, value, now)
+  if (bind === 'ended' || bind === 'unbound') return over(bind)
+  if (bind === 'wait') return windowUnknown('unbound', true)
   return { state: 'on', value, u: pr.windowShort(hash) }
 }
 
@@ -398,10 +390,7 @@ export async function unattendedNow($: any): Promise<pr.Window> {
     const closes = mem.unattendedCloses
     w = await windowRead($, now)
     // A window ended in this process while the read was under way: what the read found is older than that end, so it is not kept and the answer is off.
-    if (mem.unattendedCloses !== closes) {
-      mem.unattendedBound = undefined
-      return { state: 'off' }
-    }
+    if (mem.unattendedCloses !== closes) return { state: 'off' }
     mem.unattended = { at: now, w }
   } catch {
     w = windowUnknown('error', false)
@@ -455,6 +444,53 @@ export async function unattendedOpen($: any, raw: unknown): Promise<{ ok: true; 
   }
   mem.unattended = undefined
   return { ok: true, u }
+}
+
+// ---- here: the session the person said they are in (/callboard here, ADR 0009) ----
+// The stored key while it counts (pr.parseHere), undefined when there is none, or 'error' when the store did not answer.
+export async function hereRead($: any): Promise<pr.Here | undefined | 'error'> {
+  try {
+    const raw = await withTimeout($, (async () => $.store.get(pr.HERE_KEY))(), c.ENGINE_CALL_TIMEOUT_MS)
+    return raw === 'timeout' ? 'error' : pr.parseHere(raw, await $.clock.now())
+  } catch {
+    return 'error'
+  }
+}
+// Whether this session is the one the person said they are in: the key counts, names this session, the session holds a lead, conductor or manager grant now,
+// and its `here` has not ended in this process (hereGone). The one reader of the key for the relay; anything that cannot be read is no, so the request passes
+// up as it would with no key.
+export async function hereNow($: any, sid: string): Promise<boolean> {
+  if (grants.get(sid) === undefined || hereGone.has(sid)) return false
+  const here = await hereRead($)
+  return here !== 'error' && here?.sid === sid
+}
+// Removes the key if it names this session, read again just before the delete so another session's fresh key is left alone (best effort: the store has no
+// compare-and-delete). 'gone': the key is deleted; 'other': it names no session or another one; 'failed': the store did not answer, and the key may stand.
+export async function hereDrop($: any, sid: string): Promise<'gone' | 'other' | 'failed'> {
+  const here = await hereRead($)
+  if (here === 'error') return 'failed'
+  if (here?.sid !== sid) return 'other'
+  try {
+    return (await withTimeout($, (async () => $.store.delete(pr.HERE_KEY))(), c.ENGINE_CALL_TIMEOUT_MS)) === 'timeout' ? 'failed' : 'gone'
+  } catch {
+    return 'failed'
+  }
+}
+// A session whose grant ends while it is here is here no longer, a later grant in the same session included: the mark first (no await before it), then the
+// key, then its `here-off` row. A key that could not be removed gets no row and is logged; the mark still keeps this session from relaying by it.
+// A saved grant that is refused at a restart ends it the same way. Two calls for one session at once write one row: the second leaves it to the first.
+const hereOffBusy = new Set<string>()
+export async function hereGrantOff($: any, sid: string): Promise<void> {
+  hereGone.add(sid)
+  if (hereOffBusy.has(sid)) return
+  hereOffBusy.add(sid)
+  try {
+    const r = await hereDrop($, sid)
+    if (r === 'failed') return await logq($, sid, 'error', 'here-grant-off')
+    if (r === 'gone') await ledgerAdd($, { kind: 'here-off', code: 'grant-off', by: sid, was: sid })
+  } finally {
+    hereOffBusy.delete(sid)
+  }
 }
 
 // Whether the switch is on and this session is a lane or a lead: the cheap first test. The scope (a lane's or a lead's name) is judged once the lead is known.

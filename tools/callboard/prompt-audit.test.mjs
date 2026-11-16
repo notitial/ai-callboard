@@ -557,6 +557,19 @@ test('tiers: the person\'s answer through a relay is no anomaly beside its relay
   ledger(fx, [ON(), ...personRows({ code: 'deny' })])
   assert.deepEqual(run(fx).anomalies, [])
 })
+test('tiers: the person\'s answer through a lower tier\'s relay (the lead they said they are with, a manager live above it) is no anomaly', () => {
+  const fx = fixture()
+  const viaLead = (r) => (r.kind === 'requested' ? r : { ...r, by: LEAD, ...(r.kind === 'relayed' ? { code: 'lead' } : { tier: 'lead' }) })
+  ledger(fx, [ON(), R('here-on', BASE - 60_000, { by: LEAD, tier: 'lead', end: iso(BASE + 12 * 3600_000) }), ...personRows().map(viaLead), R('here-off', BASE + 50_000, { code: 'off', by: LEAD, was: LEAD })])
+  const rep = run(fx)
+  assert.deepEqual(rep.anomalies, [])
+  assert.deepEqual(rep.problems, [])
+  assert.equal(rep.notAnomalies.relay.personAnswers.n, 1)
+  assert.deepEqual([rep.counts.rowsByKind['here-on'], rep.counts.rowsByKind['here-off']], [1, 1])
+  // The relayed row must still be that tier's own: a manager's row does not back the lead's answer.
+  ledger(fx, [ON(), ...personRows().map((r) => (r.kind === 'relayed' ? r : viaLead(r)))])
+  assert.deepEqual(rules(run(fx)), ['person-answer-without-relayed-row'])
+})
 test('tiers: an agent\'s answer while the request is with the person is an anomaly, unless a relay-lost row came first', () => {
   const fx = fixture()
   const rows = (lost) => [
