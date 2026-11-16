@@ -2189,14 +2189,15 @@ const CONDUCTOR_REFRESH_MS = 10_000
 
 export async function conductorTick($: any, sid: string) {
   const pend = conductorRestorePending.get(sid)
-  if (pend && !pend.asking && !pend.waiting) {
+  if (pend && !pend.asking && pend.unanswered && grants.has(sid)) {
+    // The person made the session a lead while the unanswered question waited, or before it was asked again: that grant stands and the restore ends at this
+    // tick, so the session no longer counts as a conductor on its way back.
+    conductorRestorePending.delete(sid)
+    await log($, sid, 'conductor-restore-rejected', 'lead-holder')
+  } else if (pend && !pend.asking && !pend.waiting) {
     if (!pend.ask) {
       const r = await withTimeout($, conductorRestore($, sid, pend.hint, pend.tries + 1, pend.last), ACTION_TIMEOUT_MS).catch(() => 'error' as const)
       if (r === 'timeout' || r === 'error') await logq($, sid, 'error', `conductor-restore-${r}`)
-    } else if (pend.unanswered && grants.has(sid)) {
-      // The person made the session a lead while the unanswered question waited: that grant stands, and the question is not asked again.
-      conductorRestorePending.delete(sid)
-      await log($, sid, 'conductor-restore-rejected', 'lead-holder')
     } else if ((await personRow($, sid)) && (await idleCheck($, sid)) === undefined) {
       void conductorRestoreAsk($, sid, pend).catch(logFail($, sid, 'conductor-restore-ask'))
     }

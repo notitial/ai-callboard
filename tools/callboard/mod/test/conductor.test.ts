@@ -527,13 +527,18 @@ test('conductor restore: /callboard lead while the unanswered question waits: th
   h.askAnswer = YES
   await grantAt($, COND)
   const asked = h.askCount
+  // The restore ends at the next tick, with no prompt: the session then counts as the lead it is, and off says so.
+  await ticks(2)
+  expect(condLogs(stdins)).toContain('conductor-restore-rejected:lead-holder')
   await $.prompt.submit({ text: 'hello' } as any)
   await ticks(5)
   expect(h.askCount).toBe(asked)
-  expect(condLogs(stdins)).toContain('conductor-restore-rejected:lead-holder')
   expect(condLogs(stdins).some((x) => x.startsWith('conductor-restored'))).toBe(false)
   expect(await statusText($)).toContain('| Lead | ON |')
   expect(h.store.has(CONDKEY)).toBe(true)
+  const off = (await $.command.run(lane('off'))).text
+  expect(off).not.toContain('Conductor is now off.')
+  expect(off.startsWith('Lead ')).toBe(true)
 })
 test('conductor restore: the list changed while the unanswered question waited: the yes on the question asked again restores nothing and keeps the key', async ($, on) => {
   const stdins: string[] = []
