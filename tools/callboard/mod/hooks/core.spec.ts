@@ -2134,6 +2134,17 @@ test('observeLane: gone after 3 observations in a row, since the first; only for
   assert.deepEqual(c.observeLane(undefined, ckLane, [ck({ cwd: '/elsewhere' })], S3_SID, 1), { seenLive: false, goneN: 0 })
 })
 
+test('a waiting prompt that a tier holds as an open request is skipped by the check-in, the other items and an unreadable set are not', () => {
+  const items: c.AttentionItem[] = [{ lane: 'A', code: 'prompt', since: 1 }, { lane: 'B', code: 'prompt', since: 2 }, { lane: 'A', code: 'quiet', since: 3 }, { lane: 'C', code: 'prompt', since: 4 }]
+  const sids: Record<string, string> = { A: 'sa', B: 'sb' }
+  const sidOf = (l: string) => sids[l]
+  assert.deepEqual(c.checkinSkipHeld(items, new Set(['sa']), sidOf), [items[1], items[2], items[3]])
+  assert.deepEqual(c.checkinSkipHeld(items, new Set(['sa', 'sb']), sidOf), [items[2], items[3]])
+  assert.equal(c.checkinSkipHeld(items, new Set(), sidOf), items)
+  assert.equal(c.checkinSkipHeld(items, undefined, sidOf), items)
+  assert.deepEqual(c.checkinSkipHeld(items, new Set(['sc']), sidOf), items)
+})
+
 test('a waiting prompt skips the idle gate, reaches the manager after 10 min, and has a fixed toast of names only', () => {
   const items: c.AttentionItem[] = [{ lane: 'A', code: 'gone', since: 1 }, { lane: 'B', code: 'prompt', since: 2 }, { lane: 'C', code: 'quiet', since: 3 }]
   assert.deepEqual(c.checkinDueItems(items, true), items)

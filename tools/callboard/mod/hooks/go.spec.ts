@@ -230,10 +230,12 @@ test("the conductor's result texts: a go given, the lead_open tail, the list and
   assert.ok(given.startsWith("Go 9a1b2c3d recorded: the person's own click. It covers the leads LEAD and the lanes API, and leads and lanes opened under this conductor later, until Sun 16 Nov 19:25 ("))
   assert.ok(given.endsWith('Leads and lanes read it with go_status; it never covers a merge, a force push, a push to main, a production change, a delete outside your work, and the rest of the list go_status prints.'))
   assert.ok(g.goGivenText(cgo({ leads: [], covered: [] }), 'x').includes('It covers no lead yet and no lane yet, and leads and lanes opened'))
+  assert.ok(g.goGivenText(cgo(), 'x', true).endsWith('a delete outside your work, and the rest of the list /callboard go prints.'))
+  assert.ok(g.goGivenText(go(), 'x', true).endsWith('a delete outside your work, and the rest of the list /callboard go prints.'))
   assert.equal(g.goLeadTail(cgo(), 'Sun 16 Nov 19:25'), ' A go covers this lead: 9a1b2c3d, ends Sun 16 Nov 19:25.')
   assert.equal(g.goLeadTail(undefined), ' No go covers this lead: call go_request before it starts risk-list work.')
   assert.equal(g.GO_LEAD_TAIL_UNBOUND, ' Your go does not reach this lead: its record does not name you as its conductor, or could not be read. Another go_request would not reach it either; tell the person.')
-  assert.equal(g.goListText([cgo()], () => 'Sun 16 Nov 19:25'), 'Go 9a1b2c3d: conductor COND; ends Sun 16 Nov 19:25; leads at the click: LEAD; lanes at the click: API. Build the import step.')
+  assert.equal(g.goListText([cgo()], () => 'Sun 16 Nov 19:25'), `Go 9a1b2c3d: conductor COND; ends Sun 16 Nov 19:25; leads at the click: LEAD; lanes at the click: API. Build the import step.\n\n${g.GO_NEVER_LINE}`)
   assert.ok(g.goStatusText([cgo()]).includes(`Go 9a1b2c3d: given in conductor COND (session ${COND}) at ${new Date(T).toISOString()}; ends`))
   assert.ok(g.goStatusText([cgo({ by: { level: 'conductor', sid: COND, name: '', repo: '/r' } })]).includes('given in this conductor (session'))
   assert.equal(g.GO_REFUSE.conductor, undefined)
@@ -246,7 +248,7 @@ test('the dialog: three short fixed lines (whom and until when, the short never-
   const q = g.goQuestion({ name: 'LEAD', lanes: 2, ends: 'Sun 16 Nov 19:25', text: 'Build the import step.', author: 'tier' })
   assert.deepEqual(q.split('\n'), [
     'Give lead LEAD and its 2 lanes, later ones too, one go until Sun 16 Nov 19:25? /callboard go off ends it.',
-    'It never covers a merge, a force push, a push to main, a production change or a delete outside the work; full list: go_status.',
+    'It never covers a merge, a force push, a push to main, a production change or a delete outside the work; full list: /callboard go.',
     'Everything below was written by lead LEAD, not by callboard:',
     'Build the import step.',
   ])
@@ -267,7 +269,18 @@ test('the never-list is one list: twelve items, and the short form names its fir
   assert.ok(g.GO_NEVER_TEXT.startsWith('a merge; a force push; a push to main, master or production; a production or staging change, a deploy or a data migration run; a delete outside'))
   assert.ok(g.GO_NEVER_TEXT.endsWith("work the go's text does not name."))
   assert.equal(GO_NEVER_SHORT, 'a merge, a force push, a push to main, a production change, a delete outside your work, and the rest of the list `go_status` prints')
-  assert.equal(g.GO_NEVER_DIALOG, 'It never covers a merge, a force push, a push to main, a production change or a delete outside the work; full list: go_status.')
+  assert.equal(g.GO_NEVER_DIALOG, 'It never covers a merge, a force push, a push to main, a production change or a delete outside the work; full list: /callboard go.')
+  // The dialog's five are the full list's first five, in its order, each in fewer words.
+  const marks = ['a merge', 'a force push', 'a push to main', 'production', 'a delete outside']
+  let at = -1
+  marks.forEach((m, i) => {
+    assert.ok(g.GO_NEVER[i].includes(m), `${i}: ${m}`)
+    const next = g.GO_NEVER_DIALOG.indexOf(m, at + 1)
+    assert.ok(next > at, `${i}: ${m}`)
+    at = next
+  })
+  // The command the dialog names prints the full list, with a go and with none.
+  for (const goes of [[], [go()]]) assert.ok(g.goListText(goes, () => 'x').endsWith(`\n\nA go never covers these; each still needs you, every time: ${g.GO_NEVER_TEXT}`))
   assert.ok(g.GO_REFUSE['bad-text'].includes('1 to 300 bytes') && g.GO_REFUSE['bad-text'].includes('two or three lines'))
 })
 
@@ -296,7 +309,7 @@ test('the result texts: a go given, the lane tails, the list and off', () => {
   assert.equal(g.goTail(go(), 'Sun 16 Nov 19:25'), ' A go covers this lane: 9a1b2c3d, ends Sun 16 Nov 19:25.')
   assert.equal(g.goTail(undefined), ' No go covers this lane: call go_request before it starts risk-list work.')
   assert.ok(g.goListText([], () => 'x').startsWith('No live go. Use /callboard go TEXT'))
-  assert.equal(g.goListText([go()], () => 'Sun 16 Nov 19:25'), 'Go 9a1b2c3d: lead LEAD; ends Sun 16 Nov 19:25; lanes at the click: API. Build the import step.')
+  assert.equal(g.goListText([go()], () => 'Sun 16 Nov 19:25'), `Go 9a1b2c3d: lead LEAD; ends Sun 16 Nov 19:25; lanes at the click: API. Build the import step.\n\n${g.GO_NEVER_LINE}`)
   assert.equal(g.goOffText([ID]), 'Ended: go 9a1b2c3d. The sessions under it finish the step they are on and ask you before the next risk-list step.')
   assert.ok(g.goOffText([ID, OTHER]).startsWith('Ended: go 9a1b2c3d, go 3a1b2c3d. The sessions under them'))
   assert.equal(g.goReadToast('NEW', ID), 'NEW now works under your go 9a1b2c3d.')

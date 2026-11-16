@@ -140,7 +140,8 @@ export function goCovers(g: Go, sid: string, lanes: Lane[], owned: string[] = []
     : undefined
 }
 
-// What a go never covers: the one full list, printed by go_status. Every shorter form, the dialog's included, names the first five and points to go_status.
+// What a go never covers: the one full list, printed by go_status for a session and by /callboard go for the person. Every shorter form names the first five and
+// points to one of the two: the dialog to the command, a text for a session to go_status.
 export const GO_NEVER = [
   'a merge',
   'a force push',
@@ -157,7 +158,9 @@ export const GO_NEVER = [
 ] as const
 export const GO_NEVER_TEXT = `${GO_NEVER.join('; ')}.`
 // The dialog's line, written to the person.
-export const GO_NEVER_DIALOG = 'It never covers a merge, a force push, a push to main, a production change or a delete outside the work; full list: go_status.'
+export const GO_NEVER_DIALOG = 'It never covers a merge, a force push, a push to main, a production change or a delete outside the work; full list: /callboard go.'
+// The full list as /callboard go prints it.
+export const GO_NEVER_LINE = `A go never covers these; each still needs you, every time: ${GO_NEVER_TEXT}`
 
 // A time as the person reads it, in their own zone: `Sun 16 Nov 19:25`. offsetMin: minutes east of UTC at that time.
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
@@ -225,10 +228,11 @@ export const GO_REFUSE: Record<string, string> = {
 
 const iso = (ms: number): string => new Date(ms).toISOString()
 
-// The result of a go that was given, for go_request and the command.
-export function goGivenText(g: Go, ends: string): string {
+// The result of a go that was given, for go_request and the command. person: the command's reply, which the person reads, points at the list /callboard go prints;
+// the tool's result, which a session reads, points at go_status.
+export function goGivenText(g: Go, ends: string, person = false): string {
   const names = g.covered.map((x) => x.name)
-  const never = `it never covers ${GO_NEVER_SHORT.replace('`go_status`', 'go_status')}.`
+  const never = `it never covers ${GO_NEVER_SHORT.replace('`go_status`', person ? '/callboard go' : 'go_status')}.`
   if (g.v === 2) {
     const leads = g.leads.map((x) => x.name)
     return `Go ${goShort(g.id)} recorded: the person's own click. It covers ${leads.length === 0 ? 'no lead yet' : `the leads ${leads.join(', ')}`} and ${names.length === 0 ? 'no lane yet' : `the lanes ${names.join(', ')}`}, and leads and lanes opened under this conductor later, until ${ends} (${iso(g.ends)}). Leads and lanes read it with go_status; ${never}`
@@ -279,13 +283,15 @@ export function parseGoArgs(rest: string | undefined): GoOp {
   }
   return { give: a, hours: GO_DEFAULT_HOURS }
 }
-export const GO_USAGE = `Use /callboard go TEXT in a lead's or conductor's session to give one go for the work TEXT names (go for N h TEXT sets the end: 1 to ${GO_MAX_HOURS} hours, ${GO_DEFAULT_HOURS} by default), /callboard go to list the live goes, or /callboard go off [SHORT] to end them.`
+export const GO_USAGE = `Use /callboard go TEXT in a lead's or conductor's session to give one go for the work TEXT names (go for N h TEXT sets the end: 1 to ${GO_MAX_HOURS} hours, ${GO_DEFAULT_HOURS} by default), /callboard go to list the live goes and what a go never covers, or /callboard go off [SHORT] to end them.`
 export const GO_NOT_PERSON = 'Only you can give or end a go: type /callboard go yourself.'
 export const GO_OFF_NONE = 'No live go to end.'
 export const goOffText = (ids: string[]): string => `Ended: go ${ids.map(goShort).join(', go ')}. The sessions under ${ids.length === 1 ? 'it' : 'them'} finish the step they are on and ask you before the next risk-list step.`
-// The print of /callboard go: one line per live go.
+// The print of /callboard go: one line per live go, then, set apart by an empty line, the full never-list, which is where the dialog points the person.
 export function goListText(goes: Go[], when: (ms: number) => string): string {
-  if (goes.length === 0) return `No live go. ${GO_USAGE}`
+  return `${goes.length === 0 ? `No live go. ${GO_USAGE}` : goLines(goes, when)}\n\n${GO_NEVER_LINE}`
+}
+function goLines(goes: Go[], when: (ms: number) => string): string {
   const names = (xs: { name: string }[]): string => (xs.length === 0 ? 'none' : xs.map((x) => x.name).join(', '))
   return goes.map((g) => `Go ${goShort(g.id)}: ${whoBy(g)}; ends ${when(g.ends)}; ${g.v === 2 ? `leads at the click: ${names(g.leads)}; ` : ''}lanes at the click: ${names(g.covered)}. ${g.text.split('\n')[0].slice(0, 120)}`).join('\n')
 }

@@ -382,7 +382,8 @@ export async function goCommand($: any, sid: string, code: c.OriginCode, op: g.G
   }
   if (op === 'list') {
     const found = await goesLive($)
-    if ('no' in found) return { text: found.no === 'guard' ? `No go counts while the protected-paths guard is missing: ${found.why}.` : 'The go records could not be read.' }
+    // The never-list is printed whatever the records say: the dialog points the person here for it.
+    if ('no' in found) return { text: `${found.no === 'guard' ? `No go counts while the protected-paths guard is missing: ${found.why}.` : 'The go records could not be read.'}\n\n${g.GO_NEVER_LINE}` }
     return { text: g.goListText(found.map((f) => f.go), when) }
   }
   if ('off' in op) {
@@ -398,7 +399,7 @@ export async function goCommand($: any, sid: string, code: c.OriginCode, op: g.G
     return { text: `${g.goOffText(ended)}${missed}` }
   }
   const r = await goGive($, sid, op.give, op.hours, 'person', false)
-  if ('go' in r) return { text: g.goGivenText(r.go, r.ends) }
+  if ('go' in r) return { text: g.goGivenText(r.go, r.ends, true) }
   await logq($, sid, 'refused', `go-${r.no}`)
   return { text: `No go was given: ${refusal(r)}` }
 }

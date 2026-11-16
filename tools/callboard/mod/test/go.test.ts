@@ -132,6 +132,8 @@ test('go_request from the lead\'s main agent opens the same dialog with the defa
   // A description past the limit opens no dialog, and the refusal says how long it may be.
   expect(String((await $.tool.call(tool('go_request', { text: 'x'.repeat(g.GO_TEXT_MAX + 1) }))).deny)).toBe(`go_request refused: bad-text: ${g.GO_REFUSE['bad-text']}`)
   expect(g.GO_REFUSE['bad-text']).toContain('two or three lines')
+  // So does one of four lines, or with an empty line.
+  for (const tall of ['a\nb\nc\nd', 'a\n\nb']) expect(String((await $.tool.call(tool('go_request', { text: tall }))).deny)).toBe(`go_request refused: bad-text: ${g.GO_REFUSE['bad-text']}`)
   expect(h.askCount).toBe(asked)
   h.askAnswer = g.GO_NO as any
   expect((await $.tool.call(tool('go_request', { text: WORK }))).result).toBe(`No go was given: ${g.GO_REFUSE.cancelled}`)
@@ -427,6 +429,8 @@ test('a go folder that cannot be checked is no go', async ($, on) => {
   putGo()
   h.pfsFails = (a: string[]) => a[0] === '/usr/bin/stat' && a[a.length - 1] === GO_DIR
   expect(await status($)).toBe(g.goNoneText('The go records could not be read. Tell the person.'))
+  // The person's list command still prints what a go never covers.
+  expect((await goCmd($, '')).text).toBe(`The go records could not be read.\n\n${g.GO_NEVER_LINE}`)
   h.pfsFails = undefined
   expect(await status($)).toContain(WORK)
   expect(ROOT).toBe(GO_DIR.slice(0, -3))
