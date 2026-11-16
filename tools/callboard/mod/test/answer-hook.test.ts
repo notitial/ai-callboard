@@ -1032,11 +1032,21 @@ test('prompts: the default guard parser: only the linked hook or the exact ai-to
     ` /bin/bash -p "$HOME/.claude/hooks/protected-paths-guard.sh" || exit 2`,
     `/bin/bash -p "$HOME/.claude/hooks/protected-paths-guard.sh" || exit 2 `,
     `/bin/bash -p "$HOME/.claude/hooks/protected-paths-guard.sh" || exit 2\r`,
+    `/bin/bash -p "$HOME/.claude/hooks/protected-paths-guard.sh" || exit 2\n`,
+    `/bin/bash\t-p "$HOME/.claude/hooks/protected-paths-guard.sh" || exit 2`,
+    `/bin/bash -p  "$HOME/.claude/hooks/protected-paths-guard.sh" || exit 2`,
+    `/bin/bash -p "$HOME/.claude/hooks/protected-paths-guard.sh" ||  exit 2`,
+    `/bin/bash -p "$HOME/.claude/hooks/protected-paths-guard.sh" || exit 2 || true`,
+    `/bin/bash -p "$HOME/.claude/hooks/protected-paths-guard.sh" || exit 20`,
+    `/bin/bash -p "$HOME/.claude/hooks/protected-paths-guard.sh" "x" || exit 2`,
   ]) expect(wire(bad)).toBe(false)
   // A link the quotes would still expand never matches the wrapped form.
   for (const odd of ['"', '$', '`', '\\']) {
     const wrapped = JSON.stringify({ hooks: { PreToolUse: [{ matcher: '*', hooks: [{ command: '/bin/bash -p "$HOME/.claude/hooks/protected-paths-guard.sh" || exit 2' }] }] } })
     expect(prm.settingsWireGuard(wrapped, `/Users/x${odd}/.claude/hooks/protected-paths-guard.sh`, `/Users/x${odd}`)).toBe(false)
+    const literal = `/Users/x${odd}/.claude/hooks/protected-paths-guard.sh`
+    const wrappedLiteral = JSON.stringify({ hooks: { PreToolUse: [{ matcher: '*', hooks: [{ command: `/bin/bash -p "${literal}" || exit 2` }] }] } })
+    expect(prm.settingsWireGuard(wrappedLiteral, literal, `/Users/x${odd}`)).toBe(false)
   }
   expect(wire(`${LINK} --probe`)).toBe(false)
   expect(wire('/opt/stub/protected-paths-guard.sh')).toBe(false)
