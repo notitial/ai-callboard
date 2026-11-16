@@ -217,7 +217,8 @@ export const rebindBusy = new Set<string>()
 
 // Once a minute, whatever the idle gates, a lead observes the lanes in its reach (lanes and registry only, no reports) into laneObs. A lane gone, waiting on a
 // prompt 5 min or quiet 30 min (c.checkinItems) and not yet told is then checked against the timing gates: check-ins on, not paused, no wake in the last 30 min,
-// the lead idle 20 min since its last turn ended or its last prompt. Only then are reports read (signed done drops gone and quiet), and attentionNotice sends.
+// the lead idle 20 min since its last turn ended or its last prompt (a waiting prompt skips the idle gate). Only then are reports read (signed done drops gone
+// and quiet), and attentionNotice sends.
 // A read that fails (lanes, registry, off) is no observation at all, never "all gone".
 export const laneObs = new Map<string, Map<string, c.LaneObs>>()
 // The same for a conductor and the leads it owns (c.observeLead), by the conductor's session id, then the lead's name (names are one machine-wide space). Kept apart from laneObs, which a
@@ -226,6 +227,10 @@ export const leadObs = new Map<string, Map<string, c.LaneObs>>()
 export const obsAt = new Map<string, number>()
 export const attnTold = new Map<string, Set<string>>()
 export const attnCapped = new Set<string>()
+// The waiting prompts the last observation left owed (at: its time), for the hook that tells a busy session in the middle of its turn (checkinMidTurn).
+export const attnMid = new Map<string, { at: number; items: c.AttentionItem[]; render: (items: c.AttentionItem[]) => string | undefined; label: string }>()
+// The waiting prompts the person was told of in a toast, by check-in key: one toast per wait.
+export const attnToasted = new Map<string, Set<string>>()
 export const checkinBusy = new Set<string>()
 // The manager's per-repo lead verdicts, kept across evaluations (by the manager's session id; dropped with the grant).
 // Evaluations land 60-62 s apart, so the window spans one of them plus a margin: a verdict is reused once and read
@@ -256,9 +261,12 @@ export const renameChecked = new Map<string, number>()
 export const managerSavedAt = new Map<string, number>()
 export const managerCwd = new Map<string, string>()
 
-export type MgrPending = { hint: c.ManagerHint; tries: number; asking?: boolean }
+// fails: the tries that ended on a refusal that can clear by itself; afterYes: those of them that failed after the yes (yes: the running try got its yes), counted apart. byHand: the person's own
+// command ended this restore, so a try still running does not put it back. unanswered: the times the question got no answer. waiting: the question got no answer and is
+// asked again only once the person has sent a prompt in this session (managerRestoreWake). asked: a try of this restore was not silent, so no later try is.
+export type MgrPending = { hint: c.ManagerHint; tries: number; asking?: boolean; fails?: number; afterYes?: number; unanswered?: number; waiting?: boolean; asked?: boolean; yes?: boolean; byHand?: boolean }
 export const managerRestorePending = new Map<string, MgrPending>()
-// A restore is offered once per process and session: a session.start that is not a start (a compaction, a reload) never asks again.
+// A restore is offered once per process and session: a session.start that is not a start (a compaction, a reload) never starts a second one.
 export const managerRestoreOffered = new Set<string>()
 
 // A conductor's reach is the list file in its own repo (c.CONDUCTOR_FILE), resolved at every read, intersected with the approved list: what the person approved in

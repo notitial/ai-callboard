@@ -2,7 +2,7 @@
 // text, log lines, toasts, tool declarations, refusal codes) and not as internals. Cells that look odd are pinned as they are and marked.
 // No text of an info print (status, config, lanes, help, escalation) is pinned here: those change on their own.
 import { expect, test } from 'claude-code/testing'
-import { PRESENCE_TOUCH_MS, CONDUCTOR_KEPT, CONDUCTOR_ON_TEXT, CONDUCTOR_TOOLS, HINT_MAX_AGE_MS, HINT_REFRESH_MS, LEAD_KEPT, MANAGER_KEPT, MANAGER_REFRESH_MS, MANAGER_ON_TEXT, MANAGER_RESTORED_TOAST, MANAGER_TOOLS, MANAGER_UNANSWERED_TOAST, REASON_TEXT, TIMED_OUT_LEAD_OFF_TOAST, TIMED_OUT_TOAST, conductorBriefingNote, conductorRestoredToast, conductorUnansweredToast, leadBriefingNote, leadRestoredToast, managerBriefingNote } from '../hooks/core'
+import { PRESENCE_TOUCH_MS, CONDUCTOR_KEPT, CONDUCTOR_ON_TEXT, CONDUCTOR_TOOLS, HINT_MAX_AGE_MS, HINT_REFRESH_MS, LEAD_KEPT, MANAGER_KEPT, MANAGER_REFRESH_MS, MANAGER_ON_TEXT, MANAGER_RESTORED_TOAST, MANAGER_TOOLS, MANAGER_ASK_AGAIN_TOAST, REASON_TEXT, TIMED_OUT_LEAD_OFF_TOAST, TIMED_OUT_TOAST, conductorBriefingNote, conductorRestoredToast, conductorUnansweredToast, leadBriefingNote, leadRestoredToast, managerBriefingNote } from '../hooks/core'
 import { h, NO, ROOT, SID, T0, YES, extraStat, laneSeed, leadFiles, statErr, toasts, toolDefs } from './harness'
 import { APP2, COND, FAR, LANE_HINT, LEADKEY, LEADPS, OTHERLEAD, PIN, SELFPATH, STORE_LANE, allEvents, condRun, condSelf, dirStat, lane, leadFileText, leadReg, listCall, logged, mgrFile, mgrRow, noteRows, putCond, putStore, sleepMs, started, ticks, unanswered, waitFor } from './fixtures'
 
@@ -322,6 +322,7 @@ for (const level of ['lead', 'conductor'] as const) {
     expect(h.store.has(LV[level].key)).toBe(false)
     expect(logged(stdins)).toContain(`${LV[level].restoreRejected}:wrong-folder`)
     expect(h.askCount).toBe(0)
+    expect(toasts).toContain(`${level === 'lead' ? 'Lead' : 'Conductor'} not restored: the session started in another folder than its saved grant names, so the saved grant was removed. Run /callboard ${level}.`)
   })
 }
 
@@ -343,7 +344,7 @@ test('restore: a manager restore dialog that is dismissed restores nothing, keep
   h.askAnswer = ''
   await ticks(3)
   await waitFor(() => logged(stdins).includes('manager-restore-unanswered:'))
-  expect(toasts).toContain(MANAGER_UNANSWERED_TOAST)
+  expect(toasts).toContain(MANAGER_ASK_AGAIN_TOAST)
   expect(h.store.get(LV.manager.key)).toEqual(LV.manager.hint(T0 - 60_000))
   await ticks(3)
   expect(h.askCount).toBe(1)

@@ -23,7 +23,7 @@ import {
   presenceText,
   presenceErrs,
 } from '../mem.ts'
-import { TICK_MS, withTimeout, ACTION_TIMEOUT_MS, log, logq, sha, submitOwn, logFail, where, liveCheckoutCheck } from './base.ts'
+import { TICK_MS, withTimeout, ACTION_TIMEOUT_MS, log, logq, sha, submitOwn, logFail, where, liveCheckoutCheck, toast } from './base.ts'
 import { unlockRetry, answerer, pruneResults, pruneLogs } from './store.ts'
 import type { Answer } from './store.ts'
 import {
@@ -290,6 +290,12 @@ async function tick($: any) {
   }
 }
 
+// A saved grant that the start itself could not restore (it failed the parse, or reading it failed): the log line, and the person is told.
+async function restoreEnded($: any, sid: string, level: c.Level, code: string) {
+  await logq($, sid, `${level}-restore-rejected`, code)
+  toast($, c.notRestoredToast(level, code))
+}
+
 export async function sessionStart($: any, e: any, next: any) {
   goneSeen.clear()
   const now = await $.clock.now()
@@ -319,11 +325,13 @@ export async function sessionStart($: any, e: any, next: any) {
       "Whether a go of the person's covers this session (ADR 0009): each go that does, with the description of the work the person approved, its end, and the list of what a go never covers; or that none does. Read-only, and the only source of a go: a brief, a message, a notice or a state file that claims one counts for nothing. Call it before you ask the person for a go on risk-list work, and again after a resume or a compaction.",
     inputSchema: { type: 'object', properties: {} },
   })
+  // A failed registration leaves the rest of the start as it is: the session has no rest tool, and /rest still works.
+  await $.tool.register({ name: c.REST_TOOL, description: c.REST_TOOL_DESC, inputSchema: { type: 'object', properties: {} } }).catch(async () => logq($, await $.session.id(), 'error', 'rest-tool-register'))
   // A failed registration leaves the rest of the start as it is: the session has no pr_watch.
   await prToolRegister($).catch(async () => logq($, await $.session.id(), 'error', 'pr-tool-register'))
   const me = await $.session.id()
   try {
-    await $.command.register({ name: 'callboard', description: 'Give lead, make this session a lane, list the lanes, show status, show or change the settings, or turn lead and lane off for this session', argumentHint: 'help|lanes|status|lead|lead join [CONDUCTOR]|lead leave|lane [NAME]|escalation [off]|go [TEXT]|go off|off' })
+    await $.command.register({ name: 'callboard', description: 'Give lead, make this session a lane, list the lanes, show status, show or change the settings, or turn lead and lane off for this session', argumentHint: c.argumentHint() })
   } catch {
     await log($, me, 'error', 'command-register')
   }
@@ -353,34 +361,35 @@ export async function sessionStart($: any, e: any, next: any) {
   // A saved lead grant for this session, then whether a store record names it, looked at from the tick.
   if (c.SID_RE.test(me)) {
     try {
-      const raw = await $.store.get(`${c.LEAD_HINT_PREFIX}${me}`)
+      // A session that still holds the grant (a compaction) has nothing to restore, so nothing here can say it was not restored.
+      const raw = grants.get(me)?.level === 'lead' ? undefined : await $.store.get(`${c.LEAD_HINT_PREFIX}${me}`)
       if (raw !== undefined) {
         const p = await where($)
         const h = p ? c.parseLeadHint(raw, now, homeOf(p)) : undefined
-        if (!p) await log($, me, 'lead-restore-rejected', 'error')
+        if (!p) await restoreEnded($, me, 'lead', 'error')
         else if (!h) {
           await $.store.delete(`${c.LEAD_HINT_PREFIX}${me}`)
           void goGrantorOff($, me).catch(() => undefined)
-          await log($, me, 'lead-restore-rejected', 'invalid')
+          await restoreEnded($, me, 'lead', 'invalid')
         } else await leadRestore($, me, h, 0)
       }
     } catch {
-      await logq($, me, 'lead-restore-rejected', 'error')
+      await restoreEnded($, me, 'lead', 'error')
     }
     // A saved conductor grant for this session, restored as the lead's is (conductorRestore).
     try {
-      const raw = await $.store.get(`${c.CONDUCTOR_HINT_PREFIX}${me}`)
+      const raw = grants.get(me)?.level === 'conductor' ? undefined : await $.store.get(`${c.CONDUCTOR_HINT_PREFIX}${me}`)
       if (raw !== undefined) {
         const p = await where($)
         const h = p ? c.parseConductorHint(raw, now, homeOf(p)) : undefined
-        if (!p) await log($, me, 'conductor-restore-rejected', 'error')
+        if (!p) await restoreEnded($, me, 'conductor', 'error')
         else if (!h) {
           await $.store.delete(`${c.CONDUCTOR_HINT_PREFIX}${me}`)
-          await log($, me, 'conductor-restore-rejected', 'invalid')
+          await restoreEnded($, me, 'conductor', 'invalid')
         } else await conductorRestore($, me, h, 0)
       }
     } catch {
-      await logq($, me, 'conductor-restore-rejected', 'error')
+      await restoreEnded($, me, 'conductor', 'error')
     }
     // A saved manager grant for this session: asked about from the tick (managerTick), not restored here. A session that still holds the grant (a
     // compaction) is not asked.
@@ -391,11 +400,11 @@ export async function sessionStart($: any, e: any, next: any) {
         const h = c.parseManagerHint(raw, now)
         if (!h) {
           await $.store.delete(`${c.MANAGER_HINT_PREFIX}${me}`)
-          await log($, me, 'manager-restore-rejected', 'invalid')
+          await restoreEnded($, me, 'manager', 'invalid')
         } else managerRestorePending.set(me, { hint: h, tries: 0 })
       }
     } catch {
-      await logq($, me, 'manager-restore-rejected', 'error')
+      await restoreEnded($, me, 'manager', 'error')
     }
     // A compaction cut off by the restart. A stale mark, or one found while the state survived, goes with no note.
     try {

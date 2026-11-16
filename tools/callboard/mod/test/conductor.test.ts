@@ -277,7 +277,7 @@ test('/callboard conductor asks once with every repo and the restart sentence; C
   const r = await condRun($, '')
   expect(r.text).toBe(`${CONDUCTOR_ON_TEXT} Out of reach: ../gone (not found).`)
   expect(h.lastQuestion).toBe(conductorQuestion(COND, [PIN, APP2, FAR], CHOME))
-  expect(h.lastQuestion).toBe('Make this session a conductor for these repos? ../app, ../app2, ~/data/x/work/elsewhere/far-repo (not next to cond). It can list their lanes, compact their leads, and force stop a lane: every stop asks you. It can also park and retire the leads it owns, and force stop them with your click. It can also open a lead in one of these repos without asking you (one an hour per repo). It stays a conductor after a restart until you run /callboard off.')
+  expect(h.lastQuestion).toBe('Make this session a conductor for these repos? ../app, ../app2, ~/data/x/work/elsewhere/far-repo (not next to cond). It can list their lanes, compact their leads, and force stop a lane: every stop asks you. It can also park and retire the leads it owns, and force stop them with your click. It can also open a lead in one of these repos without asking you (at most 4 leads at once, 8 successful opens an hour). It stays a conductor after a restart until you run /callboard off.')
   expect(h.lastHeader).toBe('Conductor')
   expect(h.askedOptions).toEqual([['Conductor', 'Cancel']])
   const names = toolDefs.slice(defs0).map((d) => JSON.parse(d).name).filter((n: string) => n.startsWith('lane_'))
@@ -395,7 +395,7 @@ test('a grant made while a restore question waits ends that restore; a later Can
   expect(await statusText($)).toBe(statusTable(['Lane', 'NONE'], ['Conductor', 'ON (2 repos)'], ['Check-ins', 'ON']))
 })
 
-longTest('a restore dialog nobody answers restores nothing and keeps the key; its 90 s use up no retry ticks', async ($, on) => {
+longTest('a restore dialog nobody answers restores nothing and keeps the key; its 90 s use up no retry ticks, and a later prompt does not ask again', async ($, on) => {
   const stdins: string[] = []
   await condRestarter($, on, stdins, { repos: [PIN], file: ['../app', '../app2'] })
   h.askHang = new Promise<string>(() => undefined)
@@ -408,6 +408,28 @@ longTest('a restore dialog nobody answers restores nothing and keeps the key; it
   expect(await statusText($)).toBe(STATUS_NONE)
   expect(h.askCount).toBe(1)
   expect(condLogs(stdins).some((x) => x.startsWith('conductor-restore-rejected'))).toBe(false)
+  // Only the manager's question is asked again after a prompt.
+  h.askHang = undefined
+  await $.prompt.submit({ text: 'hello' } as any)
+  await ticks(5)
+  expect(h.askCount).toBe(1)
+  expect(await statusText($)).toBe(STATUS_NONE)
+})
+
+test('a session start that finds the conductor grant still held (a compaction) restores nothing: a saved grant that fails the parse then says nothing about a restore, and is kept', async ($, on) => {
+  const stdins: string[] = []
+  await condAt($, on, stdins, { clock: true })
+  putCond(['../app'])
+  await condRun($, '')
+  expect(await statusText($)).toContain('| Conductor | ON (1 repo) |')
+  const t0 = toasts.length
+  h.store.set(CONDKEY, 'junk')
+  await $.session.start({ cwd: COND, surface: 'vscode', isInteractive: true })
+  await ticks(3)
+  expect(toasts.slice(t0).filter((x) => x.startsWith('Conductor not restored'))).toEqual([])
+  expect(condLogs(stdins).filter((x) => x.startsWith('conductor-restore-rejected'))).toEqual([])
+  expect(h.store.has(CONDKEY)).toBe(true)
+  expect(await statusText($)).toContain('| Conductor | ON (1 repo) |')
 })
 
 test('a restore where the file dropped a repo restores without it and asks nothing; with no approved repo left nothing is restored and the key is kept', async ($, on) => {

@@ -396,9 +396,23 @@ label hash matches no label of the question, a `returned` answer that differs fr
 while no asks scope was on. Ledger rows carry the answer's index and a hash of the request id and the label, not the label;
 the label is in the questions file for 90 days. It prints the lane's question beside each relayed question.
 
+*Amended 2026-11-16: the audit reads the ledger only.* The audit no longer reads any session's transcript. Nothing ran
+it on a schedule, and the transcript half was most of its code; the person chose to cut that half and keep the ledger
+half. What went: the report of a hook-sourced decision in a transcript that the ledger never saw; the check that an
+`answered` row's lead made a `prompt_answer` call for it; the check of a person's relayed answer against the tier's
+`Relay <short>` question and its label hash; the lost race read from a transcript (a click that won while a decision
+was returned, with no `superseded` row); and the tier's own wording of each relayed question. What stays is every rule
+that reads the ledger and the files beside it: a decision with no log row, a refused decision, a returned row that
+differs from its answered row, the tier rules, a person's answer with no `relayed` row of the same tier session and
+short id, the question rules, the answering switch, stale and closed requests, lead grants, owners and stops, and the
+go. It still lists each relayed request with its tool and pattern and, for a question, the lane's own question; the
+tier's wording to the person is in the tier's transcript and is read there by hand. The paragraphs above, and the
+sentences elsewhere in this ADR that say the audit catches a wrong summary, reads a transcript or reports a lost
+race from a click, record the design before this note.
+
 *Amended 2026-11-14: on by default, behind a guard.* With no stored switch, escalation is on for all lanes and leads, permission prompts
 and questions alike (scope `all`, asks scope `all`), but only while the hook and the markers that docs/setup.md asks for are
-in place: ai-toolkit's protected-paths hook wired in `~/.claude/settings.json` (the linked hook itself, on a matcher that covers Edit, Write and Bash, hooks not disabled), and `.protected-checkout` in the callboard folder,
+in place: ai-toolkit's protected-paths hook wired in `~/.claude/settings.json` (ai-toolkit's fail-closed wrapper of the linked hook, exactly `/bin/bash -p "$HOME/.claude/hooks/protected-paths-guard.sh" || exit 2`, with `$HOME`, `${HOME}` or the absolute path of the link inside the quotes; the bare path does not count, because it lets a call through when the hook cannot start; the entry has type `command`, only the keys `type`, `command`, `timeout`, `statusMessage` and `onFailure`, and a `timeout` of at least 10 when one is set; on a matcher that covers Edit, Write and Bash, hooks not disabled, and no `HOME` in the settings `env`), and `.protected-checkout` in the callboard folder,
 the toolkit and the checkout the mod loads from. The mod checks this at run time, at most once a minute; any read that fails
 counts as missing, and then escalation is off, a waiting request ends as `off` and goes back to the person, and `/callboard status`
 says what is missing. The OFF file and `/callboard escalation off` win at once: `off` now stores `{ off: true }` in place of
@@ -463,6 +477,11 @@ What remains as the guard:
 
 Nothing here prevents a determined same-uid process. On a machine where a prompt is the only gate on a sensitive
 connected tool, that gate is now only as strong as this bound.
+
+*Amended 2026-11-16.* The audit's check of transcripts is cut (see "Rollout, off switch and audit"), so the ledger
+bullet above now reads: the ledger, with its "decision with no log row" report. A forger who writes a decision file and
+its ledger rows passes the audit without touching a transcript, and a hook decision that reached a session with no
+ledger row is not reported. The person chose this on 2026-11-16.
 
 **The person accepted this bound on 2026-11-06, on every machine where prompt answering will run, not one machine at a
 time.** No second decision is owed before another machine; each still turns the feature on through its own staged
