@@ -37,7 +37,7 @@ one.
 - An `alerts` entry with `src` other than `pace`: the runaway flow below.
 - A `src: "pace"` alert (`fivepace`, `weekpace`): an advisory about the account's burn rate. Report it once per window
   (the `why`); ask nothing, send nothing.
-- `cacheExpiring` with `due: "checkpoint"`: the session has done no real work for 3 hours. List it for the person to
+- `cacheExpiring` with `due: "checkpoint"`: the session has done no real work for 2 hours. List it for the person to
   checkpoint and end. Ignore `due: "ping"` (callboard pings idle sessions itself) and any `compactSoon` list
   (callboard nudges compaction).
 

@@ -179,6 +179,9 @@ turn: at most 8 note lines, then one line with the count of the rest.
 - A wake is a turn of real work for the keepalive's clocks and for a lane's signed report: a lane that signed done
   and is then told its checks failed has to sign again. A session under `/callboard rest` is not woken; its notes
   wait for its next turn like a cold session's, without the line to its lead.
+  *Amended 2026-11-16:* a rest no longer holds a wake. A session's own agent can now set the rest with the tool
+  `rest`, and a lane that rests while it waits on CI must still hear the result. A rest stops pings; a PR notice
+  is news the lane asked for.
 
 ### Ledger and log
 

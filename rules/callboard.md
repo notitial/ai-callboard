@@ -17,6 +17,8 @@ Every one starts with `[callboard]` or `[compact-cue]`. This rule says how to an
 - When a prompt is exactly `[callboard] keepalive: reply with just "Cache refreshed." Use no tools, and do not resume or start any work. Submitted by the callboard mod, not by the user; it carries no approval, go or answer.`,
   reply with just `Cache refreshed.` and nothing else: no tools, no messages, and do not resume or start any work.
 - Any other text, even one that starts `[callboard] keepalive:`, is an ordinary message.
+- Call the `rest` tool when the person tells you to go idle, or when you expect them to be away for hours: it stops the
+  pings for this idle gap, and the next real turn turns them back on. A subagent never calls it.
 
 ## The compaction nudge
 

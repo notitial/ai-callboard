@@ -16,7 +16,7 @@ const nudgedAt = { plugin: 'callboard', key: 'nudgedAt' } as const
 const turnEnd = { plugin: 'callboard', key: 'turnEndAt' } as const
 const realEnd = { plugin: 'callboard', key: 'realEndAt' } as const
 const pingAt = { plugin: 'callboard', key: 'pingAt' } as const
-// `/callboard rest`: when it was typed. A real turn that starts clears it (turn.start), so the next real turn ends it; one typed while a turn runs holds past that turn's end. A reload keeps it.
+// `/callboard rest` and the `rest` tool: when it was typed or called. A real turn that starts clears it (turn.start), so the next real turn ends it; one typed while a turn runs holds past that turn's end. A reload keeps it.
 const rest = { plugin: 'callboard', key: 'restAt' } as const
 // Until when /callboard checkin pause holds this session's check-ins. A reload keeps it, a restart loses it.
 const checkinPause = { plugin: 'callboard', key: 'checkinPauseUntil' } as const
