@@ -767,7 +767,7 @@ export const COMMAND_TABLE: readonly CommandRow[] = [
   { form: 'lane [NAME]', help: 'Make this session a lane, named NAME if given.' },
   { form: 'lane off', help: 'Take this session out of its lane.' },
   { form: 'escalation [off]', help: 'Let the lead tier answer the prompts its lanes raise, or stop that.' },
-  { form: 'go [TEXT]', help: 'In a lead: give one go for the work TEXT names, after you confirm. A bare go lists the live goes.' },
+  { form: 'go [TEXT]', help: 'In a lead: give one go for the work TEXT names, after you confirm. A bare go lists the live goes and what a go never covers.' },
   { form: 'go off [SHORT]', help: 'End the live goes, or the one SHORT names.' },
   { form: 'conductor [NAME]', help: 'Make this session a conductor, named NAME if given, after you confirm.' },
   { form: 'conductor add NAME|PATH', help: 'Add a repo to the repos a conductor reaches.' },
