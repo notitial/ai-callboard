@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 import { LEADS_CHANGED_NOTE, LEADS_CHANGED_TEXT, SUBMITTED_NOTE_NEVER_RECORD } from '../hooks/core'
-import { LEADRECDIR, PS_TABLE, SID, T0, extraStat, h, leadFiles, longTest, submitted } from './harness'
+import { LEADRECDIR, PS_TABLE, SID, T0, extraStat, h, leadFiles, longTest, submitted, toasts } from './harness'
 import { APISID, CSESS, LEADPATH, LEADSID, MIN, OTHERLEAD, PIN, TURN, bindOwner, ckLane, condOn, idleFor, lane, leadFileText, leadReg, listed, ownedBy, putLeadRecs, putStore, ticks, leadRecsJson, waitFor } from './fixtures'
 
 // An owning conductor's check-ins on its leads and the leads-changed notice (the lead's own: checkins.test.ts, lead.test.ts).
@@ -58,12 +58,13 @@ longTest('lead check-in: a lead with a live lane of its own is waiting for it, s
   expect(leadCheckins()).toEqual([leadCk(LEAD_QUIET)])
 })
 
-longTest('lead check-in: an owned lead waiting on a prompt 5 min is told once the conductor has been idle 20 min', async ($, on) => {
+test('lead check-in: an owned lead waiting on a prompt 5 min is told to an idle conductor at once, with no 20 min of idle, with one toast', async ($, on) => {
   await ckOwn($, on, { lead: { status: 'waiting', waitingFor: 'permission prompt', statusUpdatedAt: T0 } })
-  await idleFor(12 * MIN)
+  await idleFor(4 * MIN)
   expect(leadCheckins()).toEqual([])
-  await idleFor(10 * MIN)
+  await idleFor(4 * MIN)
   expect(leadCheckins()).toEqual([leadCk('`LEAD` (waiting on a prompt for over 5 min)')])
+  expect(toasts.filter((t) => t.includes('waiting on a prompt'))).toEqual(['Lead LEAD: waiting on a prompt for over 5 min.'])
 })
 
 longTest('lead check-in: an owned lead whose session is gone is told', async ($, on) => {

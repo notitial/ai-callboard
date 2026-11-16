@@ -2153,6 +2153,20 @@ test('v13.6 observeLane: gone after 3 observations in a row, since the first; on
   assert.deepEqual(c.observeLane(undefined, ckLane, [ck({ cwd: '/elsewhere' })], S3_SID, 1), { seenLive: false, goneN: 0 })
 })
 
+test('a waiting prompt skips the idle gate, reaches the manager after 10 min, and has a fixed toast of names only', () => {
+  const items: c.AttentionItem[] = [{ lane: 'A', code: 'gone', since: 1 }, { lane: 'B', code: 'prompt', since: 2 }, { lane: 'C', code: 'quiet', since: 3 }]
+  assert.deepEqual(c.checkinDueItems(items, true), items)
+  assert.deepEqual(c.checkinDueItems(items, false), [items[1]])
+  assert.equal(c.promptWaitedLong(items[1], 2 + c.CHECKIN_PROMPT_MANAGER_MS - 1), false)
+  assert.equal(c.promptWaitedLong(items[1], 2 + c.CHECKIN_PROMPT_MANAGER_MS), true)
+  assert.equal(c.promptWaitedLong({ ...items[2], since: 0 }, 10 * c.CHECKIN_PROMPT_MANAGER_MS), false)
+  assert.equal(c.promptWaitingToast('Lane', ['API', 'WEB']), 'Lane API, WEB: waiting on a prompt for over 5 min.')
+  assert.equal(c.promptWaitingToast('Lead', ['LEAD', 'bad name;rm']), 'Lead LEAD: waiting on a prompt for over 5 min.')
+  assert.equal(c.promptWaitingToast('Lane', Array.from({ length: 10 }, (_, i) => `L${i}`)), 'Lane L0, L1, L2, L3, L4, L5, L6, L7 and 2 more: waiting on a prompt for over 5 min.')
+  assert.equal(c.promptWaitingToast('Lane', ['bad name;rm']), undefined)
+  assert.equal(c.promptWaitingToast('Lane', []), undefined)
+})
+
 test('v13.6 checkinText: fixed text per code, at most 8 lanes then "and N more", a bad lane name never enters it; checkinKey carries the since', () => {
   const tail = 'Call lane_list and look at each. Submitted by the callboard mod, not by the user; it carries no approval, go or answer; never record it as one.'
   assert.equal(c.checkinText([{ lane: 'A', code: 'gone', since: 1 }, { lane: 'B', code: 'prompt', since: 2 }, { lane: 'C', code: 'quiet', since: 3 }]),

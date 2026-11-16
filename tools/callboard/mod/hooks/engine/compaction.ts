@@ -46,7 +46,7 @@ import {
 } from './base.ts'
 import { registryOf, idleCheck, regOnce, loadLanes, registryEntries, noAnswer } from './store.ts'
 import type { Reg, Answer } from './store.ts'
-import { homeOf, LEAD_RESTORE_TRIES, regEntry, cfgGet, leadBusy } from './grants.ts'
+import { homeOf, LEAD_RESTORE_TRIES, regEntry, cfgGet, leadBusy, checkinMidTurn } from './grants.ts'
 import { reportLaneOf, reportTargetOf, reportStat, retireReportCheck, sessionRoot, undoLate, detach, keepLaneFacts, briefLane } from './lanes.ts'
 import type { Bound } from './lanes.ts'
 import { ensureTimer } from './tick.ts'
@@ -406,13 +406,13 @@ async function midTurnFallback($: any, sid: string) {
   await recordNudge($, sid, 'threshold', await $.clock.now(), read.version, false, true)
 }
 
-// The PostToolUse and PostToolUseFailure hook: the end of a held relay question, the prompt answering's done mark (doneHook), then the mid-turn nudge, the lead's mid-turn prompt notice and the PR notice added to the result's additionalContext.
+// The PostToolUse and PostToolUseFailure hook: the end of a held relay question, the prompt answering's done mark (doneHook), then the mid-turn nudge, the lead's mid-turn prompt notice, the mid-turn check-in on a waiting prompt and the PR notice added to the result's additionalContext.
 export async function postToolHook($: any, e: any, next: any): Promise<any> {
   await promptRelayHoldEnd($, e).catch(() => undefined)
   await promptDone($, e).catch(() => undefined)
   const r = await next(e)
   // Separate texts, never one merged: the nudge, then the notices. Each path claims its own before it returns the text.
-  const texts = [await midTurnNudge($, e), await promptMidTurnNotice($, e).catch(() => undefined), await promptRelayPost($, e).catch(() => undefined), await prMidTurn($, e).catch(() => undefined)].filter((t): t is string => typeof t === 'string')
+  const texts = [await midTurnNudge($, e), await promptMidTurnNotice($, e).catch(() => undefined), await checkinMidTurn($, e).catch(() => undefined), await promptRelayPost($, e).catch(() => undefined), await prMidTurn($, e).catch(() => undefined)].filter((t): t is string => typeof t === 'string')
   if (texts.length === 0) return r
   const extra = (r as { additionalContext?: unknown } | null | undefined)?.additionalContext
   return { ...(r ?? {}), additionalContext: [...(Array.isArray(extra) ? extra : []), ...texts] }
