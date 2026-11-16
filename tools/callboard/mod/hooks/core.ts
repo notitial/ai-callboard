@@ -2529,8 +2529,8 @@ export function laneListText(lanes: Lane[], entries: RegEntry[], now: number, vi
 // Once a minute the tick observes the lanes in a lead's reach (registry only); a lead idle 20 min, awake 30 min and not paused gets one fixed notice when a lane
 // may need it. The text asks the lead to look; it carries no approval and names nothing but lane names.
 // A lane waiting on a prompt does not wait for the lead's 20 idle minutes: a lead that is idle is told at once, a busy one in the middle of its turn, the manager
-// too once the wait reaches CHECKIN_PROMPT_MANAGER_MS whoever leads the lane, and the person in a toast. A prompt a tier holds as an open request is not told to that
-// tier again (checkinSkipHeld); the toast is unchanged.
+// too once the wait reaches CHECKIN_PROMPT_MANAGER_MS whoever leads the lane, and the person in a toast. Nor does it wait for the 30 minutes after a wake, which
+// hold only gone and quiet back. A prompt a tier holds as an open request is not told to that tier again (checkinSkipHeld); the toast is unchanged.
 export const CHECKIN_EVERY_MS = 60_000
 export const CHECKIN_IDLE_MS = 20 * 60_000
 export const CHECKIN_WAKE_MS = 30 * 60_000

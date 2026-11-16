@@ -19,6 +19,9 @@ const PERSON_POLL_MS = 10_000
 export const RELAY_WATCH_MS = 5_000
 // One awake clock: each poll adds its gap, capped, so a closed lid cannot age a prompt nobody could have answered.
 const AWAKE_GAP_CAP_MS = 10_000
+// A poll's pause that fails (the Mac slept through its time limit, the process did not run) does not end a wait: the clock is read and the poll runs again.
+// This many failures in a row do, so a pause that can never run does not spin.
+export const PAUSE_FAILS_MAX = 3
 // A decision seen before its `answered` row is held for this long (awake), then dropped.
 export const LEDGER_GRACE_MS = 10_000
 // A normal PR body (about 8 KB) must arrive whole, or the rubric lets the lead only deny it. One string, the whole input and the request file are sized from that.

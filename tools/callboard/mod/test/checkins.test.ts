@@ -191,11 +191,60 @@ test('check-in: the toast for a waiting prompt is shown with check-ins switched 
   expect(toasts.filter((t) => t === PROMPT_TOAST)).toEqual([PROMPT_TOAST])
 })
 
-test('check-in: the toast for a waiting prompt is shown within 30 min of a wake, when no check-in is sent', async ($, on) => {
+test('check-in: a prompt that waited through a sleep is told to an idle lead right after the wake, with the toast', async ($, on) => {
   await ckLead($, on, [], WAITING)
   await sleepFor(30 * MIN)
   await idleFor(8 * MIN)
+  expect(checkins()).toEqual([ckText(PROMPT)])
+  expect(toasts.filter((t) => t === PROMPT_TOAST)).toEqual([PROMPT_TOAST])
+})
+
+test('check-in: within 30 min of a wake a lane waiting on a prompt 5 min is told to an idle lead, alone: quiet and gone lanes wait for the 30 min', async ($, on) => {
+  const web = (over: Record<string, unknown>) => cueSession(APISID, 'WEB', `${PIN}/web`, { pid: 4600, ...over })
+  const lab = cueSession(OTHERLEAD, 'LAB', `${PIN}/lab`, { pid: 4700, statusUpdatedAt: T0 })
+  await ckLead($, on, [], {}, [ckLane(), { name: 'WEB', folder: `${PIN}/web`, brief: `${PIN}/web/BRIEF.md`, createdAt: 1, sid: APISID }, { name: 'LAB', folder: `${PIN}/lab`, brief: `${PIN}/lab/BRIEF.md`, createdAt: 1, sid: OTHERLEAD }])
+  h.sessions = { ...leadSelfReg(), ...ckRow(), ...web({ status: 'busy', statusUpdatedAt: T0 }), ...lab }
+  await idleFor(8 * MIN)
+  await sleepFor(30 * MIN)
+  // After the wake: API has been quiet over 30 min, LAB's session is gone, and WEB starts to wait on a prompt.
+  h.sessions = { ...leadSelfReg(), ...ckRow(), ...web({ ...WAITING, statusUpdatedAt: h.nowMs }) }
+  await idleFor(4 * MIN)
   expect(checkins()).toEqual([])
+  await idleFor(4 * MIN)
+  const WEB_PROMPT = ckText('`WEB` (waiting on a prompt for over 5 min)')
+  expect(checkins()).toEqual([WEB_PROMPT])
+  expect(toasts.filter((t) => t.includes('waiting on a prompt'))).toEqual(['Lane WEB: waiting on a prompt for over 5 min.'])
+  await idleFor(16 * MIN)
+  expect(checkins()).toEqual([WEB_PROMPT])
+  await idleFor(12 * MIN)
+  expect(checkins()).toEqual([WEB_PROMPT, ckText(`${QUIET}; \`LAB\` (session gone, report not signed done)`)])
+})
+
+test('check-in: within 30 min of a wake a busy lead is told of a waiting prompt beside a tool result', async ($, on) => {
+  postBeneath(on)
+  await ckLead($, on, [], WAITING)
+  h.sessions = { ...leadSelfReg({ status: 'busy' }), ...ckRow(WAITING) }
+  await idleFor(4 * MIN)
+  expect(await midCtx($)).toEqual([])
+  await sleepFor(6 * MIN)
+  await idleFor(4 * MIN)
+  expect(await midCtx($)).toEqual([ckText(PROMPT)])
+  expect(await midCtx($)).toEqual([])
+  expect(checkins()).toEqual([])
+})
+
+test('manager check-ins: within 30 min of a wake a lane waiting on a prompt 10 min is told to the manager with its lead live, not at 5 min', async ($, on) => {
+  const sess = (api: Record<string, unknown>) => ({ ...leadSelfReg({ name: 'MANAGER' }), ...cueSession(OTHER, 'LABLANE', '/data/x/work/lab', { pid: 4600, statusUpdatedAt: T0 }), ...cueSession(APISID, 'API', `${PIN}/api`, { pid: 4500, ...api }), ...leadReg() })
+  await mgrAt($, on, [], { clock: true, sess: sess({ status: 'busy', statusUpdatedAt: T0 }), seed: () => leadFiles.set(LEADPATH, { text: leadFileText() }) })
+  h.psTable = `${PS_TABLE} 4400     1 /x/native-binary/claude\n`
+  await $.turn.complete(TURN as any)
+  await idleFor(4 * MIN)
+  await sleepFor(6 * MIN)
+  h.sessions = sess({ ...WAITING, statusUpdatedAt: h.nowMs })
+  await idleFor(8 * MIN)
+  expect(checkins()).toEqual([])
+  await idleFor(4 * MIN)
+  expect(checkins()).toEqual([ckText(PROMPT)])
   expect(toasts.filter((t) => t === PROMPT_TOAST)).toEqual([PROMPT_TOAST])
 })
 
