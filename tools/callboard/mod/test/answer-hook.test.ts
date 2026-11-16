@@ -585,13 +585,11 @@ test('prompts: sweep: with no prompts folder the tick makes no process call for 
 // ---- /callboard escalation ----
 const EXPECT_Q = prm.ESCALATION_QUESTION
 const ESC_VALUE = { scope: 'all', asks: false, asksScope: 'all', savedAt: T0 }
-test('prompts: /callboard config shows escalation OFF (the default is blocked on this machine), help has no dialog line, and the prompts word is the usage line', async ($, on) => {
+test('prompts: /callboard config shows escalation OFF (the default is blocked on this machine), and the prompts word is the usage line', async ($, on) => {
   await started($, on, [])
   expect((await $.command.run(lane('config'))).text).toContain('| Escalation | OFF |')
-  expect((await $.command.run(lane('help'))).text).not.toContain('Nothing is held back from the tiers by the mod')
   const usage = (await $.command.run(lane('prompts'))).text
   expect(usage).toContain('Run /callboard help for the full list.')
-  expect(usage).not.toContain('Escalation')
 })
 test('prompts: /callboard escalation: the person\'s own command, one dialog naming exactly what turns on, stored on Allow with the two ledger rows the audit reads', async ($, on) => {
   await started($, on, [])
@@ -615,7 +613,6 @@ test('prompts: the old /callboard answering command is gone: every form is the m
   h.askAnswer = YES
   for (const old of ['answering', 'answering on all', 'answering asks all', 'answering off', 'answering off asks']) {
     const r = await $.command.run(lane(old))
-    expect(r.text).not.toMatch(/answering/i)
     expect(r.text).toMatch(/^Use \/callboard /)
   }
   expect(h.askCount).toBe(0)

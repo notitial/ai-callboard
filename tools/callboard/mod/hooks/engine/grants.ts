@@ -27,6 +27,10 @@ import {
   managerSeen,
   managerSeenBusy,
   leadlessSeen,
+  laneEnds,
+  doneNotices,
+  doneCapped,
+  doneHold,
   leadSavedAt,
   leadRestorePending,
   conductorApproved,
@@ -349,6 +353,9 @@ export function leadDrop($: any, sid: string): Promise<boolean> {
   managerSeen.delete(sid)
   managerSeenBusy.delete(sid)
   leadlessSeen.delete(sid)
+  laneEnds.delete(sid)
+  doneCapped.delete(sid)
+  doneHold.delete(sid)
   leadSavedAt.delete(sid)
   leadRestorePending.delete(sid)
   renameRefused.delete(sid)
@@ -1062,6 +1069,14 @@ function owedItems(sid: string, items: c.AttentionItem[]): { told: Set<string>; 
   for (const k of told) if (!keys.has(k)) told.delete(k)
   return { told, owed: items.filter((i) => !told.has(c.checkinKey(i))) }
 }
+// The turn end a check-in counts the lead's idle time from: a done notice's own turn does not restart it (c.idleTurnEnd).
+function idleEnd(sid: string, turnEnd: unknown): unknown {
+  if (typeof turnEnd !== 'number') return turnEnd
+  const r = c.idleTurnEnd(turnEnd, doneHold.get(sid))
+  if (r.hold) doneHold.set(sid, r.hold)
+  else doneHold.delete(sid)
+  return r.at
+}
 // The timing gates of a check-in: on in the config, not paused, no wake in the last 30 minutes ('off' otherwise). 'all' once the session has been idle for 20
 // minutes; before that 'prompt': only a waiting prompt is due (c.checkinDueItems).
 async function checkinGates($: any, sid: string, now: number): Promise<'off' | 'prompt' | 'all'> {
@@ -1069,7 +1084,7 @@ async function checkinGates($: any, sid: string, now: number): Promise<'off' | '
   const pause = (await getCheckinPause($)).value
   if (typeof pause === 'number' && pause > now) return 'off'
   if (mem.wokeAt !== undefined && now - mem.wokeAt < c.CHECKIN_WAKE_MS) return 'off'
-  const turnEnd = (await getTurnEnd($)).value
+  const turnEnd = idleEnd(sid, (await getTurnEnd($)).value)
   return typeof turnEnd === 'number' && now - Math.max(turnEnd, lastSubmitAt.get(sid) ?? 0) >= c.CHECKIN_IDLE_MS ? 'all' : 'prompt'
 }
 // The waiting prompts among the items that are due: left for the mid-turn hook (a busy session gets no idle submit).
@@ -1257,6 +1272,87 @@ async function conductorCheckin($: any, sid: string, submitsAtStart: number) {
   await attentionNotice($, sid, owed, submitsAtStart, ep, signed, { render: c.leadCheckinText, label: 'lead-checkin' })
 }
 
+// ---- a lane's end: signed done to the lead, gone unsigned to the person ----
+// Runs after a lead's check-in step and only reads what it observed (laneObs); a check-in step that observed nothing leaves it nothing to do. The report of
+// a lane seen idle is read once per status time, that of a lane gone (and seen live under this grant) once per goneSince; with nothing new to read and nothing
+// owed, no file is touched. A signature is told to the lead once per lane, session and signature, through the attention notice's gates, when check-ins are on
+// and not paused and the lead has been idle c.LANE_DONE_IDLE_MS. The notice has its own hourly budget (c.LANE_DONE_PER_HOUR), and its turn does not restart
+// the idle time a check-in waits for. A lane gone with no signed report is toasted once (not within 30 minutes of a wake: the lanes slept too); the wake
+// does not hold the done notice. The manager and a conductor get neither.
+export async function laneEndTick($: any, sid: string, submitsAtStart: number) {
+  if (grants.get(sid)?.level !== 'lead') return
+  // The end of the notice's own turn is learned here, at every step (once a minute), so a turn that ends a minute or more after it is not taken for it.
+  if (doneHold.has(sid)) idleEnd(sid, (await getTurnEnd($)).value)
+  const obs = laneObs.get(sid)
+  if (!obs) return
+  const ep = epochOf(sid)
+  let kept = laneEnds.get(sid)
+  if (kept?.ep !== ep) laneEnds.set(sid, (kept = { ep, by: new Map<string, c.LaneEnd>(), told: new Set<string>() }))
+  // The check-in step writes a new map at each observation: the same map means it observed nothing this minute (a failed read), so nothing is new.
+  if (kept.seen === obs) return
+  kept.seen = obs
+  const { by: ends, told } = kept
+  for (const k of [...ends.keys()]) if (!obs.has(k)) ends.delete(k)
+  const now = await $.clock.now()
+  if (!(await cfgGet($, sid)).checkin) return
+  const pause = (await getCheckinPause($)).value
+  if (typeof pause === 'number' && pause > now) return
+  const awake = mem.wokeAt === undefined || now - mem.wokeAt >= c.CHECKIN_WAKE_MS
+  const reads = c.laneEndReads(obs, ends).filter((r) => r.kind === 'idle' || awake)
+  if (reads.length > 0) {
+    const base = await leadCore($, sid)
+    if ('err' in base) return
+    const read: { r: (typeof reads)[number]; sig: string | undefined; failed: boolean }[] = []
+    for (const r of reads) {
+      const l = base.lanes.find((x) => x.name === r.lane)
+      // A record parked or cleared of its session since the observation was stopped on purpose: nothing ended by itself.
+      if (!l || (r.kind === 'gone' && (l.sid === undefined || l.parked !== undefined))) continue
+      // Idle by the live session's id, gone by the record's, as the check-in reads a signature.
+      const signer = r.kind === 'idle' ? obs.get(r.lane)?.sid ?? '' : (l.sid as string)
+      const rep: Awaited<ReturnType<typeof readReport>> = await readReport($, l).catch(() => ({ no: 'report-read' }))
+      // No file at the path is a lane that has not signed; any other failed read says nothing of the report.
+      read.push({ r, sig: !('no' in rep) && c.reportSigned(rep.text, signer) ? c.doneSig(signer, rep.size) : undefined, failed: 'no' in rep && rep.gone !== true })
+    }
+    // The reads wait: an off or a re-grant meanwhile ends this step, and nothing is kept or said for the old grant.
+    if (epochOf(sid) !== ep || !grants.has(sid)) return
+    const unsigned: string[] = []
+    const unread: string[] = []
+    for (const { r, sig, failed } of read) {
+      const e = ends.get(r.lane) ?? {}
+      // A failed read is tried again at the next observation, c.LANE_END_READ_TRIES times in all for that status time or exit; then the report counts as unread.
+      const n = c.laneEndTries(e, r.kind, r.at)
+      if (failed && n < c.LANE_END_READ_TRIES) {
+        ends.set(r.lane, { ...e, tried: { kind: r.kind, at: r.at, n } })
+        continue
+      }
+      ends.set(r.lane, { ...(r.kind === 'idle' ? { at: r.at, gone: e.gone } : { at: e.at, gone: r.at }), sig })
+      if (r.kind === 'gone' && sig === undefined) (failed ? unread : unsigned).push(r.lane)
+    }
+    for (const [names, bad] of [[unsigned, false], [unread, true]] as const) {
+      const text = c.laneGoneToast(names, bad)
+      if (text === undefined) continue
+      toast($, text)
+      await logq($, sid, 'lane-gone-toast', `${bad ? 'unread' : 'unsigned'}:${names.length}`)
+    }
+  }
+  const owed = c.laneDoneItems(obs, ends, told)
+  if (owed.length === 0) return
+  const turnEnd = (await getTurnEnd($)).value
+  if (typeof turnEnd !== 'number' || now - Math.max(turnEnd, lastSubmitAt.get(sid) ?? 0) < c.LANE_DONE_IDLE_MS) return
+  // Since when the lead was idle for a check-in, before this notice: its own turn leaves that time as it was.
+  const from = Math.max(c.idleTurnEnd(turnEnd, doneHold.get(sid)).at, lastSubmitAt.get(sid) ?? 0)
+  const sigs = new Map(owed.map((i) => [i.lane, ends.get(i.lane)?.sig]))
+  // A submit that timed out may never start a turn: it sets no hold, so the next turn to end is not taken for the notice's. A hold an earlier notice left stays.
+  const sent = async (items: c.AttentionItem[], confirmed: boolean) => {
+    for (const i of items) {
+      const sig = sigs.get(i.lane)
+      if (sig !== undefined) told.add(c.doneKey(i.lane, sig))
+    }
+    if (confirmed) doneHold.set(sid, { from, prevEnd: turnEnd })
+  }
+  await attentionNotice($, sid, owed, submitsAtStart, ep, undefined, { render: c.doneText, label: 'lane-done', sent, budget: { times: doneNotices, capped: doneCapped, max: c.LANE_DONE_PER_HOUR } })
+}
+
 // ---- the deadline of an order ----
 export async function orderDue($: any, sid: string): Promise<boolean> {
   if (!grants.has(sid) || !(orders.get(sid)?.size ?? 0) || orderBusy.has(sid)) return false
@@ -1311,9 +1407,9 @@ export async function orderTick($: any, sid: string, submitsAtStart: number) {
 }
 
 // The shared attention notice: the caller owns timing and pause, this owns the mechanical gates. One notice per key; the hourly cap is
-// the lanes-changed notice's (a notice over it stays owed, logged once per capped stretch); a submit that throws puts its items back, one that times out does not.
+// the lanes-changed notice's unless the caller brings its own budget (a notice over it stays owed, logged once per capped stretch); a submit that throws puts its items back, one that times out does not.
 // filter: the caller's own last reads (the check-in's report signatures), run only once the gates hold.
-async function attentionNotice($: any, sid: string, items: c.AttentionItem[], submitsAtStart: number, ep: number, filter?: (items: c.AttentionItem[]) => Promise<c.AttentionItem[]>, opts?: { render?: (items: c.AttentionItem[]) => string | undefined; label?: string; sent?: (items: c.AttentionItem[]) => Promise<void> }) {
+async function attentionNotice($: any, sid: string, items: c.AttentionItem[], submitsAtStart: number, ep: number, filter?: (items: c.AttentionItem[]) => Promise<c.AttentionItem[]>, opts?: { render?: (items: c.AttentionItem[]) => string | undefined; label?: string; sent?: (items: c.AttentionItem[], confirmed: boolean) => Promise<void>; budget?: { times: Map<string, number[]>; capped: Set<string>; max: number } }) {
   const render = opts?.render ?? c.checkinText
   const told = attnTold.get(sid)
   if (!told) return
@@ -1321,11 +1417,14 @@ async function attentionNotice($: any, sid: string, items: c.AttentionItem[], su
   if (render(untold(items)) === undefined || dialogOpen.has(sid) || mem.submits !== submitsAtStart) return
   const sentAt = lastSubmitAt.get(sid)
   if ((await getRequest($)).value != null || (await getNudgeDue($)).value != null) return
+  // The hourly cap: the lanes-changed notice's, or the caller's own budget (opts.budget), which then leaves the shared one untouched.
+  const times = opts?.budget?.times ?? laneNotices
+  const cappedSet = opts?.budget?.capped ?? attnCapped
   const capped = async () => {
-    if (c.noticeAllowed(laneNotices.get(sid) ?? [], await $.clock.now(), c.LANES_NOTICES_PER_HOUR)) return false
-    if (!attnCapped.has(sid)) {
-      attnCapped.add(sid)
-      await log($, sid, 'notice-capped', 'attention')
+    if (c.noticeAllowed(times.get(sid) ?? [], await $.clock.now(), opts?.budget?.max ?? c.LANES_NOTICES_PER_HOUR)) return false
+    if (!cappedSet.has(sid)) {
+      cappedSet.add(sid)
+      await log($, sid, 'notice-capped', opts?.budget ? (opts.label ?? 'attention') : 'attention')
     }
     return true
   }
@@ -1349,15 +1448,15 @@ async function attentionNotice($: any, sid: string, items: c.AttentionItem[], su
   if (text === undefined) return
   const keys = fresh.map(c.checkinKey)
   for (const k of keys) told.add(k)
-  attnCapped.delete(sid)
-  cappedLogged.delete(sid)
-  laneNotices.set(sid, c.pushRecent(laneNotices.get(sid) ?? [], now))
+  cappedSet.delete(sid)
+  if (!opts?.budget) cappedLogged.delete(sid)
+  times.set(sid, c.pushRecent(times.get(sid) ?? [], now))
   const sent = await withTimeout($, submitOwn($, text, false).then(() => 'ok' as const, () => 'failed' as const), ACTION_TIMEOUT_MS)
   if (sent === 'failed') {
     turnKind.delete(sid)
     for (const k of keys) told.delete(k)
   }
-  if (sent !== 'failed') await opts?.sent?.(fresh).catch(() => undefined)
+  if (sent !== 'failed') await opts?.sent?.(fresh, sent === 'ok').catch(() => undefined)
   const codes = [...new Set(fresh.map((i) => i.code))].sort().join('+')
   const label = opts?.label ?? 'checkin'
   await log($, sid, sent === 'ok' ? label : sent === 'timeout' ? `${label}-unconfirmed` : `${label}-failed`, `${codes}:${fresh.length}`)

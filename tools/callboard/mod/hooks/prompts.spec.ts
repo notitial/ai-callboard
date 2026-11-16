@@ -177,7 +177,7 @@ test('apply: each refusal has its code', () => {
   assert.deepEqual(apply({ byOk: false }), { drop: 'by-sid' })
   assert.deepEqual(apply({ decision: baseDec({ by: { level: 'lead', sid: SID_A, name: 'A' } }) }), { drop: 'by-sid' })
   assert.deepEqual(apply({ decision: baseDec({ by: { level: 'lead', sid: 'not-a-sid', name: 'A' } }) }), { drop: 'by-sid' })
-  // PR 3: a conductor or the manager may decide (the caller takes the level from presence); a level that is no tier is dropped.
+  // A conductor or the manager may decide (the caller takes the level from presence); a level that is no tier is dropped.
   assert.deepEqual(apply({ decision: baseDec({ by: { level: 'manager', sid: SID_B, name: 'M' } }) }), { ok: true })
   assert.deepEqual(apply({ decision: baseDec({ by: { level: 'person', sid: SID_B, name: 'M' } }) }), { drop: 'by-sid' })
   assert.deepEqual(apply({ ledger: 'unreadable' }), { drop: 'ledger-unreadable' })
@@ -253,7 +253,7 @@ test('capInput: a redaction that hides a line break marks the input truncated', 
 })
 
 // A session that starts OUTSIDE a protected folder and reaches into it by a relative path.
-// ---- PR 4: questions (PLAN-PR4 §3, §7.1) ----
+// ---- questions ----
 const qIn = (over: Record<string, unknown> = {}, opts: unknown[] = [{ label: 'Red' }, { label: 'Green' }]) => ({ questions: [{ question: 'Which colour?', header: 'Colour', options: opts, ...over }] })
 test('questionShape: each code at each bound', () => {
   assert.deepEqual(p.questionShape(qIn()), { ok: true, question: 'Which colour?', header: 'Colour' })

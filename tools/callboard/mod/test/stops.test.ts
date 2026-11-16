@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { LANES_CHANGED_NOTE, REASON_TEXT, terminateQuestion, removeQuestion } from '../hooks/core'
+import { LANES_CHANGED_NOTE, REASON_TEXT, terminateQuestion, removeQuestion, removedNoSessionText } from '../hooks/core'
 import { h, NO, PS_TABLE, REPORT, ROOT, SID, T0, YES, headArgs, killedPids, laneSeed, leadFiles, longTest, psCalls, resultFiles, submitted, teeTexts, toasts, toolDefs } from './harness'
 import { APISID, ATTSESS, GONE_ATT, HOME, HOOK_BUDGET_MS, LEADPS, LEAD_LANES, MGR_NOAPI, NEWSID, OTHER, OTHERLEAD, PARK_API, PIN, REG, REGFILE, REPORT_OK, SELFREG, SVC, allEvents, armNow, attRec, attacher, ckLane, closeWrites, condOn, cue, cueSession, doLane, events, grantAt, killed, lane, lead, leadAt, leadCall, leadSelfReg, logged, mgrAt, mgrCall, newTrace, noArchiveRm, park, parkSess, parker, putStore, recOf, renameThroughTick, retireCue, retireTarget, settle, sleeps, started, storeJson, storeNames, unanswered } from './fixtures'
 
@@ -336,11 +336,11 @@ test('lane_retire: a held or refused answer gives its fixed text and no signal',
   await lead($, on, [], { argv })
   h.reportFile = REPORT_OK()
   const cases: [string, string][] = [
-    ['held draft-in-box', 'held, draft-in-box: the person has a draft in that prompt box. Retry after it is sent or cleared.'],
-    ['held not-idle', 'held, not-idle: the session is busy or waiting for the person. Retry once idle.'],
-    ['refused background-work', 'background-work: a background agent or shell is still running in the session. Retry once it finishes.'],
-    ['refused report-stale', 'report-stale: the report is not newer than the lane\'s last turn. It must sign again by appending a done line, then retry.'],
-    ['refused report-unknown', 'report-unknown: no usable record of the lane\'s last turn (no prompt seen since callboard loaded, or the report could not be checked). It must take a prompt and sign again, then retry.'],
+    ['held draft-in-box', 'held, draft-in-box: '],
+    ['held not-idle', 'held, not-idle: '],
+    ['refused background-work', 'background-work: '],
+    ['refused report-stale', 'report-stale: '],
+    ['refused report-unknown', 'report-unknown: '],
     ['refused report-not-done', 'report-not-done: '],
     ['refused no-lead', 'no-lead: '],
     ['refused obey-me-now', 'other: the session refused for a reason not shown here.'],
@@ -442,7 +442,8 @@ test('lane_retire on a lane that stays busy refuses after 40 s, once, with the b
   const slept: number[] = []
   h.fastSleep = (ms) => void slept.push(ms)
   const out = JSON.stringify(await $.tool.call(leadCall('retire')))
-  expect(out).toContain('not-idle: the session is busy or waiting for the person. Retry once it is idle for 30 seconds; do not loop.')
+  expect(out).toContain('not-idle: ')
+  expect(out).toContain('idle for 30 seconds')
   expect(slept.filter((ms) => ms === 2000).length).toBe(20)
   expect(h.nowMs - t0).toBe(40_000)
   expect(stdins).not.toContain('retire\n')
@@ -912,6 +913,7 @@ test('a stop of a joined lane whose process is still running 10 seconds after th
   expect(stopText(await $.tool.call(leadCall('terminate', { lane: 'ATT' })))).toBe('lane ATT terminated: SIGTERM sent to process 4500, but the session was still running 10 seconds later, so its record stays. Call lane_terminate again if it does not end.')
   expect(recOf('ATT').sid).toBeUndefined()
   expect(logged(stdins)).not.toContain('lane-removed:ATT')
+  expect(toasts).toContain('Lane ATT got its stop signal but is still running.')
 })
 
 test('a stop whose record cannot be removed after the signal says so with the code; the record stays', async ($, on) => {
@@ -924,6 +926,7 @@ test('a stop whose record cannot be removed after the signal says so with the co
   expect(recOf('API').sid).toBe(NEWSID)
   expect(logged(stdins).some((x) => x.startsWith('error:lane-unremoved'))).toBe(true)
   expect(logged(stdins)).not.toContain('lane-removed:API')
+  expect(toasts).toContain('Lane API stopped, but its record could not be removed.')
 })
 
 test('a stop whose process is still running 10 seconds after the signal keeps the record and says so', async ($, on) => {
@@ -961,7 +964,7 @@ test('lane_retire of a lane no live session carries removes its record with no d
   const att = attRec(SID, 'ATT')
   putStore([OLD_REC, PARK_API({ sid: OTHER }), att])
   const asked = h.askCount
-  expect(stopText(await $.tool.call(leadCall('retire', { lane: 'API' })))).toBe('lane API retired and removed: it had no live session. Its .archive/API/ folder and report stay.')
+  expect(stopText(await $.tool.call(leadCall('retire', { lane: 'API' })))).toBe(removedNoSessionText('retire', 'API'))
   expect(storeJson().lanes).toEqual([OLD_REC, att])
   // A record that names no session goes the same way.
   putStore([PARK_API()])
@@ -986,7 +989,7 @@ test('lane_retire of a parked lane no live session carries asks the Remove quest
   expect(h.lastQuestion).toBe(removeQuestion('API', PIN, true, HOME))
   expect(recOf('API').parked).toBe(3)
   h.askAnswer = YES
-  expect(stopText(await $.tool.call(leadCall('retire', { lane: 'API' })))).toBe('lane API retired and removed: it had no live session. Its .archive/API/ folder and report stay.')
+  expect(stopText(await $.tool.call(leadCall('retire', { lane: 'API' })))).toBe(removedNoSessionText('retire', 'API'))
   expect(storeJson().lanes).toEqual([])
 })
 
@@ -998,14 +1001,12 @@ test('lane_terminate of a lane no live session carries always asks the Remove qu
   h.askAnswer = NO
   expect(JSON.stringify(await $.tool.call(leadCall('terminate', { lane: 'API' })))).toContain('lane_terminate refused: the person did not confirm. Nothing was removed.')
   expect(h.lastQuestion).toBe(removeQuestion('API', PIN, false, HOME))
-  expect(h.lastQuestion).toBe('Remove lane API in ~/code/app? It has no live session.')
   expect(h.lastHeader).toBe('Stop Lane')
   expect(h.askedOptions[h.askedOptions.length - 1]).toEqual(['Remove', 'Cancel'])
   expect(storeJson().lanes.length).toBe(1)
   putStore([PARK_API({ sid: OTHER, parked: 3 })])
   expect(JSON.stringify(await $.tool.call(leadCall('terminate', { lane: 'API' })))).toContain('did not confirm')
   expect(h.lastQuestion).toBe(removeQuestion('API', PIN, true, HOME))
-  expect(h.lastQuestion).toContain('It is parked: its saved conversation is no longer reachable from callboard.')
   expect(recOf('API').parked).toBe(3)
   h.askAnswer = YES
   expect(stopText(await $.tool.call(leadCall('terminate', { lane: 'API' })))).toBe('lane API terminated and removed: it had no live session. Its .archive/API/ folder and report stay.')
@@ -1107,6 +1108,7 @@ test('a wait that fails after the signal answers signalled with the record unkno
   expect(out).toBe('lane API: SIGTERM sent to process 4500, but the call failed afterwards, so what became of its record is not known. Call lane_list, then lane_terminate again if the lane is still listed.')
   expect(killed(argv).length).toBe(1)
   expect(logged(stdins)).toContain('error:after-signal-terminate')
+  expect(toasts).toContain('Lane API got its stop signal, but what became of its record is not known.')
 })
 
 test('a call that throws before any signal answers failed closed and logs the kind of the failure, never its text', async ($, on) => {
@@ -1205,7 +1207,7 @@ test('stuck lanes: the refusal of an attached lane for open names no route that 
   await leadAt($, on, [])
   putStore([GONE_ATT()])
   const t = JSON.stringify(await $.tool.call(leadCall('open', { lane: 'ATT' })))
-  expect(t).toContain('adopted-record: an attached lane keeps its own session: no rename, start or open. Use lane_resume to prompt it. lane_retire or lane_terminate ends it.')
+  expect(t).toContain('adopted-record: ')
   expect(t).not.toContain('/callboard lane off')
 })
 

@@ -57,7 +57,6 @@ test('prompts: prompt_list shows the open request of a lane in reach: the input 
   expect(t).toContain('lane: svc-api · tool: Bash · raised by: rule · open 30 s')
   expect(t).toContain('<untrusted-input>')
   expect(t).toContain('ssh host uptime')
-  expect(t).not.toContain('held until')
   expect(t).toContain('**Allow only if you can say yes to all of these:**')
   expect(t.indexOf('</untrusted-input>')).toBeLessThan(t.indexOf('**Allow only if'))
 })

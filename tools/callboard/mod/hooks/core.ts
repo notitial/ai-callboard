@@ -2592,7 +2592,7 @@ function observeRow(prev: LaneObs | undefined, row: RegEntry | 'gone' | undefine
   o.goneSince = prev?.goneSince ?? now
   return o
 }
-type AttentionCode = 'gone' | 'prompt' | 'quiet' | 'ordered'
+type AttentionCode = 'gone' | 'prompt' | 'quiet' | 'ordered' | 'done'
 export type AttentionItem = { lane: string; code: AttentionCode; since: number }
 // What the observations say now; gone only after CHECKIN_GONE_OBS observations in a row (3 minutes).
 export function checkinItems(obs: Iterable<[string, LaneObs]>, now: number): AttentionItem[] {
@@ -2621,7 +2621,7 @@ export function promptWaitingToast(what: 'Lane' | 'Lead', names: string[]): stri
 export const CHECKIN_PROMPT_TAIL = ' You cannot answer a waiting prompt that prompt_list does not show: tell the person which session waits.'
 const promptTail = (shown: AttentionItem[]): string => (shown.some((i) => i.code === 'prompt') ? CHECKIN_PROMPT_TAIL : '')
 // Each lane name in backticks, so the model reads it as a name.
-const ATTENTION_PART: Record<Exclude<AttentionCode, 'ordered'>, string> = {
+const ATTENTION_PART: Record<Exclude<AttentionCode, 'ordered' | 'done'>, string> = {
   gone: 'session gone, report not signed done',
   prompt: 'waiting on a prompt for over 5 min',
   quiet: 'quiet for 30 min, report not signed done',
@@ -2653,6 +2653,86 @@ export function reportSigned(text: string, sid?: string): boolean {
   const m = /^status: done (\S+)$/.exec(lastLine(text))
   return m !== null && SID_RE.test(m[1]) && (sid === undefined || m[1] === sid)
 }
+// ---- a lane's end, told without waiting ----
+// A lead need not wait for a lane's own message, nor be idle 20 minutes, to hear that a lane signed its report done. Once a minute, after the observation,
+// a lead reads the report of each lane seen idle (once per status time) or gone (once per goneSince), and is told once per signature, when it has been idle
+// LANE_DONE_IDLE_MS. A lane gone with no signed report is told to the person in a toast, once. The notice names lanes only and carries no approval.
+// It has its own hourly budget (LANE_DONE_PER_HOUR), so it never spends the cap a check-in needs, and its turn does not restart the lead's idle time
+// for a check-in (idleTurnEnd).
+export const LANE_DONE_IDLE_MS = 2 * 60_000
+export const LANE_DONE_PER_HOUR = 6
+// The idle time a done notice left untouched. from: since when the lead was idle before the notice; prevEnd: its last turn end then; end: the end of the
+// notice's own turn, once seen. The turn end to count idle time from: `from` while the notice's turn is the last one that ended, the real one otherwise
+// (drop: the hold is over).
+export type DoneHold = { from: number; prevEnd: number; end?: number }
+export function idleTurnEnd(turnEnd: number, hold: DoneHold | undefined): { at: number; hold?: DoneHold } {
+  if (!hold) return { at: turnEnd }
+  if (turnEnd === hold.prevEnd) return { at: turnEnd, hold }
+  const end = hold.end ?? turnEnd
+  return end === turnEnd ? { at: hold.from, hold: { ...hold, end } } : { at: turnEnd }
+}
+// What a lead keeps about a lane's end. at: the status time its report was last read at; gone: the goneSince it was last read at; sig: the signature read
+// last (none: not signed); tried: the reads of one target (kind and time) that failed so far. What the lead was told is kept apart (doneKey), so it outlives a lane that leaves the
+// observation for a while (a park and an unpark).
+export type LaneEnd = { at?: number; gone?: number; sig?: string; tried?: { kind: 'idle' | 'gone'; at: number; n: number } }
+// The failed reads of this target so far, this one included: a count kept for another target (an older status time, the other kind) starts over.
+export const laneEndTries = (e: LaneEnd | undefined, kind: 'idle' | 'gone', at: number): number => (e?.tried?.kind === kind && e.tried.at === at ? e.tried.n : 0) + 1
+export const doneKey = (lane: string, sig: string): string => `${lane}:${sig}`
+// One signature: the signing session and the report file's size, so a lane that works on and signs again (the report grows) is told again, and a touch
+// or an editor save that only moves the file's time is not.
+export const doneSig = (sid: string, size: number): string => `${sid}:${size}`
+// A report read that failed (anything but "no file") is tried again at the next observations, this many times in all; then the lane counts as not signed.
+export const LANE_END_READ_TRIES = 3
+// Gone for this step: as the check-in's, and seen live by this lead since its grant began (a lane that was never reopened after a restart, or an unpark whose
+// panel never opened, has ended nothing).
+const laneGone = (o: LaneObs): boolean => o.seenLive && o.goneSince !== undefined && o.goneN >= CHECKIN_GONE_OBS
+// The reports to read now: an idle lane whose status time moved since its last read, a gone lane not read since it went.
+export function laneEndReads(obs: Iterable<[string, LaneObs]>, ends: ReadonlyMap<string, LaneEnd>): { lane: string; kind: 'idle' | 'gone'; at: number }[] {
+  const out: { lane: string; kind: 'idle' | 'gone'; at: number }[] = []
+  for (const [lane, o] of obs) {
+    const e = ends.get(lane)
+    if (o.quietSince !== undefined && o.sid !== undefined && o.at !== undefined && e?.at !== o.at) out.push({ lane, kind: 'idle', at: o.at })
+    else if (laneGone(o) && e?.gone !== o.goneSince) out.push({ lane, kind: 'gone', at: o.goneSince as number })
+  }
+  return out
+}
+// The lanes to tell as done: a signature not told yet, read at the lane's present state (still idle at that status time, or still gone).
+export function laneDoneItems(obs: Iterable<[string, LaneObs]>, ends: ReadonlyMap<string, LaneEnd>, told: ReadonlySet<string>): AttentionItem[] {
+  const out: AttentionItem[] = []
+  for (const [lane, o] of obs) {
+    const e = ends.get(lane)
+    if (e?.sig === undefined || told.has(doneKey(lane, e.sig))) continue
+    if (o.quietSince !== undefined && o.at !== undefined && e.at === o.at) out.push({ lane, code: 'done', since: o.quietSince })
+    else if (laneGone(o) && e.gone === o.goneSince) out.push({ lane, code: 'done', since: o.goneSince as number })
+  }
+  return out
+}
+// The fixed text, as the check-in's: lane names through NAME_RE only, at most ATTENTION_MAX, then "and N more". None left: no text.
+export function doneText(items: AttentionItem[]): string | undefined {
+  const ok = items.filter((i) => NAME_RE.test(i.lane) && i.code === 'done')
+  if (ok.length === 0) return undefined
+  const shown = ok.slice(0, ATTENTION_MAX).map((i) => `\`${i.lane}\``)
+  const more = ok.length > ATTENTION_MAX ? `; and ${ok.length - ATTENTION_MAX} more` : ''
+  return `[callboard] Signed done: ${shown.join('; ')}${more}. Each of these lanes signed its report done and is idle or gone. Read its report, then call lane_retire once nothing is left for it. ${SUBMITTED_NOTE_NEVER_RECORD}`
+}
+// The person's toast for lanes whose session ended with no signed report: names through NAME_RE only. None left: no toast.
+// unread: the report could not be read (the tries ran out), so nothing is said of its signature.
+export function laneGoneToast(names: string[], unread = false): string | undefined {
+  const ok = names.filter((n) => NAME_RE.test(n))
+  if (ok.length === 0) return undefined
+  const more = ok.length > ATTENTION_MAX ? ` and ${ok.length - ATTENTION_MAX} more` : ''
+  return `Lane ${ok.slice(0, ATTENTION_MAX).join(', ')}${more}: session ended, ${unread ? 'report could not be read' : 'report not signed done'}.`
+}
+// The person's toast for a stop whose signal went out and that did not finish: the session outlived it (alive), its record could not be removed
+// (unremoved) or marked parked (unmarked), or the call failed after the signal (unknown). The lead or conductor has the same news in the tool's result.
+export type StopStuck = 'alive' | 'unremoved' | 'unmarked' | 'unknown'
+const STOP_STUCK: Record<StopStuck, string> = {
+  alive: 'got its stop signal but is still running',
+  unremoved: 'stopped, but its record could not be removed',
+  unmarked: 'stopped, but could not be marked parked',
+  unknown: 'got its stop signal, but what became of its record is not known',
+}
+export const stopStuckToast = (what: 'Lane' | 'Lead', name: string, kind: StopStuck): string => `${what} ${name} ${STOP_STUCK[kind]}.`
 // /callboard checkin: `pause [<N>m|<N>h]` (1 minute to 24 hours, 1 hour when left out) or `resume` (`on` is the older spelling); anything else is the usage text.
 export type CheckinOp = 'on' | 'bad' | { pauseMs: number }
 function parseCheckinArgs(rest: string): CheckinOp {

@@ -87,7 +87,7 @@ test('lane is refused at once from a plugin, a session or a script, with a fixed
   for (const [origin, code] of [[{ kind: 'plugin', name: 'evil <b>' }, 'plugin'], [{ kind: 'peer' }, 'session'], [{ kind: 'peer-send-message' }, 'session'], [{ kind: 'sdk' }, 'other'], [null, 'other']] as const) {
     for (const args of ['lane svc-api', 'lane', 'lane off']) {
       const r = await doLane($, args, origin)
-      expect(r.text).toBe('Only you can change a lane: type /callboard lane yourself.')
+      expect(r.text).toBe(refusalText('lane-origin'))
       expect(logged(stdins)).toContain(`refused:lane-origin:${code}`)
     }
   }
@@ -478,7 +478,7 @@ test('/callboard lanes in a lane says it is a lane and that its lead lists the l
 test('lane off needs the person; off from anything else asks first and then detaches too', async ($, on) => {
   await attacher($, on)
   await doLane($, 'lane svc-api')
-  expect((await doLane($, 'lane off', { kind: 'plugin', name: 'x' })).text).toBe('Only you can change a lane: type /callboard lane yourself.')
+  expect((await doLane($, 'lane off', { kind: 'plugin', name: 'x' })).text).toBe(refusalText('lane-origin'))
   expect((await $.command.run(lane('status'))).text).toContain('| Lane | svc-api |')
   h.askAnswer = NO
   expect((await $.command.run(lane('off', { kind: 'peer' }))).text).toContain('Cancelled. Nothing changed.')
