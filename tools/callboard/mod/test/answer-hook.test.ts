@@ -137,7 +137,7 @@ longTest('prompts: P-I5: a subagent\'s ask, with a tier in reach, is denied at o
   expect(rowKinds()).toEqual(['subagent-denied', 'requested', 'answered allow', 'returned allow'])
 })
 
-test('prompts: a subagent\'s ask is not denied with escalation off, with the OFF file, or with no live tier in reach: the chain beneath at once, no row', async ($, on) => {
+test('prompts: a subagent\'s ask is not denied with escalation off, with the OFF file, under a scope that names another lane, or with no live tier in reach: the chain beneath at once, no row', async ($, on) => {
   await answerer($, on, [], { switchOn: false })
   h.sessions = waitingRow(T0 + 500)
   driveClock()
@@ -146,12 +146,23 @@ test('prompts: a subagent\'s ask is not denied with escalation off, with the OFF
   pfs.set(OFF_FILE, { text: '', mtimeSec: h.nowMs / 1000 })
   expect(await startReq($, SUB)).toEqual({})
   pfs.delete(OFF_FILE)
+  h.store.set('answering', { scope: 'other-lane', asks: false, savedAt: T0 })
+  expect(await startReq($, SUB)).toEqual({})
+  h.store.set('answering', { scope: 'all', asks: false, savedAt: T0 })
   // The lane's own row and no lead's: nobody is in reach, so the main session's own call could not rise either.
   h.sessions = { ...h.extraRows, ...ownReg({ status: 'waiting', waitingFor: 'permission prompt', statusUpdatedAt: T0 + 500 }) }
   expect(await startReq($, SUB)).toEqual({})
-  expect(h.prBeneathCalls).toBe(3)
+  expect(h.prBeneathCalls).toBe(4)
   expect(rowKinds()).toEqual([])
   expect(h.nowMs - T0).toBe(0)
+})
+
+test('prompts: a subagent\'s question is never denied: the chain beneath at once, no row', async ($, on) => {
+  await answerer($, on, [], { asksScope: 'all' })
+  h.sessions = waitingRow(T0 + 500)
+  driveClock()
+  expect(await startReq($, { ...SUB, tool_name: 'AskUserQuestion', tool_input: { questions: [{ question: 'q', header: 'h', options: [{ label: 'a' }, { label: 'b' }] }] } })).toEqual({})
+  expect(rowKinds()).toEqual([])
 })
 
 test('prompts: a subagent\'s ask that the chain beneath answers keeps that answer: no denial, no row', async ($, on) => {

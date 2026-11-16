@@ -261,8 +261,11 @@ test('the two denials of an ask that cannot rise: fixed texts that refuse the fo
   // Neither reads as a tier's or the person's deny (denyText's forms).
   for (const m of [p.SUBAGENT_DENY_MESSAGE, p.FORM_DENY_MESSAGE]) assert.ok(!/Denied by|the person/i.test(m), m)
   // The form deny covers the shapes with no answer form; the lane's Person mark and the person's own scope switch are never denied.
-  for (const code of ['question-count', 'question-multi', 'question-options', 'question-shape']) assert.equal(p.questionDeniable(code), true, code)
-  for (const code of ['question-person', 'question-scope', 'no-check', '']) assert.equal(p.questionDeniable(code), false, code)
+  for (const code of ['question-count', 'question-multi', 'question-options', 'question-shape']) assert.equal(p.questionDeniable(code, qIn()), true, code)
+  for (const code of ['question-person', 'question-scope', 'no-check', '']) assert.equal(p.questionDeniable(code, qIn()), false, code)
+  // A Person header anywhere in the call keeps it the person's, whatever shape code the call got.
+  for (const i of [qIn({ header: ' person ', multiSelect: true }), { questions: [qIn().questions[0], qIn({ header: 'Person' }).questions[0]] }]) assert.equal(p.questionDeniable('question-multi', i), false)
+  assert.equal(p.questionDeniable('question-count', { questions: 'x' }), true)
   for (const k of ['subagent-denied', 'question-denied']) assert.ok((p.ROW_KINDS as readonly string[]).includes(k), k)
 })
 

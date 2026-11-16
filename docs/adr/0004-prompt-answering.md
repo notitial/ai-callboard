@@ -187,6 +187,10 @@ failing hook answers nothing, so the dialog stays. A subagent's ask (its event c
 hook returns the chain beneath at once, with no request, no wait and no notice, because the engine shows a subagent's dialog
 only after the hooks return, so a wait would hide it.
 
+*2026-11-16: with a live tier in reach, a subagent's ask is now denied with a message that tells the main session
+to run the call itself ([ADR 0011](0011-all-prompts-rise.md), What cannot rise). With none in reach it is the
+person's, as above.*
+
 ### Callboard's `tool.check` only observes
 
 Because a mod's `tool.check` can pierce a deny rule, **callboard's returns the engine's verdict unchanged, every

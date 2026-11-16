@@ -153,7 +153,7 @@ person; this decision does not depend on it and adds no notice of its own.
 | The request file or its ledger row cannot be written | `abandoned hook-failed` | Without the file no tier can read the request, and without the row no decision could pass the ledger check. | The check-in and the toast |
 | No live tier in reach | `abandoned no-tier` | There is nobody to ask. | The toast |
 | Nobody can be asked, or a host answers (the approver is not the person) | none | The prompt is not one a person clicks in the lane's panel. | Nothing is waiting on the person |
-| A question of a shape with no answer form: several questions, multi-select, a `Person` header | `question-denied question-…`, or `not-judgeable question-…` | The relay carries one single-choice question with the lane's own labels; `Person` is the lane's own mark. | With a tier in reach it is ended with a message, a `Person` header excepted; else the check-in and the toast |
+| A question of a shape with no answer form: several questions, multi-select, a `Person` header | `not-judgeable question-…`, then `question-denied question-…` when it is ended | The relay carries one single-choice question with the lane's own labels; `Person` is the lane's own mark. | With a tier in reach it is ended with a message, a `Person` header excepted; else the check-in and the toast |
 
 Two cases are the person's own switch, not a limit:
 
@@ -175,11 +175,12 @@ of its own kind before it lands (no row, no denial).*
 - *A question of several parts, multi-select, or with fewer than two or more than four usable options is ended
   after the person's first 30 seconds of awake time with the card open: the message tells the lane to ask again as
   one single-choice question with two to four short options. A click, the switch going off or a failed pause in
-  those 30 seconds leaves it the person's, with its `not-judgeable` row. The row is `question-denied` with the
-  shape's code. A `Person` header is not denied: it has an answer form and is the lane's mark that the question
-  is the person's.*
+  those 30 seconds leaves it the person's. Its `not-judgeable` row is written first, as for any such question;
+  the denial adds a `question-denied` row with the shape's code. A call with any question headed `Person` is
+  never denied, whatever its shape: the header is the lane's mark that the question is the person's.*
 - *Limit: a subagent's ask has no `tool.check` entry, so the hook cannot tell one a host would answer from one
   the person would click. Both are denied.*
+- *A subagent's question (`AskUserQuestion`) is never denied.*
 - *The escalation dialog's two sentences on these cases are reworded to say so (ADR 0004, "A subagent's ask is the
   person's", now holds only with no tier in reach).*
 

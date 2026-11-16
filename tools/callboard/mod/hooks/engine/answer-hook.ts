@@ -565,13 +565,15 @@ async function promptFormWait($: any, signal: AbortSignal, w: { sid: string; tid
 }
 
 // A subagent's ask that would be denied: the row of the denial, or undefined when nothing changes for it (the switch is off or does not cover this session, or
-// no live tier is in reach, so the main session's own call could not rise either).
+// no live tier is in reach, so the main session's own call could not rise either; or the ask is a question).
 async function promptSubagentRow($: any, e: any): Promise<Omit<pr.LedgerRow, 't' | 'kind'> | undefined> {
   const sid = await $.session.id()
   if (!c.SID_RE.test(sid)) return undefined
   const cov = await promptCoverage($, sid)
   if (!cov || (await promptsOff($)) || !(await where($))) return undefined
   const tool = String(e.tool_name)
+  // A question is never denied here: whose it is (a lead's own, one headed Person) is judged on the main session's path only.
+  if (tool === pr.QUESTION_TOOL) return undefined
   const cwd = String(await sessionRoot($).catch(() => ''))
   const lead = await promptLeadOf($, cov.level, sid, cwd, cov.lead)
   const { reach, leadName } = await promptReach($, cov, sid, cwd, tool, lead)
@@ -676,14 +678,12 @@ async function promptHook($: any, e: any, nextOnce: (x: any) => Promise<any>, si
       }
       const shape = pr.questionShape(input)
       if (!shape.ok) {
-        // A question with no answer form cannot rise. With a tier in reach it is ended with a fixed message that says how to ask again, once the person has had
-        // their first 30 seconds with the card; a click, the switch going off or a failed pause leaves it theirs, with the row it always had.
-        const r = pr.questionDeniable(shape.code) ? await reachOf() : undefined
+        // A question with no answer form cannot rise: its row first, whatever follows. With a tier in reach it is then ended with a fixed message that says how
+        // to ask again, once the person has had their first 30 seconds with the card; a click, the switch going off or a failed pause leaves it theirs.
+        await ledgerAdd($, { ...base, kind: 'not-judgeable', code: shape.code })
+        const r = pr.questionDeniable(shape.code, input) ? await reachOf() : undefined
         const asker = r !== undefined && r.reach.length > 0 && pr.requestCovered(cov.a, { tool }, { lane: cov.lane, lead: r.leadName, self: cov.self }) ? r.own : undefined
-        if (asker === undefined || !(await promptFormWait($, signal, { sid, tid: tid as string, tool, p, started, leadName: r?.leadName, req: asker }))) {
-          await ledgerAdd($, { ...base, kind: 'not-judgeable', code: shape.code })
-          return beneath
-        }
+        if (asker === undefined || !(await promptFormWait($, signal, { sid, tid: tid as string, tool, p, started, leadName: r?.leadName, req: asker }))) return beneath
         if (!(await ledgerAdd($, { ...base, kind: 'question-denied', code: shape.code }))) return beneath
         return { ...(beneath && typeof beneath === 'object' ? beneath : {}), decision: { behavior: 'deny' as const, message: pr.FORM_DENY_MESSAGE } }
       }

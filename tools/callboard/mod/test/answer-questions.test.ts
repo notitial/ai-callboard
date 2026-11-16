@@ -31,6 +31,7 @@ const NO_FORM = [
   ['five options', { questions: [{ ...QIN.questions[0], options: [1, 2, 3, 4, 5].map((n) => ({ label: `o${n}`, description: 'd' })) }] }, 'question-options'],
 ] as [string, unknown, string][]
 const PERSON_Q = { questions: [{ ...QIN.questions[0], header: 'Person' }] }
+const PERSON_MULTI = { questions: [{ ...QIN.questions[0], header: 'Person', multiSelect: true }] }
 const FORM_DENY = { decision: { behavior: 'deny', message: prm.FORM_DENY_MESSAGE } }
 
 test('prompts: the Person header stays the person\'s with a tier in reach: its own code, no request and no denial', async ($, on) => {
@@ -41,18 +42,33 @@ test('prompts: the Person header stays the person\'s with a tier in reach: its o
   expect(reqFiles().length).toBe(0)
 })
 
+test('prompts: a Person header with no answer form stays the person\'s too: no wait and no denial, with a tier in reach', async ($, on) => {
+  await answerer($, on, [], { verdict: QASK, asksScope: 'all' })
+  const c = callOf('AskUserQuestion', PERSON_MULTI)
+  expect(await runRequest($, [], c.over, c.check)).toEqual({})
+  expect(h.nowMs - T0).toBe(0)
+  expect(rowKinds()).toEqual(['not-judgeable question-multi'])
+})
+
+test('prompts: a question with no answer form is not denied when its denial row cannot be written: no row, no denial', async ($, on) => {
+  await answerer($, on, [], { verdict: QASK, asksScope: 'all' })
+  const c = callOf('AskUserQuestion', NO_FORM[0][1])
+  expect(await runRequest($, [at(20_000, () => { h.pfsFails = (a) => a[0] === '/usr/bin/tee' && a.includes('-a') })], c.over, c.check)).toEqual({})
+  expect(rowKinds()).toEqual(['not-judgeable question-count'])
+})
+
 for (const [name, input, code] of NO_FORM) {
   longTest(`prompts: ${name}, with a tier in reach, is ended with the fixed form message after the person's first 30 s: a row of its own kind, no request, nothing allowed`, async ($, on) => {
     await answerer($, on, [], { verdict: QASK, asksScope: 'all' })
     const c = callOf('AskUserQuestion', input)
     expect(await runRequest($, [], c.over, c.check)).toEqual(FORM_DENY)
     expect(h.nowMs - T0).toBe(30_000)
-    expect(rowKinds()).toEqual([`question-denied ${code}`])
+    expect(rowKinds()).toEqual([`not-judgeable ${code}`, `question-denied ${code}`])
     expect(reqFiles().length).toBe(0)
     expect(noFiles()).toBe(true)
   })
 
-  test(`prompts: ${name} stays the person's when the switch goes off inside the 30 s: the row it always had, no denial`, async ($, on) => {
+  test(`prompts: ${name} stays the person's when the switch goes off inside the 30 s: one not-judgeable row, no denial`, async ($, on) => {
     await answerer($, on, [], { verdict: QASK, asksScope: 'all' })
     const c = callOf('AskUserQuestion', input)
     expect(await runRequest($, [stop(8000)], c.over, c.check)).toEqual({})
@@ -70,7 +86,7 @@ test('prompts: the person\'s click on a question with no answer form wins inside
   expect(rowKinds()).toEqual(['not-judgeable question-count'])
 })
 
-test('prompts: a question with no answer form and no live tier in reach is not denied: it stays the person\'s as before', async ($, on) => {
+test('prompts: a question with no answer form and no live tier in reach is not denied: it stays the person\'s, with no wait', async ($, on) => {
   await answerer($, on, [], { verdict: QASK, asksScope: 'all' })
   const c = callOf('AskUserQuestion', NO_FORM[0][1])
   await askCheck($, c.check)

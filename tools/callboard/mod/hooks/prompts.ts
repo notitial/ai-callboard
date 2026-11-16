@@ -498,7 +498,7 @@ export function matchLabel(labels: string[], text: string): number {
 }
 type QuestionShape = { ok: true; question: string; header: string } | { ok: false; code: string }
 // Whether a question may reach a tier: exactly one question, single select, 2 to 4 plain labels, header not `Person`. Each refusal is a `not-judgeable`
-// row with its code, and no request. The input is the live one.
+// row with its code, and no request; some end in the form deny as well (questionDeniable). The input is the live one.
 export function questionShape(input: unknown): QuestionShape {
   const i = obj(input)
   if (!Array.isArray(i.questions) || i.questions.length !== 1) return { ok: false, code: 'question-count' }
@@ -517,9 +517,13 @@ export function questionShape(input: unknown): QuestionShape {
   return { ok: true, question: q.question, header: typeof q.header === 'string' ? q.header : '' }
 }
 // The shape refusals that end in the form deny (FORM_DENY_MESSAGE) when a tier is in reach: the question has no form a tier or the relay could answer.
-// `question-person` is not one: it has an answer form, and the header is the lane's own mark that the question is the person's.
+// A call with any question headed `Person` is never one, whatever its shape: the header is the lane's own mark that the question is the person's.
 const FORM_DENY_CODES = ['question-count', 'question-multi', 'question-options', 'question-shape']
-export const questionDeniable = (code: string): boolean => FORM_DENY_CODES.includes(code)
+const personMarked = (input: unknown): boolean => {
+  const qs = obj(input).questions
+  return Array.isArray(qs) && qs.some((q) => typeof obj(q).header === 'string' && (obj(q).header as string).trim().toLowerCase() === 'person')
+}
+export const questionDeniable = (code: string, input: unknown): boolean => FORM_DENY_CODES.includes(code) && !personMarked(input)
 // What the tier is shown of a question: its header, text and numbered options, from the request's copy.
 type QuestionView = { header: string; question: string; options: { label: string; description: string }[] }
 export function questionView(input: unknown): QuestionView | undefined {
