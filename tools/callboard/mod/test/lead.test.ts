@@ -1,6 +1,7 @@
 import { expect, test } from 'claude-code/testing'
+import { toolNames } from '../hooks/tool-text'
 import { PRESENCE_PRUNE_MS, PRESENCE_TOUCH_MS, badStoreToast, leadFileFresh, refusalText, LANES_CHANGED_NOTE, OFF_QUESTION, offLeavesLane, LEAD_YES, LEAD_NO, RESTORE_YES, RESTORE_NO, REASON_TEXT, OFF_NOTHING } from '../hooks/core'
-import { h, NO, ROOT, SID, T0, YES, extraStat, gitFiles, gitNoHead, laneSeed, leadFiles, longTest, realFails, realMap, resultFiles, statErr, storeFiles, toasts, toolDefs } from './harness'
+import { h, NO, ROOT, SID, T0, YES, extraStat, gitFiles, gitNoHead, laneSeed, leadFiles, longTest, realFails, realMap, resultFiles, statErr, storeFiles, toasts, toolDefs, toolDesc } from './harness'
 import type { Trace } from './harness'
 import { ATTACHED, LANES, LEADKEY, LEADPATH, LEADPS, LEADSID, LEAD_LANES, MFOLDER, OTHER, OTHERLEAD, PIN, REG, REGFILE, RESULT, SELFPATH, STATUS_NONE, STOREFILE, STORE_LANE, USAGE, allEvents, attRec, attacher, callCreate, created, creator, cue, cueSession, dirStat, doLane, drive, dropRec, grantAt, lane, laneTarget, lead, leadAt, leadCall, leadFileText, leadReg, leadSelfReg, selfAs, listCall, logged, newTrace, notices, ownReg, pause, putStore, rebinder, rebinds, recOf, renameThroughTick, started, statusTable, statusText, storeLaneNames, tickTwice, ticks } from './fixtures'
 
@@ -734,6 +735,7 @@ test('a lead grant whose tool registration never returns gives up after the limi
   const added = toolDefs.slice(before)
   expect(added.length).toBeGreaterThan(0)
   expect(new Set(added).size).toBe(added.length)
+  for (const t of toolNames('lead')) expect(added.find((d) => d.includes(`"name":"${t}"`))).toContain(toolDesc(t, 'lead'))
   h.cueFile = { ino: 98, text: 'rename LABLANE\n', present: true }
   await h.clock!.advance(2000)
   await pause()

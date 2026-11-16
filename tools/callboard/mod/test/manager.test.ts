@@ -1,4 +1,5 @@
 import { expect, test } from 'claude-code/testing'
+import { toolNames } from '../hooks/tool-text'
 import { LEAD_MANAGER_TEXT, MANAGER_RESTORE_QUESTION, MANAGER_RESTORED_TOAST, MANAGER_UNANSWERED_TOAST, MANAGER_ASK_AGAIN_TOAST, MANAGER_RESTORE_ASKS, MANAGER_RESTORE_RETRIES, notRestoredToast, MANAGER_REFRESH_MS, MANAGER_SILENT_GRACE_MS, REASON_TEXT, MANAGER_QUESTION, MANAGER_ON_TEXT, MANAGER_ALREADY, MANAGER_H2, managerRefusalText, managerBriefingNote, terminateQuestion, retireQuestion, removeQuestion, removedNoSessionText } from '../hooks/core'
 import { h, hangForever, GOOD, LANESDIR, NO, PS_TABLE, ROOT, SESSIONS, SID, T0, YES, colorRuns, extraStat, laneSeed, leadFiles, lockLog, longTest, psCalls, psDead, psFail, renames, seen, statErr, storeFiles, toasts, toolDefs, toolDesc } from './harness'
 import { APISID, COMPOSE, HOME, LEADPATH, LEADPS, LEADSID, MGR_NOAPI, MGR_SESS, MIN, NEWSID, OTHER, OTHERLEAD, OTHERMGR, PIN, QUIET, REPORT_OK, SELFPATH, STATUS_NONE, TURN, attacher, checkins, ckLane, ckLead, ckText, cue, cueSession, dirStat, doLane, grantAt, idleFor, killed, lane, leadAt, leadFileText, leadReg, leadSelfReg, listCall, logged, madeLane, mgrAt, mgrCall, mgrFile, mgrRow, newTrace, noArchiveRm, noteRows, nudges, ownReg, putStore, regAs, sleepMs, started, statusTable, statusText, storeNames, ticks, unanswered, waitFor } from './fixtures'
@@ -25,7 +26,7 @@ test('manager: one dialog (header Manager, buttons Manager and Cancel); a yes wr
   expect(rows[0].text).toContain('`docs/manager/README.md` in the ai-manager checkout')
   const names = toolDefs.slice(defs0).map((d) => JSON.parse(d).name).filter((n: string) => n.startsWith('lane_'))
   expect([...new Set(names)].sort()).toEqual([...MGR_TOOLS].sort())
-  for (const t of ['lane_terminate', 'lane_retire']) expect(toolDefs.slice(defs0).find((d) => d.includes(`"${t}"`))).toContain(toolDesc(t, 'manager'))
+  for (const t of toolNames('manager')) expect(toolDefs.slice(defs0).find((d) => d.includes(`"${t}"`))).toContain(toolDesc(t, 'manager'))
   expect(toolDefs.slice(defs0).some((d) => d.includes('"lane_remove"'))).toBe(false)
   expect((await $.command.run(lane('status'))).text).toBe(statusTable(['Lane', 'NONE'], ['Manager', 'ON'], ['Check-ins', 'ON']))
   expect(logged(stdins)).toContain('manager-on:prompt')
