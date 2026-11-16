@@ -281,6 +281,9 @@ export const conductorDeclared = new Set<string>()
 // reached this session (conductorRestoreWake).
 export type CondPending = { hint: c.ConductorHint; tries: number; last?: string; ask?: { shown: string[]; added: string[] }; asking?: boolean; unanswered?: number; waiting?: boolean }
 export const conductorRestorePending = new Map<string, CondPending>()
+// The sessions whose restore question was shown in this process: a session.start that is not a start (a compaction, a reload) starts no second restore for
+// them, so the question is asked again only as its own limits allow.
+export const conductorRestoreAsked = new Set<string>()
 
 export const conductorReadAt = new Map<string, number>()
 

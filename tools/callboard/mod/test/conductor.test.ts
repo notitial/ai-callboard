@@ -501,6 +501,40 @@ test('conductor restore: /callboard off while an unanswered question waits for t
   expect(h.askCount).toBe(1)
   expect(await statusText($)).toBe(STATUS_NONE)
 })
+test('conductor restore: a session start that is not a start (a compaction) while the unanswered question waits asks nothing; nor does one after the last ask', async ($, on) => {
+  const stdins: string[] = []
+  await condWidened($, on, stdins)
+  h.askAnswer = ''
+  await $.session.start({ cwd: COND, surface: 'vscode', isInteractive: true })
+  await ticks(5)
+  expect(h.askCount).toBe(1)
+  for (let n = 1; n < CONDUCTOR_RESTORE_ASKS; n++) {
+    await condUnanswered(stdins, n)
+    await $.prompt.submit({ text: `prompt ${n}` } as any)
+    await ticks(2)
+  }
+  await condUnanswered(stdins, CONDUCTOR_RESTORE_ASKS)
+  await $.session.start({ cwd: COND, surface: 'vscode', isInteractive: true })
+  await $.prompt.submit({ text: 'later' } as any)
+  await ticks(5)
+  expect(h.askCount).toBe(CONDUCTOR_RESTORE_ASKS)
+  expect(h.store.has(CONDKEY)).toBe(true)
+  expect(await statusText($)).toBe(STATUS_NONE)
+})
+test('conductor restore: /callboard lead while the unanswered question waits: the lead stands and the question is not asked again', async ($, on) => {
+  const stdins: string[] = []
+  await condWidened($, on, stdins)
+  h.askAnswer = YES
+  await grantAt($, COND)
+  const asked = h.askCount
+  await $.prompt.submit({ text: 'hello' } as any)
+  await ticks(5)
+  expect(h.askCount).toBe(asked)
+  expect(condLogs(stdins)).toContain('conductor-restore-rejected:lead-holder')
+  expect(condLogs(stdins).some((x) => x.startsWith('conductor-restored'))).toBe(false)
+  expect(await statusText($)).toContain('| Lead | ON |')
+  expect(h.store.has(CONDKEY)).toBe(true)
+})
 test('conductor restore: the list changed while the unanswered question waited: the yes on the question asked again restores nothing and keeps the key', async ($, on) => {
   const stdins: string[] = []
   await condWidened($, on, stdins)

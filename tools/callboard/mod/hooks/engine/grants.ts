@@ -36,6 +36,7 @@ import {
   conductorApproved,
   conductorSavedAt,
   conductorRestorePending,
+  conductorRestoreAsked,
   conductorReadAt,
   managerSavedAt,
   managerCwd,
@@ -2104,6 +2105,7 @@ async function conductorRestoreAsk($: any, me: string, pend: CondPending) {
     if (conductorRestorePending.get(me) === pend) conductorRestorePending.delete(me)
   }
   pend.asking = true
+  conductorRestoreAsked.add(me)
   try {
     const p = await where($)
     const question = c.conductorRestoreQuestion(hint.home, shown, added, p ? homeOf(p) : undefined)
@@ -2181,6 +2183,10 @@ export async function conductorTick($: any, sid: string) {
     if (!pend.ask) {
       const r = await withTimeout($, conductorRestore($, sid, pend.hint, pend.tries + 1, pend.last), ACTION_TIMEOUT_MS).catch(() => 'error' as const)
       if (r === 'timeout' || r === 'error') await logq($, sid, 'error', `conductor-restore-${r}`)
+    } else if (pend.unanswered && grants.has(sid)) {
+      // The person made the session a lead while the unanswered question waited: that grant stands, and the question is not asked again.
+      conductorRestorePending.delete(sid)
+      await log($, sid, 'conductor-restore-rejected', 'lead-holder')
     } else if ((await personRow($, sid)) && (await idleCheck($, sid)) === undefined) {
       void conductorRestoreAsk($, sid, pend).catch(logFail($, sid, 'conductor-restore-ask'))
     }

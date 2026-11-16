@@ -18,6 +18,7 @@ import {
   prBusy,
   goneSeen,
   managerRestoreOffered,
+  conductorRestoreAsked,
   managerRestorePending,
   mem,
   presenceText,
@@ -384,7 +385,7 @@ export async function sessionStart($: any, e: any, next: any) {
     }
     // A saved conductor grant for this session, restored as the lead's is (conductorRestore).
     try {
-      const raw = grants.get(me)?.level === 'conductor' ? undefined : await $.store.get(`${c.CONDUCTOR_HINT_PREFIX}${me}`)
+      const raw = grants.get(me)?.level === 'conductor' || conductorRestoreAsked.has(me) ? undefined : await $.store.get(`${c.CONDUCTOR_HINT_PREFIX}${me}`)
       if (raw !== undefined) {
         const p = await where($)
         const h = p ? c.parseConductorHint(raw, now, homeOf(p)) : undefined
