@@ -1,8 +1,8 @@
 import { expect, test } from 'claude-code/testing'
-import { GRANT_NAME_ON, CONDUCTOR_NAME_NOT_PERSON, grantNameText, HINT_PREFIX, usageFileText, conductorFileText, conductorAddQuestion, conductorRefusalText, conductorAddedText, CONDUCTOR_NOT_PERSON, CONDUCTOR_USAGE, conductorQuestion, conductorRestoreQuestion, conductorBriefing, conductorBriefingNote, conductorRestoredToast, conductorUnansweredToast, conductorFileBadToast, conductorNoReposToast, CONDUCTOR_ON_TEXT, CONDUCTOR_OFF_QUESTION, conductorStatus, leadBriefing, LANES_CHANGED_TEXT, reboundToast, REASON_TEXT, managerRefusalText, terminateQuestion, leadConductorText } from '../hooks/core'
+import { GRANT_NAME_ON, CONDUCTOR_NAME_NOT_PERSON, grantNameText, HINT_PREFIX, usageFileText, conductorFileText, conductorAddQuestion, conductorRefusalText, conductorAddedText, CONDUCTOR_NOT_PERSON, CONDUCTOR_USAGE, conductorQuestion, conductorRestoreQuestion, conductorBriefing, conductorBriefingNote, conductorRestoredToast, conductorUnansweredToast, conductorAskAgainToast, CONDUCTOR_RESTORE_ASKS, KEEPALIVE_TEXT, conductorFileBadToast, conductorNoReposToast, CONDUCTOR_ON_TEXT, CONDUCTOR_OFF_QUESTION, conductorStatus, leadBriefing, LANES_CHANGED_TEXT, reboundToast, REASON_TEXT, managerRefusalText, terminateQuestion, leadConductorText } from '../hooks/core'
 import { h, GOOD, LANESDIR, NO, PS_TABLE, ROOT, SID, T0, USAGE_DIR, YES, renames, condFiles, condStat, extraStat, laneSeed, leadFiles, longTest, pdirs, pfs, psDead, realFails, realMap, seen, storeFiles, submitted, toasts, toolDefs } from './harness'
 import type { Trace } from './harness'
-import { APISID, APP2, keptOwner, COMPOSE, COND, CONDFILE, CSESS, FAR, LANE_HINT, LEADKEY, LEADPATH, LEADPS, LEADSID, MGR_SESS, MIN, NO_LANES, NO_LANES_COND, OTHER, OTHERLEAD, OTHERPATH, PIN, SELFPATH, STATUS_NONE, TURN, allEvents, attacher, briefings, ckLane, ckRow, condAt, condOn, condPresenceOf, condRun, condSelf, cue, dirStat, doLane, grantAt, idleFor, killed, lane, leadAt, leadFileText, leadReg, leadSelfReg, listCall, listed, logged, madeLane, mgrAt, mgrCall, mgrFile, mgrRow, newTrace, noteRows, nudges, ownReg, bindOwner, putCond, putLeadRecs, putStore, regAs, renameThroughTick, selfAs, started, statusTable, statusText, ticks, unanswered, waitFor, noNote, ownedBy } from './fixtures'
+import { APISID, APP2, keptOwner, COMPOSE, COND, CONDFILE, CSESS, FAR, LANE_HINT, LEADKEY, LEADPATH, LEADPS, LEADSID, MGR_SESS, MIN, NO_LANES, NO_LANES_COND, OTHER, OTHERLEAD, OTHERPATH, PIN, SELFPATH, STATUS_NONE, TURN, allEvents, attacher, briefings, ckLane, ckRow, condAt, condOn, condPresenceOf, condRun, condSelf, cue, dirStat, doLane, grantAt, idleFor, killed, lane, leadAt, leadFileText, leadReg, leadSelfReg, listCall, listed, logged, madeLane, mgrAt, mgrCall, mgrFile, mgrRow, newTrace, noteRows, nudges, ownReg, bindOwner, putCond, putLeadRecs, putStore, regAs, renameThroughTick, selfAs, started, statusTable, statusText, ticks, unanswered, waitFor, noNote, ownedBy, ownTurn, sleepMs } from './fixtures'
 
 const CONDSTORE = `${LANESDIR}/${'c'.repeat(64)}.json`
 const condEntries = () => JSON.parse(condFiles.get(CONDFILE) ?? '{"repos":[]}').repos as string[]
@@ -392,24 +392,126 @@ test('a grant made while a restore question waits ends that restore; a later Can
   expect(await statusText($)).toBe(statusTable(['Lane', 'NONE'], ['Conductor', 'ON (2 repos)'], ['Check-ins', 'ON']))
 })
 
-longTest('a restore dialog nobody answers restores nothing and keeps the key; its 90 s use up no retry ticks, and a later prompt does not ask again', async ($, on) => {
+longTest('a restore dialog nobody answers restores nothing and keeps the key; its 90 s use up no retry ticks, and the question is asked again only after the next prompt in the session', async ($, on) => {
   const stdins: string[] = []
   await condRestarter($, on, stdins, { repos: [PIN], file: ['../app', '../app2'] })
   h.askHang = new Promise<string>(() => undefined)
   await h.clock!.advance(2000)
   await waitFor(() => h.askCount === 1)
   await ticks(50)
-  await waitFor(() => condLogs(stdins).includes('conductor-restore-unanswered:'))
-  expect(toasts).toContain(conductorUnansweredToast(COND))
+  await condUnanswered(stdins, 1)
+  expect(toasts).toContain(conductorAskAgainToast(COND))
+  expect(toasts).not.toContain(conductorUnansweredToast(COND))
   expect(h.store.has(CONDKEY)).toBe(true)
   expect(await statusText($)).toBe(STATUS_NONE)
-  expect(h.askCount).toBe(1)
   expect(condLogs(stdins).some((x) => x.startsWith('conductor-restore-rejected'))).toBe(false)
-  // Only the manager's question is asked again after a prompt.
+  // No prompt: idle ticks ask nothing.
   h.askHang = undefined
+  await ticks(10)
+  expect(h.askCount).toBe(1)
+  await $.prompt.submit({ text: 'hello' } as any)
+  await ticks(2)
+  await waitFor(() => condLogs(stdins).includes('conductor-restored:widened 1'))
+  expect(h.askCount).toBe(2)
+  expect(h.lastQuestion).toBe(conductorRestoreQuestion(COND, [PIN, APP2], [APP2], CHOME))
+  expect(h.store.get(CONDKEY)).toMatchObject({ home: COND, repos: [PIN, APP2] })
+  expect(await statusText($)).toBe(statusTable(['Lane', 'NONE'], ['Conductor', 'ON (2 repos)'], ['Check-ins', 'ON']))
+  // Answered: no later prompt asks again.
+  await $.prompt.submit({ text: 'again' } as any)
+  await ticks(5)
+  expect(h.askCount).toBe(2)
+})
+
+// ---- an unanswered restore question is asked again after the next prompt in the session, as the manager's ----
+const condUnanswered = async (stdins: string[], n: number) => {
+  await waitFor(() => condLogs(stdins).filter((x) => x === 'conductor-restore-unanswered:').length === n)
+  await sleepMs(10)
+}
+const condWidened = async ($: any, on: any, stdins: string[]) => {
+  await condRestarter($, on, stdins, { repos: [PIN], file: ['../app', '../app2'] })
+  h.askAnswer = ''
+  await ticks(3)
+  await condUnanswered(stdins, 1)
+}
+test('conductor restore: a turn the plugin starts or the model runs does not ask the unanswered question again; the person\'s prompt does', async ($, on) => {
+  const stdins: string[] = []
+  await condWidened($, on, stdins)
+  h.askAnswer = YES
+  // The plugin's own turn (its prompt never reaches the prompt hook), then a turn with no prompt at all.
+  await ownTurn($, KEEPALIVE_TEXT)
+  await ticks(5)
+  await $.turn.start({ turnId: 'model', text: '' } as any)
+  await $.turn.complete(TURN as any)
+  await ticks(5)
+  expect(h.askCount).toBe(1)
+  expect(await statusText($)).toBe(STATUS_NONE)
+  await $.prompt.submit({ text: 'hello' } as any)
+  await ticks(2)
+  await waitFor(() => condLogs(stdins).includes('conductor-restored:widened 1'))
+  expect(h.askCount).toBe(2)
+  expect(h.askedOptions).toEqual([['Conductor', 'Cancel'], ['Conductor', 'Cancel']])
+})
+test('conductor restore: the question asked again waits for an idle session with an empty prompt box, and a Cancel then removes the saved grant for good', async ($, on) => {
+  const stdins: string[] = []
+  await condWidened($, on, stdins)
+  h.askAnswer = NO
+  h.sessions = condSelf({ status: 'busy' })
+  await $.prompt.submit({ text: 'hello' } as any)
+  await ticks(4)
+  expect(h.askCount).toBe(1)
+  h.sessions = condSelf()
+  await ticks(2)
+  await waitFor(() => condLogs(stdins).includes('conductor-restore-cancelled:'))
+  expect(h.askCount).toBe(2)
+  expect(h.store.has(CONDKEY)).toBe(false)
+  // Cancelled: no later prompt asks again.
+  h.askAnswer = YES
+  await $.prompt.submit({ text: 'later' } as any)
+  await ticks(5)
+  expect(h.askCount).toBe(2)
+  expect(await statusText($)).toBe(STATUS_NONE)
+})
+test('conductor restore: asked a few times at most: after the last unanswered question the person is told to run the command, and no later prompt asks', async ($, on) => {
+  const stdins: string[] = []
+  await condWidened($, on, stdins)
+  for (let n = 1; n < CONDUCTOR_RESTORE_ASKS; n++) {
+    await condUnanswered(stdins, n)
+    expect(toasts).not.toContain(conductorUnansweredToast(COND))
+    await $.prompt.submit({ text: `prompt ${n}` } as any)
+    await ticks(2)
+  }
+  await condUnanswered(stdins, CONDUCTOR_RESTORE_ASKS)
+  expect(CONDUCTOR_RESTORE_ASKS).toBe(3)
+  expect(toasts).toContain(conductorUnansweredToast(COND))
+  h.askAnswer = YES
+  await $.prompt.submit({ text: 'later' } as any)
+  await ticks(5)
+  expect(h.askCount).toBe(CONDUCTOR_RESTORE_ASKS)
+  expect(h.store.get(CONDKEY)).toEqual({ home: COND, repos: [PIN], savedAt: T0 - 60_000 })
+  expect(await statusText($)).toBe(STATUS_NONE)
+})
+test('conductor restore: /callboard off while an unanswered question waits for the next prompt ends it: that prompt asks nothing', async ($, on) => {
+  const stdins: string[] = []
+  await condWidened($, on, stdins)
+  await $.command.run(lane('off'))
+  expect(h.store.has(CONDKEY)).toBe(false)
+  h.askAnswer = YES
   await $.prompt.submit({ text: 'hello' } as any)
   await ticks(5)
   expect(h.askCount).toBe(1)
+  expect(await statusText($)).toBe(STATUS_NONE)
+})
+test('conductor restore: the list changed while the unanswered question waited: the yes on the question asked again restores nothing and keeps the key', async ($, on) => {
+  const stdins: string[] = []
+  await condWidened($, on, stdins)
+  putCond(['../app', '../app2', FAR])
+  h.askAnswer = YES
+  await $.prompt.submit({ text: 'hello' } as any)
+  await ticks(2)
+  await waitFor(() => condLogs(stdins).includes('conductor-restore-rejected:changed'))
+  expect(h.askCount).toBe(2)
+  expect(condLogs(stdins).some((x) => x.startsWith('conductor-restored'))).toBe(false)
+  expect(h.store.get(CONDKEY)).toEqual({ home: COND, repos: [PIN], savedAt: T0 - 60_000 })
   expect(await statusText($)).toBe(STATUS_NONE)
 })
 

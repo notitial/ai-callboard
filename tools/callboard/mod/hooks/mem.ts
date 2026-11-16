@@ -277,7 +277,9 @@ export const conductorApproved = new Map<string, string[]>()
 export const conductorSavedAt = new Map<string, number>()
 export const conductorDeclared = new Set<string>()
 
-export type CondPending = { hint: c.ConductorHint; tries: number; last?: string; ask?: { shown: string[]; added: string[] }; asking?: boolean }
+// unanswered: the times the restore question got no answer. waiting: it got no answer and is asked again only once a prompt that is not the mod's own has
+// reached this session (conductorRestoreWake).
+export type CondPending = { hint: c.ConductorHint; tries: number; last?: string; ask?: { shown: string[]; added: string[] }; asking?: boolean; unanswered?: number; waiting?: boolean }
 export const conductorRestorePending = new Map<string, CondPending>()
 
 export const conductorReadAt = new Map<string, number>()

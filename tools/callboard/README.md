@@ -263,8 +263,9 @@ Other symptoms:
 - **A role did not come back after a restart.** A restore that ends without restoring shows one toast with the
   reason ("Lead not restored: ...", "Conductor not restored: ...", "Manager not restored: ..."); run the role's
   command again by hand. A failure that can clear by itself is tried again first. The manager's restore asks you,
-  and a question left unanswered is asked again after the next prompt in that session, three times in all; then a
-  toast says to run `/callboard manager`. Your click in the dialog stays the only yes.
+  and so does a conductor's when its list names a repo you have not approved. A question left unanswered is asked
+  again after the next prompt in that session, three times in all; then a toast says to run the role's command.
+  Your click in the dialog stays the only yes.
 - **A prompt stays in the lane's panel and no tier sees it.** Some prompts cannot rise: a subagent's, one with no
   live tier in reach, a question that is not one single-choice question, and the others ADR 0011 lists. The
   waiting-prompt toast is what tells you. After a fast-forward of the checkout, reload the lead, conductor and

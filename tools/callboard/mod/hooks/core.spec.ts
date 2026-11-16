@@ -3813,6 +3813,17 @@ test('managerRestoreStep: a passing failure is tried again up to the limit, an u
   assert.equal(c.MANAGER_ASK_AGAIN_TOAST, 'Manager not restored: the question was not answered. It is asked again after the next prompt in this session.')
 })
 
+test('conductorUnansweredStep: an unanswered restore question waits for the next prompt, three asks at most; one too long to show ends at once', () => {
+  const repo = '/Users/x/work/hub'
+  assert.equal(c.CONDUCTOR_RESTORE_ASKS, c.MANAGER_RESTORE_ASKS)
+  assert.deepEqual(c.conductorUnansweredStep(repo, 1), { next: 'wait', toast: c.conductorAskAgainToast(repo) })
+  assert.deepEqual(c.conductorUnansweredStep(repo, 2), { next: 'wait', toast: c.conductorAskAgainToast(repo) })
+  assert.deepEqual(c.conductorUnansweredStep(repo, 3), { next: 'end', toast: c.conductorUnansweredToast(repo) })
+  assert.deepEqual(c.conductorUnansweredStep(repo, 1, false), { next: 'end', toast: c.conductorUnansweredToast(repo) })
+  assert.equal(c.conductorAskAgainToast(repo), "Conductor not restored: hub's list changed and the question was not answered. It is asked again after the next prompt in this session.")
+  assert.equal(c.conductorUnansweredToast(repo), "Conductor not restored: hub's list changed and the question was not answered. Run /callboard conductor.")
+})
+
 test('notRestoredToast: the level, the reason and the command; a reason that names its own next step gets no second one; a code with no text gets no reason', () => {
   assert.equal(c.notRestoredToast('manager', 'manager-exists'), 'Manager not restored: another live session is the manager on this Mac. Run /callboard off there first.')
   assert.equal(c.notRestoredToast('manager', 'registry-unreadable'), 'Manager not restored: could not read the session list safely. Run /callboard manager.')
