@@ -2,7 +2,7 @@
 // The hooks that use it are in engine/answer-hook.ts and engine/answer-tiers.ts. Nothing in this file lets an agent decide anything: it recognises what
 // raised an ask (the classifier), what a request file may hold (redaction, caps), and when a decision file is valid (the apply checks).
 
-import { SID_RE, SUBMITTED_NOTE_NEVER_RECORD } from './core.ts'
+import { SENT_NOTE, SID_RE } from './core.ts'
 
 const HASH_RE = /^[0-9a-f]{64}$/
 
@@ -802,7 +802,7 @@ export const relayQuestionSteps = (short: string, lane: string): string =>
 
 // The notice: one fixed turn that covers every open request in reach (coalesced). Its own counter, so a burst cannot silence the lanes-changed notice or a check-in.
 export const PROMPT_NOTICES_PER_HOUR = 30
-export const PROMPT_NOTICE_TEXT = `[callboard] A lane has a prompt waiting. Call prompt_list. ${SUBMITTED_NOTE_NEVER_RECORD}`
+export const PROMPT_NOTICE_TEXT = `[callboard] A lane has a prompt waiting. Call prompt_list. ${SENT_NOTE}`
 
 // The rubric: fixed text, no tool names. Its five rules are generic; the paragraph on a guard's or hook's ask lists what a tier handles and what it surfaces to
 // the person (ADR 0011). A tier reads it at the end of every prompt_list result that lists a request, and nowhere else. prompt_answer does not check that a request was listed, so the section tells a tier to call prompt_list again when it no longer has the rubric.

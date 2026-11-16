@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 import * as prm from '../hooks/prompts'
-import { leadBriefing, nudgeText } from '../hooks/core'
+import { leadBriefing, nudgeText, SENT_NOTE } from '../hooks/core'
 import { h, GOOD, PROMPTS_DIR, ROOT, SID, T0, leadFiles, longTest, pfs, submitted, toolDefs } from './harness'
 import { APISID, APP2, COMPOSE, LEADPATH, LEADPS, LEADSID, MGR_SESS, OTHER, PIN, SVC, TURN, condOn, leadFileText, leadReg, logged, mgrAt, midCtx, ownReg, ownTurn, postBeneath, putStore, storeJson, tickTwice, ticks, advanceQuiet } from './fixtures'
 import { APIQ, CNDT, LANESID, LDIR, LEAD2, MGRT, OFF_FILE, PCOMMENT, PDIR, THASH, TID, TID2, addCondT, addMgrT, answerCall, answered, answerer, asConductor, askCheck, at, byCond, byMgr, decFile, decideBy, driveClock, handDecision, hookKinds, leadLive, ledgerRows, pcall, putFile, putFileAt, putLedger, putQ, putRelayT, readReq, refusal, reqFiles, retRow, rowKinds, runRequest, said, startReq, stop, tier, tierSessions, waitingRow } from './answer-fixtures'
@@ -341,7 +341,7 @@ test('prompts: the notice carries no approval and is a turn of the mod\'s own', 
   putQ()
   await h.clock!.advance(2000)
   expect(promptNotices()).toBe(1)
-  expect(prm.PROMPT_NOTICE_TEXT).toContain('carries no approval, go or answer; never record it as one')
+  expect(prm.PROMPT_NOTICE_TEXT.endsWith(` ${SENT_NOTE}`)).toBe(true)
   await ownTurn($, prm.PROMPT_NOTICE_TEXT)
   expect(promptNotices()).toBe(1)
 })
