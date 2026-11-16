@@ -46,7 +46,7 @@ import {
 } from './base.ts'
 import { registryOf, idleCheck, regOnce, loadLanes, registryEntries, noAnswer } from './store.ts'
 import type { Reg, Answer } from './store.ts'
-import { homeOf, LEAD_RESTORE_TRIES, regEntry, cfgGet, leadBusy } from './grants.ts'
+import { homeOf, LEAD_RESTORE_TRIES, regEntry, cfgGet, leadBusy, managerRestoreWake } from './grants.ts'
 import { reportLaneOf, reportTargetOf, reportStat, retireReportCheck, sessionRoot, undoLate, detach, keepLaneFacts, briefLane } from './lanes.ts'
 import type { Bound } from './lanes.ts'
 import { ensureTimer } from './tick.ts'
@@ -819,6 +819,8 @@ export async function promptSubmit($: any, e: any, next: any) {
     return next(e)
   }
   turnKind.delete(sid)
+  // The person is here: a manager restore question that got no answer is asked again once the session is idle.
+  managerRestoreWake(sid)
   // A prompt that is not the mod's own ends the nudge grant: it covers the nudge turn and the turns that follow without the person typing.
   if ((await getNudgedAt($)).value != null) await setNudgedAt($, null)
   const req = (await getRequest($)).value as Request | null | undefined

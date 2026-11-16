@@ -23,7 +23,7 @@ import {
   presenceText,
   presenceErrs,
 } from '../mem.ts'
-import { TICK_MS, withTimeout, ACTION_TIMEOUT_MS, log, logq, sha, submitOwn, logFail, where, liveCheckoutCheck } from './base.ts'
+import { TICK_MS, withTimeout, ACTION_TIMEOUT_MS, log, logq, sha, submitOwn, logFail, where, liveCheckoutCheck, toast } from './base.ts'
 import { unlockRetry, answerer, pruneResults, pruneLogs } from './store.ts'
 import type { Answer } from './store.ts'
 import {
@@ -288,6 +288,12 @@ async function tick($: any) {
   }
 }
 
+// A saved grant that the start itself could not restore (it failed the parse, or reading it failed): the log line, and the person is told.
+async function restoreEnded($: any, sid: string, level: c.Level, code: string) {
+  await logq($, sid, `${level}-restore-rejected`, code)
+  toast($, c.notRestoredToast(level, code))
+}
+
 export async function sessionStart($: any, e: any, next: any) {
   goneSeen.clear()
   const now = await $.clock.now()
@@ -355,15 +361,15 @@ export async function sessionStart($: any, e: any, next: any) {
       if (raw !== undefined) {
         const p = await where($)
         const h = p ? c.parseLeadHint(raw, now, homeOf(p)) : undefined
-        if (!p) await log($, me, 'lead-restore-rejected', 'error')
+        if (!p) await restoreEnded($, me, 'lead', 'error')
         else if (!h) {
           await $.store.delete(`${c.LEAD_HINT_PREFIX}${me}`)
           void goGrantorOff($, me).catch(() => undefined)
-          await log($, me, 'lead-restore-rejected', 'invalid')
+          await restoreEnded($, me, 'lead', 'invalid')
         } else await leadRestore($, me, h, 0)
       }
     } catch {
-      await logq($, me, 'lead-restore-rejected', 'error')
+      await restoreEnded($, me, 'lead', 'error')
     }
     // A saved conductor grant for this session, restored as the lead's is (conductorRestore).
     try {
@@ -371,14 +377,14 @@ export async function sessionStart($: any, e: any, next: any) {
       if (raw !== undefined) {
         const p = await where($)
         const h = p ? c.parseConductorHint(raw, now, homeOf(p)) : undefined
-        if (!p) await log($, me, 'conductor-restore-rejected', 'error')
+        if (!p) await restoreEnded($, me, 'conductor', 'error')
         else if (!h) {
           await $.store.delete(`${c.CONDUCTOR_HINT_PREFIX}${me}`)
-          await log($, me, 'conductor-restore-rejected', 'invalid')
+          await restoreEnded($, me, 'conductor', 'invalid')
         } else await conductorRestore($, me, h, 0)
       }
     } catch {
-      await logq($, me, 'conductor-restore-rejected', 'error')
+      await restoreEnded($, me, 'conductor', 'error')
     }
     // A saved manager grant for this session: asked about from the tick (managerTick), not restored here. A session that still holds the grant (a
     // compaction) is not asked.
@@ -389,11 +395,11 @@ export async function sessionStart($: any, e: any, next: any) {
         const h = c.parseManagerHint(raw, now)
         if (!h) {
           await $.store.delete(`${c.MANAGER_HINT_PREFIX}${me}`)
-          await log($, me, 'manager-restore-rejected', 'invalid')
+          await restoreEnded($, me, 'manager', 'invalid')
         } else managerRestorePending.set(me, { hint: h, tries: 0 })
       }
     } catch {
-      await logq($, me, 'manager-restore-rejected', 'error')
+      await restoreEnded($, me, 'manager', 'error')
     }
     // A compaction cut off by the restart. A stale mark, or one found while the state survived, goes with no note.
     try {

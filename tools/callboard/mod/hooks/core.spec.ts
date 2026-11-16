@@ -3646,3 +3646,34 @@ test('observeLead: the row is the one session id the record names, never a row t
   assert.equal(o.quietSince, undefined)
   assert.equal(quiet(o, 9000).quietSince, 9000)
 })
+
+test('managerRestoreStep: a passing failure is tried again up to the limit, an unanswered question waits for the next prompt a few times, every other end is final', () => {
+  // The person's own ends, and a path that took over: final, with no toast.
+  for (const quiet of [undefined, 'changed', 'cancelled', 'off-meanwhile']) assert.deepEqual(c.managerRestoreStep(quiet, 1, 0), { next: 'end' }, String(quiet))
+  for (const code of ['registry-unreadable', 'manager-check-slow', 'manager-presence', 'tools-timeout', 'error']) {
+    assert.deepEqual(c.managerRestoreStep(code, 1, 0), { next: 'retry' }, code)
+    assert.deepEqual(c.managerRestoreStep(code, c.MANAGER_RESTORE_RETRIES, 0), { next: 'retry' }, code)
+    assert.deepEqual(c.managerRestoreStep(code, c.MANAGER_RESTORE_RETRIES + 1, 0), { next: 'end', toast: c.notRestoredToast('manager', code) }, code)
+  }
+  assert.equal(c.MANAGER_RESTORE_RETRIES, 15)
+  // A refusal that does not clear by itself is final at once.
+  for (const code of ['manager-exists', 'manager-name', 'lane-holder', 'lead-holder', 'conductor-holder', 'manager-after-lead', 'tools', 'not-person']) assert.deepEqual(c.managerRestoreStep(code, 1, 0), { next: 'end', toast: c.notRestoredToast('manager', code) }, code)
+  assert.equal(c.MANAGER_RESTORE_ASKS, 3)
+  assert.deepEqual(c.managerRestoreStep('unanswered', 0, 1), { next: 'wait', toast: c.MANAGER_ASK_AGAIN_TOAST })
+  assert.deepEqual(c.managerRestoreStep('unanswered', 9, 2), { next: 'wait', toast: c.MANAGER_ASK_AGAIN_TOAST })
+  assert.deepEqual(c.managerRestoreStep('unanswered', 0, 3), { next: 'end', toast: c.MANAGER_UNANSWERED_TOAST })
+  assert.equal(c.MANAGER_ASK_AGAIN_TOAST, 'Manager not restored: the question was not answered. It is asked again after your next prompt in this session.')
+})
+
+test('notRestoredToast: the level, the reason and the command; a reason that names its own next step gets no second one; a code with no text gets no reason', () => {
+  assert.equal(c.notRestoredToast('manager', 'manager-exists'), 'Manager not restored: another live session is the manager on this Mac. Run /callboard off there first.')
+  assert.equal(c.notRestoredToast('manager', 'registry-unreadable'), 'Manager not restored: could not read the session list safely. Run /callboard manager.')
+  assert.equal(c.notRestoredToast('manager', 'manager-presence'), 'Manager not restored: its presence file could not be written. Run /callboard manager.')
+  assert.equal(c.notRestoredToast('lead', 'tools-timeout'), 'Lead not restored: registering its tools took too long. Run /callboard lead.')
+  assert.equal(c.notRestoredToast('lead', 'lane-holder'), 'Lead not restored: this session is a lane, so it cannot be a lead. Run /callboard lane off first.')
+  assert.equal(c.notRestoredToast('conductor', 'conductor-repo-in-use', '/Users/x/work/hub'), 'Conductor not restored: hub has lanes or a lead, so it cannot be a conductor repo: use a repo of its own. Run /callboard conductor.')
+  assert.equal(c.notRestoredToast('conductor', 'lead-holder', '/Users/x/work/hub'), 'Conductor not restored: this session is a lead, so it cannot be a conductor. Run /callboard off first.')
+  assert.equal(c.notRestoredToast('conductor', 'some-new-code'), 'Conductor not restored. Run /callboard conductor.')
+  // A code is looked up as an own key only.
+  assert.equal(c.notRestoredToast('lead', 'constructor'), 'Lead not restored. Run /callboard lead.')
+})

@@ -829,6 +829,7 @@ test('a cwd that never answers in 15 ticks: no lead, the key kept, logged once',
   expect(leadLogs(stdins)).toEqual([])
   await ticks(3)
   expect(leadLogs(stdins)).toEqual(['lead-restore-rejected:cwd-unreadable'])
+  expect(toasts).toContain('Lead not restored: the session folder could not be read. Run /callboard lead.')
   h.cwdThrows = 0
   expect(await statusText($)).toContain('| Lead | OFF |')
   expect(h.store.has(LEADKEY)).toBe(true)

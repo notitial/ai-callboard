@@ -449,6 +449,7 @@ async function restoreAttempt<A>($: any, me: string, d: LevelDesc, attempt: () =
   } catch {
     again = undefined
     await logq($, me, `${d.level}-restore-rejected`, 'error')
+    toast($, c.notRestoredToast(d.level, 'error'))
   }
   if (again !== undefined && epochOf(me) === epoch) return again
   d.pending.delete(me)
@@ -462,6 +463,11 @@ export const LEAD_RESTORE_TRIES = 15
 // One try: a code when it is to be tried again, undefined when it ended (made lead, or refused and logged).
 async function leadRestoreTry($: any, me: string, hint: c.LeadHint): Promise<string | undefined> {
   const reject = (code: string) => log($, me, 'lead-restore-rejected', code)
+  // A final end that no toast of its own tells.
+  const end = async (code: string) => {
+    await reject(code)
+    toast($, c.notRestoredToast('lead', code))
+  }
   const epoch = epochOf(me)
   const dropped = () => epochOf(me) !== epoch
   // A person's session only: a headless run resumed under this id is not made lead; the key is kept and the tick asks again (the registry row of a
@@ -479,12 +485,12 @@ async function leadRestoreTry($: any, me: string, hint: c.LeadHint): Promise<str
   if (cwd !== hint.pin) {
     await $.store.delete(`${c.LEAD_HINT_PREFIX}${me}`)
     void goGrantorOff($, me).catch(() => undefined)
-    return void (await reject('wrong-folder'))
+    return void (await end('wrong-folder'))
   }
   // A lane is never a lead too (the rebind refuses a lead in turn); a read that does not answer counts as a binding.
   const held = await withTimeout($, getLane($), c.ENGINE_CALL_TIMEOUT_MS)
   if (dropped()) return
-  if (held === 'timeout' || held?.value != null || laneBinding.has(me)) return void (await reject('lane-holder'))
+  if (held === 'timeout' || held?.value != null || laneBinding.has(me)) return void (await end('lane-holder'))
   // The person granted lead meanwhile: that grant stands.
   if (leadBusy(me)) return
   leadGranting.add(me)
@@ -504,7 +510,7 @@ async function leadRestoreTry($: any, me: string, hint: c.LeadHint): Promise<str
     try {
       set = await withTimeout($, leadToolsOnce($, me), c.ENGINE_CALL_TIMEOUT_MS)
     } catch {
-      return void (await reject('tools'))
+      return void (await end('tools'))
     }
     // An off or a Cancel while the tools were registering: nothing is granted, and nothing is tried again.
     if (dropped()) return
@@ -527,8 +533,9 @@ export async function leadRestore($: any, me: string, hint: c.LeadHint, tries: n
   if (tries >= LEAD_RESTORE_TRIES) {
     leadRestorePending.delete(me)
     await log($, me, 'lead-restore-rejected', again)
-    // The second-lead check never got an answer, or the name never landed: the key is kept, and the person is told why the lead did not come back.
+    // The key is kept, and the person is told why the lead did not come back. A session that never showed as a person's has nobody to tell.
     if (again === 'registry-unreadable' || again === 'lead-check-slow' || again === 'lead-needs-name') toast($, c.leadNotRestoredToast(again))
+    else if (again !== 'not-interactive') toast($, c.notRestoredToast('lead', again))
     return
   }
   leadRestorePending.set(me, { hint, tries })
@@ -1386,23 +1393,58 @@ export async function managerForget($: any, sid: string): Promise<boolean> {
 // still holds the grant in memory (a compaction) is never asked. Manager: the usual grant with every usual check again after the yes (one per Mac, a reserved
 // name, not a lane, lead or conductor). A saved grant that names the folder the session started in and was saved less than MANAGER.silentGraceMs ago
 // (c.managerSilentOk, judged in managerCommand) is granted with no question and every one of those checks; any silent-only condition that fails asks as
-// before. Cancel: the saved grant goes. No answer: it stays, nothing is restored. A check that fails: logged, nothing restored, the saved grant stays. The tries
-// count only the ticks before the registry shows the session's own row.
+// before. Cancel: the saved grant goes. No answer: it stays, nothing is restored, and the same question is asked again once the person has sent a prompt in
+// this session (managerRestoreWake), a few times at most. A check that fails: logged, nothing restored, the saved grant stays; a failure that can clear by
+// itself is tried again from the tick, each try the whole restore with its question and checks (c.managerRestoreStep holds the limits). Every final end that
+// is not the person's own (an off, a Cancel, a grant by hand) gets one toast. The tries count only the ticks before the registry shows the session's own row.
 const MANAGER_RESTORE_TRIES = 15
 
+// A final end found by the tick or the start: the entry goes, the log line, and the toast unless nobody is there to read it.
+async function managerRestoreEnd($: any, sid: string, pend: MgrPending, why: string, tell = true) {
+  if (managerRestorePending.get(sid) === pend) managerRestorePending.delete(sid)
+  await log($, sid, 'manager-restore-rejected', why)
+  if (tell) toast($, c.notRestoredToast('manager', why))
+}
 async function managerRestoreAsk($: any, me: string, pend: MgrPending) {
   let busy = false
+  const seq = offSeq.get(me) ?? 0
+  let code: string | undefined
   pend.asking = true
   try {
-    await managerCommand($, me, 'prompt', pend.hint.name, async () => {
+    code = (await managerCommand($, me, 'prompt', pend.hint.name, async () => {
       busy = true
       return { text: '' }
-    }, true, () => managerRestorePending.get(me) === pend, pend.hint)
+    }, true, () => managerRestorePending.get(me) === pend, pend.hint)).code
+  } catch {
+    code = 'error'
+    await logq($, me, 'manager-restore-rejected', 'error')
   } finally {
     pend.asking = false
   }
-  // A question already open asks again at the next idle tick; every other end is final for this start.
-  if (!busy && managerRestorePending.get(me) === pend) managerRestorePending.delete(me)
+  // A question already open asks again at the next idle tick. A grant (this restore's, or the person's own meanwhile) has ended the restore.
+  if (busy || grants.get(me)?.level === 'manager') return
+  // An off typed meanwhile is the person's end: the saved grant is gone, and nothing is tried or asked again.
+  let step: c.RestoreStep = { next: 'end' }
+  if ((offSeq.get(me) ?? 0) === seq) {
+    if (code === 'unanswered') pend.unanswered = (pend.unanswered ?? 0) + 1
+    else pend.fails = (pend.fails ?? 0) + 1
+    step = c.managerRestoreStep(code, pend.fails ?? 0, pend.unanswered ?? 0)
+  }
+  if (step.next === 'end') {
+    if (managerRestorePending.get(me) === pend) managerRestorePending.delete(me)
+  } else {
+    // A try that granted and stepped back dropped the entry: it is put back for the next try.
+    pend.waiting = step.next === 'wait'
+    managerRestorePending.set(me, pend)
+    if (step.next === 'retry') await log($, me, 'manager-restore-retry', code)
+  }
+  if (step.toast !== undefined) toast($, step.toast)
+}
+// The person sent a prompt in this session: a restore question that got no answer is asked again at the next idle tick. Their click in the dialog is still
+// the only yes.
+export function managerRestoreWake(sid: string) {
+  const pend = managerRestorePending.get(sid)
+  if (pend?.waiting) pend.waiting = false
 }
 export async function managerTick($: any, sid: string) {
   if (grants.get(sid)?.level === 'manager') {
@@ -1414,20 +1456,15 @@ export async function managerTick($: any, sid: string) {
     return
   }
   const pend = managerRestorePending.get(sid)
-  if (!pend || pend.asking) return
+  if (!pend || pend.asking || pend.waiting) return
   const row = await registryOf($, sid)
   if (managerRestorePending.get(sid) !== pend) return
   if (row === undefined && pend.tries++ < MANAGER_RESTORE_TRIES) return
-  if (row?.kind !== 'interactive') {
-    managerRestorePending.delete(sid)
-    return void (await log($, sid, 'manager-restore-rejected', 'not-person'))
-  }
+  // A row of another kind (a --bg worker) has no person to tell; a row that never showed may have one.
+  if (row?.kind !== 'interactive') return void (await managerRestoreEnd($, sid, pend, 'not-person', row === undefined))
   // A lane on its way back (a rebind still waiting, a lane hint, a store record naming this session) is not asked, as the conductor's restore (conductorRestoreTry).
   if (rebindPending.has(sid)) return
-  const reject = async (why: string) => {
-    if (managerRestorePending.get(sid) === pend) managerRestorePending.delete(sid)
-    await log($, sid, 'manager-restore-rejected', why)
-  }
+  const reject = (why: string) => managerRestoreEnd($, sid, pend, why)
   if (c.parseHint(await $.store.get(`${c.HINT_PREFIX}${sid}`).catch(() => undefined), await $.clock.now())?.lane) return void (await reject('lane-holder'))
   const lanes = await loadLanes($).catch(() => 'lanes-error')
   if (typeof lanes === 'string') return
@@ -1747,6 +1784,11 @@ async function conductorRestoreTry($: any, me: string, box: { hint: c.ConductorH
   const hint = box.hint
   const key = `${c.CONDUCTOR_HINT_PREFIX}${me}`
   const reject = (code: string) => log($, me, 'conductor-restore-rejected', code)
+  // A final end that no toast of its own tells.
+  const end = async (code: string) => {
+    await reject(code)
+    toast($, c.notRestoredToast('conductor', code, hint.home))
+  }
   const epoch = epochOf(me)
   const dropped = () => epochOf(me) !== epoch
   // A person's own row: kind interactive. No row yet: tried again (a reopened panel's row may come a moment after session.start). Another kind (a
@@ -1765,26 +1807,26 @@ async function conductorRestoreTry($: any, me: string, box: { hint: c.ConductorH
   if (cwd === 'timeout' || typeof cwd !== 'string') return 'cwd-unreadable'
   if (cwd !== hint.home) {
     await $.store.delete(key)
-    return void (await reject('wrong-folder'))
+    return void (await end('wrong-folder'))
   }
   // A lane on its way back: its binding, its restore hint, or a store record naming this session. A pending rebind alone is tried again:
   // rebindTick clears it once it finds no record, and waits for this restore while it is pending.
   const held = await withTimeout($, getLane($), c.ENGINE_CALL_TIMEOUT_MS)
   if (dropped()) return
-  if (held === 'timeout' || held?.value != null || laneBinding.has(me)) return void (await reject('lane-holder'))
+  if (held === 'timeout' || held?.value != null || laneBinding.has(me)) return void (await end('lane-holder'))
   const now = await $.clock.now()
-  if (c.parseHint(await $.store.get(`${c.HINT_PREFIX}${me}`).catch(() => undefined), now)?.lane) return void (await reject('lane-holder'))
+  if (c.parseHint(await $.store.get(`${c.HINT_PREFIX}${me}`).catch(() => undefined), now)?.lane) return void (await end('lane-holder'))
   const lanes = await loadLanes($).catch(() => 'lanes-error')
   if (dropped()) return
   if (typeof lanes === 'string') return 'lanes-error'
-  if (lanes.some((l) => l.sid === me)) return void (await reject('lane-holder'))
+  if (lanes.some((l) => l.sid === me)) return void (await end('lane-holder'))
   if (rebindPending.has(me)) return 'rebind-pending'
   if (grants.get(me)?.level === 'conductor') return
   // A lead (a grant or a pending lead restore) stands.
-  if (leadBusy(me) || leadRestorePending.has(me)) return void (await reject('lead-holder'))
+  if (leadBusy(me) || leadRestorePending.has(me)) return void (await end('lead-holder'))
   const used = await conductorRepoInUse($, hint.home)
   if (dropped()) return
-  if (used === 'conductor-repo-in-use') return void (await reject(used))
+  if (used === 'conductor-repo-in-use') return void (await end(used))
   if (used) return used
   // A list file that cannot be read now restores nothing and is tried again; one that is not there has nothing to restore.
   const f = await readConductorFile($, hint.home)
@@ -1818,7 +1860,7 @@ async function conductorRestoreTry($: any, me: string, box: { hint: c.ConductorH
     const a = await conductorApply($, me, hint.home, approved, r.ok, epoch)
     if (a === 'dropped') return
     if (a === 'timeout') return 'tools-timeout'
-    if (a !== 'ok') return void (await reject('tools'))
+    if (a !== 'ok') return void (await end('tools'))
   } finally {
     leadGranting.delete(me)
   }
@@ -1839,7 +1881,7 @@ export async function conductorRestore($: any, me: string, hint: c.ConductorHint
   if (tries >= CONDUCTOR_RESTORE_TRIES) {
     conductorRestorePending.delete(me)
     await log($, me, 'conductor-restore-rejected', again)
-    if (again === 'file-bad') toast($, c.conductorFileBadToast(box.hint.home))
+    toast($, again === 'file-bad' ? c.conductorFileBadToast(box.hint.home) : c.notRestoredToast('conductor', again, box.hint.home))
     return
   }
   if ((again === 'rebind-pending' || again === 'file-bad') && again !== last) await log($, me, 'conductor-restore-retry', again)
@@ -1875,12 +1917,17 @@ async function conductorRestoreAsk($: any, me: string, pend: CondPending) {
       return void toast($, c.conductorUnansweredToast(hint.home))
     }
     end()
-    if (leadBusy(me) || leadRestorePending.has(me)) return void (await log($, me, 'conductor-restore-rejected', 'lead-holder'))
+    // A check that fails after the click is a final end: logged, and the person is told.
+    const refused = async (code: string) => {
+      await log($, me, 'conductor-restore-rejected', code)
+      toast($, c.notRestoredToast('conductor', code, hint.home))
+    }
+    if (leadBusy(me) || leadRestorePending.has(me)) return void (await refused('lead-holder'))
     // Every check again after the click.
     const held = await withTimeout($, getLane($), c.ENGINE_CALL_TIMEOUT_MS)
-    if (held === 'timeout' || held?.value != null || laneBinding.has(me)) return void (await log($, me, 'conductor-restore-rejected', 'lane-holder'))
+    if (held === 'timeout' || held?.value != null || laneBinding.has(me)) return void (await refused('lane-holder'))
     const used = await conductorRepoInUse($, hint.home)
-    if (used) return void (await log($, me, 'conductor-restore-rejected', used))
+    if (used) return void (await refused(used))
     const f = await readConductorFile($, hint.home)
     const r2 = f.state === 'ok' ? await resolveConductorList($, hint.home, f.entries) : undefined
     if (epochOf(me) !== epoch) return void (await log($, me, 'conductor-restore-rejected', 'changed'))
@@ -1892,7 +1939,7 @@ async function conductorRestoreAsk($: any, me: string, pend: CondPending) {
     leadGranting.add(me)
     try {
       const a = await conductorApply($, me, hint.home, shown, shown, epoch)
-      if (a !== 'ok') return void (await log($, me, 'conductor-restore-rejected', a === 'dropped' ? 'changed' : 'tools'))
+      if (a !== 'ok') return void (await (a === 'dropped' ? log($, me, 'conductor-restore-rejected', 'changed') : refused('tools')))
     } finally {
       leadGranting.delete(me)
     }
