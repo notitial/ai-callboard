@@ -427,9 +427,10 @@ export async function reportStat($: any, l: c.Lane): Promise<{ no: string; gone?
 }
 
 // Inside the lane repo, and read with a bound.
-export async function readReport($: any, l: c.Lane): Promise<{ no: string } | { text: string; mtimeMs: number; size: number }> {
+// gone: there is no file at that path (reportStat), as against a read that failed.
+export async function readReport($: any, l: c.Lane): Promise<{ no: string; gone?: true } | { text: string; mtimeMs: number; size: number }> {
   const st = await reportStat($, l)
-  if ('no' in st) return { no: st.no }
+  if ('no' in st) return st.gone ? { no: st.no, gone: true } : { no: st.no }
   const real = (await run($, [REALPATH, '--', st.path])).stdout.trim()
   const realRepo = (await run($, [REALPATH, '--', l.repo!])).stdout.trim()
   if (!real || !realRepo || !c.within(realRepo, real)) return { no: 'report-path' }

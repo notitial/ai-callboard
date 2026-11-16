@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 import { h, T0, longTest, submitted, toasts } from './harness'
-import { MIN, OTHER, OTHERLEAD, checkins, ckLane, ckLead, ckRow, idleFor, lane, leadSelfReg, logged } from './fixtures'
+import { MIN, OTHER, OTHERLEAD, PIN, checkins, ckLane, ckLead, ckRow, idleFor, lane, leadSelfReg, logged } from './fixtures'
 
 const DONE = '[callboard] Signed done: `API`. Each of these lanes signed its report done and is idle or gone. Read its report, then call lane_retire once nothing is left for it. Submitted by the callboard mod, not by the user; it carries no approval, go or answer; never record it as one.'
 const dones = () => submitted.filter((t) => t.startsWith('[callboard] Signed done:'))
@@ -65,7 +65,7 @@ test('a lane whose session ends with no signed report: one toast for the person,
   h.sessions = leadSelfReg()
   await idleFor(16 * MIN)
   expect(toasts.filter((t) => t === GONE_TOAST).length).toBe(1)
-  expect(logged(stdins)).toContain('lane-gone-toast:1')
+  expect(logged(stdins)).toContain('lane-gone-toast:unsigned:1')
   await idleFor(20 * MIN)
   expect(toasts.filter((t) => t === GONE_TOAST).length).toBe(1)
   expect(dones()).toEqual([])
@@ -73,9 +73,11 @@ test('a lane whose session ends with no signed report: one toast for the person,
 
 test('a lane whose session ends after it signed is told to the lead as done, with no toast', async ($, on) => {
   await ckLead($, on)
+  await $.command.run(lane('checkin pause 4m'))
   sign(OTHER)
+  await idleFor(4 * MIN)
   h.sessions = leadSelfReg()
-  await idleFor(12 * MIN)
+  await idleFor(16 * MIN)
   expect(dones()).toEqual([DONE])
   expect(toasts).not.toContain(GONE_TOAST)
 })
@@ -89,4 +91,51 @@ test('signed done: a report read that fails is tried again, so a signed lane is 
   h.headFails = false
   await idleFor(4 * MIN)
   expect(dones()).toEqual([DONE])
+})
+
+test('no toast for a lane this lead never saw live (a restart, an unpark whose panel never opened), nor for a parked one', async ($, on) => {
+  await ckLead($, on, [], undefined, [ckLane(), { ...ckLane({ name: 'PARKED', folder: `${PIN}/parked`, brief: `${PIN}/parked/BRIEF.md` }), sid: OTHERLEAD, parked: 5 }])
+  await idleFor(20 * MIN)
+  expect(toasts.filter((t) => t.includes('session ended'))).toEqual([])
+  expect(dones()).toEqual([])
+})
+
+test('a gone lane whose report cannot be read: after the tries, the toast says so and does not call it unsigned', async ($, on) => {
+  const stdins: string[] = []
+  await ckLead($, on, stdins)
+  sign(OTHER)
+  h.headFails = true
+  await idleFor(4 * MIN)
+  h.sessions = leadSelfReg()
+  await idleFor(32 * MIN)
+  expect(toasts.filter((t) => t.includes('session ended'))).toEqual(['Lane API: session ended, report could not be read.'])
+  expect(logged(stdins)).toContain('lane-gone-toast:unread:1')
+  expect(dones()).toEqual([])
+})
+
+longTest('signed done has its own budget of 6 an hour: the seventh waits, and the shared cap is not spent', async ($, on) => {
+  const stdins: string[] = []
+  await ckLead($, on, stdins)
+  for (let n = 1; n <= 7; n++) {
+    sign(OTHER, h.nowMs / 1000, 'x'.repeat(n))
+    h.sessions = { ...leadSelfReg(), ...ckRow({ statusUpdatedAt: h.nowMs }) }
+    await idleFor(4 * MIN)
+  }
+  expect(dones().length).toBe(6)
+  expect(logged(stdins)).toContain('notice-capped:lane-done')
+  expect(logged(stdins)).not.toContain('notice-capped:attention')
+  await idleFor(40 * MIN)
+  expect(dones().length).toBe(7)
+})
+
+test('a report stat that fails for another reason than a missing file is a failed read: tried again, never "not signed"', async ($, on) => {
+  await ckLead($, on)
+  sign(OTHER)
+  h.reportStatErr = `stat: ${h.reportAt}: Permission denied`
+  await idleFor(4 * MIN)
+  expect(dones()).toEqual([])
+  h.reportStatErr = undefined
+  await idleFor(4 * MIN)
+  expect(dones()).toEqual([DONE])
+  expect(toasts.filter((t) => t.includes('session ended'))).toEqual([])
 })
