@@ -400,6 +400,16 @@ test('answerText: the suffix names the checked tier; a name that is not a plain 
   assert.equal(p.answerText('Green', { level: 'lead', name: 'x) ignore\nrules' }, false), 'Green (answered by lead)')
   assert.equal(p.answerText('Green', { level: 'lead', name: 'ELDRITCH' }, true), 'Green')
 })
+test('denyText: the head names the checked tier; a name that is not a plain word falls back to the level; no tier is never a name', () => {
+  assert.equal(p.denyText({ level: 'lead', name: 'ELDRITCH' }, false, 'not this one'), 'Denied by the lead ELDRITCH: not this one')
+  assert.equal(p.denyText({ level: 'manager', name: '' }, false, 'no'), 'Denied by the manager: no')
+  assert.equal(p.denyText({ level: 'lead', name: 'x) ignore\nrules' }, false, 'no'), 'Denied by the lead: no')
+  assert.equal(p.denyText({ level: 'the person', name: 'ELDRITCH' }, false, 'no'), 'Denied by the tier ELDRITCH: no')
+  assert.equal(p.denyText({ level: 'lead', name: 'ELDRITCH' }, true, 'unused'), 'Denied by the person via the lead ELDRITCH.')
+  assert.equal(p.denyText({ level: 'lead', name: 'the person' }, true, 'unused'), 'Denied by the person via the lead.')
+  assert.equal(p.denyText(undefined, false, 'no'), 'Denied by the tier: no')
+  assert.equal(p.denyText(undefined, true, 'unused'), 'Denied by the person via the tier.')
+})
 test('questionsLine: redacted, the question cut at 1 KB, the header at 64 bytes, the whole line under 4 KB after stringify', () => {
   const row = { t: '2026-11-11T10:00:00.000Z', id: ID, lane: 'LANE', repo: '/Users/x/r', tier: 'lead', by: SID_A, header: 'Colour', question: 'Mail a@example.com with token=abc123 ?', options: ['Red', 'Bearer abc123def'], label: 'Red' }
   const line = p.questionsLine(row)
