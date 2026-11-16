@@ -231,6 +231,9 @@ export const checkinBusy = new Set<string>()
 // Evaluations land 60-62 s apart, so the window spans one of them plus a margin: a verdict is reused once and read
 // again at the evaluation after, so leads are read about every 2 min and a gone lead is seen at most ~2 min late (130 s made it ~3 min).
 export const leadlessSeen = new Map<string, Map<string, { at: number; leads: c.LeadFile[] | 'held' }>>()
+// What a lead read of each lane's end (c.LaneEnd), by the lead's session id, then the lane's name; ep is the grant epoch it was read under, so a new grant
+// starts afresh.
+export const laneEnds = new Map<string, { ep: number; by: Map<string, c.LaneEnd> }>()
 
 // What each orderer (lead, conductor or manager) ordered: lane session id to { lane name, time of the first order }, in module memory (lost with the session or a reload,
 // then no notice). Once a minute, an order older than c.ORDER_MS is looked up in $.store: the lane's own stamp (c.ORDER_PREFIX + its session id) is still there only if

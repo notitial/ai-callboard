@@ -25,6 +25,7 @@ import {
   managerSeen,
   managerSeenBusy,
   leadlessSeen,
+  laneEnds,
   leadSavedAt,
   leadRestorePending,
   conductorApproved,
@@ -345,6 +346,7 @@ export function leadDrop($: any, sid: string): Promise<boolean> {
   managerSeen.delete(sid)
   managerSeenBusy.delete(sid)
   leadlessSeen.delete(sid)
+  laneEnds.delete(sid)
   leadSavedAt.delete(sid)
   leadRestorePending.delete(sid)
   renameRefused.delete(sid)
@@ -1199,6 +1201,72 @@ async function conductorCheckin($: any, sid: string, submitsAtStart: number) {
     return send
   }
   await attentionNotice($, sid, owed, submitsAtStart, ep, signed, { render: c.leadCheckinText, label: 'lead-checkin' })
+}
+
+// ---- a lane's end: signed done to the lead, gone unsigned to the person ----
+// Runs after a lead's check-in step and only reads what it observed (laneObs). The report of a lane seen idle is read once per status time, that of a lane
+// gone once per goneSince; with nothing new to read and nothing owed, no file is touched. A signature is told to the lead once, through the shared attention
+// notice (its gates and hourly cap), when check-ins are on and not paused and the lead has been idle c.LANE_DONE_IDLE_MS. A lane gone with no signed
+// report is toasted once (not within 30 minutes of a wake: the lanes slept too). The manager and a conductor get neither.
+export async function laneEndTick($: any, sid: string, submitsAtStart: number) {
+  if (grants.get(sid)?.level !== 'lead') return
+  const obs = laneObs.get(sid)
+  if (!obs) return
+  const ep = epochOf(sid)
+  const kept = laneEnds.get(sid)
+  const ends = kept?.ep === ep ? kept.by : new Map<string, c.LaneEnd>()
+  if (kept?.ep !== ep) laneEnds.set(sid, { ep, by: ends })
+  for (const k of [...ends.keys()]) if (!obs.has(k)) ends.delete(k)
+  const now = await $.clock.now()
+  if (!(await cfgGet($, sid)).checkin) return
+  const pause = (await getCheckinPause($)).value
+  if (typeof pause === 'number' && pause > now) return
+  const awake = mem.wokeAt === undefined || now - mem.wokeAt >= c.CHECKIN_WAKE_MS
+  const reads = c.laneEndReads(obs, ends).filter((r) => r.kind === 'idle' || awake)
+  if (reads.length > 0) {
+    const base = await leadCore($, sid)
+    if ('err' in base) return
+    const read: { r: (typeof reads)[number]; sig: string | undefined; failed: boolean }[] = []
+    for (const r of reads) {
+      const l = base.lanes.find((x) => x.name === r.lane)
+      if (!l) continue
+      // Idle by the live session's id, gone by the record's (any id when it has none), as the check-in reads a signature.
+      const signer = r.kind === 'idle' ? obs.get(r.lane)?.sid ?? '' : l.sid
+      const rep = await readReport($, l).catch(() => ({ no: 'report-read' }))
+      // No file is a lane that has not signed; any other failed read says nothing of the report.
+      read.push({ r, sig: !('no' in rep) && c.reportSigned(rep.text, signer) ? c.doneSig(signer ?? '', rep.size) : undefined, failed: 'no' in rep && rep.no !== 'report-missing' })
+    }
+    // The reads wait: an off or a re-grant meanwhile ends this step, and nothing is kept or said for the old grant.
+    if (epochOf(sid) !== ep || !grants.has(sid)) return
+    const unsigned: string[] = []
+    for (const { r, sig, failed } of read) {
+      const e = ends.get(r.lane) ?? {}
+      // A failed read is tried again at the next observation, c.LANE_END_READ_TRIES times in all, before the lane counts as not signed.
+      if (failed && (e.tries ?? 0) + 1 < c.LANE_END_READ_TRIES) {
+        ends.set(r.lane, { ...e, tries: (e.tries ?? 0) + 1 })
+        continue
+      }
+      ends.set(r.lane, { told: e.told, ...(r.kind === 'idle' ? { at: r.at, gone: e.gone } : { at: e.at, gone: r.at }), sig })
+      if (r.kind === 'gone' && sig === undefined) unsigned.push(r.lane)
+    }
+    const gone = c.laneGoneToast(unsigned)
+    if (gone !== undefined) {
+      toast($, gone)
+      await logq($, sid, 'lane-gone-toast', String(unsigned.length))
+    }
+  }
+  const owed = c.laneDoneItems(obs, ends)
+  if (owed.length === 0) return
+  const turnEnd = (await getTurnEnd($)).value
+  if (typeof turnEnd !== 'number' || now - Math.max(turnEnd, lastSubmitAt.get(sid) ?? 0) < c.LANE_DONE_IDLE_MS) return
+  const sigs = new Map(owed.map((i) => [i.lane, ends.get(i.lane)?.sig]))
+  const sent = async (items: c.AttentionItem[]) => {
+    for (const i of items) {
+      const e = ends.get(i.lane)
+      if (e) e.told = sigs.get(i.lane)
+    }
+  }
+  await attentionNotice($, sid, owed, submitsAtStart, ep, undefined, { render: c.doneText, label: 'lane-done', sent })
 }
 
 // ---- the deadline of an order ----
