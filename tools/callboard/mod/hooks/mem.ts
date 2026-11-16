@@ -153,7 +153,8 @@ export const leadToolsInFlight = new Map<string, Promise<void>>()
 // mark, so the next minute reads again. managerSeenBusy holds the running look's own token, and an answer is kept only while its stamp is still the one
 // stored: a look that timed out, or a drop meanwhile (leadDrop, session.end), leaves nothing behind.
 // conductors: the names ('' for none) of the conductors trusted for the lead's pin, as the same look saw them.
-export const managerSeen = new Map<string, { at: number; live: boolean; conductors?: string[] }>()
+// manager: the trusted manager's name (managerTrustedName), as the same look saw it; set whenever live is true.
+export const managerSeen = new Map<string, { at: number; live: boolean; manager?: string; conductors?: string[] }>()
 export const managerSeenBusy = new Map<string, object>()
 
 // The manager's five lane tools and six lead tools, declared at its grant, then the three prompt tools (fourteen in all, c.MANAGER_TOOLS). The handlers are the lead's (leadBase refuses every other lane tool at manager level).
