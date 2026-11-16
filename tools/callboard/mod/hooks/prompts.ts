@@ -795,7 +795,7 @@ export const PROMPT_NOTICES_PER_HOUR = 30
 export const PROMPT_NOTICE_TEXT = `[callboard] A lane has a prompt waiting. Call prompt_list. ${SUBMITTED_NOTE_NEVER_RECORD}`
 
 // The rubric: fixed text, no tool names. Its five rules are generic; the paragraph on a guard's or hook's ask lists what a tier handles and what it surfaces to
-// the person (ADR 0011). A tier reads it at the end of every prompt_list result that lists a request, and nowhere else: a request's id comes only from that call.
+// the person (ADR 0011). A tier reads it at the end of every prompt_list result that lists a request, and nowhere else. prompt_answer does not check that a request was listed, so the section tells a tier to call prompt_list again when it no longer has the rubric.
 export const RUBRIC = [
   '**Allow only if you can say yes to all of these:**',
   "1. **Purpose.** You know why this lane is doing it, and it follows from work it was given.",
