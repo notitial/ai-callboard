@@ -258,7 +258,7 @@ async function promptListTool($: any, e: unknown): Promise<{ result: string } | 
     const s = stands.get(q.id)!
     const top = s.stand.top
     const turn = pr.turnLine({ relay: s.stand.relay?.by, top: top?.sid === s.self.sid || top?.level === s.self.level, above: top, opensInSec: promptWindowShut(s.stand, sid, now) ? (s.stand.windows[sid] - now) / 1000 : undefined, question: q.tool === pr.QUESTION_TOOL })
-    items.push({ id: q.id, lane: q.lane, tool: q.tool, repo: q.repo, raisedBy: q.raisedBy, ageSec: (now - q.at) / 1000, truncated: q.truncated, agentType: q.agentType, input: q.input, turn })
+    items.push({ id: q.id, lane: q.lane, tool: q.tool, repo: q.repo, raisedBy: q.raisedBy, ageSec: (now - q.at) / 1000, truncated: q.truncated, agentType: q.agentType, input: q.input, turn, ...(q.reason !== undefined ? { reason: q.reason, ...(q.reasonCut ? { reasonCut: true } : {}) } : {}) })
   }
   return { result: pr.promptListText(items, { on: true, young, hint: await promptAnomalyHint($, t.p).catch(() => undefined) }) }
 }
@@ -298,9 +298,8 @@ async function promptAnswerTool($: any, e: any, answer: boolean): Promise<{ resu
     pick = { index: opt - 1, label: labels[opt - 1] }
   } else if (answer && decision === 'answer') return refuse('bad-input')
   // The decision is judged on the copy the tier read. A truncated copy cannot be allowed (the rubric: seen whole), and cannot be put to the person either: it is
-  // denied, asking the lane for a cleaner call. A dialog is never answered, whichever way.
+  // denied, asking the lane for a cleaner call.
   if (answer) {
-    if (pr.isDialog(q.tool)) return refuse('dialog')
     if (q.truncated && decision === 'allow') return refuse('truncated')
     if (promptWindowShut(stand, sid, now)) return refuse('window')
   }

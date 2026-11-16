@@ -59,7 +59,12 @@ caller.
 3. The lanes work. When a lane waits on a permission prompt, the dialog stays in front of you; with escalation on,
    the lead (then the conductor, then the manager) may answer it, never in your first 30 seconds, and your click
    normally wins (a Yes that lands in a short gap can be missed: ADR 0004). Merges, force pushes, pushes to main or production and destructive deletes are always passed up
-   to you. A prompt that has waited 5 minutes is put in front of the lane's lead at once, in the middle of its turn
+   to you. Every prompt of a lane's or a lead's own call rises this way, whatever raised it (a rule, a hook or
+   guard, a setting, a plugin) and whatever the tool, a plan-mode exit included: the tier sees what raised it and
+   the hook's reason, handles the routine cases its rubric names (a rerun of the lane's own CI run, a delete inside
+   the lane's own clone) and passes the rest up, and the top live tier relays it to you. A request that no tier
+   answers or relays is denied after 20 minutes, and the lane may ask again
+   ([ADR 0011](../../docs/adr/0011-all-prompts-rise.md)). A prompt that has waited 5 minutes is put in front of the lane's lead at once, in the middle of its turn
    if it is busy, and in front of the manager after 10 minutes; you get one toast per wait in each window that
    watches the lane. That alert lets no one answer the prompt: it only says that one is waiting.
 4. A lane that waits on a pull request registers it with `pr_watch` and is told when checks finish, reviews arrive
@@ -260,6 +265,11 @@ Other symptoms:
   command again by hand. A failure that can clear by itself is tried again first. The manager's restore asks you,
   and a question left unanswered is asked again after the next prompt in that session, three times in all; then a
   toast says to run `/callboard manager`. Your click in the dialog stays the only yes.
+- **A prompt stays in the lane's panel and no tier sees it.** Some prompts cannot rise: a subagent's, one with no
+  live tier in reach, a question that is not one single-choice question, and the others ADR 0011 lists. The
+  waiting-prompt toast is what tells you. After a fast-forward of the checkout, reload the lead, conductor and
+  manager sessions: one whose mod loaded earlier skips the requests it does not know, and they end in the
+  20-minute deny.
 - **A toast says a lane waits on a prompt.** Answer it in that lane's panel. The lead or the manager was told too,
   when it could be: one that sits in a long tool call, waits on background work or has a dialog open is not, and
   the toast is the alert that is left.
@@ -283,6 +293,10 @@ case small (ADR 0002, Consequences). Beyond that, specific to what you see:
   `/callboard reserve remove`.
 - A PR notice's counts include the lane's own comments; a registration that gets no answer still uses one of the
   30 an hour; a lead that is closed leaves its gone lanes' trackers unpolled until they are swept (ADR 0010).
+- What a tier handles and what it passes up is guidance in its rubric, not a check in the mod. A tier that misreads
+  it, or is talked round by a lane's input, can allow what a guard or hook was written to put in front of you, or
+  let a lane leave plan mode; you learn of it from the ledger, and the audit counts such allows by what raised
+  them (ADR 0011, What this widens).
 - The prompt audit reads the ledger and the files beside it, never a transcript. A hand-written `answered` row with
   its decision file passes, a decision that reached a session with no ledger row is not reported, and neither is
   a click lost in the short gap of ADR 0004.
@@ -328,3 +342,4 @@ and compact end to end, a real manager, several lanes at once, and the probes P1
 | A conductor owns leads | [0007](../../docs/adr/0007-conductor-owns-leads.md) |
 | The go | [0009](../../docs/adr/0009-go-given-once.md) |
 | PR notices | [0010](../../docs/adr/0010-pr-notices.md) |
+| Every prompt rises, what raised it, what cannot rise | [0011](../../docs/adr/0011-all-prompts-rise.md) |

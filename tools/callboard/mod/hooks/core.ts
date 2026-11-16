@@ -825,8 +825,8 @@ export function completions(draft: string, word: string): Completion[] {
   return [...out.values()]
 }
 
-// What escalation never hands to an agent: the one wording of it, appended to the answer of /callboard escalation.
-export const DIALOG_LINE = 'Never answered by an agent: a dialog of another kind (the plan-mode exit). Writes to the checkouts, the settings and callboard\'s state are stopped by a hook before any prompt exists, not here. Merges, force pushes, pushes to main, master or production and destructive deletes are not on it: the rubric passes them up.'
+// What escalation does not hold back: the one wording of it, appended to the answer of /callboard escalation.
+export const DIALOG_LINE = 'Nothing is held back from the tiers by the mod: every prompt of a lane or a lead rises, the plan-mode exit included, and the rubric says what they surface to you. Writes to the checkouts, the settings and callboard\'s state are stopped by a hook before any prompt exists, not here. Merges, force pushes, pushes to main, master or production and destructive deletes rise too: the rubric passes them up.'
 // /callboard with no argument and /callboard help: one row per form in COMMAND_TABLE, in the shared table style (mdPage).
 export const helpText = (): string => mdPage('**Callboard commands**', ['Command', 'What it does'], COMMAND_TABLE.map((r) => [r.form, r.help].map(mdEscape)))
 // A word the handler does not know: the short list, then the way to the full one.

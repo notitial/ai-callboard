@@ -115,7 +115,7 @@ test('prompts: prompt_answer writes the decision file and its answered row; the 
   expect(answered()).toEqual([expect.objectContaining({ kind: 'answered', id: TID, nonce: 'n-1', code: 'allow', tier: 'lead', lane: 'svc-api', tool: 'Bash', pattern: 'ssh', hash: THASH, why: 'read only, seen whole' })])
   // The row carries the id as ledgerLine writes it, the needle the hook greps for.
   expect([...pfs.values()].some((v) => v.text.includes(`"id":"${TID}"`))).toBe(true)
-  expect(prm.applyCheck({ req: { id: TID, nonce: q.nonce, inputHash: THASH, sid: LANESID }, decision: d, liveHash: THASH, awakeMs: 30_000, expiresAt: prm.EXPIRES_MS, dialog: false, byOk: true, ledger: 'found', graceMs: 0 })).toEqual({ ok: true })
+  expect(prm.applyCheck({ req: { id: TID, nonce: q.nonce, inputHash: THASH, sid: LANESID }, decision: d, liveHash: THASH, awakeMs: 30_000, expiresAt: prm.EXPIRES_MS, byOk: true, ledger: 'found', graceMs: 0 })).toEqual({ ok: true })
   expect(JSON.stringify(ledgerRows())).not.toContain('uptime')
 })
 
@@ -177,6 +177,16 @@ test('prompts: prompt_answer refuses while answering is off or the OFF file exis
   expect(decFile()).toBeUndefined()
 })
 
+test('prompts: a guard\'s ask is listed with its reason in a frame and the guidance after it; a tier may pass it up, deny it or allow it', async ($, on) => {
+  await tier($, on)
+  putQ({ raisedBy: 'hook', reason: 'workspace-lock-guard: Clear the workspace lock at /w?' })
+  const list = said(await $.tool.call(pcall('prompt_list')))
+  expect(list).toContain('raised by: hook')
+  expect(list).toContain('<untrusted-reason>\nworkspace-lock-guard: Clear the workspace lock at /w?\n</untrusted-reason>')
+  expect(list).toContain('- any workspace-lock clear, forced turn give or owner transfer')
+  expect(said(await $.tool.call(answerCall()))).toContain('Recorded: allow')
+})
+
 test('prompts: a truncated input can be denied but never allowed', async ($, on) => {
   await tier($, on)
   putQ({ truncated: true })
@@ -185,12 +195,14 @@ test('prompts: a truncated input can be denied but never allowed', async ($, on)
   expect(said(await $.tool.call(answerCall({ decision: 'deny', why: 'cannot see it all, and it looks wrong' })))).toContain('Recorded: deny')
 })
 
-test('prompts: prompt_answer never answers a dialog, allow or deny', async ($, on) => {
+test('prompts: a plan-mode exit is listed with the plan and answered like any other request', async ($, on) => {
   await tier($, on)
-  putQ({ tool: 'ExitPlanMode', input: {} })
-  for (const decision of ['allow', 'deny']) expect(said(await $.tool.call(answerCall({ decision })))).toContain(refusal('dialog'))
-  expect(decFile()).toBeUndefined()
-  expect(answered()).toEqual([])
+  putQ({ tool: 'ExitPlanMode', input: { plan: 'rename the helper, then run the tests' } })
+  const list = said(await $.tool.call(pcall('prompt_list')))
+  expect(list).toContain('tool: ExitPlanMode')
+  expect(list).toContain('rename the helper, then run the tests')
+  expect(list).toContain('**A plan-mode exit.**')
+  expect(said(await $.tool.call(answerCall()))).toContain('Recorded: allow')
 })
 
 for (const [name, tool, input] of [

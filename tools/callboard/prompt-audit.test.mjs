@@ -226,17 +226,12 @@ test('lost race in the ledger: a returned row and a superseded row for one reque
   assert.equal(rep.table[0].outcome, 'returned')
 })
 
-test('d: a request for a dialog tool is an anomaly; a merge, a settings edit or a machine-ops call is not one', () => {
+test('a request for the plan-mode exit is a request like any other: no anomaly', () => {
   const fx = fixture()
-  const dialog = clean(uid(1), BASE, uid(101), { tool: 'ExitPlanMode', pattern: 'ExitPlanMode', hash: H('c') })
-  const merge = clean(uid(2), BASE + 1000, uid(102), { tool: 'mcp__github__merge_pull_request', pattern: 'mcp__github__merge_pull_request x/y #3', hash: H('d') })
-  const settings = clean(uid(3), BASE + 2000, uid(103), { tool: 'Edit', pattern: 'Edit .claude/settings.json', hash: H('e') })
-  ledger(fx, [ON(), ...dialog, ...merge, ...settings])
-  const rep = run(fx)
-  assert.deepEqual(rules(rep), ['dialog-asked'])
-  assert.deepEqual(rep.anomalies.map((a) => a.id), [uid(1)])
+  ledger(fx, [ON(), ...clean(uid(1), BASE, uid(101), { tool: 'ExitPlanMode', pattern: 'ExitPlanMode', hash: H('c') })])
+  assert.deepEqual(run(fx).anomalies, [])
 })
-test('d: a dialog row is read and is not an anomaly', () => {
+test('a dialog row of an older ledger is read and is not an anomaly', () => {
   const fx = fixture()
   ledger(fx, [ON(), R('dialog', BASE - 1000, { ...T, tool: 'ExitPlanMode', pattern: 'ExitPlanMode' }), ...clean()])
   assert.deepEqual(run(fx).anomalies, [])
@@ -754,6 +749,32 @@ test('questions: the opt and lh fields are read, and a non-string one drops the 
   assert.deepEqual(rep.anomalies, [])
   assert.match(rep.notes.join('\n'), /1 ledger line\(s\) were not valid rows/)
 })
+test('a note counts the agents\' allows of asks a hook, setting, plugin or ceiling raised, by what raised them; a rule\'s ask is not counted', () => {
+  const fx = fixture()
+  ledger(fx, [ON(), ...clean(uid(1), BASE, uid(101), { raised: 'hook' }), ...clean(uid(2), BASE + 60_000, uid(102), { raised: 'hook' }), ...clean(uid(3), BASE + 120_000, uid(103), { raised: 'ceiling' }), ...clean(uid(4), BASE + 180_000, uid(104), { raised: 'rule' }), ...clean(uid(5), BASE + 240_000, uid(105))])
+  const rep = run(fx)
+  assert.ok(rep.notes.includes("agents' allows and answers of asks raised by a hook, setting, plugin or ceiling: ceiling 1, hook 2"), rep.notes.join('|'))
+  const none = fixture()
+  ledger(none, [ON(), ...clean(uid(1), BASE, uid(101), { raised: 'rule' })])
+  assert.equal(run(none).notes.some((x) => x.startsWith("agents' allows and answers of asks raised")), false)
+})
+
+test('the note counts a tier\'s answer to a question a hook raised', () => {
+  const fx = fixture()
+  const q = qClean()
+  ledger(fx, [ON(), ASKS(), { ...q[0], raised: 'hook' }, q[1], q[2]])
+  const rep = run(fx)
+  assert.ok(rep.notes.includes("agents' allows and answers of asks raised by a hook, setting, plugin or ceiling: hook 1"), rep.notes.join('|'))
+})
+
+test('a: a requested row that names an unknown source of the ask is an anomaly; a known one and a row with none are not', () => {
+  const fx = fixture()
+  ledger(fx, [ON(), ...clean(uid(1), BASE, uid(101), { raised: 'other' }), ...clean(uid(2), BASE + 60_000, uid(102), { raised: 'guard' }), ...clean(uid(3), BASE + 120_000, uid(103))])
+  const rep = run(fx)
+  assert.deepEqual(rules(rep), ['raised-unknown'])
+  assert.equal(rep.anomalies[0].id, uid(1))
+})
+
 test('questions: the notes: no questions row, a row past 90 days, not-judgeable counts, and the QUESTIONS table', () => {
   const fx = fixture()
   ledger(fx, [ON(), ASKS(), ...qClean(), R('not-judgeable', BASE + 100, { ...QT, code: 'question-scope' }), R('not-judgeable', BASE + 200, { ...QT, code: 'question-scope' }), R('not-judgeable', BASE + 300, { ...QT, code: 'question-multi' }), R('not-judgeable', BASE + 400, { ...T, code: 'no-check' })])

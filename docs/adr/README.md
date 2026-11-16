@@ -40,3 +40,4 @@ repo's.
 | 0007 | A conductor owns its leads (`0007-conductor-owns-leads.md`) | proposed | 2026-11-15 |
 | 0009 | A go given once (`0009-go-given-once.md`) | proposed | 2026-11-15 |
 | 0010 | PR notices for lanes (`0010-pr-notices.md`) | proposed | 2026-11-15 |
+| 0011 | Every lane prompt rises up the chain (`0011-all-prompts-rise.md`) | proposed | 2026-11-16 |

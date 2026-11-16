@@ -1,15 +1,16 @@
 #!/usr/bin/env node
 // callboard prompt-audit [--since DATE] [--root DIR] [--records DIR] [--goes DIR] [--json]
-// Read-only audit of prompt answering (ADR 0004, "Rollout, off switch and audit"): one table of every request, the anomalies
+// Read-only audit of prompt answering (ADR 0004, "Rollout, off switch and audit"; ADR 0011 for what raised an ask): one table of every request, the anomalies
 // that must stay empty, what is deliberately not an anomaly, and wait counts. Nothing here writes: it never creates, edits,
 // renames, removes or touches a file, and it follows no symlink inside the folders it reads. Convenience only: every real
 // limit lives in the mod. Exit 0: no anomalies. 1: anomalies. 2: usage error, an unreadable root, or a ledger file that could
 // not be read (an audit that missed a ledger file proves nothing, so it never exits 0), a ledger row of a kind it does not know, or the mod's definitions not loading.
-// It imports the row kinds, the forged-drop codes, the dialog test, the id shape and a conductor's hourly open backstop from the mod's own sources (mod/hooks/prompts.ts, core.ts), so it
+// It imports the row kinds, the forged-drop codes, the sources of an ask, the id shape and a conductor's hourly open backstop from the mod's own sources (mod/hooks/prompts.ts, core.ts), so it
 // runs from this checkout and needs node 22.18 or later.
 //
-// The ledger rows it reads (prompts.ts, LedgerRow): { t, kind, code?, id?, lane?, repo?, tool?, pattern?, hash?, tier?, why?, nonce?, opt?, lh?, dialog?, end? }.
-//   requested  id, nonce, lane, repo, tool, pattern, hash, tier     the hook asked a tier
+// The ledger rows it reads (prompts.ts, LedgerRow): { t, kind, code?, id?, lane?, repo?, tool?, pattern?, hash?, tier?, why?, nonce?, opt?, lh?, dialog?, end?, raised? }.
+//   requested  id, nonce, lane, repo, tool, pattern, hash, tier, raised?     the hook asked a tier. raised: what raised the ask (mode | rule | guard | hook |
+//              setting | plugin | ceiling; anything else is an anomaly)
 //   answered   id, nonce (the requested row's), code allow|deny, by (the answering lead's session id), tier, why, lane, repo, tool, pattern, hash
 //              a tier decided (written by prompt_answer)
 //   returned   id, code allow|deny, by, tuid (the tool_use_id of the call), tier, why (+ the request's fields)  the hook gave the decision
@@ -51,11 +52,11 @@ import { homedir } from 'node:os'
 import { pathToFileURL } from 'node:url'
 
 // The mod's own definitions. A load that fails (an older node, the script copied out of its checkout, a renamed export) ends the run with exit 2, never 1.
-let ID_RE, OPENS_PER_CONDUCTOR_HOUR, ROW_KINDS, DROP_FORGED, isDialog
+let ID_RE, OPENS_PER_CONDUCTOR_HOUR, ROW_KINDS, DROP_FORGED, RAISED_BY
 try {
   ;({ SID_RE: ID_RE, OPENS_PER_CONDUCTOR_HOUR } = await import('./mod/hooks/core.ts'))
-  ;({ ROW_KINDS, DROP_FORGED, isDialog } = await import('./mod/hooks/prompts.ts'))
-  if (!(ID_RE instanceof RegExp) || !Number.isInteger(OPENS_PER_CONDUCTOR_HOUR) || !Array.isArray(ROW_KINDS) || !Array.isArray(DROP_FORGED) || typeof isDialog !== 'function') throw new Error('an export is missing')
+  ;({ ROW_KINDS, DROP_FORGED, RAISED: RAISED_BY } = await import('./mod/hooks/prompts.ts'))
+  if (!(ID_RE instanceof RegExp) || !Number.isInteger(OPENS_PER_CONDUCTOR_HOUR) || !Array.isArray(ROW_KINDS) || !Array.isArray(DROP_FORGED) || !Array.isArray(RAISED_BY)) throw new Error('an export is missing')
 } catch (e) {
   console.error(`prompt audit: cannot load the mod's definitions from mod/hooks beside this script (node 22.18 or later is needed): ${String(e?.message ?? e).slice(0, 300)}`)
   process.exit(2)
@@ -71,7 +72,7 @@ const QUESTION_TOOL = 'AskUserQuestion'
 const QUESTION_DAYS = 90
 
 const KINDS = new Set(ROW_KINDS)
-const FIELDS = ['code', 'id', 'lane', 'repo', 'tool', 'pattern', 'hash', 'tier', 'why', 'nonce', 'tuid', 'by', 'via', 'short', 'opt', 'lh', 'target', 'was', 'dialog', 'end']
+const FIELDS = ['code', 'id', 'lane', 'repo', 'tool', 'pattern', 'hash', 'tier', 'why', 'nonce', 'tuid', 'by', 'via', 'short', 'opt', 'lh', 'target', 'was', 'dialog', 'end', 'raised']
 // Where the audit puts each kind of row: `request` a row of a request (grouped by the request id it carries), `end` a row that ends a request, `go` a row of a go
 // (its id is the go's, no request's), `other` a row of no request (the switch, the lead rows, the PR rows). A kind the mod writes that has no place here makes
 // every run incomplete (UNPLACED), so a new kind cannot be read as something it is not.
@@ -89,6 +90,8 @@ const GO_KINDS = ofClass('go')
 const ENDS = ofClass('end')
 // A `dropped` row with one of these codes is a decision the hook refused as forged or wrong: an anomaly. The others are ordinary.
 const DROP_ANOMALY = new Set(DROP_FORGED)
+// What may raise an ask (the mod's RAISED). A requested row that names anything else was not written by the hook.
+const RAISED = new Set(RAISED_BY)
 
 class AuditError extends Error {}
 
@@ -340,6 +343,8 @@ function ruleDecisions(g, { flag }) {
     // A returned question answer must carry the option and label hash of the answer (both rows carry both).
     if (ret.code === 'answer' && ref.code === 'answer' && (ret.opt !== ref.opt || ret.lh !== ref.lh)) flag('q', 'q-returned-differs', `request ${g.id}: the returned answer's option or label hash differs from the answered row's`, { id: g.id, t: ret.t })
   }
+  // What raised the ask is one of the known sources (a row with none is an older one).
+  if (req && req.raised !== undefined && !RAISED.has(req.raised)) flag('a', 'raised-unknown', `request ${g.id}: the requested row names an unknown source of the ask (${String(req.raised).slice(0, 40)})`, { id: g.id, t: req.t })
   for (const a of g.answered) {
     if (!req) flag('a', 'answered-without-requested', `request ${g.id} has an answered row and no requested row`, { id: g.id, t: a.t })
     else if (a.nonce !== req.nonce) flag('a', 'answered-nonce-mismatch', `request ${g.id}: the answered row's nonce differs from the requested row's`, { id: g.id, t: a.t })
@@ -410,15 +415,6 @@ function noteBenign(g, { abandoned, lostRaces, dropsFine }) {
   for (const r of g.ends.filter((x) => x.kind === 'abandoned')) abandoned.push({ id: g.id, t: r.t, code: r.code ?? '', tool: meta.tool ?? '' })
   if (ret && g.ends.some((r) => r.kind === 'superseded')) lostRaces.push({ id: g.id, t: ret.t, detail: 'a returned row and a superseded row for one request' })
   for (const d of g.dropped) if (!DROP_ANOMALY.has(d.code)) dropsFine.push({ id: g.id, t: d.t, code: d.code ?? '' })
-}
-
-// d. a dialog (a tool whose call is a dialog of its own, by the mod's isDialog): the plan-mode exit stays the person's, so a request or an answer for one means the mod's own rule was bypassed.
-function ruleDialog({ groups, flag }) {
-  for (const g of groups) {
-    const probe = g.rows.find((r) => (r.kind === 'requested' || r.kind === 'answered' || r.kind === 'returned') && r.tool !== undefined)
-    if (!probe || !isDialog(probe.tool)) continue
-    if (g.requested.length > 0 || g.answered.length > 0) flag('d', 'dialog-asked', `request ${g.id} (${probe.tool}) was asked of an agent but is a dialog`, { id: g.id, t: probe.t })
-  }
 }
 
 // g. lead grants (ADR 0006): a lead-grant needs a lead-offer row of the same repo hash and nonce written by the same session; at most OPENS_PER_CONDUCTOR_HOUR grants by one conductor in an hour (a grant
@@ -524,6 +520,19 @@ function ruleClosedWithoutRow({ groups, flag, table, problems, now }, { requestI
       }
     }
   }
+}
+
+// A note (not an anomaly): the tiers' own allows of asks that a hook, a setting, a plugin or a ceiling raised (ADR 0011), by what raised them, and their
+// answers to a question behind one. A person's answer through a relay is not counted.
+function noteRaised({ groups, notes }) {
+  const by = {}
+  for (const g of groups) {
+    const raised = g.requested[0]?.raised
+    const ret = g.returned[0]
+    if ((ret?.code !== 'allow' && ret?.code !== 'answer') || ret.via === 'person' || !['hook', 'setting', 'plugin', 'ceiling'].includes(raised)) continue
+    by[raised] = (by[raised] ?? 0) + 1
+  }
+  if (Object.keys(by).length > 0) notes.push(`agents' allows and answers of asks raised by a hook, setting, plugin or ceiling: ${Object.entries(by).sort().map(([c, n]) => `${c} ${n}`).join(', ')}`)
 }
 
 // Question notes (not anomalies).
@@ -803,7 +812,6 @@ export function audit({ root, since, now = Date.now(), records, recordsExplicit 
   const abandonedNoId = rows.filter((r) => r.kind === 'abandoned' && r.id === undefined && inRange(r.ms))
   for (const r of abandonedNoId) abandoned.push({ id: '', t: r.t, code: r.code ?? '', tool: r.tool ?? '' })
 
-  ruleDialog(ctx)
   ruleLeadGrants(ctx)
   ruleLeadOwners(ctx)
   ruleAnsweringOn(ctx)
@@ -815,6 +823,7 @@ export function audit({ root, since, now = Date.now(), records, recordsExplicit 
   const goFiles = readGoFiles(goes ?? join(rootReal, '..', 'go'), goesExplicit, problems)
   const goList = ruleGoes(ctx, goFiles)
   noteQuestions(ctx, questions)
+  noteRaised(ctx)
   anomalies.sort((x, y) => (x.rule < y.rule ? -1 : x.rule > y.rule ? 1 : 0))
 
   const { relayCounts, relayedList } = buildRelay(ctx)
