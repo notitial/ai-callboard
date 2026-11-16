@@ -86,14 +86,30 @@ async function notPerson($: any, sid: string, command: string, code: c.OriginCod
   return { text }
 }
 
-async function restCommand($: any, sid: string, code: string) {
+// Sets the rest for this session and logs it: the one path of the command and the tool. False when the session state could not be written.
+async function restSet($: any, sid: string, code: string): Promise<boolean> {
   try {
-    if ((await setRest($, await $.clock.now())).isSet === false) throw new Error('not set')
+    if ((await setRest($, await $.clock.now())).isSet === false) return false
   } catch {
-    return { text: c.REST_FAILED }
+    return false
   }
   await logq($, sid, 'command', `rest:${code}`)
-  return { text: c.REST_TEXT }
+  return true
+}
+async function restCommand($: any, sid: string, code: string) {
+  return { text: (await restSet($, sid, code)) ? c.REST_TEXT : c.REST_FAILED }
+}
+
+// The `rest` tool: /callboard rest set by the calling session's own main agent, through the same restSet. It asks nothing, as the command: it only
+// narrows. A subagent is refused, because the rest is the session's and its call would rest the parent.
+export async function restCall($: any, e: any) {
+  const sid = await $.session.id()
+  ensureTimer($)
+  if ((e as { agentId?: string }).agentId !== undefined) {
+    await logq($, sid, 'refused', 'rest-subagent')
+    return { deny: c.REST_SUBAGENT }
+  }
+  return (await restSet($, sid, 'tool')) ? { result: c.REST_SET } : { deny: c.REST_FAILED }
 }
 
 // /callboard checkin pause [<N>m|<N>h] and checkin resume: the person's own, as config; a plugin, another session or a script gets a fixed refusal.

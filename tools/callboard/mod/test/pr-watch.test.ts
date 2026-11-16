@@ -1,5 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 import * as pw from '../hooks/pr-watch'
+import { REST_SET, REST_TOOL } from '../hooks/core'
 import { GH_LINK, GH_REAL, PRS_DIR, PROMPTS_DIR, SID, extraStat, ghCalls, h, laneSeed, longTest, pdirs, pfs, realMap, submitted } from './harness'
 import { LEADSID, LEAD_LANES, MIN, OTHER, OWN_ROW, TURN, advanceQuiet, lane, logged, midCtx, ownTurn, person, postBeneath, ticks } from './fixtures'
 
@@ -485,7 +486,7 @@ test('a note that cannot be written leaves the PR as it was, so the next round t
   expect(tracker()!.prs[0]!.seen.checks).toBe('failed')
 })
 
-test('a push whose checks have not started is not reported mergeable; /callboard rest holds the wake, not the notice', async ($, on) => {
+test('a push whose checks have not started is not reported mergeable; a rest the lane set with the rest tool does not hold the notice: the lane is still woken', async ($, on) => {
   await laneOn($, on)
   world.set('acme/app', { 12: node(rollup('FAILURE')) })
   await $.tool.call(CALL())
@@ -493,10 +494,9 @@ test('a push whose checks have not started is not reported mergeable; /callboard
   await round()
   expect(notices()).toEqual([])
   world.set('acme/app', { 12: node({ headRefOid: SHA2, mergeable: 'MERGEABLE', ...rollup('SUCCESS') }) })
-  await $.command.run(lane('rest'))
+  expect(await $.tool.call({ tool: `mcp__callboard__${REST_TOOL}` } as any)).toEqual({ result: REST_SET })
   await round()
-  expect(notices()).toEqual([])
-  expect(await midCtx($)).toEqual([one('`acme/app#12`: all checks finished green on bbbbbbb.', "`acme/app#12`: GitHub reports it open, not a draft, with no conflict, no failed or running check and no blocking review. A merge is the person's, always.")])
+  expect(notices()).toEqual([one('`acme/app#12`: all checks finished green on bbbbbbb.', "`acme/app#12`: GitHub reports it open, not a draft, with no conflict, no failed or running check and no blocking review. A merge is the person's, always.")])
 })
 
 test('a tracker file that fails a check is removed and logged, and the lane registers again from nothing', async ($, on) => {
