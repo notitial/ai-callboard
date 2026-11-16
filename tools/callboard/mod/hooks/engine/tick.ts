@@ -65,7 +65,7 @@ import {
   TOOL,
   pruneHints,
 } from './compaction.ts'
-import { promptCloseTick, promptSweep } from './answer-hook.ts'
+import { promptCloseTick, promptSweep, unattendedTick } from './answer-hook.ts'
 import { promptNoticeTick } from './answer-tiers.ts'
 import { usageFlush } from './usage.ts'
 import { prToolRegister, prPollDue, prPollTick, prNoticeTick } from './pr-watch.ts'
@@ -228,6 +228,8 @@ async function tick($: any) {
       await watchTick($, sid).catch(logFail($, sid, 'lane-watch'))
       // ADR 0004: the notice of a prompt waiting, after the lanes-changed one (a tick submits at most once).
       await promptNoticeTick($, sid, submitsAtStart).catch(logFail($, sid, 'prompt-notice'))
+      // ADR 0008: a tier's look at the unattended window, which ends one that is over or whose escalation is surely off.
+      await unattendedTick($).catch(logFail($, sid, 'unattended'))
       // The lead's look for a live manager, once a minute; not awaited (as the check-in), so its reads never hold the tick.
       // A due look runs under a timeout (managerSeenStep).
       if (grants.get(sid)?.level === 'lead') void managerSeenStep($, sid as string).catch(() => undefined)
