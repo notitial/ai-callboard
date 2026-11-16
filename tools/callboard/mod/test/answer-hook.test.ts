@@ -991,7 +991,7 @@ test('prompts: the dialog on a machine with the default writes its own value; a 
   expect(rowKinds().slice(-2)).toEqual(DEFAULT_ROWS)
 })
 
-test('prompts: the default guard parser: only the linked hook or ai-toolkit's exact wrapper of it, on a matcher that covers the tools, with hooks not disabled, counts', () => {
+test('prompts: the default guard parser: only the linked hook or the exact ai-toolkit wrapper of it, on a matcher that covers the tools, with hooks not disabled, counts', () => {
   const LINK = '/Users/x/.claude/hooks/protected-paths-guard.sh'
   const wire = (command: unknown, matcher: unknown = 'Edit|Write|MultiEdit|Bash', extra: object = {}) => prm.settingsWireGuard(JSON.stringify({ ...extra, hooks: { PreToolUse: [{ matcher, hooks: [{ command }] }] } }), LINK, '/Users/x')
   expect(wire(LINK)).toBe(true)
