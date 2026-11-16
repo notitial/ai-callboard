@@ -54,15 +54,17 @@ is the force stop and always asks you. A conductor (for the leads it owns) or th
    and the lead prompts it from then on.
 3. The lanes work. When a lane waits on a permission prompt, the dialog stays in front of you; with escalation on,
    the lead (then the conductor, then the manager) may answer it, never in your first 30 seconds, and your click
-   always wins. Merges, force pushes, pushes to main or production and destructive deletes are always passed up
+   normally wins (a Yes that lands in a short gap can be missed: ADR 0004). Merges, force pushes, pushes to main or production and destructive deletes are always passed up
    to you.
 4. A lane that waits on a pull request registers it with `pr_watch` and is told when checks finish, reviews arrive
    or the PR is mergeable, merged or closed. A merge is still yours.
 5. A big lane is asked to compact before it loses its notes, and a lead can order it to. You never type that.
 6. A lane finishes, signs its report, and the lead retires it. A lane you may need again is parked instead.
 7. Before a long stretch, give the lead one go for the whole body of work (`/callboard go TEXT`) so its lanes do
-   not ask again for each step (it counts only while the protected-paths guard is in place). A go never covers a merge, a force push, a push to main or production, or a delete
-   outside the lane's own work. `go_status` shows a session what covers it.
+   not ask again for each step (it counts only while the protected-paths guard is in place). A go never covers a merge, a force push, a push to
+   main or production, or a delete outside the lane's own work, and the rest of the list the dialog and `go_status`
+   print (ADR 0009). `go_status` shows a session what covers it. A closed, parked or crashed panel ends no go; `go off`
+   does.
 
 A lead that you leave idle is told when a lane needs it (its session is gone, it waits on a prompt, it went
 quiet without signing), unless you pause that with `/callboard checkin pause`.
@@ -74,12 +76,13 @@ quiet without signing), unless you pause that with `/callboard checkin pause`.
 - **Look:** `status`, `lanes`, `config` (printed from any origin, with no model turn).
 - **Roles:** `lead [NAME]`, `lead join [CONDUCTOR]`, `lead leave`, `lane [NAME]`, `lane off`, `conductor [NAME]`,
   `conductor add|remove`, `manager [NAME]`, and `off` to drop whatever the session holds.
-- **Settings:** `config [SETTING VALUE]`, `reserve [remove] [NAME]`, `checkin pause|on`, `escalation [off]`, `rest`
+- **Settings:** `config [SETTING VALUE]`, `reserve [remove] [NAME]`, `checkin pause Nm|Nh`, `checkin on`, `escalation [off]`, `rest`
   (or `/rest`), `go [TEXT]`, `go off`.
 
 Anything that widens what a session may do (a role, a name, a setting, a reserved name, a go) needs your own prompt
 or phone: from a plugin, another session or a script it is refused, or asks you first. `off`, `rest`,
-`escalation off` and the prints take any origin; `off` from another origin asks you first; `go` is your own prompt only.
+`escalation off` and the prints take any origin; `off` from another origin asks you first; `go` and `go off` are your own prompt or phone only, with no
+ask-first path.
 
 `/callboard config` shows the settings with their defaults: keepalive, ping and stop times, the two compaction
 levels, check-ins, whether conductors may open leads, and escalation. `config reset` restores the defaults.
@@ -228,6 +231,8 @@ Other symptoms:
   while the protected-paths hook and its `.protected-checkout` markers are in place (`docs/setup.md`). Without them,
   or after `/callboard escalation off`, every prompt stays yours. Typing `/callboard escalation` yourself pins it on
   with no guard, and the status then reads `ON`.
+- **To stop prompt answering at once**, `touch ~/.claude/callboard/prompts/OFF` (`docs/setup.md`, ADR 0004); remove
+  the file to allow it again.
 - **A stopped lane's tab stays.** Check the extension is linked and VS Code was started after the link.
 - **A lane whose lead is gone** (ended, or turned off) shows under `NAME (not live)` in the manager's `lane_list`;
   the manager can clear it with `lane_retire` or `lane_terminate`.
