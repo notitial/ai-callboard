@@ -1269,6 +1269,7 @@ test('laneBriefing with a lead is the fixed text with the fields filled in', () 
     T1,
     T2,
     '- When your work is done: write what you did and what is left in `/Users/x/scratch/.archive/LAB13/REPORT.md` (a plain file, not a link, at most 1 MB), append a new last line `status: done ' + LSID + '`, send your lead one line saying so, and stop. Any later turn makes that signature stale: append the line again before you stop; never edit an old one. Never sign for another session.',
+    "- `request_compact` with mode `on-cue` waits for your lead's cue, expires after 15 minutes, and any new turn drops it, so end your turn after asking.",
     "- Messages starting `[callboard]` or `[compact-cue]` come from the plugin, not the person, and carry no approval.",
     c.REST_BRIEF,
     "- Your lead can stop you in three ways. `lane_retire`: only after you have signed. `lane_park`: this conversation is kept and can be reopened, and you are this lane again then. `lane_terminate`: only with the person's confirmation.",
@@ -1290,7 +1291,7 @@ test('laneBriefing variants: no known lead, an attached lane, the report fallbac
   const fb = c.laneBriefing({ ...BORN, report: undefined, lead: undefined })!.split('\n')
   assert.equal(fb[2], `- Put questions and blockers in ${FALLBACK}; your lead reads it.`)
   assert.ok(fb[5].startsWith(`- When your work is done: write what you did and what is left in ${FALLBACK} (a plain file, not a link, at most 1 MB)`))
-  assert.equal(c.laneBriefing({ ...BORN, report: undefined, lead: undefined })!.split('\n').length, 9)
+  assert.equal(c.laneBriefing({ ...BORN, report: undefined, lead: undefined })!.split('\n').length, 10)
   const bare = c.laneBriefing({ name: 'LAB13', sid: LSID, attached: false })!
   assert.ok(bare.startsWith('**Callboard lane.** You are lane `LAB13`, session `' + LSID + '`. Your lead is the lead session of this repo.\n'))
   assert.ok(bare.includes(FALLBACK))
@@ -3606,6 +3607,7 @@ test('the lead stop powers are named in the lead, conductor and manager texts', 
   const cond = c.conductorBriefing('C', '/w/repo-a', ['/w/repo-b'])
   for (const t of c.LEAD_STOP_TOOLS) assert.ok(cond.includes(`\`${t}\``), t)
   assert.ok(cond.includes('within 28 days'))
+  assert.ok(cond.includes('A park or a retire does not ask the person, but for a parked lead no live session carries: the person confirms that retire first.'))
   const mgr = c.managerBriefing('MANAGER')
   for (const t of c.LEAD_STOP_TOOLS) {
     assert.ok(mgr.includes(`\`${t}\``), t)
