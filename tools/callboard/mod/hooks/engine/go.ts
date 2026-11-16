@@ -109,7 +109,7 @@ async function goAsk($: any, sid: string, question: string): Promise<'yes' | 'no
 }
 
 type Given = { go: g.Go; ends: string } | { no: string; why?: string }
-// One go, from the checks to the file: the session is a lead; the text passes; the guard holds; the lanes the dialog lists are the ones the lane tools resolve
+// One go, from the checks to the file: the session is a lead; the text passes; the guard holds; the lanes the dialog counts are the ones the lane tools resolve
 // as this lead's now, by the session id each record carries; the person clicks Give go; the session is still the same lead; then the `go-grant` row with the
 // hash of the file's bytes, then the file (created only if absent). A file that cannot be written gets a `go-end` row (void), so the row never stands alone.
 // capped: a go_request call, counted against the hourly cap once it reaches the dialog.
@@ -140,7 +140,7 @@ async function goGive($: any, sid: string, text: unknown, hours: number, author:
     goAsked.set(sid, c.pushRecent(times, opened))
   }
   const ends = opened + hours * c.HOUR_MS
-  const asked = await goAsk($, sid, g.goQuestion({ name: base.g.name, covered: covered.map((x) => x.name), ends: when(ends), text: text as string, author }))
+  const asked = await goAsk($, sid, g.goQuestion({ name: base.g.name, lanes: covered.length, ends: when(ends), text: text as string, author }))
   if (asked === 'busy') return { no: 'busy' }
   if (asked === 'timed-out') return { no: 'timed-out' }
   if (asked !== 'yes') return { no: 'cancelled' }
@@ -270,7 +270,8 @@ export async function goCommand($: any, sid: string, code: c.OriginCode, op: g.G
   }
   if (op === 'list') {
     const found = await goesLive($)
-    if ('no' in found) return { text: found.no === 'guard' ? `No go counts while the protected-paths guard is missing: ${found.why}.` : 'The go records could not be read.' }
+    // The never-list is printed whatever the records say: the dialog points the person here for it.
+    if ('no' in found) return { text: `${found.no === 'guard' ? `No go counts while the protected-paths guard is missing: ${found.why}.` : 'The go records could not be read.'}\n\n${g.GO_NEVER_LINE}` }
     return { text: g.goListText(found.map((f) => f.go), when) }
   }
   if ('off' in op) {
@@ -304,7 +305,7 @@ export const goWatchOn = (sid: string): boolean => grantOf(sid)?.level === 'lead
 export function goWatchDue(sid: string, now: number): boolean {
   return goWatchOn(sid) && c.dueEvery(goWatch.get(sid)?.at, now, GO_WATCH_MS)
 }
-// The `go-read` rows of this lead's live goes: a session the dialog did not list (code later), read since the watch began and not yet told, gets one toast.
+// The `go-read` rows of this lead's live goes: a lane the lead did not have at the click (code later), read since the watch began and not yet told, gets one toast.
 export async function goWatchTick($: any, sid: string): Promise<void> {
   const now = await $.clock.now()
   const w = watchOf(sid, now)

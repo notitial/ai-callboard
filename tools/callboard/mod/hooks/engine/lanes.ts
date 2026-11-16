@@ -261,7 +261,7 @@ async function leadTools($: any, sid: string) {
   await $.tool.register({
     name: 'go_request',
     description:
-      "Ask the person for one go that counts in your lanes (ADR 0009). It only opens the person's dialog in this session: text says what the work is (1 to 1500 bytes of plain text; the person reads it, and the lanes read it back from go_status). The dialog lists your lanes, the end (24 hours) and what a go never covers. The result says whether the go was given. Main agent of a lead only; at most 6 dialogs an hour. Call it when lane_create or lane_start says no go covers a lane that has risk-list work.",
+      "Ask the person for one go that counts in your lanes (ADR 0009). It only opens the person's dialog in this session: text says what the work is (1 to 300 bytes of plain text on at most 3 lines, none empty, with the detail in the brief or the plan; the person reads it, and the lanes read it back from go_status). The dialog shows how many of your lanes have a session now, the end (24 hours) and the short list of what a go never covers. The result says whether the go was given. Main agent of a lead only; at most 6 dialogs an hour. Call it when lane_create or lane_start says no go covers a lane that has risk-list work.",
     inputSchema: { type: 'object', properties: { text }, required: ['text'] },
   })
   // ADR 0004 (prompt answering): the three tools of every tier.
