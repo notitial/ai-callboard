@@ -311,7 +311,7 @@ async function windowHash($: any, text: string): Promise<string | undefined> {
   return hash
 }
 
-// Whether escalation is surely off (pr.escalationSureOf): the stored switch and the OFF file, each read once. escalationNow and its callers are not touched by this.
+// Whether escalation is surely off (pr.escalationSureOf): the stored switch and the OFF file, each read once.
 export async function escalationSure($: any): Promise<pr.EscalationSure> {
   const stored = await storeRead($, ANSWERING_KEY)
   let offFile: 'absent' | 'file' | 'other' | 'error' = 'error'
@@ -325,7 +325,8 @@ export async function escalationSure($: any): Promise<pr.EscalationSure> {
 
 // Ends a window: the stored value is removed, then the `unattended-off` row is written with how it ended, the origin of a command that ended it and this
 // session. `only`: the canonical text a reader judged; a stored value that is another one by now is left alone. 'none': nothing was stored (or, with `only`,
-// another value was). 'store-failed': the store did not answer or would not remove the value; nothing was written. This process then knows the window is off.
+// another value was). 'store-failed': the store did not answer or would not remove the value; nothing was written. A removal that did not answer is read
+// again: a value that is gone by then was removed, and gets its row. After 'closed' this process knows the window is off.
 export type WindowClosed = 'closed' | 'none' | 'store-failed'
 export async function unattendedClose($: any, how: { code: string; origin?: c.OriginCode; only?: string }): Promise<WindowClosed> {
   const got = await storeRead($, UNATTENDED_KEY)
@@ -335,7 +336,10 @@ export async function unattendedClose($: any, how: { code: string; origin?: c.Or
   const text = value ? pr.canonical(value) : undefined
   if (how.only !== undefined && text !== how.only) return 'none'
   const hash = text === undefined ? undefined : await windowHash($, text)
-  if (!(await storeDo($, () => $.store.delete(UNATTENDED_KEY)))) return 'store-failed'
+  if (!(await storeDo($, () => $.store.delete(UNATTENDED_KEY)))) {
+    const after = await storeRead($, UNATTENDED_KEY)
+    if (!after.read || (after.raw !== undefined && after.raw !== null)) return 'store-failed'
+  }
   mem.unattended = undefined
   mem.unattendedSure = 'off'
   mem.unattendedUnknown = false
@@ -346,8 +350,8 @@ export async function unattendedClose($: any, how: { code: string; origin?: c.Or
   return 'closed'
 }
 
-// One read of the window from the store and, for a value this process has not yet found bound, the ledger. A value that was read and is over is off whether or
-// not it could be removed: the next reader tries again.
+// One read of the window from the store and the ledger. A ledger that does not answer keeps a value this process has already found bound, and is `unknown` for
+// any other. A value that was read and is over is off whether or not it could be removed: the next reader tries again.
 async function windowRead($: any, now: number): Promise<pr.Window> {
   const got = await storeRead($, UNATTENDED_KEY)
   if (!got.read) return windowUnknown('store', false)
@@ -367,10 +371,11 @@ async function windowRead($: any, now: number): Promise<pr.Window> {
   if (time === 'early') return windowUnknown('clock', true)
   const hash = await windowHash($, text)
   if (hash === undefined) return windowUnknown('hash', true)
-  if (mem.unattendedBound !== hash) {
-    const p = await where($)
-    const rows = p ? await ledgerRowsFor($, p, `"hash":"${hash}"`) : 'unreadable'
-    if (rows === 'unreadable') return windowUnknown('ledger', true)
+  const p = await where($)
+  const rows = p ? await ledgerRowsFor($, p, `"hash":"${hash}"`) : 'unreadable'
+  if (rows === 'unreadable') {
+    if (mem.unattendedBound !== hash) return windowUnknown('ledger', true)
+  } else {
     const bind = pr.unattendedBind(rows, hash, value, now)
     if (bind === 'ended' || bind === 'unbound') return over(bind)
     if (bind === 'wait') return windowUnknown('unbound', true)
@@ -387,7 +392,8 @@ export async function unattendedNow($: any): Promise<pr.Window> {
   try {
     const now = await $.clock.now()
     const kept = mem.unattended
-    if (kept && now >= kept.at && now - kept.at < UNATTENDED_TTL_MS) return kept.w
+    // A kept `on` is not served past its window's end.
+    if (kept && now >= kept.at && now - kept.at < UNATTENDED_TTL_MS && !(kept.w.state === 'on' && now >= kept.w.value.until)) return kept.w
     w = await windowRead($, now)
     mem.unattended = { at: now, w }
   } catch {
@@ -414,9 +420,10 @@ export async function unattendedOn($: any): Promise<boolean> {
 
 // A tier's look from its tick, at most every UNATTENDED_LOOK_MS: one read of the window (which ends one that is over) and, only while a stored value is there,
 // the sure offs of escalation, which end it.
+export const unattendedLookDue = (now: number): boolean => Number.isFinite(now) && c.dueEvery(mem.unattendedLookedAt, now, UNATTENDED_LOOK_MS)
 export async function unattendedTick($: any): Promise<void> {
   const now = await $.clock.now()
-  if (!c.dueEvery(mem.unattendedLookedAt, now, UNATTENDED_LOOK_MS)) return
+  if (!unattendedLookDue(now)) return
   mem.unattendedLookedAt = now
   const w = await unattendedNow($)
   if (w.state === 'off' || (w.state === 'unknown' && !w.key)) return
@@ -425,8 +432,7 @@ export async function unattendedTick($: any): Promise<void> {
 }
 
 // Opens a window for a value whose time fits now: the `unattended-on` row first, then the stored value, so a value never stands without its row. A value that
-// could not be stored gets an `unattended-off` row (void): should the write have landed after all, that row ends it at the next read. No command or tool calls
-// this.
+// could not be stored gets an `unattended-off` row (void): should the write have landed after all, that row ends it at the next read.
 export async function unattendedOpen($: any, raw: unknown): Promise<{ ok: true; u: string } | { ok: false; why: 'value' | 'hash' | 'ledger' | 'store' }> {
   const value = pr.parseUnattended(raw)
   if (!value || pr.unattendedTime(value, await $.clock.now()) !== 'fits') return { ok: false, why: 'value' }

@@ -424,7 +424,7 @@ export type RowKind = (typeof ROW_KINDS)[number]
 // opt, lh (a question's `answer` rows, code 'answer'): the chosen option's index as a string, and the first 16 hex of SHA-256(id + "\n" + label); no label text. Strings, since the audit drops a row with another type.
 // The unattended window's rows (ADR 0008). `unattended-on`, written before the stored value: hash the SHA-256 of the value's canonical text, u the window's short
 // id (the hash's first 8 hex), end the window's end as an ISO time, origin the origin code of the command that opened it, by its session, lane the manager's name.
-// `unattended-off`, written after the stored value is removed: code how it ended (command | manager | escalation-off | escalation-off:stored | escalation-off:file |
+// `unattended-off`, written after the stored value is removed: code how it ended (command | escalation-off | escalation-off:stored | escalation-off:file |
 // expired | invalid | unbound | ended | void), hash and u the window's when its value was read, origin the origin code of a command that ended it, by the session
 // that ended it. `unattended-unknown`: the first read of an episode that did not answer, code the cause, by the reading session.
 export type LedgerRow = { t: string; kind: RowKind; code?: string; id?: string; lane?: string; repo?: string; tool?: string; pattern?: string; hash?: string; tier?: string; why?: string; nonce?: string; cap?: CapKind; target?: string; by?: string; tuid?: string; via?: 'person'; short?: string; opt?: string; lh?: string; was?: string; dialog?: 'yes' | 'none'; end?: string; raised?: string; u?: string; origin?: string }
@@ -682,7 +682,7 @@ export function parseUnattendedArgs(rest: string | undefined): UnattendedOp {
 export const UNATTENDED_NOT_PERSON = 'Only you can read the unattended state: type /callboard unattended yourself. /callboard unattended off works from any session.'
 export const UNATTENDED_ENDED = 'Unattended mode is off on this Mac.'
 export const UNATTENDED_NOT_ON = 'Unattended mode is not on.'
-export const UNATTENDED_OFF_FAILED = 'Unattended mode could not be ended: the store did not answer. Try again. To stop every tier answering prompts now, create ~/.claude/callboard/prompts/OFF.'
+export const UNATTENDED_OFF_FAILED = 'Unattended mode could not be checked or ended: the store did not answer. Try again. To stop every tier answering prompts now, create ~/.claude/callboard/prompts/OFF.'
 
 // Whether escalation is surely off, from one read of the stored switch and one stat of the OFF file. Only the person's own off counts: a stored `{ off: true }`,
 // or an OFF path whose stat succeeded and shows a file. A read that failed, a stored value that is neither a switch nor that off, and an OFF path of another kind

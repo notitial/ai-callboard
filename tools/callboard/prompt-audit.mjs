@@ -44,7 +44,7 @@
 //   dialog, not-judgeable, no-tier, escalated, answering-on, answering-off   no request of their own
 //   unattended-on   hash (the SHA-256 of the stored value's canonical text), u (the window's short id: the hash's first 8 hex), end (when it ends), origin (the
 //              origin code of the command that opened it), by (its session), lane (the manager's name)   an unattended window opened (ADR 0008); written before the stored value
-//   unattended-off  code (command | manager | escalation-off | escalation-off:stored | escalation-off:file | expired | invalid | unbound | ended | void), hash?, u?,
+//   unattended-off  code (command | escalation-off | escalation-off:stored | escalation-off:file | expired | invalid | unbound | ended | void), hash?, u?,
 //              origin? (the origin code of a command that ended it), by (the session that ended it)   a window ended; written after the stored value was removed
 //   unattended-unknown   code (the cause), by   the first read of a run of reads that could not tell whether a window is open; it ended nothing
 //              The unattended rows are counted by kind only: no rule reads them.

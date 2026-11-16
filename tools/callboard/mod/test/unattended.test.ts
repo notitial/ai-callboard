@@ -29,7 +29,7 @@ const ON_ROW = (v: prm.Unattended) => `| Unattended | ON until ${when(v.until)} 
 
 // The direct calls: a handle over the harness's own mocks, as a call from the mod's hooks makes them, with knobs on the store and on the engine call limit.
 // The engine files a test imports are one module for the whole file, so each such test starts from the memory of a new process.
-type Knob = { get?: 'throw' | 'hang'; set?: 'throw'; del?: 'throw'; timesOut: boolean; rowsAtSet: string[][] }
+type Knob = { get?: 'throw' | 'hang'; set?: 'throw'; del?: 'throw' | 'lands'; timesOut: boolean; rowsAtSet: string[][] }
 async function proc($: any, on0: any) {
   const handlers = new Map<string, any>()
   const on = (name: string, handler: any) => {
@@ -53,7 +53,9 @@ async function proc($: any, on0: any) {
       },
       delete: async (key: string) => {
         if (knob.del === 'throw') throw new Error('store')
-        return call('store.delete', { key })
+        const r = await call('store.delete', { key })
+        if (knob.del === 'lands') throw new Error('store')
+        return r
       },
     },
     session: { id: async () => SID },
@@ -133,11 +135,11 @@ test('unattended: a stored value with no row opens nothing, is left alone for 60
   expect(await unattendedNow($$)).toEqual({ state: 'unknown', cause: 'unbound', key: true })
   expect(await unattendedOn($$)).toBe(false)
   expect(await unattendedHeld($$)).toBe(false)
-  later(59_000)
+  later(50_000)
   expect((await unattendedNow($$)).state).toBe('unknown')
   expect(h.store.get(UNATTENDED_KEY)).toEqual(v)
   expect(uKinds()).toEqual(['unattended-unknown unbound'])
-  later(2000)
+  later(11_000)
   expect(await unattendedNow($$)).toEqual({ state: 'off' })
   expect(h.store.has(UNATTENDED_KEY)).toBe(false)
   expect(uKinds()).toEqual(['unattended-unknown unbound', 'unattended-off unbound'])
@@ -291,7 +293,39 @@ test('unattended: the read is kept 10 s, so a value stored meanwhile is seen at 
   expect((await unattendedNow($$)).state).toBe('on')
 })
 
+test('unattended: an off row written by another process ends a window this one had read on, at its next read', async ($, on) => {
+  const { $$ } = await proc($, on)
+  const v = putWindow()
+  expect((await unattendedNow($$)).state).toBe('on')
+  putLedger([{ t: iso(T0 + 1000), kind: 'unattended-off', code: 'void', hash: hashOf(v), u: shortOf(v) }])
+  later(11_000)
+  expect(await unattendedNow($$)).toEqual({ state: 'off' })
+  expect(h.store.has(UNATTENDED_KEY)).toBe(false)
+  expect(uKinds()).toEqual(['unattended-on', 'unattended-off void', 'unattended-off ended'])
+})
+
+test('unattended: a removal that failed to answer but landed still gets its off row', async ($, on) => {
+  const { $$, knob } = await proc($, on)
+  const v = putWindow()
+  knob.del = 'lands'
+  expect(await unattendedClose($$, { code: 'command', origin: 'prompt' })).toBe('closed')
+  expect(h.store.has(UNATTENDED_KEY)).toBe(false)
+  expect(uRows()[1]).toMatchObject({ kind: 'unattended-off', code: 'command', hash: hashOf(v), origin: 'prompt', by: SID })
+})
+
+test('unattended: a kept on read is not served past the window\'s end', async ($, on) => {
+  const { $$ } = await proc($, on)
+  const v = putWindow(win({ until: T0 + 31 * MIN }))
+  h.nowMs = v.until - 5000
+  expect((await unattendedNow($$)).state).toBe('on')
+  h.nowMs = v.until
+  expect(await unattendedOn($$)).toBe(false)
+  expect(await unattendedNow($$)).toEqual({ state: 'off' })
+  expect(uKinds()).toEqual(['unattended-on', 'unattended-off expired'])
+})
+
 // ---- through the engine: a tier's tick, the commands and the status row ----
+// The markers are seeded once the session start has read where the mod loads from.
 const guardOn = async () => {
   await waitFor(() => h.liveHeadAsked !== undefined)
   wireGuard()

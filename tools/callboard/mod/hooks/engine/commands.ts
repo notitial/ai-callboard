@@ -853,7 +853,9 @@ async function escalationCommand($: any, sid: string, code: c.OriginCode, op: pr
       await $.store.set(ANSWERING_KEY, { off: true, savedAt: await $.clock.now() })
     } catch {
       await logq($, sid, 'error', 'escalation-store')
-      return { text: 'Escalation could not be changed: the store did not answer. Create ~/.claude/callboard/prompts/OFF to stop it now.' }
+      // The command is an off for an unattended window whether or not its own write landed.
+      const ended = await unattendedClose($, { code: 'escalation-off', origin: code }).catch(() => 'store-failed' as const)
+      return { text: `Escalation could not be changed: the store did not answer. Create ~/.claude/callboard/prompts/OFF to stop it now.${ended === 'closed' ? ` ${pr.UNATTENDED_ENDED}` : ''}` }
     }
     if (!(await ledgerAdd($, { kind: 'answering-off', code: 'off' }))) await logq($, sid, 'error', 'escalation-ledger')
     // An unattended window needs escalation: this off ends it.
