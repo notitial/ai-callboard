@@ -327,7 +327,7 @@ export async function sessionStart($: any, e: any, next: any) {
   await prToolRegister($).catch(async () => logq($, await $.session.id(), 'error', 'pr-tool-register'))
   const me = await $.session.id()
   try {
-    await $.command.register({ name: 'callboard', description: 'Give lead, make this session a lane, list the lanes, show status, show or change the settings, or turn lead and lane off for this session', argumentHint: 'help|lanes|status|lead|lead join [CONDUCTOR]|lead leave|lane [NAME]|escalation [off]|go [TEXT]|go off|off' })
+    await $.command.register({ name: 'callboard', description: 'Give lead, make this session a lane, list the lanes, show status, show or change the settings, or turn lead and lane off for this session', argumentHint: c.argumentHint() })
   } catch {
     await log($, me, 'error', 'command-register')
   }

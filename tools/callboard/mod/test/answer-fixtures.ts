@@ -201,7 +201,7 @@ export const HOOK_LINK = '/Users/x/.claude/hooks/protected-paths-guard.sh'
 // The checkout the mod loads from, as the session start's HEAD read named it (the mod folder is <checkout>/tools/callboard/mod); after `started`.
 export const checkoutOf = (): string => h.liveHeadAsked!.path.slice(0, -'/.git/HEAD'.length)
 export function wireGuard(without?: 'settings' | 'hook-entry' | 'callboard' | 'toolkit' | 'checkout') {
-  const entry = { hooks: { PreToolUse: [{ matcher: 'Edit|Write|MultiEdit|Bash', hooks: [{ type: 'command', command: HOOK_LINK }] }] } }
+  const entry = { hooks: { PreToolUse: [{ matcher: 'Edit|Write|MultiEdit|Bash', hooks: [{ type: 'command', command: '/bin/bash -p "$HOME/.claude/hooks/protected-paths-guard.sh" || exit 2' }] }] } }
   if (without !== 'settings') pfs.set(SETTINGS_FILE, { text: JSON.stringify(without === 'hook-entry' ? { hooks: { PreToolUse: [{ hooks: [{ type: 'command', command: '/x/other.sh' }] }] } } : entry), mtimeSec: T0 / 1000 })
   realMap.set(HOOK_LINK, `${TOOLKIT}/hooks/protected-paths-guard.sh`)
   const dirs = { callboard: ROOT, toolkit: TOOLKIT, checkout: checkoutOf() }
