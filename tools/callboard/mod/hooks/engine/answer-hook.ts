@@ -344,6 +344,7 @@ export async function unattendedClose($: any, how: { code: string; origin?: c.Or
   mem.unattendedSure = 'off'
   mem.unattendedUnknown = false
   mem.unattendedBound = undefined
+  mem.unattendedCloses++
   const sid = await ownSid($)
   const row: Omit<pr.LedgerRow, 't'> = { kind: 'unattended-off', code: how.code, ...(hash !== undefined ? { hash, u: pr.windowShort(hash) } : {}), ...(how.origin !== undefined ? { origin: how.origin } : {}), ...(sid !== undefined ? { by: sid } : {}) }
   if (!(await ledgerAdd($, row)) && sid !== undefined) await logq($, sid, 'error', 'unattended-ledger')
@@ -394,7 +395,13 @@ export async function unattendedNow($: any): Promise<pr.Window> {
     const kept = mem.unattended
     // A kept `on` is not served past its window's end.
     if (kept && now >= kept.at && now - kept.at < UNATTENDED_TTL_MS && !(kept.w.state === 'on' && now >= kept.w.value.until)) return kept.w
+    const closes = mem.unattendedCloses
     w = await windowRead($, now)
+    // A window ended in this process while the read was under way: what the read found is older than that end, so it is not kept and the answer is off.
+    if (mem.unattendedCloses !== closes) {
+      mem.unattendedBound = undefined
+      return { state: 'off' }
+    }
     mem.unattended = { at: now, w }
   } catch {
     w = windowUnknown('error', false)

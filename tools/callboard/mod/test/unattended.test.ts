@@ -29,7 +29,7 @@ const ON_ROW = (v: prm.Unattended) => `| Unattended | ON until ${when(v.until)} 
 
 // The direct calls: a handle over the harness's own mocks, as a call from the mod's hooks makes them, with knobs on the store and on the engine call limit.
 // The engine files a test imports are one module for the whole file, so each such test starts from the memory of a new process.
-type Knob = { get?: 'throw' | 'hang'; set?: 'throw'; del?: 'throw' | 'lands'; timesOut: boolean; rowsAtSet: string[][] }
+type Knob = { get?: 'throw' | 'hang'; set?: 'throw'; del?: 'throw' | 'lands'; timesOut: boolean; rowsAtSet: string[][]; afterGrep?: () => Promise<unknown> }
 async function proc($: any, on0: any) {
   const handlers = new Map<string, any>()
   const on = (name: string, handler: any) => {
@@ -39,7 +39,16 @@ async function proc($: any, on0: any) {
   const call = async (name: string, e: unknown) => (await handlers.get(name)(undefined, e, undefined))?.value
   const knob: Knob = { timesOut: false, rowsAtSet: [] }
   const $$ = {
-    process: { run: (argv: string[], init: unknown) => call('process.run', { argv, init }) },
+    process: {
+      run: async (argv: string[], init: unknown) => {
+        const r = await call('process.run', { argv, init })
+        if (argv[0] !== '/usr/bin/grep' || !knob.afterGrep) return r
+        const after = knob.afterGrep
+        knob.afterGrep = undefined
+        await after()
+        return r
+      },
+    },
     store: {
       get: async (key: string) => {
         if (knob.get === 'throw') throw new Error('store')
@@ -302,6 +311,20 @@ test('unattended: an off row written by another process ends a window this one h
   expect(await unattendedNow($$)).toEqual({ state: 'off' })
   expect(h.store.has(UNATTENDED_KEY)).toBe(false)
   expect(uKinds()).toEqual(['unattended-on', 'unattended-off void', 'unattended-off ended'])
+})
+
+test('unattended: a read under way while the window is ended in the same process does not bring it back', async ($, on) => {
+  const { $$, knob } = await proc($, on)
+  putWindow()
+  // The read has its ledger rows, with no off row yet, when the off command ends the window.
+  knob.afterGrep = async () => expect(await unattendedClose($$, { code: 'command', origin: 'prompt' })).toBe('closed')
+  expect(await unattendedNow($$)).toEqual({ state: 'off' })
+  expect(await unattendedOn($$)).toBe(false)
+  expect(await unattendedHeld($$)).toBe(false)
+  knob.get = 'throw'
+  later()
+  expect(await unattendedHeld($$)).toBe(false)
+  expect(uKinds()).toEqual(['unattended-on', 'unattended-off command'])
 })
 
 test('unattended: a removal that failed to answer but landed still gets its off row', async ($, on) => {

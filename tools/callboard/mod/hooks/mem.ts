@@ -37,13 +37,15 @@ export const mem = {
   defaultSyncing: undefined as Promise<boolean> | undefined,
   // The unattended window (engine/answer-hook.ts). unattended: the last read, kept for its TTL. unattendedSure: the last state a read was sure of. unattendedUnknown:
   // the run of unknown reads now under way has its ledger row. unattendedBound: the hash this process found bound in the ledger. unattendedHash: the last value
-  // hashed, by its canonical text. unattendedLookedAt: when the tick last looked.
+  // hashed, by its canonical text. unattendedLookedAt: when the tick last looked. unattendedCloses: how many windows this process has ended, so a read under way
+  // across an end is not kept.
   unattended: undefined as { at: number; w: pr.Window } | undefined,
   unattendedSure: undefined as 'on' | 'off' | undefined,
   unattendedUnknown: false,
   unattendedBound: undefined as string | undefined,
   unattendedHash: undefined as { text: string; hash: string } | undefined,
   unattendedLookedAt: undefined as number | undefined,
+  unattendedCloses: 0,
   // When the usage files were last swept (usage.ts).
   usageSweptAt: undefined as number | undefined,
   // When this session's tick last swept the presence folder (grants.ts presencePrune).
