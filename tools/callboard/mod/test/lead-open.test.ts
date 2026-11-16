@@ -163,7 +163,9 @@ longTest('lead_open counts `made` and `joined` leads of the conductor, and not t
   putLeadRecs([{ name: 'LEAD-A', conductorSid: SID }, { name: 'LEAD-B', conductorSid: SID }, { name: 'LEAD-C', conductorSid: SID }, { name: 'LEAD-F', conductorSid: SID }])
   h.openResult = undefined
   const r = await open($, undefined, { name: 'LEAD-M' })
-  expect(r).toContain('lead-cap: you already own 4 leads')
+  // The first open's offer has no grant in this test, so it still holds a slot beside the four records.
+  expect(r).toContain('lead-cap: you already own 5 leads')
+  expect(r).toContain('LEAD-A, LEAD-B, LEAD-C, LEAD-F, LEAD-N (still opening)')
   expect(r).not.toContain('LEAD-D')
 })
 
