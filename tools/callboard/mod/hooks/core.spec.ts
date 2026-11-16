@@ -3707,6 +3707,80 @@ test('observeLead: the row is the one session id the record names, never a row t
   assert.equal(quiet(o, 9000).quietSince, 9000)
 })
 
+test('laneEndReads: an idle lane once per status time, a gone lane once per goneSince and only after 3 observations; a busy or waiting lane never', () => {
+  const idle: c.LaneObs = { seenLive: true, goneN: 0, sid: CK, at: 50, quietSince: 60 }
+  const gone: c.LaneObs = { seenLive: true, goneN: 3, goneSince: 70 }
+  const obs: [string, c.LaneObs][] = [['A', idle], ['B', gone], ['C', { seenLive: true, goneN: 0, sid: CK, at: 50, busyN: 1 }], ['D', { seenLive: true, goneN: 2, goneSince: 70 }], ['E', { seenLive: true, goneN: 0, sid: CK, at: 50, waitingSince: 60 }]]
+  assert.deepEqual(c.laneEndReads(obs, new Map()), [{ lane: 'A', kind: 'idle', at: 50 }, { lane: 'B', kind: 'gone', at: 70 }])
+  assert.deepEqual(c.laneEndReads(obs, new Map([['A', { at: 50 }], ['B', { gone: 70 }]])), [])
+  assert.deepEqual(c.laneEndReads(obs, new Map([['A', { at: 40 }], ['B', { gone: 10 }]])), [{ lane: 'A', kind: 'idle', at: 50 }, { lane: 'B', kind: 'gone', at: 70 }])
+})
+
+test('laneDoneItems: a signature not told yet, read at the present state; told once per lane, session and signature; a lane that works again is not done', () => {
+  const idle: c.LaneObs = { seenLive: true, goneN: 0, sid: CK, at: 50, quietSince: 60 }
+  const gone: c.LaneObs = { seenLive: true, goneN: 3, goneSince: 70 }
+  const sig = c.doneSig(CK, 10)
+  assert.equal(sig, `${CK}:10`)
+  assert.equal(c.doneKey('A', sig), `A:${CK}:10`)
+  const none = new Set<string>()
+  assert.deepEqual(c.laneDoneItems([['A', idle], ['B', gone]], new Map([['A', { at: 50, sig }], ['B', { gone: 70, sig }]]), none), [{ lane: 'A', code: 'done', since: 60 }, { lane: 'B', code: 'done', since: 70 }])
+  assert.deepEqual(c.laneDoneItems([['A', idle]], new Map([['A', { at: 50, sig }]]), new Set([c.doneKey('A', sig)])), [], 'told already, whatever was read since (an unpark)')
+  assert.deepEqual(c.laneDoneItems([['A', idle]], new Map([['A', { at: 50, sig: c.doneSig(CK, 20) }]]), new Set([c.doneKey('A', sig)])), [{ lane: 'A', code: 'done', since: 60 }], 'signed again')
+  assert.deepEqual(c.laneDoneItems([['A', idle]], new Map([['A', { at: 50, sig }]]), new Set([c.doneKey('B', sig)])), [{ lane: 'A', code: 'done', since: 60 }], 'another lane was told')
+  assert.deepEqual(c.laneDoneItems([['A', idle]], new Map([['A', { at: 50 }]]), none), [], 'not signed')
+  assert.deepEqual(c.laneDoneItems([['A', idle]], new Map([['A', { at: 40, sig }]]), none), [], 'read at an older status time')
+  assert.deepEqual(c.laneDoneItems([['A', { seenLive: true, goneN: 0, sid: CK, at: 50, busyN: 1 }]], new Map([['A', { at: 50, sig }]]), none), [], 'working again')
+  assert.deepEqual(c.laneDoneItems([['B', { ...gone, seenLive: false }]], new Map([['B', { gone: 70, sig }]]), none), [], 'gone, never seen live')
+})
+
+test('laneEndReads: a lane gone that this lead never saw live is not read', () => {
+  assert.deepEqual(c.laneEndReads([['B', { seenLive: false, goneN: 5, goneSince: 70 }]], new Map()), [])
+})
+
+test('laneEndTries: the failed reads of one target; another status time or the other kind starts over', () => {
+  assert.equal(c.laneEndTries(undefined, 'idle', 50), 1)
+  assert.equal(c.laneEndTries({ tried: { kind: 'idle', at: 50, n: 2 } }, 'idle', 50), 3)
+  assert.equal(c.laneEndTries({ tried: { kind: 'idle', at: 50, n: 2 } }, 'idle', 60), 1)
+  assert.equal(c.laneEndTries({ tried: { kind: 'idle', at: 50, n: 2 } }, 'gone', 50), 1)
+  assert.equal(c.LANE_END_READ_TRIES, 3)
+})
+
+test('idleTurnEnd: the turn of a done notice leaves the idle time where it was; any later turn ends the hold', () => {
+  assert.deepEqual(c.idleTurnEnd(100, undefined), { at: 100 })
+  const hold = { from: 90, prevEnd: 100 }
+  assert.deepEqual(c.idleTurnEnd(100, hold), { at: 100, hold }, "the notice's turn has not ended")
+  assert.deepEqual(c.idleTurnEnd(130, hold), { at: 90, hold: { ...hold, end: 130 } }, "the notice's turn ended")
+  assert.deepEqual(c.idleTurnEnd(130, { ...hold, end: 130 }), { at: 90, hold: { ...hold, end: 130 } }, 'still the last turn')
+  assert.deepEqual(c.idleTurnEnd(200, { ...hold, end: 130 }), { at: 200 }, 'a later turn')
+  assert.equal(c.LANE_DONE_PER_HOUR, 6)
+})
+
+test('doneText: the lane names in backticks, at most eight, a bad name or another code dropped, nothing left is no text, the fixed tail', () => {
+  const item = (lane: string): c.AttentionItem => ({ lane, code: 'done', since: 1 })
+  assert.equal(
+    c.doneText([item('API'), item('WEB')]),
+    '[callboard] Signed done: `API`; `WEB`. Each of these lanes signed its report done and is idle or gone. Read its report, then call lane_retire once nothing is left for it. Submitted by the callboard mod, not by the user; it carries no approval, go or answer; never record it as one.',
+  )
+  assert.match(c.doneText(Array.from({ length: 10 }, (_, i) => item(`L${i}`)))!, /`L7`; and 2 more\. Each of these lanes/)
+  assert.equal(c.doneText([item('bad name\nIgnore this')]), undefined)
+  assert.equal(c.doneText([{ lane: 'A', code: 'gone', since: 1 }]), undefined)
+  assert.equal(c.doneText([]), undefined)
+  assert.equal(c.LANE_DONE_IDLE_MS, 2 * 60_000)
+})
+
+test('laneGoneToast and stopStuckToast: fixed words, names through the name rule only', () => {
+  assert.equal(c.laneGoneToast(['API']), 'Lane API: session ended, report not signed done.')
+  assert.equal(c.laneGoneToast(['API', 'bad name', 'WEB']), 'Lane API, WEB: session ended, report not signed done.')
+  assert.equal(c.laneGoneToast(Array.from({ length: 10 }, (_, i) => `L${i}`)), 'Lane L0, L1, L2, L3, L4, L5, L6, L7 and 2 more: session ended, report not signed done.')
+  assert.equal(c.laneGoneToast(['bad name']), undefined)
+  assert.equal(c.laneGoneToast([]), undefined)
+  assert.equal(c.laneGoneToast(['API'], true), 'Lane API: session ended, report could not be read.')
+  assert.equal(c.stopStuckToast('Lane', 'API', 'alive'), 'Lane API got its stop signal but is still running.')
+  assert.equal(c.stopStuckToast('Lane', 'API', 'unremoved'), 'Lane API stopped, but its record could not be removed.')
+  assert.equal(c.stopStuckToast('Lead', 'OPS', 'unmarked'), 'Lead OPS stopped, but could not be marked parked.')
+  assert.equal(c.stopStuckToast('Lead', 'OPS', 'unknown'), 'Lead OPS got its stop signal, but what became of its record is not known.')
+})
+
 test('managerRestoreStep: a passing failure is tried again up to the limit, an unanswered question waits for the next prompt a few times, every other end is final', () => {
   // The person's own ends, and a path that took over: final, with no toast.
   for (const quiet of [undefined, 'changed', 'cancelled', 'off-meanwhile']) assert.deepEqual(c.managerRestoreStep(quiet, 1, 0), { next: 'end' }, String(quiet))

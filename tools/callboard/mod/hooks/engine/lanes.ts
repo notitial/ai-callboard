@@ -434,9 +434,10 @@ export async function reportStat($: any, l: c.Lane): Promise<{ no: string; gone?
 }
 
 // Inside the lane repo, and read with a bound.
-export async function readReport($: any, l: c.Lane): Promise<{ no: string } | { text: string; mtimeMs: number; size: number }> {
+// gone: there is no file at that path (reportStat), as against a read that failed.
+export async function readReport($: any, l: c.Lane): Promise<{ no: string; gone?: true } | { text: string; mtimeMs: number; size: number }> {
   const st = await reportStat($, l)
-  if ('no' in st) return { no: st.no }
+  if ('no' in st) return st.gone ? { no: st.no, gone: true } : { no: st.no }
   const real = (await run($, [REALPATH, '--', st.path])).stdout.trim()
   const realRepo = (await run($, [REALPATH, '--', l.repo!])).stdout.trim()
   if (!real || !realRepo || !c.within(realRepo, real)) return { no: 'report-path' }
@@ -1625,7 +1626,6 @@ export async function stopVerbCall($: any, e: any, next: any, verb: (typeof c.ST
         // Ask the VS Code window to close the dead tab (the body carries the folder, so the request needs no lane record, which is gone within a second): the extension's sweep acts only once that pid is dead and no live session carries the name. Best effort.
         const closeReq = await writeIn($, 'open', `${prep.lane.name}.close`, `${victim.sessionId}\n${victim.pid}\n${prep.lane.name}\n${prep.lane.folder}\n`).catch(() => ({ err: 'throw' }))
         await log($, sid, 'err' in closeReq ? 'error' : 'close-requested', 'err' in closeReq ? 'close-request' : prep.lane.name)
-        if (verb === 'retire') toast($, `Lane ${prep.lane.name} retired (idle, report signed)`)
         if (verb === 'park') {
           // After the signal: the mark, only while the record still names the stopped session. It is a label (lane_list, lane_open); lane_unpark needs only sid.
           const at = await $.clock.now()
@@ -1659,6 +1659,7 @@ export async function stopVerbCall($: any, e: any, next: any, verb: (typeof c.ST
           // that conversation by hand asks Restore again instead of making it the lane silently.
           outcome = 'alive'
           await logq($, sid, 'error', 'lane-still-running')
+          toast($, c.stopStuckToast('Lane', prep.lane.name, 'alive'))
           await sidClearAfterStop($, sid, key, prep.lane.name, victim.sessionId)
         } else {
           const gone = await removeRecord($, e, sid, key, prep.lane.name, { kind: 'stopped', victim: victim.sessionId })
@@ -1666,9 +1667,11 @@ export async function stopVerbCall($: any, e: any, next: any, verb: (typeof c.ST
           if ('no' in gone && gone.no !== 'unknown-lane') {
             outcome = { unremoved: gone.no }
             await logq($, sid, 'error', `lane-unremoved ${gone.no}`)
+            toast($, c.stopStuckToast('Lane', prep.lane.name, 'unremoved'))
             await sidClearAfterStop($, sid, key, prep.lane.name, victim.sessionId)
           } else {
             await log($, sid, 'lane-removed', prep.lane.name)
+            if (verb === 'retire') toast($, `Lane ${prep.lane.name} retired (idle, report signed)`)
           }
         }
         return { result: c.stoppedText(verb as 'retire' | 'terminate', prep.lane.name, victim.pid as number, outcome) }
@@ -1677,6 +1680,7 @@ export async function stopVerbCall($: any, e: any, next: any, verb: (typeof c.ST
         return await afterSignal()
       } catch {
         await logq($, sid, 'error', `after-signal-${verb}`)
+        toast($, c.stopStuckToast('Lane', prep.lane.name, 'unknown'))
         return { result: c.afterSignalFailedText(verb as 'retire' | 'park' | 'terminate', prep.lane.name, victim.pid as number) }
       } finally {
         signalledCalls.delete(callKey)

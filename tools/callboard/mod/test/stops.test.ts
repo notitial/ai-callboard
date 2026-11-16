@@ -913,6 +913,7 @@ test('a stop of a joined lane whose process is still running 10 seconds after th
   expect(stopText(await $.tool.call(leadCall('terminate', { lane: 'ATT' })))).toBe('lane ATT terminated: SIGTERM sent to process 4500, but the session was still running 10 seconds later, so its record stays. Call lane_terminate again if it does not end.')
   expect(recOf('ATT').sid).toBeUndefined()
   expect(logged(stdins)).not.toContain('lane-removed:ATT')
+  expect(toasts).toContain('Lane ATT got its stop signal but is still running.')
 })
 
 test('a stop whose record cannot be removed after the signal says so with the code; the record stays', async ($, on) => {
@@ -925,6 +926,7 @@ test('a stop whose record cannot be removed after the signal says so with the co
   expect(recOf('API').sid).toBe(NEWSID)
   expect(logged(stdins).some((x) => x.startsWith('error:lane-unremoved'))).toBe(true)
   expect(logged(stdins)).not.toContain('lane-removed:API')
+  expect(toasts).toContain('Lane API stopped, but its record could not be removed.')
 })
 
 test('a stop whose process is still running 10 seconds after the signal keeps the record and says so', async ($, on) => {
@@ -1106,6 +1108,7 @@ test('a wait that fails after the signal answers signalled with the record unkno
   expect(out).toBe('lane API: SIGTERM sent to process 4500, but the call failed afterwards, so what became of its record is not known. Call lane_list, then lane_terminate again if the lane is still listed.')
   expect(killed(argv).length).toBe(1)
   expect(logged(stdins)).toContain('error:after-signal-terminate')
+  expect(toasts).toContain('Lane API got its stop signal, but what became of its record is not known.')
 })
 
 test('a call that throws before any signal answers failed closed and logs the kind of the failure, never its text', async ($, on) => {
