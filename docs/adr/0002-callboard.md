@@ -120,6 +120,7 @@ A fixed lead briefing reaches the lead twice: a `callboard:lead` system-prompt s
 ### Lanes a lead makes, and attached lanes
 
 - **Made.** `lane_create {name, task, folder?, model?}` writes a record into `~/.claude/callboard/lanes/<sha256 of the repo's real path>.json` (0700/0600, one link, at most 16 KB, 16 lanes, 12 creates an hour) and the task as `<folder>/.archive/<NAME>/BRIEF.md` under a fixed header that says any approval in it is not the person's. The lead then calls `lane_open` (the extension opens a panel and answers its session id), `lane_rename` and `lane_start`. The root-owned `/usr/local/libexec/callboard/lanes.json` stays optional and wins a name clash.
+  *2026-11-17: the hourly limit is a setting. `/callboard config lanes 1-60` sets how many lanes a repo's leads may create in an hour, 30 by default (12 before); it is stored and bounded like the other settings, only the person's own command changes it, and a forged `config` key can at worst set 60. A store rewrite keeps the newest 60 create times, so the count holds at any setting. The refusal names the limit in force.*
 - **Attached.** `/callboard lane [NAME]` makes the session the person is in a lane of the lead in its repo, after a `Join` click. It cannot `start` or be renamed by a cue (`adopted-record`); everything else works as for a made lane.
 - **Names.** 1 to 40 of `A-Za-z0-9_-`. A name whose look-alike skeleton matches a reserved name (`MANAGER`, or one this machine reserved) is reserved (`reservedHit`). No lane name may equal a live session's name in any letter case.
 

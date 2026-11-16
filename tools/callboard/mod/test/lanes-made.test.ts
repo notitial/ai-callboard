@@ -1,8 +1,8 @@
 import { expect, test } from 'claude-code/testing'
-import { LANE_NO_LEAD } from '../hooks/core'
+import { LANE_NO_LEAD, createRateText } from '../hooks/core'
 import { goTail } from '../hooks/go'
 import { h, SID, T0, YES, briefFiles, extraStat, longTest, realMap, storeFiles, toasts, toolDefs, toolDesc } from './harness'
-import { OTHER, PIN, STOREFILE, callCreate, created, creator, cueSession, dirStat, grantAt, lane, leadCall, putLeadRecs, storeLaneNames } from './fixtures'
+import { OTHER, PIN, STOREFILE, callCreate, created, creator, cueSession, dirStat, grantAt, lane, leadCall, putLeadRecs, putStore, storeLaneNames } from './fixtures'
 
 longTest('lane_create writes a store lane in the user folder, and the lead can then cue it', async ($, on) => {
   await creator($, on)
@@ -239,18 +239,30 @@ test('lane_create refuses a grant folder that is too broad, not a git root, or m
   expect(storeLaneNames()).toEqual([])
 })
 
-longTest('lane_create stops at 16 lanes and at 12 creates in an hour', async ($, on) => {
+longTest('lane_create stops at the lanes-per-hour setting: 30 by default, else the stored value, and the refusal names it', async ($, on) => {
   await creator($, on)
-  for (let i = 0; i < 12; i++) {
-    const n = `L${i}`
+  const make = async (n: string) => {
     extraStat.set(`${PIN}/${n}`, dirStat)
-    expect(JSON.stringify(await callCreate($, created({ name: n, folder: `${PIN}/${n}` })))).toContain('created')
+    return JSON.stringify(await callCreate($, created({ name: n, folder: `${PIN}/${n}` })))
   }
-  extraStat.set(`${PIN}/M`, dirStat)
-  expect(JSON.stringify(await callCreate($, created({ name: 'M', folder: `${PIN}/M` })))).toContain('create-rate')
+  const creates = () => JSON.parse(storeFiles.get(STOREFILE)!).creates as number[]
+  putStore([], Array.from({ length: 29 }, () => h.nowMs - 1000))
+  expect(await make('L0')).toContain('created')
+  expect(creates().length).toBe(30)
+  expect(await make('L1')).toContain(`create-rate: ${createRateText(30)}`)
+  // A value the person stored holds for the next call, raised or lowered.
+  h.store.set('config', { lanesPerHour: 31, savedAt: h.nowMs })
+  expect(await make('L1')).toContain('created')
+  expect(await make('L2')).toContain(`create-rate: ${createRateText(31)}`)
+  h.store.set('config', { lanesPerHour: 12, savedAt: h.nowMs })
+  expect(await make('L2')).toContain(`create-rate: ${createRateText(12)}`)
+  // A stored value out of range is not taken: the default holds.
+  h.store.set('config', { lanesPerHour: 500, savedAt: h.nowMs })
+  expect(await make('L2')).toContain(`create-rate: ${createRateText(30)}`)
   h.nowMs += 3_700_000
-  expect(JSON.stringify(await callCreate($, created({ name: 'M', folder: `${PIN}/M` })))).toContain('created')
-  expect(storeLaneNames().length).toBe(13)
+  expect(await make('L2')).toContain('created')
+  expect(creates()).toEqual([h.nowMs])
+  expect(storeLaneNames()).toEqual(['L0', 'L1', 'L2'])
 })
 
 test('a store lane is reachable only from a lead in its own repo', async ($, on) => {

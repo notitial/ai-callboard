@@ -33,7 +33,9 @@ export const RESERVED_NAMES = ['MANAGER']
 export const STORE_MAX_LANES = 16
 export const STORE_MAX_BYTES = 16_384
 export const STORE_MAX_FILES = 64
-const CREATES_PER_HOUR = 12
+// The create times a store may hold, and how many of them a rewrite keeps: the highest lanes-per-hour setting (CONFIG_RANGE) fits in both.
+const STORE_MAX_CREATES = 64
+export const STORE_KEEP_CREATES = 60
 
 // A name's skeleton: lower case, rn read as m and vv as w, then upper case, no - or _, look-alike letters and digits folded
 // (I, L and 1; O and 0; S and 5; E and 3; A and 4; B and 8; T and 7; G, 6 and 9; Z and 2), with and without trailing digits.
@@ -158,7 +160,7 @@ export function parseStore(text: string): { ok: true; store: Store } | { ok: fal
   const { repo, lanes, creates } = (data ?? {}) as Record<string, unknown>
   if (typeof repo !== 'string' || repo.length < 2 || !isCleanAbs(repo)) return { ok: false, reason: 'store-repo' }
   if (!Array.isArray(lanes) || lanes.length > STORE_MAX_LANES) return { ok: false, reason: 'store-shape' }
-  if (!Array.isArray(creates) || creates.length > 64 || creates.some((t) => !Number.isFinite(t))) return { ok: false, reason: 'store-shape' }
+  if (!Array.isArray(creates) || creates.length > STORE_MAX_CREATES || creates.some((t) => !Number.isFinite(t))) return { ok: false, reason: 'store-shape' }
   const out: Store['lanes'] = []
   for (const l of lanes) {
     const { name, folder, brief, createdAt, adopted, lead, model, sid, parked, leadName, leadSid } = (l ?? {}) as Record<string, unknown>
@@ -315,13 +317,14 @@ export function pinRefusal(pin: string, home: string): string | undefined {
 
 // lane_create: every string-level check. The caller has already resolved the real paths and checked that the folder and the pinned folder exist as folders.
 // The folder is the pinned repo root unless the lead names one inside it; the brief is always <folder>/.archive/<name>/BRIEF.md, which the mod writes.
-// The model is one of LANE_MODELS, DEFAULT_LANE_MODEL when the lead names none.
+// The model is one of LANE_MODELS, DEFAULT_LANE_MODEL when the lead names none. perHour is the lanes-per-hour setting in force (/callboard config lanes).
 export function createRefusal(
   a: { name: unknown; task: unknown; folder?: unknown; model?: unknown },
   pin: string,
   all: Lane[],
   store: Store | undefined,
   now: number,
+  perHour: number = CONFIG_DEFAULTS.lanesPerHour,
 ): { ok: true; lane: Lane & { createdAt: number } } | { ok: false; reason: string } {
   const { name, task } = a
   const folder = a.folder === undefined ? pin : a.folder
@@ -337,7 +340,7 @@ export function createRefusal(
   if (!within(folder, brief)) return { ok: false, reason: 'brief-outside' }
   if (all.some((l) => l.name === name)) return { ok: false, reason: 'name-taken' }
   if ((store?.lanes.length ?? 0) >= STORE_MAX_LANES) return { ok: false, reason: 'lane-cap' }
-  if ((store?.creates ?? []).filter((t) => now - t < HOUR_MS && t <= now).length >= CREATES_PER_HOUR) return { ok: false, reason: 'create-rate' }
+  if ((store?.creates ?? []).filter((t) => now - t < HOUR_MS && t <= now).length >= perHour) return { ok: false, reason: 'create-rate' }
   return { ok: true, lane: { name, folder, brief, repo: pin, model, createdAt: now } }
 }
 
@@ -547,14 +550,15 @@ export type NudgeDue = { kind: (typeof NUDGE_DUE_KINDS)[number]; at: number; pin
 
 // /callboard config, kept machine-wide in $.store under CONFIG_KEY. A file any same-uid process can write: each field is taken only
 // when it has the right type and lies in its range, else that field's default; a stored working level below the idle level gives both defaults. The bounds are
-// the control (a forger can at worst set them): a ping at most every 30 minutes, at most 8 hours of pings after real work, levels that still leave room to work.
+// the control (a forger can at worst set them): a ping at most every 30 minutes, at most 8 hours of pings after real work, levels that still leave room to work,
+// at most 60 lanes created in a repo in an hour.
 export const CONFIG_KEY = 'config'
 // checkin, the machine-wide switch of the lead check-ins (default on). conductorLeads, the machine-wide switch of a conductor's lead_open (default on).
-export type Config = { keepalive: boolean; pingAfterMin: number; stopAfterH: number; idleK: number; workingK: number; checkin: boolean; conductorLeads: boolean }
-export const CONFIG_DEFAULTS: Readonly<Config> = Object.freeze({ keepalive: true, pingAfterMin: 50, stopAfterH: 2, idleK: NUDGE_IDLE_TOKENS / 1000, workingK: NUDGE_BUSY_TOKENS / 1000, checkin: true, conductorLeads: true })
-type ConfigNum = 'pingAfterMin' | 'stopAfterH' | 'idleK' | 'workingK'
-export const CONFIG_RANGE: Record<ConfigNum, readonly [number, number]> = { pingAfterMin: [30, 55], stopAfterH: [1, 8], idleK: [150, 800], workingK: [150, 900] }
-const CONFIG_FIELDS = ['keepalive', 'pingAfterMin', 'stopAfterH', 'idleK', 'workingK', 'checkin', 'conductorLeads'] as const
+export type Config = { keepalive: boolean; pingAfterMin: number; stopAfterH: number; idleK: number; workingK: number; checkin: boolean; conductorLeads: boolean; lanesPerHour: number }
+export const CONFIG_DEFAULTS: Readonly<Config> = Object.freeze({ keepalive: true, pingAfterMin: 50, stopAfterH: 2, idleK: NUDGE_IDLE_TOKENS / 1000, workingK: NUDGE_BUSY_TOKENS / 1000, checkin: true, conductorLeads: true, lanesPerHour: 30 })
+type ConfigNum = 'pingAfterMin' | 'stopAfterH' | 'idleK' | 'workingK' | 'lanesPerHour'
+export const CONFIG_RANGE: Record<ConfigNum, readonly [number, number]> = { pingAfterMin: [30, 55], stopAfterH: [1, 8], idleK: [150, 800], workingK: [150, 900], lanesPerHour: [1, STORE_KEEP_CREATES] }
+const CONFIG_FIELDS = ['keepalive', 'pingAfterMin', 'stopAfterH', 'idleK', 'workingK', 'checkin', 'conductorLeads', 'lanesPerHour'] as const
 export const CONFIG_READ_MS = 60_000
 const inRange = (f: ConfigNum, v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= CONFIG_RANGE[f][0] && v <= CONFIG_RANGE[f][1]
 
@@ -570,7 +574,7 @@ export function parseConfig(raw: unknown): { cfg: Config; invalid: string[] } {
     if (typeof r[f] === 'boolean') cfg[f] = r[f] as boolean
     else invalid.push(f)
   }
-  for (const f of ['pingAfterMin', 'stopAfterH', 'idleK', 'workingK'] as const) {
+  for (const f of ['pingAfterMin', 'stopAfterH', 'idleK', 'workingK', 'lanesPerHour'] as const) {
     if (r[f] === undefined) continue
     if (inRange(f, r[f])) cfg[f] = r[f] as number
     else invalid.push(f)
@@ -585,14 +589,14 @@ export function parseConfig(raw: unknown): { cfg: Config; invalid: string[] } {
 
 // One change of /callboard config, as parseCommandArgs reads it: show, a field and its value, reset, or bad (the usage text, nothing written).
 export type ConfigOp = 'show' | 'reset' | 'bad' | { field: 'keepalive' | 'checkin' | 'conductorLeads'; value: boolean } | { field: ConfigNum; value: number }
-const CONFIG_WORDS: Record<string, ConfigNum> = { ping: 'pingAfterMin', stop: 'stopAfterH', idle: 'idleK', working: 'workingK' }
+const CONFIG_WORDS: Record<string, ConfigNum> = { ping: 'pingAfterMin', stop: 'stopAfterH', idle: 'idleK', working: 'workingK', lanes: 'lanesPerHour' }
 function parseConfigArgs(rest: string | undefined): ConfigOp {
   if (rest === undefined) return 'show'
   if (rest === 'reset') return 'reset'
   if (rest === 'keepalive on' || rest === 'keepalive off') return { field: 'keepalive', value: rest === 'keepalive on' }
   if (rest === 'checkin on' || rest === 'checkin off') return { field: 'checkin', value: rest === 'checkin on' }
   if (rest === 'conductor-leads on' || rest === 'conductor-leads off') return { field: 'conductorLeads', value: rest === 'conductor-leads on' }
-  const m = /^(ping|stop|idle|working) ([1-9][0-9]{0,3})(k?)$/.exec(rest)
+  const m = /^(ping|stop|idle|working|lanes) ([1-9][0-9]{0,3})(k?)$/.exec(rest)
   if (!m) return 'bad'
   const field = CONFIG_WORDS[m[1]]
   // A k is a number of thousands of tokens, so it fits only the two levels.
@@ -602,7 +606,7 @@ function parseConfigArgs(rest: string | undefined): ConfigOp {
 }
 
 type ConfigField = (typeof CONFIG_FIELDS)[number]
-const CONFIG_NAME: Record<ConfigField, string> = { keepalive: 'Keepalive', pingAfterMin: 'Ping after', stopAfterH: 'Stop after', idleK: 'Idle level', workingK: 'Working level', checkin: 'Check-ins', conductorLeads: 'Conductor leads' }
+const CONFIG_NAME: Record<ConfigField, string> = { keepalive: 'Keepalive', pingAfterMin: 'Ping after', stopAfterH: 'Stop after', idleK: 'Idle level', workingK: 'Working level', checkin: 'Check-ins', conductorLeads: 'Conductor leads', lanesPerHour: 'Lanes per hour' }
 const onOff = (b: boolean): string => (b ? 'ON' : 'OFF')
 const CONFIG_VALUE: Record<ConfigField, (c: Config) => string> = {
   keepalive: (c) => onOff(c.keepalive),
@@ -612,6 +616,7 @@ const CONFIG_VALUE: Record<ConfigField, (c: Config) => string> = {
   workingK: (c) => `${c.workingK}k`,
   checkin: (c) => onOff(c.checkin),
   conductorLeads: (c) => onOff(c.conductorLeads),
+  lanesPerHour: (c) => `${c.lanesPerHour}`,
 }
 // The sentence that confirms a change keeps the lower-case words.
 const CONFIG_LABEL = (f: ConfigField, c: Config): string => `${CONFIG_NAME[f]} ${CONFIG_VALUE[f](c)}`.toLowerCase()
@@ -631,7 +636,7 @@ export function configText(cfg: Config, escalation: boolean = ESCALATION_DEFAULT
 const CONFIG_APPLIES = ' It applies to every session on this Mac within a minute.'
 export const configSetText = (field: ConfigField, cfg: Config): string => `Callboard setting changed: ${CONFIG_LABEL(field, cfg)}.${CONFIG_APPLIES}`
 export const CONFIG_RESET_TEXT = `Callboard settings are back to the defaults.${CONFIG_APPLIES}`
-export const CONFIG_USAGE = 'Use /callboard config [keepalive on|off, ping 30-55, stop 1-8, idle 150-800, working IDLE-900, checkin on|off, conductor-leads on|off, reset].'
+export const CONFIG_USAGE = 'Use /callboard config [keepalive on|off, ping 30-55, stop 1-8, idle 150-800, working IDLE-900, checkin on|off, conductor-leads on|off, lanes 1-60, reset].'
 export const CONFIG_NOT_PERSON = 'Only you can change callboard settings: type /callboard config yourself.'
 export const CONFIG_UNSAVED = 'Callboard settings could not be saved. Run /callboard config to see them.'
 export const CONFIG_UNREADABLE = 'Callboard settings could not be read. Nothing changed.'
@@ -777,7 +782,7 @@ export const COMMAND_TABLE: readonly CommandRow[] = [
   { form: 'manager [NAME]', help: 'Make this session the manager, after you confirm.' },
   { form: 'config', help: 'Show the settings.' },
   { form: 'config keepalive|checkin|conductor-leads on|off', help: 'Switch one setting on or off, for the whole Mac.' },
-  { form: 'config ping|stop|idle|working N', help: 'Set one number, for the whole Mac.' },
+  { form: 'config ping|stop|idle|working|lanes N', help: 'Set one number, for the whole Mac.' },
   { form: 'config reset', help: 'Restore the default settings.' },
   { form: 'reserve', help: 'Show the names reserved on this Mac.' },
   { form: 'reserve [add] NAME', help: 'Reserve a name on this Mac.' },
@@ -1502,6 +1507,9 @@ export const LEAD_RECORDS_UNREADABLE = 'the lead records cannot be read safely, 
 
 // The words the lead model reads for a refusal code: fixed text only, never anything a session or a file wrote.
 // Codes that ask for a retry say when; the rest mean "do not send the same cue again". A refused compact cue gets COMPACT_DROPPED too.
+// lane_create at the hourly limit. The number is the setting in force; REASON_TEXT holds the text for the default.
+export const createRateText = (perHour: number): string =>
+  `this repo is at its limit of ${perHour} lanes created in an hour (the person sets it with /callboard config lanes). Retry when the oldest create of the last hour is an hour old.`
 export const REASON_TEXT: Record<string, string> = {
   'rate-limit': `rate limit: 1 compaction per ${COMPACT_GAP_MS / 60_000} minutes, ${RESUME_PER_HOUR} resumes per hour. Retry after that.`,
   'no-request': 'no armed on-cue compaction request. If the session just called request_compact (on-cue), retry after its turn ends; otherwise it must call it again.',
@@ -1592,7 +1600,7 @@ export const REASON_TEXT: Record<string, string> = {
   'store-unreadable': 'this repo\'s lane list cannot be read safely.',
   'store-size': 'this repo\'s lane list is too big.',
   'lane-cap': `the repo already has ${STORE_MAX_LANES} lanes.`,
-  'create-rate': `${CREATES_PER_HOUR} lanes were created in this repo in the last hour, the most allowed. Retry when the oldest of them is an hour old.`,
+  'create-rate': createRateText(CONFIG_DEFAULTS.lanesPerHour),
   'adopted-record': 'an attached lane keeps its own session: no rename, start or open. Use lane_resume to prompt it. lane_retire or lane_terminate ends it.',
   'folder-bad': 'the session folder must be a real path, not a link.',
   'folder-chars': 'the folder path has a space or an odd character, so it cannot be a lane folder.',
