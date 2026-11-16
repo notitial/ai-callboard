@@ -290,7 +290,7 @@ test('prompts: apply: a decision seen a moment before its row is held, then land
   expect(rowKinds().some((k) => k.startsWith('dropped'))).toBe(false)
   expect(h.nowMs - T0).toBe(30_000)
 })
-test('prompts: apply: a decision made by hand with a ledger row lands, as the plan says it must; the audit finds it by the transcript', async ($, on) => {
+test('prompts: apply: a decision made by hand with a ledger row lands, as the plan says it must; the ledger-only audit does not see it', async ($, on) => {
   await answerer($, on, [])
   const r = await runRequest($, [at(4000, () => handDecision(readReq()))])
   expect(r).toEqual({ decision: { behavior: 'allow' } })
@@ -849,7 +849,7 @@ test('prompts hook: the row must name the same author as the file', async ($, on
   expect(hookKinds()).toContain('dropped no-answered-row')
 })
 
-test('prompts hook: the returned row names the author and the call (tuid), for the audit to match one for one', async ($, on) => {
+test('prompts hook: the returned row names the author and the call (tuid)', async ($, on) => {
   await answerer($, on, [])
   await runRequest($, [at(4000, () => handDecision(readReq()))])
   const row = hookRows().find((x) => x.kind === 'returned')!
