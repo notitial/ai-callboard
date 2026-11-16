@@ -285,6 +285,8 @@ Probes named by the design and the README. Status as recorded; "open" means not 
 
 *Amended 2026-11-12:* the README carries no P2 note on the `/color` call, so only the "unprobed (P6)" half of the note above still points at anything. The P2 half is dropped.
 
+*Amended 2026-11-16:* the README is now a guide and has no manager section, so the "unprobed (P6)" note above points at nothing either. What it recorded stands: the rename right after the manager grant (the levels plan's P6, not the P6 above) has not been probed live, and the mod logs its outcome.
+
 **Lanes (L1-L9).**
 
 - L1, L2: owner, mode and link count through `$.fs.stat`; read, rename, delete and append under the cue folder. Superseded by the build: `$.fs` has none of these, so the mod uses fixed process calls, which the live checks still owe.

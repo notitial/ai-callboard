@@ -17,7 +17,14 @@ recorded in ai-toolkit ADR 0002 (https://github.com/notitial/ai-toolkit/blob/mai
 - **Consequences:** what becomes easier, harder or constrained
 
 An ADR records what was decided at the time. A later change gets a dated amendment line or a new ADR, not a silent
-rewrite. An ai-toolkit decision is cited as "ai-toolkit ADR NNNN" with its URL; a bare "ADR NNNN" always means this
+rewrite.
+
+An ADR is amended only when a decision, an option it rejected or a trust rule changes. The amendment is one dated
+line that says what changed and cites the PR. A change of detail leaves every ADR alone: a limit, a timeout, a
+count, a refusal code, a file name or format, a log line or the wording of a text. That detail lives in the code and
+its specs, and the guide in `tools/callboard/README.md` does not restate it. A new ADR gives its context, the options,
+the decision and the consequences in a page or so, with no constants, paths or texts: those change with the code and
+the ADR would then be wrong. An ai-toolkit decision is cited as "ai-toolkit ADR NNNN" with its URL; a bare "ADR NNNN" always means this
 repo's.
 
 ## Index
