@@ -10,9 +10,12 @@ const bytes = (s: string): number => enc.encode(s).length
 
 // The file: ~/.claude/callboard/go/<id>.json, at most GO_FILE_MAX bytes, read all or nothing.
 export const GO_FILE_MAX = 8192
-// The description of the work, as the person is shown it: 1 to GO_TEXT_MAX bytes.
-export const GO_TEXT_MAX = 1500
-// The sessions one dialog can list.
+// The description of the work, as the person is shown it: 1 to GO_TEXT_MAX bytes on at most GO_TEXT_LINES lines, none of them empty. A go file is read with a
+// description of up to GO_FILE_TEXT_MAX bytes on any number of lines: a go on file may hold a longer one than a new go is allowed.
+export const GO_TEXT_MAX = 300
+export const GO_TEXT_LINES = 3
+export const GO_FILE_TEXT_MAX = 1500
+// The lanes one go can hold at the click.
 export const GO_COVERED_MAX = 32
 export const GO_DEFAULT_HOURS = 24
 export const GO_MAX_HOURS = 48
@@ -27,8 +30,8 @@ export const GO_NAME_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9
 const NONCE_RE = /^[0-9a-f]{32}$/
 const HASH_RE = /^[0-9a-f]{64}$/
 
-// by: the session the go was given in (always a lead), its registry name then ('' for a lead with none) and its repo. covered: the sessions the
-// dialog listed, by the name and session id the person saw. text: the exact description the person was shown.
+// by: the session the go was given in (always a lead), its registry name then ('' for a lead with none) and its repo. covered: the lead's lanes at
+// the click, which the dialog counted, by name and session id. text: the exact description the person was shown.
 export type Go = { v: 1; id: string; by: { level: 'lead'; sid: string; name: string; repo: string }; at: number; ends: number; text: string; covered: { name: string; sid: string }[]; nonce: string }
 
 // Characters a person cannot see in the dialog: every format character, the variation selectors, the Hangul fillers, private-use and unassigned code points and
@@ -36,10 +39,13 @@ export type Go = { v: 1; id: string; by: { level: 'lead'; sid: string; name: str
 const GO_HIDDEN_RE = /[\p{Cf}\p{Co}\p{Cn}\p{Zl}\p{Zp}\u{fe00}-\u{fe0f}\u{e0100}-\u{e01ef}\u115f\u1160\u3164\uffa0]/u
 // A line that starts like the fence go_status puts around the text.
 const GO_FENCE_RE = /^[ \t]*(<<<|>>>)/m
-// Why a description is refused, or undefined: empty, too long, with space at its start or end, holding a control character other than newline and tab (the rule
+// Why a description is refused, or undefined: empty, too long (onFile: by the limit of a go file; else by the limits of a new go), with space at its start or end, holding a control character other than newline and tab (the rule
 // of a lane's task text) or a character the person cannot see, or holding a line that starts with the fence marks.
-export function goTextNo(text: unknown): 'bad-text' | undefined {
-  return typeof text === 'string' && text.trim() !== '' && text === text.trim() && bytes(text) <= GO_TEXT_MAX && !TEXT_BAD_RE.test(text) && !GO_HIDDEN_RE.test(text) && !GO_FENCE_RE.test(text) ? undefined : 'bad-text'
+export function goTextNo(text: unknown, onFile = false): 'bad-text' | undefined {
+  if (typeof text !== 'string') return 'bad-text'
+  const lines = text.split('\n')
+  const fits = onFile ? bytes(text) <= GO_FILE_TEXT_MAX : bytes(text) <= GO_TEXT_MAX && lines.length <= GO_TEXT_LINES && lines.every((l) => l.trim() !== '')
+  return text.trim() !== '' && text === text.trim() && fits && !TEXT_BAD_RE.test(text) && !GO_HIDDEN_RE.test(text) && !GO_FENCE_RE.test(text) ? undefined : 'bad-text'
 }
 
 // The file's text: the keys in one fixed order, so the bytes the hash covers are the same for the same go.
@@ -62,7 +68,7 @@ export function parseGo(text: unknown): Go | undefined {
   if (typeof j.id !== 'string' || !SID_RE.test(j.id) || !by || typeof by !== 'object' || by.level !== 'lead' || typeof by.sid !== 'string' || !SID_RE.test(by.sid)) return undefined
   if (typeof by.name !== 'string' || (by.name !== '' && !NAME_RE.test(by.name)) || typeof by.repo !== 'string' || !by.repo.startsWith('/') || by.repo.length > 1024) return undefined
   if (!Number.isSafeInteger(j.at) || !Number.isSafeInteger(j.ends) || j.at < 0 || j.ends <= j.at || j.ends - j.at > GO_MAX_HOURS * HOUR_MS) return undefined
-  if (goTextNo(j.text) !== undefined || typeof j.nonce !== 'string' || !NONCE_RE.test(j.nonce)) return undefined
+  if (goTextNo(j.text, true) !== undefined || typeof j.nonce !== 'string' || !NONCE_RE.test(j.nonce)) return undefined
   if (!Array.isArray(j.covered) || j.covered.length > GO_COVERED_MAX) return undefined
   const covered: Go['covered'] = []
   for (const x of j.covered) {
@@ -87,7 +93,7 @@ export function goState(g: Go, hash: string, rows: LedgerRow[], now: number): Go
   return now >= g.ends ? 'expired' : 'live'
 }
 
-// How a go covers a session, or undefined when it does not: the session it was given in; a session the dialog listed, by its session id; or a lane opened later,
+// How a go covers a session, or undefined when it does not: the session it was given in; a lane the lead had at the click, by its session id; or a lane opened later,
 // whose record carries the reader's own session id and names the granting session as its lead (leadOwns). Never by a name.
 export type GoCover = 'grantor' | 'listed' | 'later'
 export function goCovers(g: Go, sid: string, lanes: Lane[]): GoCover | undefined {
@@ -97,7 +103,7 @@ export function goCovers(g: Go, sid: string, lanes: Lane[]): GoCover | undefined
   return lanes.some((l) => l.sid === sid && leadOwns(l, g.by.sid)) ? 'later' : undefined
 }
 
-// What a go never covers: the one full list, printed by the dialog and by go_status. Every shorter form names the first five and points to go_status.
+// What a go never covers: the one full list, printed by go_status. Every shorter form, the dialog's included, names the first five and points to go_status.
 export const GO_NEVER = [
   'a merge',
   'a force push',
@@ -113,6 +119,8 @@ export const GO_NEVER = [
   "work the go's text does not name",
 ] as const
 export const GO_NEVER_TEXT = `${GO_NEVER.join('; ')}.`
+// The dialog's line, written to the person.
+export const GO_NEVER_DIALOG = 'It never covers a merge, a force push, a push to main, a production change or a delete outside the work; full list: go_status.'
 
 // A time as the person reads it, in their own zone: `Sun 16 Nov 19:25`. offsetMin: minutes east of UTC at that time.
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
@@ -129,17 +137,17 @@ export const GO_NO = 'Cancel'
 export const GO_YES = 'Give go'
 const who = (name: string): string => (name === '' ? 'this lead' : `lead ${name}`)
 
-// The dialog. Every line but the last block is the mod's: the names are read from its records, never from the description. The description comes last, under a
-// fixed line that names its author (the lead's model for go_request, the person for the command).
-export function goQuestion(q: { name: string; covered: string[]; ends: string; text: string; author: 'tier' | 'person' }): string {
+// The dialog: three short lines of the mod's, then the description. Whom it covers (the lead's name from the mod's records, its lanes as a count, never from the
+// description) with the end and how to end it; the short never-list; and a fixed line that names the author of everything under it (the lead's model for
+// go_request, the person for the command). The description comes last. Each line ends as a sentence, so the text reads the same where a window joins the lines.
+export function goQuestion(q: { name: string; lanes: number; ends: string; text: string; author: 'tier' | 'person' }): string {
+  const lanes = q.lanes === 0 ? 'the lanes it opens' : `its ${q.lanes} lane${q.lanes === 1 ? '' : 's'}, later ones too,`
   return [
-    `Give one go for this work? It counts for ${who(q.name)} and every session under it.`,
-    `Covers now: ${q.covered.length === 0 ? 'no lane yet' : q.covered.join(', ')}; and lanes opened under it later, until the end.`,
-    `Ends ${q.ends}, or when you type /callboard go off.`,
-    `A go never covers these; each still needs you, every time: ${GO_NEVER_TEXT}`,
-    q.author === 'tier' ? `Everything below this line was written by ${who(q.name)}, not by callboard:` : 'Everything below this line was typed with the command, not written by callboard:',
+    `Give ${who(q.name)} and ${lanes} one go until ${q.ends}? /callboard go off ends it.`,
+    GO_NEVER_DIALOG,
+    q.author === 'tier' ? `Everything below was written by ${who(q.name)}, not by callboard:` : 'Everything below was typed with the command, not written by callboard:',
     q.text,
-  ].join('\n\n')
+  ].join('\n')
 }
 
 export const GO_LATE_TOAST = 'Too late: no go was recorded. The go dialog had timed out.'
@@ -154,11 +162,11 @@ export const GO_REFUSE: Record<string, string> = {
   'not-lead': "a go is given in a lead's session. A lane, or any session a go only covers, cannot give, widen or extend one.",
   manager: 'the manager gives no go and passes none on.',
   conductor: "a go is given in a lead's session.",
-  'bad-text': `the text must be 1 to ${GO_TEXT_MAX} bytes of plain text saying what the work is, with no space or newline at its start or end no control or invisible characters other than newline and tab, and no line starting with <<< or >>>.`,
+  'bad-text': `the text must be 1 to ${GO_TEXT_MAX} bytes of plain text saying what the work is, on at most ${GO_TEXT_LINES} lines with none empty: keep it to two or three lines and put the detail in the brief or the plan. No space or newline at its start or end, no control or invisible characters other than newline and tab, and no line starting with <<< or >>>.`,
   rate: `at most ${GO_REQUESTS_PER_HOUR} go dialogs an hour. Tell the person; they can type /callboard go themselves.`,
   busy: 'a callboard question is already open. Ask again once the person has answered it.',
   guard: 'callboard cannot keep a go while the protected-paths guard is missing',
-  'too-many': `more than ${GO_COVERED_MAX} lanes to list.`,
+  'too-many': `more than ${GO_COVERED_MAX} lanes for one go.`,
   full: `${GO_SCAN_MAX} go files are kept already. They are removed ${GO_MAX_HOURS / 24 + GO_KEEP_MS / (24 * HOUR_MS)} days after they were written; tell the person.`,
   'store-unreadable': 'the lane records could not be read.',
   cancelled: 'the person did not give the go. Do not ask again unless they tell you to.',
