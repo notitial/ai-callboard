@@ -112,7 +112,7 @@ export async function restCall($: any, e: any) {
   return (await restSet($, sid, 'tool')) ? { result: c.REST_SET } : { deny: c.REST_FAILED }
 }
 
-// /callboard checkin pause <N>m|<N>h and checkin on: the person's own, as config; a plugin, another session or a script gets a fixed refusal.
+// /callboard checkin pause [<N>m|<N>h] and checkin resume: the person's own, as config; a plugin, another session or a script gets a fixed refusal.
 async function checkinCommand($: any, sid: string, code: c.OriginCode, op: c.CheckinOp): Promise<{ text: string }> {
   if (op === 'bad') return { text: c.CHECKIN_USAGE }
   if (!c.originIsPerson(code)) return notPerson($, sid, 'checkin', code, c.CHECKIN_NOT_PERSON)
@@ -997,6 +997,12 @@ export async function grantLead($: any, sid: string, code: c.OriginCode, busy: (
     return some ? { ...res, text: `${res.text}${c.JOIN_AFTER_RENAME}` } : res
   }
   return leadClickQuestion($, sid, res)
+}
+
+// The rows the prompt box's typeahead adds while the draft is /callboard and a word: the words the command table offers there, after the engine's own rows.
+export async function commandComplete(_: any, e: { text: string; start: number; token: string }, next: (e: any) => Promise<{ suggestions: readonly c.Completion[] }>) {
+  const base = await next(e)
+  return { suggestions: [...base.suggestions, ...c.completions(e.text.slice(0, e.start), e.token)] }
 }
 
 export async function commandRun($: any, e: any) {

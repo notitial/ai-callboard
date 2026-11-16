@@ -1206,14 +1206,16 @@ test('helpText is a header and a two-column table with one row per subcommand, m
   assert.deepEqual(lines.slice(0, 4), ['**Callboard commands**', '', '| Command | What it does |', '|---|---|'])
   const rows = lines.slice(4)
   const words = rows.map((l) => /^\| ([^ \\|]+)/.exec(l)![1])
-  assert.deepEqual(words, ['lanes', 'status', 'lead', 'lead', 'lead', 'lane', 'escalation', 'go', 'conductor', 'conductor', 'manager', 'config', 'reserve', 'checkin', 'rest', 'off', 'help'])
+  assert.deepEqual(words, ['lanes', 'status', 'lead', 'lead', 'lead', 'lane', 'lane', 'escalation', 'go', 'go', 'conductor', 'conductor', 'conductor', 'manager', 'config', 'config', 'config', 'config', 'reserve', 'reserve', 'reserve', 'checkin', 'checkin', 'rest', 'off', 'help'])
   assert.ok(lines.some((l) => l.startsWith('| lead join \\[CONDUCTOR\\] |')) && lines.some((l) => l.startsWith('| lead leave |')))
-  assert.ok(lines.includes('| lane \\[NAME\\] | Make this session a lane, named NAME if given; lane off takes it out of its lane. |'))
+  assert.ok(lines.includes('| lane \\[NAME\\] | Make this session a lane, named NAME if given. |'))
+  assert.ok(lines.includes('| checkin pause \\[Nm\\|Nh\\] | Pause check-ins for N minutes or hours (1 minute to 24 hours), or for 1 hour if you give no time. |'))
   for (const l of rows) assert.equal(l.replace(/\\\|/g, '').split('|').length, 4, l)
   assert.ok(!c.helpText().includes('Floor'))
   assert.ok(!c.DIALOG_LINE.includes('optional'))
   assert.match(c.HELP_USAGE, /manager/)
   assert.doesNotMatch(c.HELP_USAGE, /prompts/)
+  assert.equal(c.HELP_USAGE, 'Use /callboard lanes, status, lead, lane, escalation, go, conductor, manager, config, reserve, checkin, rest, off or help. Run /callboard help for the full list.')
   assert.ok(c.HELP_USAGE.endsWith('Run /callboard help for the full list.'))
 })
 
@@ -2184,7 +2186,11 @@ test('v13.6 /callboard checkin: pause 1 minute to 24 hours, on, anything else th
   assert.deepEqual(c.parseCommandArgs('checkin pause 24h'), { checkin: { pauseMs: 24 * c.HOUR_MS } })
   assert.deepEqual(c.parseCommandArgs('checkin pause 1440m'), { checkin: { pauseMs: 24 * c.HOUR_MS } })
   assert.deepEqual(c.parseCommandArgs('checkin on'), { checkin: 'on' })
-  for (const bad of ['checkin', 'checkin pause', 'checkin pause 25h', 'checkin pause 1441m', 'checkin pause 0m', 'checkin pause 05m', 'checkin pause 2d', 'checkin pause 12:30', 'checkin off', 'checkin on now', 'checkin pause 2H'])
+  assert.deepEqual(c.parseCommandArgs('checkin resume'), { checkin: 'on' })
+  assert.deepEqual(c.parseCommandArgs('checkin pause'), { checkin: { pauseMs: c.HOUR_MS } })
+  assert.deepEqual(c.parseCommandArgs(' checkin  pause '), { checkin: { pauseMs: c.HOUR_MS } })
+  assert.equal(c.CHECKIN_USAGE, 'Use /callboard checkin pause [Nm|Nh] or checkin resume. A pause is 1 minute to 24 hours.')
+  for (const bad of ['checkin', 'checkin resume now', 'checkin Resume', 'checkin pause 25h', 'checkin pause 1441m', 'checkin pause 0m', 'checkin pause 05m', 'checkin pause 2d', 'checkin pause 12:30', 'checkin off', 'checkin on now', 'checkin pause 2H'])
     assert.deepEqual(c.parseCommandArgs(bad), { checkin: 'bad' }, bad)
   for (const bad of ['checkins', 'Checkin on', 'checkin\non']) assert.equal(c.parseCommandArgs(bad), undefined, JSON.stringify(bad))
   assert.equal(c.checkinStatus(true, undefined, 0), 'ON')
@@ -2551,7 +2557,10 @@ test('v15.1 (2026-11-05): this machine\'s reserved names', () => {
   assert.deepEqual(c.parseCommandArgs('reserve'), { reserve: 'show' })
   assert.deepEqual(c.parseCommandArgs(' reserve  BLUE '), { reserve: { add: 'BLUE' } })
   assert.deepEqual(c.parseCommandArgs('reserve remove BLUE'), { reserve: { remove: 'BLUE' } })
-  for (const bad of ['reserve remove', 'reserve Remove', 'reserve REMOVE', 'reserve a b', 'reserve LAB!', `reserve ${'x'.repeat(41)}`]) assert.deepEqual(c.parseCommandArgs(bad), { reserve: 'bad' }, bad)
+  assert.deepEqual(c.parseCommandArgs('reserve add BLUE'), { reserve: { add: 'BLUE' } })
+  assert.deepEqual(c.parseCommandArgs('reserve add Remover'), { reserve: { add: 'Remover' } })
+  assert.equal(c.RESERVE_USAGE, 'Use /callboard reserve, reserve [add] NAME or reserve remove NAME.')
+  for (const bad of ['reserve add', 'reserve add add', 'reserve add remove', 'reserve add Remove', 'reserve Add', 'reserve add a b', 'reserve remove', 'reserve Remove', 'reserve REMOVE', 'reserve a b', 'reserve LAB!', `reserve ${'x'.repeat(41)}`]) assert.deepEqual(c.parseCommandArgs(bad), { reserve: 'bad' }, bad)
   for (const short of ['ab', '123', '1-2', 'I']) assert.match(c.reserveAddRefusal(short, [], undefined)!, /too short/, short)
   assert.match(c.reserveManagerText('BLUE'), /live manager's name/)
   assert.deepEqual(c.parseReserved({ names: ['BLUE', 'blue', 'MANAGER', 'MANAG3R', 'a b', 5, 'GREEN'] }), ['BLUE', 'GREEN'])
@@ -2950,19 +2959,73 @@ test('leadOpenArgs: a clean repo path, a lane-style name that is not reserved, a
   assert.deepEqual(c.leadOpenArgs({ ...ok, repo: '/Users/x/my app' }), { ok: false, reason: 'bad-repo' })
 })
 
-test('leadOpenRate: one successful open and three offers an hour per repo; older, other repos and bad times', () => {
-  const now = Date.parse('2026-11-13T12:00:00Z')
-  const row = (kind: string, minAgo: number, hash = 'h1') => ({ kind, hash, t: new Date(now - minAgo * 60_000).toISOString() })
-  assert.equal(c.leadOpenRate([], 'h1', now), 'ok')
-  assert.equal(c.leadOpenRate([row('lead-offer', 5), row('lead-offer', 6)], 'h1', now), 'ok')
-  assert.equal(c.leadOpenRate([row('lead-offer', 5), row('lead-offer', 6), row('lead-offer', 7)], 'h1', now), 'open-rate')
-  assert.equal(c.leadOpenRate([row('lead-grant', 59)], 'h1', now), 'open-rate')
-  assert.equal(c.leadOpenRate([row('lead-grant', 61), row('lead-offer', 61), row('lead-offer', 62), row('lead-offer', 63)], 'h1', now), 'ok')
-  assert.equal(c.leadOpenRate([row('lead-grant', 5, 'h2'), row('lead-offer', 5, 'h2'), row('lead-offer', 5, 'h2'), row('lead-offer', 5, 'h2')], 'h1', now), 'ok')
-  assert.equal(c.leadOpenRate([row('lead-offer-void', 5), row('lead-offer-void', 5), row('lead-offer-void', 5)], 'h1', now), 'ok')
-  const bad = (t: string) => ({ kind: 'lead-grant', hash: 'h1', t })
-  assert.equal(c.leadOpenRate([bad('x')], 'h1', now), 'open-rate')
-  assert.equal(c.leadOpenRate([bad(new Date(now + 3_600_000).toISOString())], 'h1', now), 'open-rate')
+const OPEN_NOW = Date.parse('2026-11-16T12:00:00Z')
+const openRow = (kind: string, minAgo: number, nonce: string, by = 'S1', lane = 'LEAD-X') => ({ kind, nonce, by, lane, t: new Date(OPEN_NOW - minAgo * 60_000).toISOString() })
+const openRec = (name: string, conductorSid = 'S1', parked?: number): c.LeadRec => ({ name, createdAt: 1, how: 'made', conductorSid, sid: `sid-${name}`, ...(parked !== undefined ? { parked } : {}) })
+
+test('leadOpenLimit: four leads a conductor owns at once, parked ones included, other conductors not', () => {
+  const four = ['A', 'B', 'C', 'D'].map((n) => openRec(`LEAD-${n}`))
+  assert.deepEqual(c.leadOpenLimit([], [], 'S1', OPEN_NOW), { ok: true })
+  assert.deepEqual(c.leadOpenLimit(four.slice(0, 3), [], 'S1', OPEN_NOW), { ok: true })
+  assert.deepEqual(c.leadOpenLimit(four, [], 'S1', OPEN_NOW), { ok: false, code: 'lead-cap', held: four.map((r) => ({ name: r.name, parked: false, opening: false })) })
+  const withParked = [...four.slice(0, 3), openRec('LEAD-D', 'S1', 5)]
+  assert.deepEqual(c.leadOpenLimit(withParked, [], 'S1', OPEN_NOW), { ok: false, code: 'lead-cap', held: [...four.slice(0, 3).map((r) => ({ name: r.name, parked: false, opening: false })), { name: 'LEAD-D', parked: true, opening: false }] })
+  assert.deepEqual(c.leadOpenLimit([...four.slice(0, 3), openRec('LEAD-D', 'S2')], [], 'S1', OPEN_NOW), { ok: true })
+  // A record with no session id is a lead force stopped while lanes still name it: no live or parked lead, so no slot.
+  const { sid: _sid, ...noSession } = openRec('LEAD-D')
+  assert.deepEqual(c.leadOpenLimit([...four.slice(0, 3), noSession], [], 'S1', OPEN_NOW), { ok: true })
+  assert.deepEqual(c.leadOpenLimit(four, [], 'S2', OPEN_NOW), { ok: true })
+})
+
+test('leadOpenLimit: an offer still open holds a slot; a granted, voided or old one does not', () => {
+  const three = ['A', 'B', 'C'].map((n) => openRec(`LEAD-${n}`))
+  const pending = openRow('lead-offer', 3, 'n1', 'S1', 'LEAD-P')
+  assert.deepEqual(c.leadOpenLimit(three, [pending], 'S1', OPEN_NOW), { ok: false, code: 'lead-cap', held: [...three.map((r) => ({ name: r.name, parked: false, opening: false })), { name: 'LEAD-P', parked: false, opening: true }] })
+  assert.deepEqual(c.leadOpenLimit(three, [pending, openRow('lead-offer-void', 2, 'n1', 'S1')], 'S1', OPEN_NOW), { ok: true })
+  assert.deepEqual(c.leadOpenLimit(three, [pending, openRow('lead-grant', 2, 'n1')], 'S1', OPEN_NOW), { ok: true })
+  assert.deepEqual(c.leadOpenLimit(three, [openRow('lead-offer', 11, 'n1')], 'S1', OPEN_NOW), { ok: true })
+  assert.deepEqual(c.leadOpenLimit(three, [openRow('lead-offer', 3, 'n1', 'S2')], 'S1', OPEN_NOW), { ok: true })
+})
+
+test('leadOpenLimit: eight successful opens an hour per conductor; the retry time is when the oldest leaves the hour', () => {
+  const grants = (ages: number[], by = 'S1') => ages.map((m, k) => openRow('lead-grant', m, `g${k}`, by))
+  const ages8 = [59, 50, 40, 30, 20, 10, 5, 1]
+  assert.deepEqual(c.leadOpenLimit([], grants(ages8.slice(0, 7)), 'S1', OPEN_NOW), { ok: true })
+  assert.deepEqual(c.leadOpenLimit([], grants(ages8), 'S1', OPEN_NOW), { ok: false, code: 'open-backstop', retryAt: OPEN_NOW + 1 * 60_000 })
+  assert.deepEqual(c.leadOpenLimit([], grants([61, ...ages8.slice(0, 7)]), 'S1', OPEN_NOW), { ok: true })
+  assert.deepEqual(c.leadOpenLimit([], grants(ages8), 'S2', OPEN_NOW), { ok: true })
+  assert.deepEqual(c.leadOpenLimit([], grants([59, 58, ...ages8.slice(1)]), 'S1', OPEN_NOW), { ok: false, code: 'open-backstop', retryAt: OPEN_NOW + 2 * 60_000 })
+  const voided = grants(ages8).flatMap((g, k) => (k === 0 ? [g, openRow('lead-offer-void', 59, 'g0', 'S1')] : [g]))
+  assert.deepEqual(c.leadOpenLimit([], voided, 'S1', OPEN_NOW), { ok: true })
+  assert.deepEqual(c.leadOpenLimit([], [...grants(ages8.slice(0, 7)), ...Array.from({ length: 5 }, (_, k) => openRow('lead-offer', 5, `o${k}`))], 'S1', OPEN_NOW).ok, false)
+})
+
+test('leadOpenLimit: an offer still open counts toward the backstop too, so seven grants and one open offer are eight', () => {
+  const grants = [59, 50, 40, 30, 20, 10, 5].map((m, k) => openRow('lead-grant', m, `g${k}`))
+  const pending = openRow('lead-offer', 3, 'p1', 'S1', 'LEAD-P')
+  assert.deepEqual(c.leadOpenLimit([], grants, 'S1', OPEN_NOW), { ok: true })
+  assert.deepEqual(c.leadOpenLimit([], [...grants, pending], 'S1', OPEN_NOW), { ok: false, code: 'open-backstop', retryAt: OPEN_NOW + 1 * 60_000 })
+  assert.deepEqual(c.leadOpenLimit([], [...grants, openRow('lead-offer', 3, 'p1', 'S1'), openRow('lead-grant', 2, 'p1')], 'S1', OPEN_NOW), { ok: false, code: 'open-backstop', retryAt: OPEN_NOW + 1 * 60_000 })
+  assert.deepEqual(c.leadOpenLimit([], [...grants, pending, openRow('lead-offer-void', 2, 'p1', 'S1')], 'S1', OPEN_NOW), { ok: true })
+})
+
+test('leadOpenLimit: refused or failed tries do not count against the backstop; a bad or future time counts as now', () => {
+  const offers = Array.from({ length: 9 }, (_, k) => openRow('lead-offer', 30 + k, `o${k}`, 'S1'))
+  assert.deepEqual(c.leadOpenLimit([], [...offers, ...offers.map((o) => ({ ...o, kind: 'lead-offer-void', by: undefined }))], 'S1', OPEN_NOW), { ok: true })
+  const bad = Array.from({ length: 8 }, (_, k) => ({ kind: 'lead-grant', nonce: `b${k}`, by: 'S1', t: k % 2 === 0 ? 'x' : new Date(OPEN_NOW + 3_600_000).toISOString() }))
+  assert.deepEqual(c.leadOpenLimit([], bad, 'S1', OPEN_NOW), { ok: false, code: 'open-backstop', retryAt: OPEN_NOW + 3_600_000 })
+})
+
+test('lead cap and backstop texts name the limit, what holds it and what to do', () => {
+  assert.equal(
+    c.leadCapText([{ name: 'LEAD-A', parked: false, opening: false }, { name: 'LEAD-B', parked: true, opening: false }, { name: 'LEAD-C', parked: false, opening: true }, { name: 'LEAD-D', parked: false, opening: false }]),
+    'you hold 4 lead slots (a conductor may hold 4 at once): LEAD-A, LEAD-B (parked), LEAD-C (still opening), LEAD-D. A parked lead keeps its slot. Retire one with lead_retire, then open again.',
+  )
+  assert.equal(c.openBackstopText(OPEN_NOW + 7 * 60_000 + 1, OPEN_NOW), 'you have opened, or are opening, 8 leads in the last hour, the most a conductor opens an hour. The next open is allowed in 8 min, at 12:08 UTC.')
+  assert.match(c.leadCapText(Array.from({ length: 5 }, (_, k) => ({ name: `L${k}`, parked: false, opening: false }))), /^you hold 5 lead slots \(a conductor may hold 4 at once\): L0, L1, L2, L3, L4\./)
+  assert.match(c.openBackstopText(OPEN_NOW + 1, OPEN_NOW), /allowed in 1 min, at 12:01 UTC/)
+  assert.ok(c.reasonWhy('lead-cap').startsWith('lead-cap: ') && c.reasonWhy('open-backstop').startsWith('open-backstop: '))
+  assert.ok(!c.hasText('open-rate'))
 })
 
 test('lead_open texts: the request line, the brief, the offer and the fixed reasons', () => {
@@ -2974,7 +3037,7 @@ test('lead_open texts: the request line, the brief, the offer and the fixed reas
   const o: c.Offer = { v: 1, name: 'LEAD-A', repo: '/Users/x/app', model: 'sonnet', conductor: { sid: 's', pid: 7, start: 'Thu Nov 13 11:00:00 2026' }, at: 5, nonce }
   assert.deepEqual(JSON.parse(c.offerText(o)), o)
   assert.ok(c.offerText(o).length < c.OFFER_MAX)
-  for (const code of ['not-conductor', 'conductor-leads-off', 'bad-repo', 'not-in-reach', 'conductor-nested', 'name-in-open', 'offer-open', 'open-in-flight', 'open-rate', 'ledger-unreadable', 'offer-write', 'ledger-write', 'unsafe-offers-dir', 'config-unreadable'])
+  for (const code of ['not-conductor', 'conductor-leads-off', 'bad-repo', 'not-in-reach', 'conductor-nested', 'name-in-open', 'offer-open', 'open-in-flight', 'lead-cap', 'open-backstop', 'ledger-unreadable', 'offer-write', 'ledger-write', 'unsafe-offers-dir', 'config-unreadable'])
     assert.ok(c.reasonWhy(code).startsWith(`${code}: `), code)
   const S = '12345678-aaaa-bbbb-cccc-dddddddddddd'
   assert.match(c.leadOpenedText('LEAD-A', S, false), /^lead LEAD-A is on as session 12345678: the person was not asked\./)
@@ -2984,8 +3047,8 @@ test('lead_open texts: the request line, the brief, the offer and the fixed reas
   assert.match(c.leadNoAnswerText('LEAD-A', S), /may still become the lead\. Do not open another/)
   assert.equal(c.leadCueLine(nonce), `lead ${nonce}\n`)
   assert.equal(c.leadCueLine('xyz'), undefined)
-  assert.equal(c.LEAD_OPENS_PER_HOUR, 1)
-  assert.equal(c.LEAD_OFFERS_PER_HOUR, 3)
+  assert.equal(c.LEADS_PER_CONDUCTOR, 4)
+  assert.equal(c.OPENS_PER_CONDUCTOR_HOUR, 8)
 })
 
 // ---- the lead cue and the new panel's checks (ADR 0006) ----
@@ -3088,19 +3151,6 @@ test('leadLate counts from the cue file and fails closed on a time that is not a
   assert.equal(c.leadLate(m, NaN), true)
   assert.equal(c.leadLate(m, m + 60_000), true)
   assert.ok(c.LEAD_CUE_WAIT_MS >= c.LEAD_ACCEPT_LATE_MS + 2_000 + 5_000)
-})
-
-test('leadOpenRate: a lead-grant row with a void row of its nonce does not use the hour', () => {
-  const now = Date.parse('2026-11-14T12:00:00Z')
-  const t = '2026-11-14T11:30:00Z'
-  const grant = { kind: 'lead-grant', t, hash: 'H', nonce: 'n1' }
-  assert.equal(c.leadOpenRate([grant], 'H', now), 'open-rate')
-  assert.equal(c.leadOpenRate([grant, { kind: 'lead-offer-void', t, hash: 'H', nonce: 'n1' }], 'H', now), 'ok')
-  assert.equal(c.leadOpenRate([grant, { kind: 'lead-offer-void', t, hash: 'H', nonce: 'n2' }], 'H', now), 'open-rate')
-  assert.equal(c.leadOpenRate([grant, { kind: 'lead-offer-void', t, hash: 'G', nonce: 'n1' }], 'H', now), 'open-rate')
-  const offers = [1, 2, 3].map((i) => ({ kind: 'lead-offer', t, hash: 'H', nonce: `o${i}` }))
-  assert.equal(c.leadOpenRate(offers, 'H', now), 'open-rate')
-  assert.equal(c.leadOpenRate([...offers, ...offers.map((o) => ({ ...o, kind: 'lead-offer-void' }))], 'H', now), 'open-rate')
 })
 
 test('a lead answer round-trips through resultLine and parseResult, with every new code and the model note', () => {

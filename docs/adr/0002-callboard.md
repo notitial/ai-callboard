@@ -199,6 +199,7 @@ Each addition is part of the decision above; these sections hold what it decided
 - **Triggers.** `gone`: no live row for 3 observations, the lane was live and its report is not signed done. `prompt`: waiting on a permission prompt or input for 5 minutes. `quiet`: idle for 30 minutes without signing done. Reports are read only once a notice is due and every gate holds.
 - **When.** Check-ins on, not paused, no wake from sleep in the last 30 minutes, the lead idle 20 minutes or more, and the keepalive's gates (no dialog, request, nudge, background work or draft, an idle interactive row). One fixed turn listing lane names only (at most 8), once per lane, trigger and start time, sharing the cap of 12 an hour with the lanes-changed notice.
 - **Pause and switch.** `/callboard checkin pause <N>m|<N>h` (person only, up to 24 h) and `/callboard config checkin on|off`.
+  - **Amended 2026-11-16:** a bare `checkin pause` pauses for 1 hour, and `checkin resume` ends a pause (`checkin on` still does).
 - **Residuals.** The pause and what the lead saw are lost at a restart. A sleep under 5 minutes is not seen. A legacy lane notifies every lead of its repo. A forged registry row can make a lane look waiting or quiet: the worst case is a wasted lead turn. A step that hangs on an engine read stops check-ins in that session until a reload (`checkin-stalled`).
 
 ### Design addition: manager level, manager tools and check-ins (v14, 2026-11-04)

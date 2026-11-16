@@ -277,7 +277,7 @@ test('/callboard conductor asks once with every repo and the restart sentence; C
   const r = await condRun($, '')
   expect(r.text).toBe(`${CONDUCTOR_ON_TEXT} Out of reach: ../gone (not found).`)
   expect(h.lastQuestion).toBe(conductorQuestion(COND, [PIN, APP2, FAR], CHOME))
-  expect(h.lastQuestion).toBe('Make this session a conductor for these repos? ../app, ../app2, ~/data/x/work/elsewhere/far-repo (not next to cond). It can list their lanes, compact their leads, and force stop a lane: every stop asks you. It can also park and retire the leads it owns, and force stop them with your click. It can also open a lead in one of these repos without asking you (one an hour per repo). It stays a conductor after a restart until you run /callboard off.')
+  expect(h.lastQuestion).toBe('Make this session a conductor for these repos? ../app, ../app2, ~/data/x/work/elsewhere/far-repo (not next to cond). It can list their lanes, compact their leads, and force stop a lane: every stop asks you. It can also park and retire the leads it owns, and force stop them with your click. It can also open a lead in one of these repos without asking you (at most 4 leads at once, 8 successful opens an hour). It stays a conductor after a restart until you run /callboard off.')
   expect(h.lastHeader).toBe('Conductor')
   expect(h.askedOptions).toEqual([['Conductor', 'Cancel']])
   const names = toolDefs.slice(defs0).map((d) => JSON.parse(d).name).filter((n: string) => n.startsWith('lane_'))
