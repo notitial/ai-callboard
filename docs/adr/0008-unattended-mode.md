@@ -4,12 +4,12 @@
 **Date:** 2026-11-16
 
 Scope: what callboard does with a lane's prompts and questions, and with a tier's own, while the person is away. It
-builds on [ADR 0011](0011-all-prompts-rise.md) (every ask rises) and changes [ADR 0004](0004-prompt-answering.md)
-(the relay, a tier's own prompt, what the manager does with a request it will not allow, questions),
-[ADR 0009](0009-go-given-once.md) (who may open the go dialog), [ADR 0002](0002-callboard.md) and
-[ADR 0007](0007-conductor-owns-leads.md) (how many lanes a lead opens) and [ADR 0001](0001-manager-role.md) (the
-exception for prompt answering). It changes who is asked, when, and when the person stops being asked, so every part
-is on the risk list. Nothing here is in force until the code that makes it true lands.
+changes [ADR 0004](0004-prompt-answering.md) (the relay, a tier's own prompt, what the manager does with a request it
+will not allow, a prompt nobody answers, questions), [ADR 0011](0011-all-prompts-rise.md) (what happens to an ask a
+tier surfaces), [ADR 0009](0009-go-given-once.md) (who may open the go dialog), [ADR 0002](0002-callboard.md) (how
+many lanes a lead opens) and [ADR 0001](0001-manager-role.md) (the exception for prompt answering). It changes who is
+asked, when, and when the person stops being asked, so every part is on the risk list. Nothing here is in force until
+the code that makes it true lands.
 
 ## Context
 
@@ -78,9 +78,9 @@ Facts that bound the options:
   park through either.
 - **The record.** Every request and decision of a window carries the window's mark in the ledger. The person's own
   command lists the window: how it ended, and what was parked, held, still open, denied and allowed.
-- **The go.** The mode gives and widens no go. A lead cannot open the go dialog while it is on; the person can still
-  give one themselves. The manager follows the rubric as it stands when it judges a request, so a change to what a go
-  lets a tier allow is decided in ADR 0009, not here.
+- **The go.** The mode gives and widens no go. No session, a lead or a conductor, can open the go dialog while it is
+  on; the person can still give one themselves. The manager follows the rubric as it stands when it judges a
+  request, so a change to what a go lets a tier allow is decided in ADR 0009, not here.
 - **Not an armed run.** It pre-authorises nothing and does not satisfy the arming of an unattended run in ai-toolkit
   (https://github.com/notitial/ai-toolkit/blob/main/rules/workflow.md).
 
@@ -114,6 +114,10 @@ Each gets a dated line pointing here when the code that makes it true lands, not
   provisional answer. The manager still never allows a risk-list prompt, and stop dialogs stay the person's.
 - **ADR 0004:** inside a window no tier relays. A tier's own question, and a conductor's or manager's own prompt, is
   refused where it was the person's. The manager denies or parks what it would have passed up, where a tier denied
-  only when certain. A question the rubric leaves to the person may get a provisional answer.
-- **ADR 0009:** a lead cannot open the go dialog inside a window.
-- **ADR 0002 and ADR 0007:** a lead's lanes are limited in number inside a window.
+  only when certain. A prompt that reached a tier and that none answered is held: closed for the person's return,
+  where the lane was told to ask again. A lane's prompt with no tier in reach still stays in its panel. A question
+  the rubric leaves to the person may get a provisional answer.
+- **ADR 0011:** inside a window an ask a tier surfaces is parked or held, not relayed. What rises, and what a tier
+  may handle, stand.
+- **ADR 0009:** neither a lead nor a conductor can open the go dialog inside a window.
+- **ADR 0002:** its limits on lanes stand; inside a window a lead's live lanes get a lower one.
