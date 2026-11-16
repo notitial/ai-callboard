@@ -86,6 +86,14 @@ test('prompts: the person\'s click on a question with no answer form wins inside
   expect(rowKinds()).toEqual(['not-judgeable question-count'])
 })
 
+test('prompts: a question with no answer form whose only tier goes during the 30 s is not denied: the reach is read again before the denial', async ($, on) => {
+  await answerer($, on, [], { verdict: QASK, asksScope: 'all' })
+  const c = callOf('AskUserQuestion', NO_FORM[0][1])
+  expect(await runRequest($, [at(20_000, () => { h.sessions = { ...h.extraRows, ...ownReg({ status: 'waiting', waitingFor: 'permission prompt', statusUpdatedAt: T0 + 500 }) } })], c.over, c.check)).toEqual({})
+  expect(h.nowMs - T0).toBe(30_000)
+  expect(rowKinds()).toEqual(['not-judgeable question-count'])
+})
+
 test('prompts: a question with no answer form and no live tier in reach is not denied: it stays the person\'s, with no wait', async ($, on) => {
   await answerer($, on, [], { verdict: QASK, asksScope: 'all' })
   const c = callOf('AskUserQuestion', NO_FORM[0][1])
