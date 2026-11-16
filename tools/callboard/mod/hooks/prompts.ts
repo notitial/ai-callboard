@@ -158,8 +158,8 @@ function pathArgs(input: Record<string, unknown>): string[] {
 }
 
 // ---- the classifier: what raised an ask ----
-// Every ask of a lane's or a lead's call reaches the tiers, whatever raised it (ADR 0011): the rubric judges the call, and the top live tier relays what no tier
-// may allow. Only a prompt that tool.check did not report as an ask stays the person's: the mod does not know why it exists.
+// Every ask of a lane's or a lead's call reaches the tiers, whatever raised it (ADR 0011): the rubric judges the call, and the top live tier (or the one the person
+// named with /callboard here) relays what no tier may allow. Only a prompt that tool.check did not report as an ask stays the person's: the mod does not know why it exists.
 export type CheckFacts = { decision?: unknown; reason?: unknown; rule?: unknown; hook?: unknown; setting?: unknown; plugin?: unknown; ceiling?: unknown }
 export const GUARD_PREFIX = 'github-mcp-guard: '
 export const GUARD_TOOLS: readonly string[] = ['mcp__github__create_pull_request', 'mcp__github__add_issue_comment', 'mcp__github__add_reply_to_pull_request_comment', 'mcp__github__update_pull_request']
@@ -421,7 +421,7 @@ export type RowKind = (typeof ROW_KINDS)[number]
 // end the go's end as an ISO time, repo, lane the lead's name then), `go-end` (id, code off | expired | grantor-off | void, by the session that ended it) and
 // `go-read` (id, by the reading session, code listed | later, lane its lane name), once per reading session.
 // Here's rows (ADR 0009, the relay): `here-on` (by the session the person typed /callboard here in, tier its level, end the end as an ISO time, lane its name),
-// written before the store key; `here-off` (code off | grant-off | void, by the session that ended it, was the session that was here).
+// written before the store key; `here-off` (code off | grant-off | void, by the session that ended it, was the session that was here, absent when the key could not be read).
 // raised (a `requested` row): what raised the ask (one of RAISED), so the audit can count the tiers' allows by it after the request file is gone.
 // opt, lh (a question's `answer` rows, code 'answer'): the chosen option's index as a string, and the first 16 hex of SHA-256(id + "\n" + label); no label text. Strings, since the audit drops a row with another type.
 export type LedgerRow = { t: string; kind: RowKind; code?: string; id?: string; lane?: string; repo?: string; tool?: string; pattern?: string; hash?: string; tier?: string; why?: string; nonce?: string; cap?: CapKind; target?: string; by?: string; tuid?: string; via?: 'person'; short?: string; opt?: string; lh?: string; was?: string; dialog?: 'yes' | 'none'; end?: string; raised?: string }

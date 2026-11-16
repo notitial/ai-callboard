@@ -161,7 +161,10 @@ The risk list is used in two senses, and the go separates them.
   above keep their relay as the fallback: if the session the person named does not act, the request reaches the next
   tier in its window as before, so now and then a question still opens in the other panel. The other choice, to
   refuse the top tier's relay while `here` stands, could leave a prompt with nobody able to put it to the person.
-  It does not end unattended mode and is not ended by it.
+  It does not end unattended mode and is not ended by it. A restart that restores the session's grant does not end
+  it either, as a closed panel ends no go; a grant the person drops does, and a new grant in that session does not
+  bring it back. A lead moved to another folder stays `here`, for its new reach. `here off` does not take back a
+  relay question already on screen: that request is in front of the person, and their click still lands.
 
 ### Audit
 

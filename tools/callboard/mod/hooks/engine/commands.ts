@@ -6,6 +6,7 @@ import * as pr from '../prompts.ts'
 import {
   grants,
   offSeq,
+  hereGone,
   restoredOnce,
   managerDeclared,
   conductorDeclared,
@@ -76,7 +77,7 @@ import { ensureTimer } from './tick.ts'
 import { grantNameNo } from './lead-open.ts'
 import { epochOf, heldNo, holdsOf, levelSave } from './levels.ts'
 import type { LevelDesc } from './levels.ts'
-import { ANSWERING_KEY, ledgerAdd, promptsOff, escalationNow, defaultForget, hereRead } from './answer-hook.ts'
+import { ANSWERING_KEY, ledgerAdd, promptsOff, escalationNow, defaultForget, hereRead, hereDrop } from './answer-hook.ts'
 import { ledgerRestore } from './answer-tiers.ts'
 import * as go from '../go.ts'
 import { goCommand, goGrantorOff } from './go.ts'
@@ -891,8 +892,9 @@ async function hereCommand($: any, sid: string, code: c.OriginCode, op: pr.HereO
       await logq($, sid, 'error', 'here-store')
       return { text: pr.HERE_OFF_FAILED }
     }
-    if (before === 'error' || before === undefined) return { text: pr.HERE_OFF_NONE }
-    if (!(await ledgerAdd($, { kind: 'here-off', code: 'off', by: sid, was: before.sid }))) await logq($, sid, 'error', 'here-ledger')
+    if (before === undefined) return { text: pr.HERE_OFF_NONE }
+    // A key that could not be read may have named a session: its end gets a row too, with no session in it.
+    if (!(await ledgerAdd($, { kind: 'here-off', code: 'off', by: sid, ...(before === 'error' ? {} : { was: before.sid }) }))) await logq($, sid, 'error', 'here-ledger')
     await logq($, sid, 'here-off', code)
     return { text: pr.HERE_OFF_TEXT }
   }
@@ -911,19 +913,24 @@ async function hereCommand($: any, sid: string, code: c.OriginCode, op: pr.HereO
     await logq($, sid, 'error', 'here-ledger')
     return { text: pr.HERE_LEDGER_FAILED }
   }
-  // A key that cannot be written, or a grant that went while it was, leaves no `here`: the row gets its end.
+  // A key that cannot be written, or a grant that went while it was, leaves no `here`: the session is marked (a write that timed out may still land, and
+  // the mark keeps it from counting), a key that may be there is removed, and the row gets its end.
   const undo = async (text: string, drop: boolean) => {
-    if (drop) await withTimeout($, Promise.resolve($.store.delete(pr.HERE_KEY)).catch(() => undefined), c.ENGINE_CALL_TIMEOUT_MS)
+    hereGone.add(sid)
+    if (drop) await hereDrop($, sid)
     await ledgerAdd($, { kind: 'here-off', code: 'void', by: sid, was: sid })
     await logq($, sid, 'error', 'here-void')
     return { text }
   }
   const value: pr.Here = { v: 1, sid, at, until }
+  hereGone.delete(sid)
+  let wrote: unknown
   try {
-    if ((await withTimeout($, (async () => $.store.set(pr.HERE_KEY, value))(), c.ENGINE_CALL_TIMEOUT_MS)) === 'timeout') throw new Error('timeout')
+    wrote = await withTimeout($, (async () => $.store.set(pr.HERE_KEY, value))(), c.ENGINE_CALL_TIMEOUT_MS)
   } catch {
     return undo(pr.HERE_STORE_FAILED, false)
   }
+  if (wrote === 'timeout') return undo(pr.HERE_STORE_FAILED, true)
   if (grants.get(sid)?.level !== level || epochOf(sid) !== epoch) return undo(pr.HERE_GRANT_CHANGED, true)
   await logq($, sid, 'here-on', code)
   return { text: pr.hereOnText(go.goWhen(until, -new Date(until).getTimezoneOffset()), before !== 'error' && before !== undefined && before.sid !== sid) }

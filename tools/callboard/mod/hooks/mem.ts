@@ -70,6 +70,9 @@ export const restoredOnce = new Set<string>()
 export const dialogOpen = new Set<string>()
 // Counts the `off` commands that ran, so a restore or a join that waited on a dialog can see an `off` came in meanwhile and stop.
 export const offSeq = new Map<string, number>()
+// Sessions whose `here` (/callboard here) ended in this process, by a dropped grant or a key that could not be written: such a session is not here again until the
+// person types the command there, whatever the store key says (its delete may have failed, or a slow write may land late).
+export const hereGone = new Set<string>()
 
 // The lead grant lives only in this module's memory: a reload or a restart drops it, and /callboard lead has to be run and allowed again.
 // It keeps the cwd the lead had when the person gave it, so a later cd cannot move the lead into another repo's lanes.
