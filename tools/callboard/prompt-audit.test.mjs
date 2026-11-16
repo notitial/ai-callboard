@@ -114,16 +114,21 @@ test('g: a grant with a void row of its nonce is listed; the hour is not spent b
   assert.deepEqual(rules(run(fx)), ['lead-grant-voided'])
 })
 
-test('g: two grants of one repo within an hour are an anomaly; another repo, or an hour apart, is not', () => {
+test('g: more than 8 grants by one conductor within an hour are an anomaly; 8, another conductor, or an hour apart are not', () => {
+  const nonces = Array.from({ length: 9 }, (_, k) => `${String(k).padStart(2, '0')}`.repeat(16))
+  const pair = (n, at, by = SID) => [OFFER(n, at, by), GRANT(n, at + 100, by)]
   const fx = fixture()
-  ledger(fx, [ON(), ...clean(), OFFER(N1, 1000), GRANT(N1, 2000), OFFER(N2, 3000), GRANT(N2, 4000)])
-  assert.deepEqual(rules(run(fx)), ['lead-grant-twice-in-hour'])
+  ledger(fx, [ON(), ...clean(), ...nonces.slice(0, 8).flatMap((n, k) => pair(n, 1000 + k * 1000))])
+  assert.deepEqual(rules(run(fx)), [])
   const f2 = fixture()
-  ledger(f2, [ON(), ...clean(), OFFER(N1, 1000), GRANT(N1, 2000), OFFER(N2, 3000, SID, 'd'), GRANT(N2, 4000, SID, 'd')])
-  assert.deepEqual(rules(run(f2)), [])
+  ledger(f2, [ON(), ...clean(), ...nonces.flatMap((n, k) => pair(n, 1000 + k * 1000))])
+  assert.deepEqual(rules(run(f2)), ['lead-grants-over-backstop'])
   const f3 = fixture()
-  ledger(f3, [ON(), ...clean(), OFFER(N1, 1000), GRANT(N1, 2000), OFFER(N2, 3_700_000), GRANT(N2, 3_701_000)])
+  ledger(f3, [ON(), ...clean(), ...nonces.slice(0, 8).flatMap((n, k) => pair(n, 1000 + k * 1000)), ...pair(nonces[8], 4000, 'b1b2c3d4-0000-4000-8000-123456789abc')])
   assert.deepEqual(rules(run(f3)), [])
+  const f4 = fixture()
+  ledger(f4, [ON(), ...clean(), ...nonces.slice(0, 8).flatMap((n, k) => pair(n, 1000 + k * 1000)), ...pair(nonces[8], 3_700_000)])
+  assert.deepEqual(rules(run(f4)), [])
 })
 
 const LEADSID = 'a1b2c3d4-0000-4000-8000-123456789abc'

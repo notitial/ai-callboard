@@ -402,6 +402,8 @@ export const h = {
   recShaFails: false,
   agentListThrows: false,
   renameGate: undefined,
+  // Set once a rename command is parked at renameGate, so a test waits for that and not for a fixed time.
+  renameWaiting: false,
   registerGate: undefined,
   // The next n session.root() calls throw; registering a lane_* tool waits on this.
   cwdThrows: 0,
@@ -487,6 +489,7 @@ function resetSession() {
   h.modelNow = 'claude-sonnet-5-5'
   h.agentListThrows = false
   h.renameGate = undefined
+  h.renameWaiting = false
   h.registerGate = undefined
   h.cwdThrows = 0
   h.rootHang = undefined
@@ -768,7 +771,10 @@ export function engine(on0: any, argvSeen: string[][], stdins: string[] = [], cl
   })
   on('command.run', async (_: any, e: any) => {
     if (e.command === 'rename') {
-      if (h.renameGate) await h.renameGate
+      if (h.renameGate) {
+        h.renameWaiting = true
+        await h.renameGate
+      }
       renames.push(e.args)
       if (h.renameMode === 'throw') throw new Error('refused')
       if (h.renameMode === 'hang') return new Promise(() => undefined)

@@ -15,7 +15,10 @@ mod, a usage watcher and the manager's project skills. ai-toolkit
 
 No repo-wide build or lint. `bash tools/test-all.sh` is the entry point: it runs every suite below and prints a
 pass/fail table (`--quick` skips the slow `callboard` suite, `NAME…` runs only those). Its suites: `callboard`,
-`usage-watcher`, `usage-watcher-install`, `rule-text`; keep its list in step with this one.
+`usage-watcher`, `usage-watcher-install`, `rule-text`, `test-turn`; keep its list in step with this one.
+
+`tools/test-all.sh` and `tools/callboard/test.sh` take a machine-wide turn (`tools/test-turn.sh`), so two local runs
+never overlap: a second run waits for the first, and one that finds a stale turn stops and says how to clear it.
 
 - `tools/callboard/` — `bash tools/callboard/test.sh` after changing anything under it. Needs node 22.18 or later
   and the `claude` CLI (`claude plugin validate`, `claude plugin test`). CI (`.github/workflows/ci.yml`) runs

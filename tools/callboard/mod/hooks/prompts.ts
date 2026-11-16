@@ -223,8 +223,9 @@ export const GUARD_WHY: Record<GuardMissing, string> = {
   'marker-checkout': 'the .protected-checkout marker is missing in the ai-manager checkout',
 }
 // Whether a settings file wires the hook: some PreToolUse entry whose matcher covers the file, shell and git tools (absent, empty, `*`, or naming Edit, Write and Bash)
-// has a command that is the linked hook itself (`hookLink`, with a leading `~`, `$HOME` or `${HOME}` taken as `home`), and `disableAllHooks` is not true. Anything that
-// does not parse, or has another shape, is no.
+// has a command that is the linked hook itself (`hookLink`, with a leading `~`, `$HOME` or `${HOME}` taken as `home`) or ai-toolkit's fail-closed wrapper of it, exactly
+// `/bin/bash -p "<hook>" || exit 2` (inside the quotes only `$HOME` and `${HOME}` expand, a `~` does not, and a link with a character the quotes would still expand is
+// not matched), and `disableAllHooks` is not true. Anything that does not parse, or has another shape, is no.
 export function settingsWireGuard(text: unknown, hookLink: string, home: string): boolean {
   if (typeof text !== 'string') return false
   let j: unknown
@@ -237,11 +238,18 @@ export function settingsWireGuard(text: unknown, hookLink: string, home: string)
   const pre = obj(obj(j).hooks).PreToolUse
   if (!Array.isArray(pre)) return false
   const expand = (s: string): string => s.replace(/^(?:~|\$HOME|\$\{HOME\})(?=\/)/, home)
+  const expandQuoted = (s: string): string => s.replace(/^(?:\$HOME|\$\{HOME\})(?=\/)/, home)
+  const quotable = !/["$`\\]/.test(hookLink)
+  const runsHook = (cmd: string): boolean => {
+    if (expand(cmd) === hookLink) return true
+    const w = quotable ? /^\/bin\/bash -p "(.+)" \|\| exit 2$/.exec(cmd) : null
+    return w !== null && expandQuoted(w[1]) === hookLink
+  }
   return pre.some((m) => {
     const mt = obj(m).matcher
     const covers = mt === undefined || mt === '' || mt === '*' || (typeof mt === 'string' && ['Edit', 'Write', 'Bash'].every((t) => mt.split('|').includes(t)))
     const hs = obj(m).hooks
-    return covers && Array.isArray(hs) && hs.some((h) => typeof obj(h).command === 'string' && expand(obj(h).command as string) === hookLink)
+    return covers && Array.isArray(hs) && hs.some((h) => typeof obj(h).command === 'string' && runsHook(obj(h).command as string))
   })
 }
 // The ai-toolkit checkout from the real path of the linked hook: <toolkit>/hooks/protected-paths-guard.sh. Anything else has no toolkit.
