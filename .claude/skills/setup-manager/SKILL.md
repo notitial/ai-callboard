@@ -107,7 +107,7 @@ first; it is the source for every step here, and wins where the two differ.
    `/cleanup-claude` leave this link alone (docs/setup.md).
 10. **Reserved name.** Only when callboard is loaded. Ask the person which name this machine's manager
     will carry. `MANAGER` needs nothing (it is built in). Another name (a second machine's manager): ask them to type
-    `/callboard reserve` and paste the answer. Not listed: give them `/callboard reserve NAME` with their name filled
+    `/callboard reserve` and paste the answer. Not listed: give them `/callboard reserve add NAME` with their name filled
     in, to type themselves (only their own prompt can change the list), then `/callboard reserve` again to check.
 11. **Tests.** Offer `bash tools/test-all.sh --quick` (run it on a yes; it only reads and uses temp folders).
 

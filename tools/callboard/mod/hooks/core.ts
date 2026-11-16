@@ -751,31 +751,86 @@ const mdEscape = (s: string): string => s.replace(/[\\|*_`><[\]]/g, '\\$&')
 const mdTable = (head: string[], rows: string[][]): string[] => [`| ${head.join(' | ')} |`, `|${head.map(() => '---').join('|')}|`, ...rows.map((r) => `| ${r.join(' | ')} |`)]
 export const mdPage = (header: string, head: string[], rows: string[][], notes: string[] = []): string => [header, '', ...mdTable(head, rows), ...notes.flatMap((n) => ['', n])].join('\n')
 
-// /callboard with no argument and /callboard help: one row per subcommand the handler accepts, in the shared table style (mdPage).
-const HELP_ROWS: [string, string][] = [
-  ['lanes', 'List the lanes in reach and their sessions.'],
-  ['status', 'Show what callboard does in this session.'],
-  ['lead [NAME]', 'Make this session a lead, named NAME if given, after you confirm.'],
-  ['lead join [CONDUCTOR]', 'Give this lead its conductor, after you confirm. A lead that has one is not moved.'],
-  ['lead leave', 'Take this lead away from its conductor.'],
-  ['lane [NAME]', 'Make this session a lane, named NAME if given; lane off takes it out of its lane.'],
-  ['escalation [off]', 'Let the lead tier answer the prompts its lanes raise, or stop that.'],
-  ['go [TEXT]', 'In a lead: give one go for the work TEXT names, after you confirm. go lists the live goes; go off [SHORT] ends them.'],
-  ['conductor [NAME]', 'Make this session a conductor, named NAME if given, after you confirm.'],
-  ['conductor add|remove NAME', 'Change the repos a conductor reaches.'],
-  ['manager [NAME]', 'Make this session the manager, after you confirm.'],
-  ['config [SETTING VALUE]', 'Show the settings, or change one (reset restores the defaults).'],
-  ['reserve [remove] [NAME]', 'Show the names reserved on this Mac, or add or remove one.'],
-  ['checkin pause Nm|h', 'Pause check-ins for N minutes or hours; checkin on resumes them.'],
-  ['rest', 'Stop keepalive pings in this idle gap. /rest does the same.'],
-  ['off', 'Turn lead, conductor, manager and lane off for this session.'],
-  ['help', 'Show this table.'],
+// The one table of /callboard's subcommands: the help, the usage lines, the argument hint and the completion are all built from it, so a form is written once.
+// Who may run a form is not here: each handler in engine/commands.ts decides that.
+//
+// A form is the words after /callboard, split on spaces. A lower-case word is typed as written (`a|b` offers either); a token with an upper-case letter is a
+// value the person supplies (NAME, Nm|Nh); square brackets mark a token that may be left out.
+export type CommandRow = { form: string; help: string }
+
+export const COMMAND_TABLE: readonly CommandRow[] = [
+  { form: 'lanes', help: 'List the lanes in reach and their sessions.' },
+  { form: 'status', help: 'Show what callboard does in this session.' },
+  { form: 'lead [NAME]', help: 'Make this session a lead, named NAME if given, after you confirm.' },
+  { form: 'lead join [CONDUCTOR]', help: 'Give this lead its conductor, after you confirm. A lead that has one is not moved.' },
+  { form: 'lead leave', help: 'Take this lead away from its conductor.' },
+  { form: 'lane [NAME]', help: 'Make this session a lane, named NAME if given.' },
+  { form: 'lane off', help: 'Take this session out of its lane.' },
+  { form: 'escalation [off]', help: 'Let the lead tier answer the prompts its lanes raise, or stop that.' },
+  { form: 'go [TEXT]', help: 'In a lead: give one go for the work TEXT names, after you confirm. A bare go lists the live goes.' },
+  { form: 'go off [SHORT]', help: 'End the live goes, or the one SHORT names.' },
+  { form: 'conductor [NAME]', help: 'Make this session a conductor, named NAME if given, after you confirm.' },
+  { form: 'conductor add NAME|PATH', help: 'Add a repo to the repos a conductor reaches.' },
+  { form: 'conductor remove NAME|PATH', help: 'Take a repo off the repos a conductor reaches.' },
+  { form: 'manager [NAME]', help: 'Make this session the manager, after you confirm.' },
+  { form: 'config', help: 'Show the settings.' },
+  { form: 'config keepalive|checkin|conductor-leads on|off', help: 'Switch one setting on or off, for the whole Mac.' },
+  { form: 'config ping|stop|idle|working N', help: 'Set one number, for the whole Mac.' },
+  { form: 'config reset', help: 'Restore the default settings.' },
+  { form: 'reserve', help: 'Show the names reserved on this Mac.' },
+  { form: 'reserve [add] NAME', help: 'Reserve a name on this Mac.' },
+  { form: 'reserve remove NAME', help: 'Take a name off the reserved list.' },
+  { form: 'checkin pause [Nm|Nh]', help: 'Pause check-ins for N minutes or hours (1 minute to 24 hours), or for 1 hour if you give no time.' },
+  { form: 'checkin resume', help: 'End the pause.' },
+  { form: 'rest', help: 'Stop keepalive pings in this idle gap. /rest does the same.' },
+  { form: 'off', help: 'Turn lead, conductor, manager and lane off for this session.' },
+  { form: 'help', help: 'Show this table.' },
 ]
+
+const tokens = (form: string): string[] => form.split(' ')
+const strip = (t: string): string => t.replace(/^\[|\]$/g, '')
+// The words a token types as written: none for a value the person supplies.
+const literals = (t: string): string[] => (/[A-Z]/.test(t) ? [] : strip(t).split('|'))
+
+// The first words, in table order, each once.
+export const firstWords = (): string[] => [...new Set(COMMAND_TABLE.map((r) => tokens(r.form)[0]))]
+
+// The hint drawn dim after /callboard in the slash menu.
+export const argumentHint = (): string => firstWords().join('|')
+
+// The line a word that does not parse is answered with: `Use /callboard <form>, <form> or <form>.` over the forms of one first word, or over the first words alone.
+export function usageLine(word?: string): string {
+  const rows = word === undefined ? firstWords() : COMMAND_TABLE.filter((r) => tokens(r.form)[0] === word).map((r) => r.form)
+  const last = rows.length > 1 ? ` or ${rows[rows.length - 1]}` : ''
+  return `Use /callboard ${rows.slice(0, rows.length > 1 ? -1 : 1).join(', ')}${last}.`
+}
+
+export type Completion = { text: string; label: string; description: string }
+
+// The rows the typeahead adds for the word at the cursor: draft is the text before the word, word the word so far (never empty).
+// A draft that is not /callboard followed by words gets none. A row offers its next word when the words typed so far fit it, position by position.
+export function completions(draft: string, word: string): Completion[] {
+  // The parser reads one line, with the words as typed (lower case): a line break or an earlier word in another letter case fits no form.
+  if (!draft.startsWith('/callboard ') || draft.includes('\n')) return []
+  const before = draft.trim().split(/\s+/).slice(1)
+  const lead = word.toLowerCase()
+  const out = new Map<string, Completion>()
+  for (const row of COMMAND_TABLE) {
+    const t = tokens(row.form)
+    if (t.length <= before.length) continue
+    const fits = before.every((w, i) => literals(t[i]).length === 0 || literals(t[i]).includes(w))
+    if (!fits) continue
+    for (const w of literals(t[before.length])) if (w.startsWith(lead) && !out.has(w)) out.set(w, { text: w, label: w, description: row.help })
+  }
+  return [...out.values()]
+}
+
 // What escalation never hands to an agent: the one wording of it, appended to the answer of /callboard escalation.
 export const DIALOG_LINE = 'Never answered by an agent: a dialog of another kind (the plan-mode exit). Writes to the checkouts, the settings and callboard\'s state are stopped by a hook before any prompt exists, not here. Merges, force pushes, pushes to main, master or production and destructive deletes are not on it: the rubric passes them up.'
-export const helpText = (): string => mdPage('**Callboard commands**', ['Command', 'What it does'], HELP_ROWS.map((r) => r.map(mdEscape)))
+// /callboard with no argument and /callboard help: one row per form in COMMAND_TABLE, in the shared table style (mdPage).
+export const helpText = (): string => mdPage('**Callboard commands**', ['Command', 'What it does'], COMMAND_TABLE.map((r) => [r.form, r.help].map(mdEscape)))
 // A word the handler does not know: the short list, then the way to the full one.
-export const HELP_USAGE = 'Use /callboard help, lanes, status, lead [NAME], lead join, lane [NAME], escalation [off], go [TEXT], manager or off. Run /callboard help for the full list.'
+export const HELP_USAGE = `${usageLine()} Run /callboard help for the full list.`
 // The words after `lead` and `conductor` that are subcommands, so never a NAME (any letter case): the subcommands, the other /callboard command words (a typo of
 // one is the usage line, not a rename), and on and off, the typos of a switch these commands do not have.
 const GRANT_WORDS: readonly string[] = ['join', 'leave', 'add', 'remove', 'on', 'off', 'status', 'lanes', 'lane', 'help', 'config', 'manager', 'reserve', 'checkin', 'rest', 'escalation', 'go', 'lead', 'conductor']
@@ -825,7 +880,7 @@ export function parseCommandArgs(args: unknown): CommandArg | undefined {
 }
 
 // ---- this machine's reserved names ----
-// The repo reserves MANAGER only (RESERVED_NAMES). /callboard reserve NAME adds a name on this machine alone, kept in $.store under RESERVE_KEY: no lane, lead,
+// The repo reserves MANAGER only (RESERVED_NAMES). /callboard reserve add NAME (or reserve NAME) adds a name on this machine alone, kept in $.store under RESERVE_KEY: no lane, lead,
 // join or rename may then take it or a look-alike of it, and the manager may carry it. `reserve` shows the list; `reserve remove NAME` takes one off.
 // A change is the person's own (from the prompt or the phone), as /callboard config; anything else is refused with a fixed text.
 export const RESERVE_KEY = 'reserved'
@@ -836,7 +891,10 @@ function parseReserveArgs(rest: string | undefined): ReserveOp {
   if (a === '') return 'show'
   const rm = /^remove ([A-Za-z0-9_-]{1,40})$/.exec(a)
   if (rm) return { remove: rm[1] }
-  if (/^[A-Za-z0-9_-]{1,40}$/.test(a) && a.toLowerCase() !== 'remove') return { add: a }
+  // `add NAME` and the bare NAME both add; add and remove are no name, bare or after add.
+  const am = /^add ([A-Za-z0-9_-]{1,40})$/.exec(a)
+  if (am) return ['add', 'remove'].includes(am[1].toLowerCase()) ? 'bad' : { add: am[1] }
+  if (/^[A-Za-z0-9_-]{1,40}$/.test(a) && !['add', 'remove'].includes(a.toLowerCase())) return { add: a }
   return 'bad'
 }
 // What $.store holds is a file any same-uid process can write: take only valid names, never a built-in one, no duplicates (any letter case), at most RESERVE_MAX.
@@ -852,7 +910,7 @@ export function parseReserved(raw: unknown): string[] {
   }
   return out
 }
-export const RESERVE_USAGE = 'Use /callboard reserve to show this machine\'s reserved names, /callboard reserve NAME to add one, or /callboard reserve remove NAME to take one off.'
+export const RESERVE_USAGE = usageLine('reserve')
 export const RESERVE_NOT_PERSON = 'Only you can change the reserved names: type /callboard reserve yourself.'
 export const RESERVE_UNREADABLE = 'The reserved names could not be read. Nothing changed.'
 export const RESERVE_UNSAVED = 'The reserved names could not be saved. Run /callboard reserve to see them.'
@@ -2476,6 +2534,7 @@ const CHECKIN_GONE_OBS = 3
 // The lowest `ping after` setting: a status change after this much quiet may be the lane's own keepalive ping.
 export const CHECKIN_BLIP_AFTER_MS = CONFIG_RANGE.pingAfterMin[0] * 60_000
 const CHECKIN_PAUSE_MAX_MS = 24 * HOUR_MS
+const CHECKIN_PAUSE_DEFAULT_MS = HOUR_MS
 const ATTENTION_MAX = 8
 // What a lead keeps about a lane: whether it saw the lane live, how many observations in a row found it gone and since when, the statusUpdatedAt it saw last,
 // and since when it saw it waiting on a prompt or idle.
@@ -2577,10 +2636,11 @@ export function reportSigned(text: string, sid?: string): boolean {
   const m = /^status: done (\S+)$/.exec(lastLine(text))
   return m !== null && SID_RE.test(m[1]) && (sid === undefined || m[1] === sid)
 }
-// /callboard checkin: `pause <N>m|<N>h` (1 minute to 24 hours) or `on`; anything else is the usage text.
+// /callboard checkin: `pause [<N>m|<N>h]` (1 minute to 24 hours, 1 hour when left out) or `resume` (`on` is the older spelling); anything else is the usage text.
 export type CheckinOp = 'on' | 'bad' | { pauseMs: number }
 function parseCheckinArgs(rest: string): CheckinOp {
-  if (rest === 'on') return 'on'
+  if (rest === 'on' || rest === 'resume') return 'on'
+  if (rest === 'pause') return { pauseMs: CHECKIN_PAUSE_DEFAULT_MS }
   const m = /^pause ([1-9][0-9]{0,3})([mh])$/.exec(rest)
   if (!m) return 'bad'
   const ms = Number(m[1]) * (m[2] === 'h' ? HOUR_MS : 60_000)
@@ -2590,7 +2650,7 @@ function parseCheckinArgs(rest: string): CheckinOp {
 // cache nudge in their place) in this idle gap, so the prompt cache expires; the next real turn there ends it. `/callboard config keepalive off` is the Mac-wide switch.
 export const REST_TEXT = 'Rest set for this session: no more keepalive pings in this idle gap, so its prompt cache will expire. The next real turn here turns pings back on. /callboard config keepalive off stops them on this whole Mac.'
 export const REST_FAILED = 'Rest not set: the session state could not be written. Nothing changed.'
-export const CHECKIN_USAGE = 'Use /callboard checkin pause <N>m or <N>h (1 minute to 24 hours), or /callboard checkin on.'
+export const CHECKIN_USAGE = `${usageLine('checkin')} A pause is 1 minute to 24 hours.`
 export const CHECKIN_NOT_PERSON = 'Only you can pause check-ins: type /callboard checkin yourself.'
 export const CHECKIN_ON_TEXT = 'Check-ins are on again in this session.'
 export const CHECKIN_UNSAVED = 'The check-in pause could not be saved. Nothing changed.'
@@ -2847,7 +2907,7 @@ function parseConductorArgs(rest: string): ConductorOp {
   if (!m || !conductorArgOk(m[2])) return 'bad'
   return m[1] === 'add' ? { add: m[2] } : { remove: m[2] }
 }
-export const CONDUCTOR_USAGE = 'Use /callboard conductor [NAME], conductor add NAME|PATH or conductor remove NAME|PATH.'
+export const CONDUCTOR_USAGE = usageLine('conductor')
 export const CONDUCTOR_NOT_PERSON = 'Only you can change the conductor list: type /callboard conductor yourself.'
 
 // The list file: { "repos": [...] }, other keys ignored; at most CONDUCTOR_REPOS_MAX entries, each conductorEntryOk, no duplicates. Anything else: undefined.
