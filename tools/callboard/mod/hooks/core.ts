@@ -2661,12 +2661,15 @@ export function reportSigned(text: string, sid?: string): boolean {
 // for a check-in (idleTurnEnd).
 export const LANE_DONE_IDLE_MS = 2 * 60_000
 export const LANE_DONE_PER_HOUR = 6
-// The idle time a done notice left untouched. from: since when the lead was idle before the notice; prevEnd: its last turn end then; end: the end of the
-// notice's own turn, once seen. The turn end to count idle time from: `from` while the notice's turn is the last one that ended, the real one otherwise
-// (drop: the hold is over).
-export type DoneHold = { from: number; prevEnd: number; end?: number }
-export function idleTurnEnd(turnEnd: number, hold: DoneHold | undefined): { at: number; hold?: DoneHold } {
+// The idle time a done notice left untouched. from: since when the lead was idle before the notice; prevEnd: its last turn end then; at: when the notice was
+// sent; end: the end of the notice's own turn, once seen. The turn end to count idle time from: `from` while the notice's turn is the last one that ended, the
+// real one otherwise (drop: the hold is over). A hold whose turn end is not seen within DONE_HOLD_MS (the turn never reached the turn-complete hook) is over
+// too, so a turn that ends much later is not taken for the notice's.
+export const DONE_HOLD_MS = 10 * 60_000
+export type DoneHold = { from: number; prevEnd: number; at: number; end?: number }
+export function idleTurnEnd(turnEnd: number, hold: DoneHold | undefined, now: number): { at: number; hold?: DoneHold } {
   if (!hold) return { at: turnEnd }
+  if (hold.end === undefined && now - hold.at >= DONE_HOLD_MS) return { at: turnEnd }
   if (turnEnd === hold.prevEnd) return { at: turnEnd, hold }
   const end = hold.end ?? turnEnd
   return end === turnEnd ? { at: hold.from, hold: { ...hold, end } } : { at: turnEnd }
