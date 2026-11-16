@@ -48,7 +48,7 @@ single tool.
   gives no go and never passes one on in its own words. A lane's question that asks for a go goes through the mod's
   relay at whichever tier relays, the manager included.
   *Amended 2026-11-17 (#119):* what the person tells the manager to have a session do, when it is not on the risk
-  list and needs no go, approval or merge, the manager passes on as a plain instruction to the tier below it, and that session follows it
+  list and needs no go, approval or merge, the manager passes on as a plain instruction to a lead that has no conductor, and that lead follows it
   without asking the person (ADR 0002, the residual on briefs and messages). A go is still never relayed.
 - **Writes** only its own state under `.archive/manager/` and its memory. No code, docs, settings, hooks or lock state.
 
