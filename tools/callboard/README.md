@@ -65,11 +65,13 @@ caller.
    the hook's reason, handles the routine cases its rubric names (a rerun of the lane's own CI run, a delete inside
    the lane's own clone) and passes the rest up, and the top live tier relays it to you. A request that no tier
    answers or relays is denied after 20 minutes, and the lane may ask again
-   ([ADR 0011](../../docs/adr/0011-all-prompts-rise.md)). What cannot rise (a subagent's ask, a call with no usable
+   ([ADR 0011](../../docs/adr/0011-all-prompts-rise.md)). The time the Mac sleeps does not count, and a sleep
+   does not by itself end a request's wait. What cannot rise (a subagent's ask, a call with no usable
    `tool.check` entry, no live tier, a question with no answer form) stays in the lane's panel; a prompt that a host
    answers is not yours to click, and nothing waits on you there. A prompt that has waited 5 minutes and that no
    tier holds as a request is put in front of the lane's lead at once, in the middle of its turn if it is busy, and
-   in front of the manager after 10 minutes; a prompt a tier already holds as a request was told by that request's
+   in front of the manager after 10 minutes, also right after the Mac wakes (the other check-ins then wait 30
+   minutes, this one does not); a prompt a tier already holds as a request was told by that request's
    own notice, so its check-in is skipped, and it comes back if the request ends (answered, withdrawn, denied) or
    runs past its time with the lane still waiting. You get one toast per wait in each window that watches the
    lane, held or not. That alert lets no one answer the prompt: it only says that one is waiting.
