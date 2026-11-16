@@ -193,7 +193,9 @@ function createLanes({ vscode, registry, sleep, now, workspaceFolders = () => un
   // The Claude extension marks a session unread, and its list then counts it as active, when a turn ends in a tab that is not showing; it clears the mark only
   // when that tab is shown. A lane's last turn usually ends that way, so the sweep shows a dead tab for a moment before it closes it, then gives focus back to
   // the tab that had it. A tab that is showing already (the active tab of its group) is closed as it is. This runs in the serial chain, so it never crosses an
-  // open's own focus changes. Showing is best effort: whatever fails or cannot be told here is skipped, and the tab is closed either way.
+  // open's own focus changes, and it may wait behind one: a tab that is gone by then is left alone. Showing is best effort: whatever fails or cannot be told
+  // here is skipped, and the tab is closed either way. The focus commands take keyboard focus, so for that moment keys go to the dead tab, and afterwards
+  // focus is in the tab that was active, also when it was in a terminal or a side bar before.
   async function focusTab(tab) {
     const groups = vscode.window.tabGroups
     const g = groups.all.find((x) => x.tabs.includes(tab))
@@ -207,6 +209,7 @@ function createLanes({ vscode, registry, sleep, now, workspaceFolders = () => un
   }
   function closeSeen(tab) {
     return serial(async () => {
+      if (!claudeTabs().includes(tab)) return
       let prev
       try {
         const at = activeTab()
@@ -307,6 +310,15 @@ function createLanes({ vscode, registry, sleep, now, workspaceFolders = () => un
   }
   async function sweepOnce() {
     if (opened.size === 0) return
+    // The tabs to close, closed once every panel is judged: a close can wait behind an open, and nothing is judged on a registry read that old.
+    const dead = []
+    try {
+      await judge(dead)
+    } finally {
+      for (const tab of dead) await closeSeen(tab)
+    }
+  }
+  async function judge(dead) {
     const all = await registry.list()
     if (all.complete === false) return
     const list = panels(all)
@@ -355,7 +367,7 @@ function createLanes({ vscode, registry, sleep, now, workspaceFolders = () => un
       const tabs = claudeTabs().filter((t) => t.label === rec.name)
       const tab = rec.tab && tabs.includes(rec.tab) ? rec.tab : tabs.length === 1 ? tabs[0] : undefined
       if (!tab) continue
-      await closeSeen(tab)
+      dead.push(tab)
     }
   }
 

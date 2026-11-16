@@ -873,6 +873,29 @@ test('sweep shows a dead tab that is hidden, closes it, and gives focus back to 
   assert.equal(x.active(), 'lead')
 })
 
+test('sweep finds the focused tab again when the dead tab sat before it, and leaves a tab that is gone by then alone', async () => {
+  const x = shownWorld([['ATT', 'lead', 'OTHER']])
+  x.tab('ATT').isActive = false
+  x.tab('lead').isActive = true
+  x.w.lanes.adopt(VALID_SID, { name: 'ATT', pid: 4242 })
+  await x.w.lanes.sweep()
+  assert.deepEqual(x.calls, ['show ATT', 'close ATT', 'show lead'])
+  assert.equal(x.active(), 'lead')
+  // Closed by hand while the close waits behind another call of the chain: no focus change and no close.
+  const y = shownWorld([['lead', 'ATT']])
+  const att = y.tab('ATT')
+  y.w.lanes.adopt(VALID_SID, { name: 'ATT', pid: 4242 })
+  const exec = y.w.vscode.commands.executeCommand
+  y.w.vscode.commands.executeCommand = (cmd, ...rest) => {
+    if (cmd !== 'claude-vscode.editor.open') return exec(cmd, ...rest)
+    att.group.tabs.splice(att.group.tabs.indexOf(att), 1)
+  }
+  const open = y.w.lanes.open(A).catch(() => undefined)
+  await y.w.lanes.sweep()
+  await open
+  assert.deepEqual(y.calls.filter((c) => /ATT/.test(c)), [])
+})
+
 test('sweep shows a dead tab hidden in another group, and goes back to the first group and its tab', async () => {
   const x = shownWorld([['OTHER', 'lead'], ['side', 'ATT']])
   x.tab('OTHER').isActive = false
