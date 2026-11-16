@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 import { LANE_NO_LEAD } from '../hooks/core'
 import { goTail } from '../hooks/go'
-import { h, SID, T0, YES, briefFiles, extraStat, longTest, realMap, storeFiles, toasts, toolDefs } from './harness'
+import { h, SID, T0, YES, briefFiles, extraStat, longTest, realMap, storeFiles, toasts, toolDefs, toolDesc } from './harness'
 import { OTHER, PIN, STOREFILE, callCreate, created, creator, cueSession, dirStat, grantAt, lane, leadCall, putLeadRecs, storeLaneNames } from './fixtures'
 
 longTest('lane_create writes a store lane in the user folder, and the lead can then cue it', async ($, on) => {
@@ -145,7 +145,7 @@ test('lane_create stores the model it is given, sonnet when none, and offers the
   expect(lanes.map((l) => `${l.name}:${l.model}`)).toEqual(['API:opus', 'WEB:sonnet'])
   const def = toolDefs.find((d) => d.includes('"lane_create"'))!
   expect(def).toContain('"model":{"type":"string","enum":["opus","sonnet","haiku","fable"]}')
-  expect(def).toContain('model is optional: opus, sonnet, haiku or fable, sonnet by default; the lane switches to it when it starts.')
+  expect(def).toContain(toolDesc('lane_create', 'lead'))
 })
 
 test('lane_create refuses a model outside the four before it writes anything', async ($, on) => {

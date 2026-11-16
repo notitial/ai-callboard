@@ -2754,8 +2754,6 @@ export const REST_FAILED = 'Rest not set: the session state could not be written
 // The `rest` tool: the same rest, set by a session's own main agent for itself. It only narrows, so it asks nothing. A subagent is refused: the
 // rest is the session's, and a subagent's call would rest its parent.
 export const REST_TOOL = 'rest'
-export const REST_TOOL_DESC =
-  "Stop the keepalive pings for this session's current idle gap, as /callboard rest does, so its prompt cache expires. Call it as the last step of a turn when the person tells you to go idle, or when you expect them to be away for hours. It takes no input, covers this session only and holds once: the next real turn here turns pings back on. A PR notice for a pull request you watch with pr_watch still wakes you. For the main agent only."
 export const REST_SUBAGENT = 'rest is for the main agent only: it would rest the whole session. Tell the main agent instead.'
 // The one line each briefing (lane, lead, conductor, manager) carries about the tool.
 export const REST_BRIEF = '- `rest`: call it when the person tells you to go idle, or when you expect them to be away for hours. It stops the keepalive pings for this idle gap; the next real turn turns them back on. A PR notice still reaches you.'

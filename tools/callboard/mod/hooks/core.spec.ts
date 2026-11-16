@@ -3395,8 +3395,6 @@ test('the rest tool: its fixed texts, and one line in each briefing (lane, lead,
   // The command's answer is the tool's, plus the pointer to the Mac-wide switch only a person can use.
   assert.equal(c.REST_TEXT, `${c.REST_SET} /callboard config keepalive off stops them on this whole Mac.`)
   assert.equal(c.REST_SUBAGENT, 'rest is for the main agent only: it would rest the whole session. Tell the main agent instead.')
-  assert.ok(c.REST_TOOL_DESC.includes('when the person tells you to go idle, or when you expect them to be away for hours'))
-  assert.ok(c.REST_TOOL_DESC.includes('A PR notice for a pull request you watch with pr_watch still wakes you. For the main agent only.'))
   assert.equal(c.REST_BRIEF, '- `rest`: call it when the person tells you to go idle, or when you expect them to be away for hours. It stops the keepalive pings for this idle gap; the next real turn turns them back on. A PR notice still reaches you.')
   for (const b of [c.laneBriefing(BORN)!, c.leadBriefing('/Users/x/Code/app'), c.conductorBriefing('C', '/w/repo-a', []), c.managerBriefing('MANAGER')]) assert.equal(b.split('\n').filter((l) => l === c.REST_BRIEF).length, 1)
 })
