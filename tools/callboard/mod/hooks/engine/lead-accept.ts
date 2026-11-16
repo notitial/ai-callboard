@@ -161,7 +161,7 @@ export async function leadAccept(
   const trustAgain = await trustNo()
   if (trustAgain) return refuse(trustAgain)
 
-  // The ledger row first. No row, no grant; a failure after the row writes a void row of the same nonce, which gives the repo its hour back.
+  // The ledger row first. No row, no grant; a failure after the row writes a void row of the same nonce, which takes the grant out of the conductor's count.
   if (await tooLate()) return refuse('late')
   if (!(await ledgerAdd($, { kind: 'lead-grant', hash: key, repo, lane: offer.name, nonce, by: offer.conductor.sid, target: sid }))) return refuse('ledger-write')
   const voided = (code: string) => ledgerAdd($, { kind: 'lead-offer-void', hash: key, nonce, code })
