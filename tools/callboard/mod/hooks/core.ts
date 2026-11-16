@@ -2840,6 +2840,52 @@ export const managerSilentOk = (hint: ManagerHint, cwd: string | undefined, now:
 export const MANAGER_RESTORE_QUESTION = 'Restore this session as the manager of every lane on this machine? You made it the manager here earlier and callboard saved that; click Cancel if you did not. It can resume, compact, stop, retire and remove lanes in any repo. Every stop and remove asks you. Cancel removes the saved manager grant.'
 export const MANAGER_RESTORED_TOAST = 'Manager is on again.'
 export const MANAGER_UNANSWERED_TOAST = 'Manager not restored: the question was not answered. Run /callboard manager.'
+// The toast when the restore question went unanswered and will be asked again (managerRestoreStep).
+export const MANAGER_ASK_AGAIN_TOAST = 'Manager not restored: the question was not answered. It is asked again after the next prompt in this session.'
+
+// How one try of a manager restore ended, and what comes next. `code` is what the try reported: undefined or a quiet code when the person ended it or another
+// path took over (an off, a Cancel, a grant by hand), 'unanswered' when the question got no answer, else the refusal. fails counts the failures of this try's kind (those that came after the yes,
+// `afterYes`, are counted apart from the others, so earlier failures never use up their tries) and unanswered the unanswered questions, this try included.
+// retry: the tick tries again (a refusal that can clear by itself, at most MANAGER_RESTORE_RETRIES times; one that came after the yes, where each new try
+// asks the person again or grants and steps back again, at most MANAGER_RESTORE_RETRIES_AFTER_YES times). wait: the entry is kept and the same question is asked
+// again once a prompt that is not the mod's own has reached this session (it is asked at most MANAGER_RESTORE_ASKS times). end: final, with the toast that tells the person.
+// Nothing here grants: every try runs the whole restore again, the question and each check included.
+export const MANAGER_RESTORE_RETRIES = 15
+export const MANAGER_RESTORE_RETRIES_AFTER_YES = 2
+export const MANAGER_RESTORE_ASKS = 3
+export const MANAGER_RESTORE_PASSING: ReadonlySet<string> = new Set(['registry-unreadable', 'manager-check-slow', 'manager-presence', 'tools-timeout', 'error'])
+const MANAGER_RESTORE_QUIET: ReadonlySet<string> = new Set(['changed', 'cancelled', 'off-meanwhile'])
+export type RestoreStep = { next: 'retry' } | { next: 'wait'; toast: string } | { next: 'end'; toast?: string }
+export function managerRestoreStep(code: string | undefined, fails: number, unanswered: number, afterYes = false): RestoreStep {
+  if (code === undefined || MANAGER_RESTORE_QUIET.has(code)) return { next: 'end' }
+  if (code === 'unanswered') return unanswered < MANAGER_RESTORE_ASKS ? { next: 'wait', toast: MANAGER_ASK_AGAIN_TOAST } : { next: 'end', toast: MANAGER_UNANSWERED_TOAST }
+  if (MANAGER_RESTORE_PASSING.has(code) && fails <= (afterYes ? MANAGER_RESTORE_RETRIES_AFTER_YES : MANAGER_RESTORE_RETRIES)) return { next: 'retry' }
+  return { next: 'end', toast: notRestoredToast('manager', code) }
+}
+
+// The toast at a final end of a restore that no other toast tells: the level, why, and the command that grants it by hand. The reason is the restore's own
+// word for the code, else the level's refusal text; a code with neither gets no reason. `repo` is the conductor repo, for the texts that name it.
+const RESTORE_END_TEXT: Record<string, string> = {
+  'wrong-folder': 'the session started in another folder than its saved grant names, so the saved grant was removed.',
+  invalid: 'its saved grant was too old or could not be read, so it was removed.',
+  'cwd-unreadable': 'the session folder could not be read.',
+  tools: 'its tools could not be registered.',
+  'tools-timeout': 'registering its tools took too long.',
+  'lanes-error': 'the lane list could not be read.',
+  'lane-check-slow': 'the check for a lane binding took too long.',
+  'rebind-pending': 'a lane restore for this session did not finish.',
+  'not-person': 'could not read the session list safely.',
+  'manager-presence': 'its presence file could not be written.',
+  error: 'callboard hit an error.',
+}
+export function notRestoredToast(level: Level, code: string, repo?: string): string {
+  const label = level.charAt(0).toUpperCase() + level.slice(1)
+  const table = level === 'lead' ? REASON_TEXT : level === 'conductor' ? CONDUCTOR_REFUSAL : MANAGER_REFUSAL
+  const run = `Run /callboard ${level}.`
+  const reason = (hasCode(RESTORE_END_TEXT, code) ? RESTORE_END_TEXT[code] : hasCode(table, code) ? table[code] : undefined)?.replace(/FOLDER/g, () => (repo === undefined ? 'this folder' : folderName(repo))).replace(/ Try again\.$/, '')
+  if (reason === undefined) return `${label} not restored. ${run}`
+  return `${label} not restored: ${reason}${/Run \/callboard|\/rename/.test(reason) ? '' : ` ${run}`}`
+}
 export const MANAGER_KEPT = ' Manager may come back after a restart. If it does, run /callboard off again.'
 
 // The manager's name as the live registry gives it: the one row of that session id, a valid name no other live row carries in any letter case, and
