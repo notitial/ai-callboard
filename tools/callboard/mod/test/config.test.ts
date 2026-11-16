@@ -20,16 +20,18 @@ test('/callboard on from any origin gets the usage line: no dialog, no state, no
 })
 
 test('the prompt box offers the /callboard words from the command table, after the engine\'s own rows, and only for a /callboard draft', async ($, on) => {
+  // What the engine's own typeahead answers beneath the plugins: one row of its own, which must stay first.
+  on('prompt.autocomplete', () => ({ suggestions: [{ text: 'engine-row' }] }))
   await started($, on, [])
   const ask = async (text: string) => {
     const start = text.lastIndexOf(' ') + 1
     return (await $.prompt.autocomplete({ text, cursor: text.length, token: text.slice(start), start })).suggestions.map((s: { text: string }) => s.text)
   }
-  expect(await ask('/callboard co')).toEqual(['conductor', 'config'])
-  expect(await ask('/callboard checkin r')).toEqual(['resume'])
-  expect(await ask('/callboard config checkin o')).toEqual(['on', 'off'])
-  expect(await ask('/callboard checkin pause 3')).toEqual([])
-  expect(await ask('/other co')).toEqual([])
+  expect(await ask('/callboard co')).toEqual(['engine-row', 'conductor', 'config'])
+  expect(await ask('/callboard checkin r')).toEqual(['engine-row', 'resume'])
+  expect(await ask('/callboard config checkin o')).toEqual(['engine-row', 'on', 'off'])
+  expect(await ask('/callboard checkin pause 3')).toEqual(['engine-row'])
+  expect(await ask('/other co')).toEqual(['engine-row'])
 })
 
 test('each dialog offers its own exact button pair', async ($, on) => {
