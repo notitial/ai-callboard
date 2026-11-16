@@ -1099,7 +1099,7 @@ test('storeLaneJson keeps adopted and lead on a record, and writes neither on a 
   assert.deepEqual(c.storeLaneJson({ ...plain, model: 'fable' }), { ...plain, model: 'fable' })
 })
 
-test('a lead presence file is still the four fields of before, named by its sid; a reader takes up to 4096 bytes and reads level and name', () => {
+test('a lead presence file is the four fields sid, pid, procStart and repo, named by its sid; a reader takes up to 4096 bytes and reads level and name', () => {
   const f = { sid: LEAD, pid: 4242, procStart: 'Tue Oct 27 20:37:50 2026', repo: '/Users/x/code/app' }
   const text = c.leadFileText(f)!
   assert.deepEqual(JSON.parse(text), f)
