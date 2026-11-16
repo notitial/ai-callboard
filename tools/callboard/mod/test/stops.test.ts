@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { LANES_CHANGED_NOTE, REASON_TEXT, terminateQuestion, removeQuestion } from '../hooks/core'
+import { LANES_CHANGED_NOTE, REASON_TEXT, terminateQuestion, removeQuestion, removedNoSessionText } from '../hooks/core'
 import { h, NO, PS_TABLE, REPORT, ROOT, SID, T0, YES, headArgs, killedPids, laneSeed, leadFiles, longTest, psCalls, resultFiles, submitted, teeTexts, toasts, toolDefs } from './harness'
 import { APISID, ATTSESS, GONE_ATT, HOME, HOOK_BUDGET_MS, LEADPS, LEAD_LANES, MGR_NOAPI, NEWSID, OTHER, OTHERLEAD, PARK_API, PIN, REG, REGFILE, REPORT_OK, SELFREG, SVC, allEvents, armNow, attRec, attacher, ckLane, closeWrites, condOn, cue, cueSession, doLane, events, grantAt, killed, lane, lead, leadAt, leadCall, leadSelfReg, logged, mgrAt, mgrCall, newTrace, noArchiveRm, park, parkSess, parker, putStore, recOf, renameThroughTick, retireCue, retireTarget, settle, sleeps, started, storeJson, storeNames, unanswered } from './fixtures'
 
@@ -962,7 +962,7 @@ test('lane_retire of a lane no live session carries removes its record with no d
   const att = attRec(SID, 'ATT')
   putStore([OLD_REC, PARK_API({ sid: OTHER }), att])
   const asked = h.askCount
-  expect(stopText(await $.tool.call(leadCall('retire', { lane: 'API' })))).toContain('lane API retired and removed: it had no live session')
+  expect(stopText(await $.tool.call(leadCall('retire', { lane: 'API' })))).toBe(removedNoSessionText('retire', 'API'))
   expect(storeJson().lanes).toEqual([OLD_REC, att])
   // A record that names no session goes the same way.
   putStore([PARK_API()])
@@ -987,7 +987,7 @@ test('lane_retire of a parked lane no live session carries asks the Remove quest
   expect(h.lastQuestion).toBe(removeQuestion('API', PIN, true, HOME))
   expect(recOf('API').parked).toBe(3)
   h.askAnswer = YES
-  expect(stopText(await $.tool.call(leadCall('retire', { lane: 'API' })))).toContain('lane API retired and removed: it had no live session')
+  expect(stopText(await $.tool.call(leadCall('retire', { lane: 'API' })))).toBe(removedNoSessionText('retire', 'API'))
   expect(storeJson().lanes).toEqual([])
 })
 

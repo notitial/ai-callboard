@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { LEAD_MANAGER_TEXT, MANAGER_RESTORE_QUESTION, MANAGER_RESTORED_TOAST, MANAGER_UNANSWERED_TOAST, MANAGER_REFRESH_MS, MANAGER_SILENT_GRACE_MS, REASON_TEXT, MANAGER_QUESTION, MANAGER_ON_TEXT, MANAGER_ALREADY, MANAGER_H2, managerRefusalText, managerBriefingNote, terminateQuestion, retireQuestion, removeQuestion } from '../hooks/core'
+import { LEAD_MANAGER_TEXT, MANAGER_RESTORE_QUESTION, MANAGER_RESTORED_TOAST, MANAGER_UNANSWERED_TOAST, MANAGER_REFRESH_MS, MANAGER_SILENT_GRACE_MS, REASON_TEXT, MANAGER_QUESTION, MANAGER_ON_TEXT, MANAGER_ALREADY, MANAGER_H2, managerRefusalText, managerBriefingNote, terminateQuestion, retireQuestion, removeQuestion, removedNoSessionText } from '../hooks/core'
 import { h, GOOD, LANESDIR, NO, PS_TABLE, ROOT, SID, T0, YES, colorRuns, extraStat, laneSeed, leadFiles, lockLog, longTest, psCalls, psDead, psFail, renames, seen, statErr, storeFiles, toasts, toolDefs } from './harness'
 import { APISID, COMPOSE, HOME, LEADPATH, LEADPS, LEADSID, MGR_NOAPI, MGR_SESS, MIN, NEWSID, OTHER, OTHERLEAD, OTHERMGR, PIN, QUIET, REPORT_OK, SELFPATH, STATUS_NONE, TURN, attacher, checkins, ckLane, ckLead, ckText, cue, cueSession, dirStat, doLane, grantAt, idleFor, killed, lane, leadAt, leadFileText, leadReg, leadSelfReg, listCall, logged, madeLane, mgrAt, mgrCall, mgrFile, mgrRow, newTrace, noArchiveRm, noteRows, nudges, ownReg, putStore, regAs, started, statusTable, statusText, storeNames, ticks, unanswered, waitFor } from './fixtures'
 
@@ -241,7 +241,6 @@ test('manager lane_terminate of a lane no live session carries: the Remove quest
   h.askAnswer = NO
   expect(JSON.stringify(await $.tool.call(mgrCall('terminate', 'API')))).toContain('lane_terminate refused: the person did not confirm. Nothing was removed.')
   expect(h.lastQuestion).toBe(removeQuestion('API', PIN, false, HOME))
-  // The repo by its home-relative path.
   expect(h.lastHeader).toBe('Stop Lane')
   expect(h.askedOptions[h.askedOptions.length - 1]).toEqual(['Remove', 'Cancel'])
   expect(storeNames()).toEqual(['API'])
@@ -282,7 +281,7 @@ test('manager lane_retire of a lane no live session carries: needs no report; Ca
   expect(storeNames()).toEqual(['API'])
   expect(logged(stdins)).not.toContain('lane-removed:API')
   h.askAnswer = YES
-  expect(JSON.parse(await retire()).result).toContain('lane API retired and removed: it had no live session')
+  expect(JSON.parse(await retire()).result).toBe(removedNoSessionText('retire', 'API'))
   expect(storeNames()).toEqual([])
   expect(h.askCount).toBe(asked + 2)
   expect(logged(stdins)).toContain('lane-removed:API')
