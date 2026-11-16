@@ -5,7 +5,7 @@
 // renames, removes or touches a file, and it follows no symlink inside the folders it reads. Convenience only: every real
 // limit lives in the mod. Exit 0: no anomalies. 1: anomalies. 2: usage error, an unreadable root, or a ledger file that could
 // not be read (an audit that missed a ledger file proves nothing, so it never exits 0), a ledger row of a kind it does not know, or the mod's definitions not loading.
-// It imports the row kinds, the forged-drop codes, the dialog test and the id shape from the mod's own sources (mod/hooks/prompts.ts, core.ts), so it
+// It imports the row kinds, the forged-drop codes, the dialog test, the id shape and a conductor's hourly open backstop from the mod's own sources (mod/hooks/prompts.ts, core.ts), so it
 // runs from this checkout and needs node 22.18 or later.
 //
 // The ledger rows it reads (prompts.ts, LedgerRow): { t, kind, code?, id?, lane?, repo?, tool?, pattern?, hash?, tier?, why?, nonce?, opt?, lh?, dialog?, end? }.
@@ -51,11 +51,11 @@ import { homedir } from 'node:os'
 import { pathToFileURL } from 'node:url'
 
 // The mod's own definitions. A load that fails (an older node, the script copied out of its checkout, a renamed export) ends the run with exit 2, never 1.
-let ID_RE, ROW_KINDS, DROP_FORGED, isDialog
+let ID_RE, OPENS_PER_CONDUCTOR_HOUR, ROW_KINDS, DROP_FORGED, isDialog
 try {
-  ;({ SID_RE: ID_RE } = await import('./mod/hooks/core.ts'))
+  ;({ SID_RE: ID_RE, OPENS_PER_CONDUCTOR_HOUR } = await import('./mod/hooks/core.ts'))
   ;({ ROW_KINDS, DROP_FORGED, isDialog } = await import('./mod/hooks/prompts.ts'))
-  if (!(ID_RE instanceof RegExp) || !Array.isArray(ROW_KINDS) || !Array.isArray(DROP_FORGED) || typeof isDialog !== 'function') throw new Error('an export is missing')
+  if (!(ID_RE instanceof RegExp) || !Number.isInteger(OPENS_PER_CONDUCTOR_HOUR) || !Array.isArray(ROW_KINDS) || !Array.isArray(DROP_FORGED) || typeof isDialog !== 'function') throw new Error('an export is missing')
 } catch (e) {
   console.error(`prompt audit: cannot load the mod's definitions from mod/hooks beside this script (node 22.18 or later is needed): ${String(e?.message ?? e).slice(0, 300)}`)
   process.exit(2)
@@ -421,7 +421,7 @@ function ruleDialog({ groups, flag }) {
   }
 }
 
-// g. lead grants (ADR 0006): a lead-grant needs a lead-offer row of the same repo hash and nonce written by the same session; at most one grant of a repo in an hour (a grant
+// g. lead grants (ADR 0006): a lead-grant needs a lead-offer row of the same repo hash and nonce written by the same session; at most OPENS_PER_CONDUCTOR_HOUR grants by one conductor in an hour (a grant
 // followed by a void of its nonce does not count); and a grant with a void of its nonce is a grant that was told to have failed, which is listed so a person looks at it.
 function ruleLeadGrants({ rows, flag, inRange }) {
   const grants = rows.filter((r) => r.kind === 'lead-grant' && inRange(r.ms))
@@ -432,8 +432,8 @@ function ruleLeadGrants({ rows, flag, inRange }) {
   }
   const live = grants.filter((g) => !voided(g)).sort((a, b) => a.ms - b.ms)
   for (let i = 1; i < live.length; i++) {
-    const prev = live.slice(0, i).reverse().find((x) => x.hash === live[i].hash && live[i].ms - x.ms < 3_600_000)
-    if (prev) flag('g', 'lead-grant-twice-in-hour', `two lead-grants for one repo within an hour: ${prev.lane ?? '?'} (${prev.t}) and ${live[i].lane ?? '?'} (${live[i].t})`, { t: live[i].t })
+    const inHour = live.slice(0, i + 1).filter((x) => x.by === live[i].by && live[i].ms - x.ms < 3_600_000)
+    if (inHour.length > OPENS_PER_CONDUCTOR_HOUR) flag('g', 'lead-grants-over-backstop', `${inHour.length} lead-grants by one conductor within an hour, over the ${OPENS_PER_CONDUCTOR_HOUR} it may open: the latest is ${live[i].lane ?? '?'} (${live[i].t}) by session ${live[i].by ?? '?'}`, { t: live[i].t })
   }
 }
 
