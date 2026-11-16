@@ -835,7 +835,7 @@ async function promptWait($: any, beneath: any, signal: AbortSignal, w: WaitCtx)
             w.st.closed = true
             const unclear = d.decision === 'deny' && d.via !== 'person' && pr.isUnclear(d.why)
             const text = pr.denyText(applied.tier, d.via === 'person', d.why)
-            // The cleaner-command text is appended after the cap, so a long reason or name never cuts it off.
+            // The cleaner-command text is appended after the cap, so a long reason never cuts it off.
             const message = pr.capBytes(pr.redact(text), 300).text + (unclear ? pr.UNCLEAR_SUFFIX : '')
             const decision = d.decision === 'allow' ? { behavior: 'allow' as const } : { behavior: 'deny' as const, message }
             return { ...(beneath && typeof beneath === 'object' ? beneath : {}), decision }
