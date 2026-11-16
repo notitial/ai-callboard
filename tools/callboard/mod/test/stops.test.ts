@@ -878,12 +878,14 @@ test('lane_retire of a live lane removes its record once the signal went out; ot
   const stdins: string[] = []
   await leadAt($, on, stdins, { sess: liveApi(), argv })
   const att = attRec(OTHERLEAD, 'ATT')
-  putStore([OLD_REC, PARK_API({ sid: OTHER }), att], [T0 - 5])
+  // The rewrite keeps the create times the highest lanes-per-hour setting counts (60), the newest ones.
+  const times = Array.from({ length: 61 }, (_, i) => T0 - 61 + i)
+  putStore([OLD_REC, PARK_API({ sid: OTHER }), att], times)
   h.reportAt = `${PIN}/.archive/API/REPORT.md`
   h.reportFile = REPORT_OK()
   expect(stopText(await $.tool.call(leadCall('retire', { lane: 'API' })))).toBe('lane API retired and removed: SIGTERM sent to process 4500. Its .archive/API/ folder and report stay.')
   expect(killed(argv)).toEqual([['/bin/kill', '-TERM', '4500']])
-  expect(storeJson()).toEqual({ repo: PIN, lanes: [OLD_REC, att], creates: [T0 - 5] })
+  expect(storeJson()).toEqual({ repo: PIN, lanes: [OLD_REC, att], creates: times.slice(-60) })
   expect(logged(stdins)).toContain('lane-removed:API')
   expect(noArchiveRm(argv)).toBe(true)
 })

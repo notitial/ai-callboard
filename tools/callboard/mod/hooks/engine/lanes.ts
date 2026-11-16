@@ -99,6 +99,7 @@ import {
   leadsInReach,
   reservedGet,
   findLead,
+  cfgGet,
 } from './grants.ts'
 import { loadLeadRecords, boundTo, ownerLive, ownOwner, leadNameHeld } from './lead-records.ts'
 import { grantNameNo } from './lead-open.ts'
@@ -321,7 +322,7 @@ async function removeRecord($: any, e: unknown, me: string, key: string, name: s
         if (!mode.held()) return { no: 'grant-changed', why: c.reasonWhy('grant-changed') }
       }
       const left = store.lanes.filter((l) => l.name !== name).map(c.storeLaneJson)
-      return { text: JSON.stringify({ repo: store.repo, lanes: left, creates: store.creates.slice(-12) }), landed: (st) => !!st && !st.lanes.some((l) => l.name === name) }
+      return { text: JSON.stringify({ repo: store.repo, lanes: left, creates: store.creates.slice(-c.STORE_KEEP_CREATES) }), landed: (st) => !!st && !st.lanes.some((l) => l.name === name) }
     },
     async () => {
       if (mode.kind === 'stopped') return undefined
@@ -1111,7 +1112,7 @@ export async function dropRecord($: any, name: string, key: string, rec: string)
       else left.push(l)
     }
     if (!hit) return parsed.store.lanes.some((l) => l.name === name && l.adopted) ? { no: 'not-found' } : { skip: true }
-    const text = JSON.stringify({ repo: parsed.store.repo, lanes: left.map(c.storeLaneJson), creates: parsed.store.creates.slice(-12) })
+    const text = JSON.stringify({ repo: parsed.store.repo, lanes: left.map(c.storeLaneJson), creates: parsed.store.creates.slice(-c.STORE_KEEP_CREATES) })
     return { text, landed: (s) => !!s && !s.lanes.some((l) => l.name === name && l.adopted) }
   })
   return 'text' in r
@@ -1269,6 +1270,8 @@ export async function laneCreateCall($: any, e: any, next: any) {
     if (g !== 'yes') return no('pin-no-git', 'pin-no-git: the lead folder is not a git repo root.')
     const key = await sha($, pin)
     const a = e as { name?: unknown; task?: unknown; folder?: unknown; model?: unknown }
+    // The hourly limit is read fresh, so a change the person just made holds for this call.
+    const perHour = (await cfgGet($, sid, true)).lanesPerHour
     let made: c.Lane | undefined
     const w = await ownWrite($, sid, () => editStore(
       $,
@@ -1283,8 +1286,8 @@ export async function laneCreateCall($: any, e: any, next: any) {
         const kept = parsedStore ? await keptLanes($, parsedStore.lanes) : []
         const store = parsedStore ? { ...parsedStore, lanes: kept } : undefined
         const now = await $.clock.now()
-        const r = c.createRefusal({ name: a.name, task: a.task, folder: a.folder, model: a.model }, pin, lanes, store, now)
-        if (!r.ok) return { no: r.reason, why: c.reasonWhy(r.reason) }
+        const r = c.createRefusal({ name: a.name, task: a.task, folder: a.folder, model: a.model }, pin, lanes, store, now, perHour)
+        if (!r.ok) return { no: r.reason, why: r.reason === 'create-rate' ? `create-rate: ${c.createRateText(perHour)}` : c.reasonWhy(r.reason) }
         const reg = await registryEntries($)
         if (!reg) return { no: 'registry-unreadable', why: c.REASON_TEXT['registry-unreadable'] }
         // Any letter case: a lane `alpha` beside lead `Alpha` would make c.leadNameOf void the lead's name and strand its lanes.

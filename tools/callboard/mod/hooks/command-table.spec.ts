@@ -59,7 +59,7 @@ test('a value the person supplies, a word past the end of a form and a draft tha
 })
 
 // Every line a form stands for: each optional token left out and filled in, each `a|b` alternative, a value replaced by one the parser takes.
-const NUMBER: Record<string, string> = { ping: '40', stop: '2', idle: '200', working: '400' }
+const NUMBER: Record<string, string> = { ping: '40', stop: '2', idle: '200', working: '400', lanes: '30' }
 function lines(form: string): string[] {
   let out: string[][] = [[]]
   for (const t of form.split(' ')) {
@@ -92,7 +92,7 @@ test('every line a form of the table stands for is one the parser or the handler
 
 test('the sample lines cover the optional and the alternative forms', () => {
   assert.deepEqual(lines('reserve [add] NAME'), ['reserve blue', 'reserve add blue'])
-  assert.deepEqual(lines('config ping|stop|idle|working N'), ['config ping 40', 'config stop 2', 'config idle 200', 'config working 400'])
+  assert.deepEqual(lines('config ping|stop|idle|working|lanes N'), ['config ping 40', 'config stop 2', 'config idle 200', 'config working 400', 'config lanes 30'])
   assert.deepEqual(lines('checkin pause [Nm|Nh]'), ['checkin pause', 'checkin pause 3m'])
 })
 
