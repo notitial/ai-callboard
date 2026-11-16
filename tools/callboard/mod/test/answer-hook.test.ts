@@ -554,7 +554,7 @@ test('prompts: a request file that cannot be written leaves the dialog and says 
   expect(await startReq($)).toEqual({})
   expect(rowKinds()).toEqual(['abandoned hook-failed'])
 })
-test('prompts: a wait whose /bin/sleep fails ends at once, abandoned hook-failed, and does not spin', async ($, on) => {
+test('prompts: a wait whose /bin/sleep fails three times in a row ends, abandoned hook-failed, and does not spin', async ($, on) => {
   const argv: string[][] = []
   await answerer($, on, [], { argv })
   h.sleepFails = true
@@ -562,7 +562,39 @@ test('prompts: a wait whose /bin/sleep fails ends at once, abandoned hook-failed
   h.sessions = waitingRow(T0 + 500)
   expect(await startReq($)).toEqual({})
   expect(rowKinds()).toEqual(['requested', 'abandoned hook-failed'])
-  expect(sleeps(argv).length).toBe(1)
+  expect(sleeps(argv).length).toBe(prm.PAUSE_FAILS_MAX)
+})
+for (const n of [1, 2]) {
+  test(`prompts: a /bin/sleep that fails ${n === 1 ? 'once' : 'twice in a row'} (the Mac slept through it) leaves the request open, and a lead's answer is still returned`, async ($, on) => {
+    await answerer($, on, [])
+    // The Mac sleeps an hour inside each of the next n pauses: each fails on wake, and its gap adds no awake time.
+    const HOUR = 3_600_000
+    const slept = at(6000, () => {
+      h.sleepFailsNext = n
+      h.sleepFailAdds = HOUR
+    })
+    let open = false
+    // The first poll whose pause ran again after the wake.
+    const r = await runRequest($, [slept, at(6000 + n * HOUR + 1000, () => {
+      open = h.sleepFailsNext === 0 && reqFiles().length === 1 && rowKinds().join() === 'requested'
+      handDecision(readReq())
+    })])
+    expect(open).toBe(true)
+    expect(r).toEqual({ decision: { behavior: 'allow' } })
+    // The decision waited out its 30 s of awake time in polls that ran: the hours asleep count for nothing.
+    expect(h.nowMs - T0).toBe(n * HOUR + 30_000)
+    expect(rowKinds()).toEqual(['requested', 'answered allow', 'returned allow'])
+    expect(noFiles()).toBe(true)
+  })
+}
+test('prompts: failed pauses that are not in a row never end the wait, and add no awake time of their own', async ($, on) => {
+  const argv: string[][] = []
+  await answerer($, on, [], { argv })
+  // Two failures, a pause that runs, two more: four in all, never three in a row. The wait then ends on the switch, not on hook-failed.
+  const r = await runRequest($, [at(4000, () => { h.sleepFailsNext = 2 }), at(8000, () => { h.sleepFailsNext = 2 }), stop(20_000)])
+  expect(r).toEqual({})
+  expect(rowKinds()).toEqual(['requested', 'off'])
+  expect(h.nowMs - T0).toBe(20_000)
 })
 test('prompts: redaction: the request file holds a redacted, capped copy; the ledger holds neither input nor secret', async ($, on) => {
   await answerer($, on, [])

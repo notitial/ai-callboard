@@ -273,6 +273,10 @@ export const h = {
   // What a hook has used of its 10 s of own time on $.clock.sleep (a $ call, such as /bin/sleep through process.run, costs it nothing), and a switch that makes /bin/sleep fail.
   clockSlept: 0,
   sleepFails: false,
+  // The next /bin/sleep calls that fail, counted down: a pause that fails once or twice and then runs again.
+  sleepFailsNext: 0,
+  // What each of those failing calls moves the clock by: the Mac slept through the pause's time limit.
+  sleepFailAdds: 0,
   // One read of the clock throws, as a failing engine call would.
   nowThrowsOnce: false,
   callerCwd: '/data/x/work/lab',
@@ -471,6 +475,8 @@ function resetClock() {
   h.fastSleep = undefined
   h.clockSlept = 0
   h.sleepFails = false
+  h.sleepFailsNext = 0
+  h.sleepFailAdds = 0
   h.nowThrowsOnce = false
   sleepWaits.length = 0
 }
@@ -910,7 +916,13 @@ export function engine(on0: any, argvSeen: string[][], stdins: string[] = [], cl
     if (a[0] === '/usr/bin/id') return ok(a[1] === '-u' ? '501\n' : 'x\n')
     // A wait through a process: the test clock moves by the time asked, then the test's hook runs, as with the short polls of clock.sleep.
     if (a[0] === '/bin/sleep') {
-      if (h.sleepFails) return ok('', 1, 'sleep: failed')
+      if (h.sleepFails || h.sleepFailsNext > 0) {
+        if (h.sleepFailsNext > 0) {
+          h.sleepFailsNext--
+          h.nowMs += h.sleepFailAdds
+        }
+        return ok('', 1, 'sleep: failed')
+      }
       // With the mock clock a sleep process takes the clock's time: it ends when the test advances past it, as a held clock.sleep does.
       if (clk) return new Promise((res) => sleepWaits.push({ due: h.nowMs + Math.round(Number(a[1]) * 1000), go: () => res(ok('')) }))
       if (!h.fastSleep) return new Promise(() => undefined)
@@ -936,7 +948,7 @@ export function engine(on0: any, argvSeen: string[][], stdins: string[] = [], cl
     }
     if (a[0] === '/usr/bin/shasum' && h.shaFailsFor?.(typeof e.init?.stdin === 'string' ? e.init.stdin : '')) return ok('', 1)
     if (a[0] === '/usr/bin/shasum' && h.recShaFails && typeof e.init?.stdin === 'string' && e.init.stdin.startsWith('LABLANE\n')) return ok('', 1)
-    if (a[0] === '/usr/bin/shasum') return ok(`${typeof e.init?.stdin === 'string' && (e.init.stdin.startsWith('LABLANE\n') || e.init.stdin.startsWith('lead-record\n') || e.init.stdin.startsWith('lead-watch\n') || e.init.stdin.startsWith('{"v":1,"id":"') || /^(ok|bad|absent)\n/.test(e.init.stdin) || e.init.stdin.includes('\nadopted\n')) ? fakeSha(e.init.stdin) : e.init?.stdin === '/Users/x/code/app2' ? 'b'.repeat(64) : e.init?.stdin === '/Users/x/code/cond' ? 'c'.repeat(64) : e.init?.stdin === '/data/x/work' ? 'd'.repeat(64) : 'a'.repeat(64)}  -\n`)
+    if (a[0] === '/usr/bin/shasum') return ok(`${typeof e.init?.stdin === 'string' && (e.init.stdin.startsWith('LABLANE\n') || e.init.stdin.startsWith('lead-record\n') || e.init.stdin.startsWith('lead-watch\n') || e.init.stdin.startsWith('{"v":1,"id":"') || e.init.stdin.startsWith('{"v":2,"id":"') || /^(ok|bad|absent)\n/.test(e.init.stdin) || e.init.stdin.includes('\nadopted\n')) ? fakeSha(e.init.stdin) : e.init?.stdin === '/Users/x/code/app2' ? 'b'.repeat(64) : e.init?.stdin === '/Users/x/code/cond' ? 'c'.repeat(64) : e.init?.stdin === '/data/x/work' ? 'd'.repeat(64) : 'a'.repeat(64)}  -\n`)
     if (a[0] === '/usr/bin/install') installed.add(a[a.length - 1])
     if (a[0] === '/usr/bin/tee' && a[1] === '--' && typeof e.init?.stdin === 'string') teeTexts.set(a[2], e.init.stdin)
     const last = a[a.length - 1]

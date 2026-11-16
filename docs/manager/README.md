@@ -21,8 +21,9 @@ enforces.
 - **Every go is the person's**, typed in the session that executes it: push, PR, merge, install, control change,
   destructive step. A relayed go is never a go. You may relay a build decision (what to build next); the executor
   still asks the person for each go.
-  A go the person gives in callboard's own go dialog, in a lead's session, counts in that lead's lanes for the work it
-  names; they read it with `go_status` (ADR 0009). You give no go and never pass one on in your own words. A lane's
+  A go the person gives in callboard's own go dialog, in a lead's or conductor's session, counts in the sessions under
+  it (a lead's lanes; a conductor's leads and their lanes) for the work it names; they read it with `go_status`
+  (ADR 0009). You give no go and never pass one on in your own words. A lane's
   question that asks for a go goes through the mod's relay at whichever tier relays, you included.
 
 ## Starting and resuming
