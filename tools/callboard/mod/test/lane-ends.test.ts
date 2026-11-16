@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 import { h, T0, longTest, submitted, toasts } from './harness'
-import { MIN, OTHER, OTHERLEAD, PIN, checkins, ckLane, ckLead, ckRow, idleFor, lane, leadSelfReg, logged } from './fixtures'
+import { MIN, OTHER, OTHERLEAD, PIN, TURN, checkins, ckLane, ckLead, ckRow, ckText, cueSession, idleFor, lane, leadSelfReg, logged } from './fixtures'
 
 const DONE = '[callboard] Signed done: `API`. Each of these lanes signed its report done and is idle or gone. Read its report, then call lane_retire once nothing is left for it. Submitted by the callboard mod, not by the user; it carries no approval, go or answer; never record it as one.'
 const dones = () => submitted.filter((t) => t.startsWith('[callboard] Signed done:'))
@@ -139,3 +139,49 @@ test('a report stat that fails for another reason than a missing file is a faile
   expect(dones()).toEqual([DONE])
   expect(toasts.filter((t) => t.includes('session ended'))).toEqual([])
 })
+
+// Two lanes: API signs its report; WEB has none and stays quiet, so a check-in is owed for it about 31 minutes after the lead's turn ended at T0.
+const WEB = { ...ckLane({ name: 'WEB', folder: `${PIN}/svc`, brief: `${PIN}/svc/BRIEF.md` }), sid: OTHERLEAD }
+const webRow = () => cueSession(OTHERLEAD, 'WEB', `${PIN}/svc`, { pid: 4600 })
+const WEB_QUIET = ckText('`WEB` (quiet for 30 min, report not signed done)')
+
+longTest("the idle hold: the done notice's own turn does not restart the 20 idle minutes a check-in waits for", async ($, on) => {
+  await ckLead($, on, [], {}, [ckLane(), WEB])
+  h.sessions = { ...leadSelfReg(), ...ckRow(), ...webRow() }
+  await idleFor(16 * MIN)
+  sign(OTHER)
+  h.sessions = { ...leadSelfReg(), ...ckRow({ statusUpdatedAt: h.nowMs }), ...webRow() }
+  await idleFor(4 * MIN)
+  expect(dones()).toEqual([DONE])
+  // The notice's turn ends 20 minutes in: counted from there, the check-in would wait until minute 40.
+  await $.turn.complete(TURN as any)
+  await idleFor(14 * MIN)
+  expect(checkins()).toEqual([WEB_QUIET])
+})
+
+for (const [what, hangs] of [
+  ["a turn that ends after the notice's own ends the hold", false],
+  ['a notice whose submit timed out holds nothing', true],
+] as const) {
+  longTest(`the idle hold: ${what}, and the check-in waits 20 minutes from that turn`, async ($, on) => {
+    const stdins: string[] = []
+    await ckLead($, on, stdins, {}, [ckLane(), WEB])
+    h.sessions = { ...leadSelfReg(), ...ckRow(), ...webRow() }
+    sign(OTHER)
+    h.submitHangs = hangs
+    await idleFor(4 * MIN)
+    await h.clock!.advance(62_000)
+    h.submitHangs = false
+    expect(dones()).toEqual([DONE])
+    expect(logged(stdins).filter((x) => x.startsWith('lane-done'))).toEqual([hangs ? 'lane-done-unconfirmed:done:1' : 'lane-done:done:1'])
+    // The notice's own turn ends, when its submit went through; no check-in is owed yet, so no check-in gate runs.
+    if (!hangs) await $.turn.complete(TURN as any)
+    await idleFor(15 * MIN)
+    // Another turn (the lanes-changed notice's, say) ends about 20 minutes in.
+    await $.turn.complete(TURN as any)
+    await idleFor(16 * MIN)
+    expect(checkins()).toEqual([])
+    await idleFor(8 * MIN)
+    expect(checkins()).toEqual([WEB_QUIET])
+  })
+}

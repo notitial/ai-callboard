@@ -232,7 +232,7 @@ export const checkinBusy = new Set<string>()
 // again at the evaluation after, so leads are read about every 2 min and a gone lead is seen at most ~2 min late (130 s made it ~3 min).
 export const leadlessSeen = new Map<string, Map<string, { at: number; leads: c.LeadFile[] | 'held' }>>()
 // What a lead read of each lane's end (c.LaneEnd), by the lead's session id, then the lane's name; ep is the grant epoch it was read under, so a new grant
-// starts afresh.// told: the signatures the lead was told of (c.doneKey), kept while the grant lasts. seen: the observation map the step last ran on (a check-in step that
+// starts afresh. told: the signatures the lead was told of (c.doneKey), kept while the grant lasts. seen: the observation map the step last ran on (a check-in step that
 // observed nothing leaves the same map, and the step then does nothing).
 export const laneEnds = new Map<string, { ep: number; by: Map<string, c.LaneEnd>; told: Set<string>; seen?: Map<string, c.LaneObs> }>()
 // The done notice's own hourly budget and its "capped" log mark, and the idle time its turn left untouched (c.DoneHold).
