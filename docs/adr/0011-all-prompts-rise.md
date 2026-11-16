@@ -149,11 +149,11 @@ person; this decision does not depend on it and adds no notice of its own.
 | Case | Ledger row | Why it cannot rise | What covers it |
 |---|---|---|---|
 | No usable `tool.check` entry: none, two calls in flight on one hash, or too old. A prompt that is not an ask in `tool.check` has none either. | `not-judgeable no-check` | Without it there is no tool-use id: the hook could not see the person's click, and a late answer could land on another call. The classifier refuses a non-ask too (`not-ask`), as a second check. | The check-in and the toast |
-| A subagent's ask | none | The engine shows its dialog only after the hooks return; a wait would hide it. | The check-in and the toast |
+| A subagent's ask | `subagent-denied`, or none | The engine shows its dialog only after the hooks return; a wait would hide it. | With a tier in reach it is denied with a message; else the check-in and the toast |
 | The request file or its ledger row cannot be written | `abandoned hook-failed` | Without the file no tier can read the request, and without the row no decision could pass the ledger check. | The check-in and the toast |
 | No live tier in reach | `abandoned no-tier` | There is nobody to ask. | The toast |
 | Nobody can be asked, or a host answers (the approver is not the person) | none | The prompt is not one a person clicks in the lane's panel. | Nothing is waiting on the person |
-| A question of a shape with no answer form: several questions, multi-select, a `Person` header | `not-judgeable question-…` | The relay carries one single-choice question with the lane's own labels; `Person` is the lane's own mark. | The check-in and the toast |
+| A question of a shape with no answer form: several questions, multi-select, a `Person` header | `question-denied question-…`, or `not-judgeable question-…` | The relay carries one single-choice question with the lane's own labels; `Person` is the lane's own mark. | With a tier in reach it is ended with a message, a `Person` header excepted; else the check-in and the toast |
 
 Two cases are the person's own switch, not a limit:
 
@@ -163,6 +163,25 @@ Two cases are the person's own switch, not a limit:
 
 A subagent's ask and a question with no answer form could instead be denied with a message that tells the lane how
 to ask again in a form that rises. That is not built here.
+
+*2026-11-16: built. Both denials happen only while the switch covers the session and a live tier is in reach, so
+that the call or question, asked again, can rise; with none in reach nothing changes. Each is a fixed text with
+nothing of the lane's in it, is no decision on the call or the question, never allows anything, and writes a row
+of its own kind before it lands (no row, no denial).*
+
+- *A subagent's ask is denied at once, after the chain beneath: the message tells the main session to run the call
+  itself. Its dialog never opens, so the person does not see that prompt; they see the main session's. The row is
+  `subagent-denied`.*
+- *A question of several parts, multi-select, or with fewer than two or more than four usable options is ended
+  after the person's first 30 seconds of awake time with the card open: the message tells the lane to ask again as
+  one single-choice question with two to four short options. A click, the switch going off or a failed pause in
+  those 30 seconds leaves it the person's, with its `not-judgeable` row. The row is `question-denied` with the
+  shape's code. A `Person` header is not denied: it has an answer form and is the lane's mark that the question
+  is the person's.*
+- *Limit: a subagent's ask has no `tool.check` entry, so the hook cannot tell one a host would answer from one
+  the person would click. Both are denied.*
+- *The escalation dialog's two sentences on these cases are reworded to say so (ADR 0004, "A subagent's ask is the
+  person's", now holds only with no tier in reach).*
 
 A truncated copy is a request, as before: a tier may deny it and never allow or relay it (ADR 0004, Limits), so it
 ends in the 20-minute deny.

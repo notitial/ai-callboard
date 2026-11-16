@@ -255,6 +255,17 @@ test('capInput: a redaction that hides a line break marks the input truncated', 
 // A session that starts OUTSIDE a protected folder and reaches into it by a relative path.
 // ---- questions ----
 const qIn = (over: Record<string, unknown> = {}, opts: unknown[] = [{ label: 'Red' }, { label: 'Green' }]) => ({ questions: [{ question: 'Which colour?', header: 'Colour', options: opts, ...over }] })
+test('the two denials of an ask that cannot rise: fixed texts that refuse the form, never the substance, and say how to ask again', () => {
+  assert.equal(p.SUBAGENT_DENY_MESSAGE, "Callboard denied this because a subagent's permission ask cannot be passed up to a lead, conductor or manager. It is not a decision on the call itself. If the call is still needed, the main session should run it itself, where it can be judged.")
+  assert.equal(p.FORM_DENY_MESSAGE, 'Callboard ended this question because of its form, not its content: nobody answered it and nothing was decided. It cannot be passed up as asked. Ask again as one single-choice question with two to four short options.')
+  // Neither reads as a tier's or the person's deny (denyText's forms).
+  for (const m of [p.SUBAGENT_DENY_MESSAGE, p.FORM_DENY_MESSAGE]) assert.ok(!/Denied by|the person/i.test(m), m)
+  // The form deny covers the shapes with no answer form; the lane's Person mark and the person's own scope switch are never denied.
+  for (const code of ['question-count', 'question-multi', 'question-options', 'question-shape']) assert.equal(p.questionDeniable(code), true, code)
+  for (const code of ['question-person', 'question-scope', 'no-check', '']) assert.equal(p.questionDeniable(code), false, code)
+  for (const k of ['subagent-denied', 'question-denied']) assert.ok((p.ROW_KINDS as readonly string[]).includes(k), k)
+})
+
 test('questionShape: each code at each bound', () => {
   assert.deepEqual(p.questionShape(qIn()), { ok: true, question: 'Which colour?', header: 'Colour' })
   const code = (i: unknown) => (p.questionShape(i) as { code?: string }).code

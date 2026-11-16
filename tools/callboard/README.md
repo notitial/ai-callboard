@@ -65,9 +65,13 @@ caller.
    the hook's reason, handles the routine cases its rubric names (a rerun of the lane's own CI run, a delete inside
    the lane's own clone) and passes the rest up, and the top live tier relays it to you. A request that no tier
    answers or relays is denied after 20 minutes, and the lane may ask again
-   ([ADR 0011](../../docs/adr/0011-all-prompts-rise.md)). The time the Mac sleeps does not count, and a sleep
-   does not by itself end a request's wait. What cannot rise (a subagent's ask, a call with no usable
-   `tool.check` entry, no live tier, a question with no answer form) stays in the lane's panel; a prompt that a host
+   ([ADR 0011](../../docs/adr/0011-all-prompts-rise.md)). The time the Mac sleeps does not count toward that deny or a request's expiry (the tiers' windows run on the
+   clock), and a sleep
+   does not by itself end a request's wait. What cannot rise (a call with no usable
+   `tool.check` entry, no live tier) stays in the lane's panel. While a tier is in reach, a subagent's ask is denied
+   at once with a message that tells the main session to run the call itself, and a question with no answer form is
+   ended after your first 30 seconds with a message that tells the lane to ask again as one single-choice question;
+   neither is a decision on the call or the question. A prompt that a host
    answers is not yours to click, and nothing waits on you there. A prompt that has waited 5 minutes and that no
    tier holds as a request is put in front of the lane's lead at once, in the middle of its turn if it is busy, and
    in front of the manager after 10 minutes, also right after the Mac wakes (the other check-ins then wait 30
@@ -279,8 +283,9 @@ Other symptoms:
   command again by hand. A failure that can clear by itself is tried again first. The manager's restore asks you,
   and a question left unanswered is asked again after the next prompt in that session, three times in all; then a
   toast says to run `/callboard manager`. Your click in the dialog stays the only yes.
-- **A prompt stays in the lane's panel and no tier sees it.** Some prompts cannot rise: a subagent's, one with no
-  live tier in reach, a question that is not one single-choice question, and the others ADR 0011 lists. The
+- **A prompt stays in the lane's panel and no tier sees it.** Some prompts cannot rise: one with no live tier in reach, a question headed `Person`, and the others ADR 0011
+  lists. A subagent's ask and a question that is not one single-choice question are denied with a message while a
+  tier is in reach, and stay in the panel otherwise. The
   waiting-prompt toast is what tells you. After a fast-forward of the checkout, reload the lead, conductor and
   manager sessions: one whose mod loaded earlier skips the requests it does not know, and they end in the
   20-minute deny.

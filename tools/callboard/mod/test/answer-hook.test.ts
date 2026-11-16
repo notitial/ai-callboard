@@ -112,26 +112,63 @@ test('prompts: /callboard escalation off during a wait closes it too, and a deci
   expect(h.store.get('answering')).toMatchObject({ off: true })
 })
 
-longTest('prompts: P-I5: a subagent\'s ask returns the chain beneath at once: no request, no wait, no row', async ($, on) => {
-  const argv: string[][] = []
-  await answerer($, on, [], { argv })
+const SUB = { agent_id: 'a1', agent_type: 'general-purpose' }
+const SUB_DENY = { decision: { behavior: 'deny', message: prm.SUBAGENT_DENY_MESSAGE } }
+
+longTest('prompts: P-I5: a subagent\'s ask, with a tier in reach, is denied at once with the fixed message: the chain beneath first, a row of its own kind, no request, no wait', async ($, on) => {
+  await answerer($, on, [])
   await askCheck($)
   h.sessions = waitingRow(T0 + 500)
   driveClock()
-  const before = argv.length
-  const r = await startReq($, { agent_id: 'a1', agent_type: 'general-purpose' })
-  expect(r).toEqual({})
+  const r = await startReq($, SUB)
+  expect(r).toEqual(SUB_DENY)
   expect(h.prBeneathCalls).toBe(1)
+  expect(h.nowMs - T0).toBe(0)
   expect(reqFiles().length).toBe(0)
-  expect(rowKinds()).toEqual([])
-  expect(argv.slice(before).length).toBe(0)
+  expect(rowKinds()).toEqual(['subagent-denied'])
+  expect(ledgerRows()[0]).toEqual(expect.objectContaining({ lane: 'svc-api', tool: 'Bash' }))
+  expect(ledgerRows()[0].id).toBeUndefined()
   // Even a subagent's ask the observer saw (it never stores one) leaves nothing a later main-agent request could join.
   // Nor does the observer keep a subagent's ask: had it stored one (a second entry on one hash), the main agent's own request would read as two calls in flight
-  // and be left to the person. It is judged, answered by the lead.
+  // and be left to the person. It is judged, answered by the lead: an ask that can rise still rises.
   await askCheck($, { agentId: 'a1', tool_use_id: 'tu2' })
   h.clockHooks.push(at(4000, () => handDecision(readReq())))
   expect(await startReq($)).toEqual({ decision: { behavior: 'allow' } })
-  expect(rowKinds()).toEqual(['requested', 'answered allow', 'returned allow'])
+  expect(rowKinds()).toEqual(['subagent-denied', 'requested', 'answered allow', 'returned allow'])
+})
+
+test('prompts: a subagent\'s ask is not denied with escalation off, with the OFF file, or with no live tier in reach: the chain beneath at once, no row', async ($, on) => {
+  await answerer($, on, [], { switchOn: false })
+  h.sessions = waitingRow(T0 + 500)
+  driveClock()
+  expect(await startReq($, SUB)).toEqual({})
+  h.store.set('answering', { scope: 'all', asks: false, savedAt: T0 })
+  pfs.set(OFF_FILE, { text: '', mtimeSec: h.nowMs / 1000 })
+  expect(await startReq($, SUB)).toEqual({})
+  pfs.delete(OFF_FILE)
+  // The lane's own row and no lead's: nobody is in reach, so the main session's own call could not rise either.
+  h.sessions = { ...h.extraRows, ...ownReg({ status: 'waiting', waitingFor: 'permission prompt', statusUpdatedAt: T0 + 500 }) }
+  expect(await startReq($, SUB)).toEqual({})
+  expect(h.prBeneathCalls).toBe(3)
+  expect(rowKinds()).toEqual([])
+  expect(h.nowMs - T0).toBe(0)
+})
+
+test('prompts: a subagent\'s ask that the chain beneath answers keeps that answer: no denial, no row', async ($, on) => {
+  await answerer($, on, [], { beneath: () => ({ decision: { behavior: 'allow' } }) })
+  h.sessions = waitingRow(T0 + 500)
+  driveClock()
+  expect(await startReq($, SUB)).toEqual({ decision: { behavior: 'allow' } })
+  expect(rowKinds()).toEqual([])
+})
+
+test('prompts: a subagent\'s ask is not denied when its row cannot be written: no row, no denial', async ($, on) => {
+  await answerer($, on, [])
+  h.sessions = waitingRow(T0 + 500)
+  driveClock()
+  h.pfsFails = (a) => a[0] === '/usr/bin/tee' && a.includes('-a')
+  expect(await startReq($, SUB)).toEqual({})
+  expect(rowKinds()).toEqual([])
 })
 
 test('prompts: a non-empty result from beneath (a settings hook\'s deny) stands whole, and the chain beneath runs once', async ($, on) => {
