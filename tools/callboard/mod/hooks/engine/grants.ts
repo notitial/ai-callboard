@@ -1070,9 +1070,9 @@ function owedItems(sid: string, items: c.AttentionItem[]): { told: Set<string>; 
   return { told, owed: items.filter((i) => !told.has(c.checkinKey(i))) }
 }
 // The turn end a check-in counts the lead's idle time from: a done notice's own turn does not restart it (c.idleTurnEnd).
-function idleEnd(sid: string, turnEnd: unknown): unknown {
+function idleEnd(sid: string, turnEnd: unknown, now: number): unknown {
   if (typeof turnEnd !== 'number') return turnEnd
-  const r = c.idleTurnEnd(turnEnd, doneHold.get(sid))
+  const r = c.idleTurnEnd(turnEnd, doneHold.get(sid), now)
   if (r.hold) doneHold.set(sid, r.hold)
   else doneHold.delete(sid)
   return r.at
@@ -1084,7 +1084,7 @@ async function checkinGates($: any, sid: string, now: number): Promise<'off' | '
   const pause = (await getCheckinPause($)).value
   if (typeof pause === 'number' && pause > now) return 'off'
   if (mem.wokeAt !== undefined && now - mem.wokeAt < c.CHECKIN_WAKE_MS) return 'off'
-  const turnEnd = idleEnd(sid, (await getTurnEnd($)).value)
+  const turnEnd = idleEnd(sid, (await getTurnEnd($)).value, now)
   return typeof turnEnd === 'number' && now - Math.max(turnEnd, lastSubmitAt.get(sid) ?? 0) >= c.CHECKIN_IDLE_MS ? 'all' : 'prompt'
 }
 // The waiting prompts among the items that are due: left for the mid-turn hook (a busy session gets no idle submit).
@@ -1282,7 +1282,7 @@ async function conductorCheckin($: any, sid: string, submitsAtStart: number) {
 export async function laneEndTick($: any, sid: string, submitsAtStart: number) {
   if (grants.get(sid)?.level !== 'lead') return
   // The end of the notice's own turn is learned here, at every step (once a minute), so a turn that ends a minute or more after it is not taken for it.
-  if (doneHold.has(sid)) idleEnd(sid, (await getTurnEnd($)).value)
+  if (doneHold.has(sid)) idleEnd(sid, (await getTurnEnd($)).value, await $.clock.now())
   const obs = laneObs.get(sid)
   if (!obs) return
   const ep = epochOf(sid)
@@ -1340,7 +1340,7 @@ export async function laneEndTick($: any, sid: string, submitsAtStart: number) {
   const turnEnd = (await getTurnEnd($)).value
   if (typeof turnEnd !== 'number' || now - Math.max(turnEnd, lastSubmitAt.get(sid) ?? 0) < c.LANE_DONE_IDLE_MS) return
   // Since when the lead was idle for a check-in, before this notice: its own turn leaves that time as it was.
-  const from = Math.max(c.idleTurnEnd(turnEnd, doneHold.get(sid)).at, lastSubmitAt.get(sid) ?? 0)
+  const from = Math.max(c.idleTurnEnd(turnEnd, doneHold.get(sid), now).at, lastSubmitAt.get(sid) ?? 0)
   const sigs = new Map(owed.map((i) => [i.lane, ends.get(i.lane)?.sig]))
   // A submit that timed out may never start a turn: it sets no hold, so the next turn to end is not taken for the notice's. A hold an earlier notice left stays.
   const sent = async (items: c.AttentionItem[], confirmed: boolean) => {
@@ -1348,7 +1348,7 @@ export async function laneEndTick($: any, sid: string, submitsAtStart: number) {
       const sig = sigs.get(i.lane)
       if (sig !== undefined) told.add(c.doneKey(i.lane, sig))
     }
-    if (confirmed) doneHold.set(sid, { from, prevEnd: turnEnd })
+    if (confirmed) doneHold.set(sid, { from, prevEnd: turnEnd, at: now })
   }
   await attentionNotice($, sid, owed, submitsAtStart, ep, undefined, { render: c.doneText, label: 'lane-done', sent, budget: { times: doneNotices, capped: doneCapped, max: c.LANE_DONE_PER_HOUR } })
 }

@@ -3745,13 +3745,18 @@ test('laneEndTries: the failed reads of one target; another status time or the o
   assert.equal(c.LANE_END_READ_TRIES, 3)
 })
 
-test('idleTurnEnd: the turn of a done notice leaves the idle time where it was; any later turn ends the hold', () => {
-  assert.deepEqual(c.idleTurnEnd(100, undefined), { at: 100 })
-  const hold = { from: 90, prevEnd: 100 }
-  assert.deepEqual(c.idleTurnEnd(100, hold), { at: 100, hold }, "the notice's turn has not ended")
-  assert.deepEqual(c.idleTurnEnd(130, hold), { at: 90, hold: { ...hold, end: 130 } }, "the notice's turn ended")
-  assert.deepEqual(c.idleTurnEnd(130, { ...hold, end: 130 }), { at: 90, hold: { ...hold, end: 130 } }, 'still the last turn')
-  assert.deepEqual(c.idleTurnEnd(200, { ...hold, end: 130 }), { at: 200 }, 'a later turn')
+test('idleTurnEnd: the turn of a done notice leaves the idle time where it was; any later turn ends the hold, and so does a wait with no turn end', () => {
+  assert.deepEqual(c.idleTurnEnd(100, undefined, 150), { at: 100 })
+  const hold = { from: 90, prevEnd: 100, at: 110 }
+  assert.deepEqual(c.idleTurnEnd(100, hold, 150), { at: 100, hold }, "the notice's turn has not ended")
+  assert.deepEqual(c.idleTurnEnd(130, hold, 150), { at: 90, hold: { ...hold, end: 130 } }, "the notice's turn ended")
+  assert.deepEqual(c.idleTurnEnd(130, { ...hold, end: 130 }, 150), { at: 90, hold: { ...hold, end: 130 } }, 'still the last turn')
+  assert.deepEqual(c.idleTurnEnd(200, { ...hold, end: 130 }, 210), { at: 200 }, 'a later turn')
+  assert.deepEqual(c.idleTurnEnd(100, hold, 110 + c.DONE_HOLD_MS - 1), { at: 100, hold }, 'within the bound')
+  assert.deepEqual(c.idleTurnEnd(100, hold, 110 + c.DONE_HOLD_MS), { at: 100 }, 'no turn end seen within the bound: the hold is over')
+  assert.deepEqual(c.idleTurnEnd(130, hold, 110 + c.DONE_HOLD_MS), { at: 130 }, 'a turn that ends after the bound is a real one')
+  assert.deepEqual(c.idleTurnEnd(130, { ...hold, end: 130 }, 110 + 5 * c.DONE_HOLD_MS), { at: 90, hold: { ...hold, end: 130 } }, 'a seen end is kept past the bound')
+  assert.equal(c.DONE_HOLD_MS, 10 * 60_000)
   assert.equal(c.LANE_DONE_PER_HOUR, 6)
 })
 
