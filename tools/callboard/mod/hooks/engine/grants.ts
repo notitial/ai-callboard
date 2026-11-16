@@ -114,6 +114,7 @@ import { loadLeadRecords, boundState } from './lead-records.ts'
 import { managerCommand } from './commands.ts'
 import { ownerLeave, ownerRename, leadNameHeld } from './lead-records.ts'
 import { goGrantorOff } from './go.ts'
+import { toolText } from '../tool-text.ts'
 import { promptHeldSids } from './answer-tiers.ts'
 import { epochOf, heldNo, levelBrief, levelSave } from './levels.ts'
 import { usageDrop, usageSweep } from './usage.ts'
@@ -950,21 +951,21 @@ export async function managerTools($: any, sid: string) {
   if (managerDeclared.has(sid)) return
   const lane = { type: 'object', properties: { lane: { type: 'string' } }, required: ['lane'] }
   const lead = { type: 'object', properties: { lead: { type: 'string' } }, required: ['lead'] }
-  const tools: [string, string, unknown][] = [
-    ['lane_list', 'List every lane on this Mac, as one table (a plain header line, then one row per lane with its lead, repo folder name, session and waiting columns; a lead no live session carries is marked not live): each lane, its folder when it is outside the repo root, whether a live session carries its name or it is parked, and how many minutes it has waited on a prompt.', { type: 'object', properties: {} }],
-    ['lane_resume', "Cue a lane's session to resume from its own notes. The session applies its own limits. lane: the lane name.", lane],
-    ['lane_compact', "Ask a lane's session to compact: at once if it asked for that with request_compact on-cue, otherwise it orders the lane to compact (it asks on-cue, whatever its context size, and compacts at the end of its turn). lane: the lane name, or the name of a lead (then it works as lead_compact, the person's dialog included).", lane],
-    ['lane_terminate', "Stop a lane's session with SIGTERM, whatever it is doing. Every stop asks the person: they confirm in a dialog that names the lane, its repo, the session and the pid. Once the session has stopped, the lane's record is deleted too (the .archive/<LANE> folder and report stay). A lane with no live session is removed directly. lane: the lane name.", lane],
-    ['lane_retire', "Stop a lane's session once it confirms it can end: idle, empty prompt box, no background agents or shells, and its report signed done. Every stop asks the person: they confirm in a dialog first, then the lane must confirm. The call itself waits up to 40 seconds for the idle time, so call it right after the lane's last turn; if it still refuses not-idle, wait the seconds it names and try once, never in a loop. Once the session has stopped, the lane's record is deleted too (the .archive/<LANE> folder and signed report stay). A lane with no live session is removed directly, with no signed report. Retire is final. lane: the lane name.", lane],
-    ['lead_resume', `Cue a lead's session to resume from its own notes: it gets one fixed turn and continues only work already authorised. Every call asks the person first: they confirm in a dialog that names the lead, its repo and its session. The lead must be idle with an empty prompt box, and takes at most ${c.RESUME_PER_HOUR} resumes an hour. lead: the lead's name.`, lead],
-    ['lead_compact', `Ask a lead's session to compact. Every call asks the person first, in a dialog that names the lead, its repo and its session. The lead compacts at once if it asked for that with request_compact on-cue; with no request of its own it is ordered to compact only while its conductor is live (it asks on-cue, whatever its context size), and otherwise refuses no-request. lead: the lead's name.`, lead],
-    ['lead_park', `Park a lead: its session stops and its record is marked parked, so lead_unpark can reopen the same conversation within ${c.UNPARK_MAX_MS / 86_400_000} days. Every call asks the person first, in a dialog that names the lead, its repo and its session. The lead must be idle with an empty prompt box and no background agents or shells, no live lane may name it, and the lead confirms it can stop. The call waits up to 40 seconds for the idle time. lead: the lead's name.`, lead],
-    ['lead_unpark', `Reopen a parked lead's conversation in a new panel, as the lead, within ${c.UNPARK_MAX_MS / 86_400_000} days of its park. Every call asks the person first, in a dialog that names the lead, its repo and its session. Needs the panels extension 1.4.0 or later. lead: the lead's name.`, lead],
-    ['lead_retire', "Stop a lead's session once it confirms it can end: idle, empty prompt box, no background agents or shells, and its report signed done. Refused while any lane record names the lead (retire or remove its lanes first). Every call asks the person first, in a dialog that names the lead, its repo and its session; then the lead must confirm. The call waits up to 40 seconds for the idle time. Once the session has stopped, the lead's record is deleted (its .archive folder and report stay). A lead record no live session carries is removed directly, after the dialog. Retire is final. lead: the lead's name.", lead],
-    ['lead_terminate', "Stop a lead's session with SIGTERM, whatever it is doing. Every stop asks the person: they confirm in a dialog that names the lead, its repo, the session, the pid and how many live lanes name it. Once the session has stopped, the lead's record is deleted, or kept with no session while any lane names the lead (then lead_retire removes it once its lanes are gone). lead: the lead's name.", lead],
+  const tools: [string, unknown][] = [
+    ['lane_list', { type: 'object', properties: {} }],
+    ['lane_resume', lane],
+    ['lane_compact', lane],
+    ['lane_terminate', lane],
+    ['lane_retire', lane],
+    ['lead_resume', lead],
+    ['lead_compact', lead],
+    ['lead_park', lead],
+    ['lead_unpark', lead],
+    ['lead_retire', lead],
+    ['lead_terminate', lead],
   ]
-  for (const [name, description, inputSchema] of tools) await $.tool.register({ name, description, inputSchema })
-  await promptToolsRegister($)
+  for (const [name, inputSchema] of tools) await $.tool.register({ name, description: toolText(name, 'manager'), inputSchema })
+  await promptToolsRegister($, 'manager')
   managerDeclared.add(sid)
 }
 
@@ -1936,21 +1937,21 @@ async function conductorTools($: any, sid: string) {
   if (conductorDeclared.has(sid)) return
   const lane = { type: 'object', properties: { lane: { type: 'string' } }, required: ['lane'] }
   const lead = { type: 'object', properties: { lead: { type: 'string' } }, required: ['lead'] }
-  const tools: [string, string, unknown][] = [
-    ['lane_list', "List your leads and their lanes, as one table under a Conductor header line (one row per lane with its lead, repo folder name, session and waiting columns; a lead no live session carries is marked not live): each lane of a lead you own, its folder when it is outside the repo root, whether a live session carries its name or it is parked, and how many minutes it has waited on a prompt. A lead you own with no lanes is one row with – in the lane cells.", { type: 'object', properties: {} }],
-    ['lane_compact', "Ask a session to compact. lane: a lane of one of your leads (at once if it asked on-cue, otherwise it is ordered to compact), or the session name of a live lead you own (then it works as lead_compact).", lane],
-    ['lane_terminate', "Stop a lane of a lead you own with SIGTERM, whatever it is doing. Every stop asks the person: they confirm in a dialog that names the lane, its repo, the session and the pid. Once the session has stopped, the lane's record is deleted too (the .archive/<LANE> folder and report stay). A lane with no live session is removed directly. lane: the lane name. To stop a lead you own, use lead_terminate.", lane],
-    ['lead_open', "Open a panel for a new lead in one of your repos, write the task to its brief (<repo>/.archive/<NAME>/BRIEF.md) and make it the lead without asking the person. The repo must be one of yours, and no open may be running, one succeeded in the last hour, or three been tried in the last hour. The person sees a toast. repo: the repo's absolute path. name: the new lead's name. task: the brief text, as for lane_create. model: opus, sonnet, haiku or fable (default as lane_create); the new lead is set to it. job: true for a small task the new lead does itself, with no lanes; it signs its report and stops, and you end it with lead_retire.", { type: 'object', properties: { repo: { type: 'string' }, name: { type: 'string' }, task: { type: 'string' }, model: { type: 'string' }, job: { type: 'boolean' } }, required: ['repo', 'name', 'task'] }],
-    ['lead_resume', `Cue a lead you own to resume from its own notes: it gets one fixed turn and continues only work already authorised. It must be idle with an empty prompt box, and takes at most ${c.RESUME_PER_HOUR} resumes an hour. lead: the lead's name.`, lead],
-    ['lead_compact', `Ask a lead you own to compact: at once if it asked for that with request_compact on-cue, otherwise it is ordered to compact (it asks on-cue, whatever its context size, and compacts at the end of its turn). If it has not asked within ${c.ORDER_MS / 60_000} minutes, you are told. lead: the lead's name.`, lead],
-    ['lead_park', `Park a lead you own: its session stops and its record is marked parked, so lead_unpark can reopen the same conversation within ${c.UNPARK_MAX_MS / 86_400_000} days. The lead must be idle with an empty prompt box and no background agents or shells, no live lane may name it, and the lead confirms it can stop. The call waits up to 40 seconds for the idle time. lead: the lead's name.`, lead],
-    ['lead_unpark', `Reopen a parked lead you own in a new panel, as the lead, within ${c.UNPARK_MAX_MS / 86_400_000} days of its park. Needs the panels extension 1.4.0 or later. lead: the lead's name.`, lead],
-    ['lead_retire', "Stop a lead you own once it confirms it can end: idle, empty prompt box, no background agents or shells, and its report signed done. Refused while any lane record names the lead (its lanes are retired or removed first). The call waits up to 40 seconds for the idle time. Once the session has stopped, the lead's record is deleted (its .archive folder and report stay). A lead record no live session carries is removed directly; for a parked lead the person confirms first. Retire is final. lead: the lead's name.", lead],
-    ['lead_terminate', "Stop a lead you own with SIGTERM, whatever it is doing. Every stop asks the person: they confirm in a dialog that names the lead, its repo, the session, the pid and how many live lanes name it. Once the session has stopped, the lead's record is deleted, or kept with no session while any lane names the lead (then lead_retire removes it once its lanes are gone). lead: the lead's name.", lead],
-    ['go_request', "Ask the person for one go that counts in the leads you own and in their lanes (ADR 0009). It only opens the person's dialog in this session: text says what the work is (1 to 300 bytes of plain text on at most 3 lines, none empty, with the detail in the brief or the plan; the person reads it, and the leads and lanes read it back from go_status). The dialog shows how many leads you own and how many lanes they have with a session now, the end (24 hours) and the short list of what a go never covers. The result says whether the go was given. Main agent of a conductor only; at most 6 dialogs an hour. Call it when lead_open says no go covers a lead that has risk-list work.", { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] }],
+  const tools: [string, unknown][] = [
+    ['lane_list', { type: 'object', properties: {} }],
+    ['lane_compact', lane],
+    ['lane_terminate', lane],
+    ['lead_open', { type: 'object', properties: { repo: { type: 'string' }, name: { type: 'string' }, task: { type: 'string' }, model: { type: 'string' }, job: { type: 'boolean' } }, required: ['repo', 'name', 'task'] }],
+    ['lead_resume', lead],
+    ['lead_compact', lead],
+    ['lead_park', lead],
+    ['lead_unpark', lead],
+    ['lead_retire', lead],
+    ['lead_terminate', lead],
+    ['go_request', { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] }],
   ]
-  for (const [name, description, inputSchema] of tools) await $.tool.register({ name, description, inputSchema })
-  await promptToolsRegister($)
+  for (const [name, inputSchema] of tools) await $.tool.register({ name, description: toolText(name, 'conductor'), inputSchema })
+  await promptToolsRegister($, 'conductor')
   conductorDeclared.add(sid)
 }
 
