@@ -452,7 +452,7 @@ export async function keepaliveTick($: any, sid: string, submitsAtStart: number)
   if (gap < k.pingAfterMin * 60_000) return
   const pingAt = (await getPingAt($)).value
   if (typeof pingAt === 'number' && pingAt >= gapStart) return
-  // `/callboard rest`: the person left this session alone for this gap, so no ping and no cache nudge in its slot; the cache may expire.
+  // `/callboard rest` or the `rest` tool: this session is left alone for this gap, so no ping and no cache nudge in its slot; the cache may expire.
   const restAt = (await getRest($)).value
   if (typeof restAt === 'number') return kaOnce($, sid, `rest:${restAt}`, 'keepalive-skipped', 'rest')
   // Every interactive session, not only a lead, a lane or a session with callboard on; personRow below keeps it to a person's.
@@ -848,7 +848,7 @@ export async function turnStart($: any, e: any, next: any) {
     if (kind) turnKind.set(sid, kind)
     else {
       turnKind.delete(sid)
-      // A real turn ends a `/callboard rest`.
+      // A real turn ends a rest (`/callboard rest`, or the `rest` tool).
       if (typeof (await getRest($)).value === 'number') await setRest($, null).catch(() => undefined)
     }
     if (kind !== 'ping') await markTurn($, sid)

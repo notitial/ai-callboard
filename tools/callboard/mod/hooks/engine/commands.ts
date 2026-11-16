@@ -96,6 +96,19 @@ async function restCommand($: any, sid: string, code: string) {
   return { text: c.REST_TEXT }
 }
 
+// The `rest` tool: /callboard rest set by the calling session's own main agent, through the same handler. It asks nothing, as the command: it only
+// narrows. A subagent is refused, because the rest is the session's and its call would rest the parent.
+export async function restCall($: any, e: any) {
+  const sid = await $.session.id()
+  ensureTimer($)
+  if ((e as { agentId?: string }).agentId !== undefined) {
+    await logq($, sid, 'refused', 'rest-subagent')
+    return { deny: c.REST_SUBAGENT }
+  }
+  const r = await restCommand($, sid, 'tool')
+  return r.text === c.REST_TEXT ? { result: c.REST_SET } : { deny: r.text }
+}
+
 // /callboard checkin pause <N>m|<N>h and checkin on: the person's own, as config; a plugin, another session or a script gets a fixed refusal.
 async function checkinCommand($: any, sid: string, code: c.OriginCode, op: c.CheckinOp): Promise<{ text: string }> {
   if (op === 'bad') return { text: c.CHECKIN_USAGE }

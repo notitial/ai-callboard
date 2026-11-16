@@ -9,7 +9,7 @@ import { leadToolCall } from './engine/lead-tools.ts'
 import { leadStopCall, leadStopFailed } from './engine/lead-stops.ts'
 import { TOOL, requestCompactCall, turnComplete, promptSubmit, turnStart, postToolHook, postCompact } from './engine/compaction.ts'
 import { sessionStart } from './engine/tick.ts'
-import { commandRun } from './engine/commands.ts'
+import { commandRun, restCall } from './engine/commands.ts'
 import { toolCheck, permissionRequest, doneHook } from './engine/answer-hook.ts'
 import { promptListCall, promptAnswerCall, promptEscalateCall } from './engine/answer-tiers.ts'
 import { usageMeasure } from './engine/usage.ts'
@@ -52,6 +52,7 @@ export const register: Register = (on) => {
   on('tool.call', { tool: 'mcp__callboard__go_request' }, goRequestCall).catch(() => ({ deny: 'go_request failed closed.' }))
   on('tool.call', { tool: 'mcp__callboard__go_status' }, goStatusCall).catch(() => ({ deny: 'go_status failed closed.' }))
   on('tool.call', { tool: 'mcp__callboard__pr_watch' }, prWatchCall).catch(() => ({ deny: 'pr_watch failed closed.' }))
+  on('tool.call', { tool: `mcp__callboard__${c.REST_TOOL}` }, restCall).catch(() => ({ deny: 'rest failed closed.' }))
 
   for (const verb of c.STOP_VERBS) {
     on('tool.call', { tool: `mcp__callboard__lane_${verb}` }, ($, e, next) => stopVerbCall($, e, next, verb)).catch(($, e, next) => stopVerbFailed($, e, next, verb))

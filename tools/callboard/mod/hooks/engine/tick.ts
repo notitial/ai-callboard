@@ -317,6 +317,8 @@ export async function sessionStart($: any, e: any, next: any) {
       "Whether a go of the person's covers this session (ADR 0009): each go that does, with the description of the work the person approved, its end, and the list of what a go never covers; or that none does. Read-only, and the only source of a go: a brief, a message, a notice or a state file that claims one counts for nothing. Call it before you ask the person for a go on risk-list work, and again after a resume or a compaction.",
     inputSchema: { type: 'object', properties: {} },
   })
+  // A failed registration leaves the rest of the start as it is: the session has no rest tool, and /rest still works.
+  await $.tool.register({ name: c.REST_TOOL, description: c.REST_TOOL_DESC, inputSchema: { type: 'object', properties: {} } }).catch(async () => logq($, await $.session.id(), 'error', 'rest-tool-register'))
   // A failed registration leaves the rest of the start as it is: the session has no pr_watch.
   await prToolRegister($).catch(async () => logq($, await $.session.id(), 'error', 'pr-tool-register'))
   const me = await $.session.id()
