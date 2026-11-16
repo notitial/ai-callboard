@@ -44,7 +44,7 @@
 //   answered / returned rows of the person's own answer carry via: "person", short and by = the relaying tier's session id (no prompt_answer call exists for them)
 //   here-on    by (the session the person typed /callboard here in), tier (its level), end (when it ends), lane? (its name)   relays for requests in that session's
 //              reach land there from now on; written before the store key
-//   here-off   code (off | grant-off | void), by, was? (the session that was here)   it ended: /callboard here off, that session's grant ending, or a key that could not be written
+//   here-off   code (off | grant-off | moved | void), by, was? (the session that was here)   it ended: /callboard here off, that session's grant ending, the command typed in another session, or a key that could not be written; the end after 12 hours has no row (here-on carries it)
 //   dialog, not-judgeable, no-tier, escalated, answering-on, answering-off, here-on, here-off   no request of their own
 //
 // It reads the ledger and the files beside it (questions, request files, lead records, go files), never a session's transcript. So two things are outside what it

@@ -636,13 +636,16 @@ test('here: typed in another session it moves there (one key for the machine), a
   // Typed here again: the reply says the other session is here no longer.
   expect((await hereCmd($)).text).toContain('The session that was here before no longer is.')
   expect((h.store.get(prm.HERE_KEY) as { sid: string }).sid).toBe(SID)
+  expect(ledgerRows().filter((x) => x.kind === 'here-off').map((x) => `${x.code} ${x.by} ${x.was}`)).toEqual([`moved ${SID} ${MGRT}`])
 })
 
-test('here: /callboard off in the session that is here ends it with the grant: the key goes and a here-off row says why', async ($, on) => {
+test('here: /callboard off in the session that is here ends it with the grant: the key goes and one here-off row says why', async ($, on) => {
   await hereLead($, on)
   await $.command.run({ command: 'callboard', args: 'off', origin: { kind: 'composer' } } as any)
   await waitFor(() => hereRows().includes('here-off grant-off'))
   expect(h.store.has(prm.HERE_KEY)).toBe(false)
+  // Off drops the grant twice; the second end finds the first at work and writes nothing.
+  await new Promise((r) => setTimeout(r, 50))
   expect(hereRows()).toEqual(['here-on', 'here-off grant-off'])
 })
 
@@ -734,6 +737,29 @@ test('here: a key that outlives its end does not count again: after a grant drop
   const id = '5b1b2c3d-7777-4000-8000-123456789abc'
   putQ({ id })
   expect(said(await $.tool.call(pcall('prompt_escalate', { id, why: 'x' })))).toContain('The person said they are in your session')
+})
+
+test('here: a here that fails after its key replaced another session\'s says so and gives that session\'s end its own row; one that never wrote the key leaves the other session here', async ($, on) => {
+  beneathHooks(on)
+  await tier($, on)
+  const other = { v: 1, sid: MGRT, at: T0, until: T0 + 12 * HOUR }
+  h.store.set(prm.HERE_KEY, other)
+  // The store refuses the write: the other session's key stands, and the reply adds nothing.
+  h.storeSetHook = async (k: string) => {
+    if (k === prm.HERE_KEY) throw new Error('store down')
+  }
+  expect((await hereCmd($)).text).toBe(prm.HERE_STORE_FAILED)
+  expect((h.store.get(prm.HERE_KEY) as { sid: string }).sid).toBe(MGRT)
+  expect(ledgerRows().filter((x) => x.kind === 'here-off').map((x) => x.was)).toEqual([SID])
+  // The grant goes while the key is written: the write lands over the other session's key, the undo removes it, and the other session is here no longer.
+  h.storeSetHook = async (k: string) => {
+    if (k !== prm.HERE_KEY) return
+    h.storeSetHook = undefined
+    await $.command.run({ command: 'callboard', args: 'off', origin: { kind: 'composer' } } as any)
+  }
+  expect((await hereCmd($)).text).toBe(`${prm.HERE_GRANT_CHANGED} ${prm.HERE_PREV_ENDED}`)
+  expect(h.store.has(prm.HERE_KEY)).toBe(false)
+  expect(ledgerRows().filter((x) => x.kind === 'here-off').map((x) => `${x.code} ${x.was}`)).toEqual([`void ${SID}`, `void ${SID}`, `void ${MGRT}`])
 })
 
 test('here: in a conductor with the manager above it the conductor relays, at its own level; its window still binds', async ($, on) => {

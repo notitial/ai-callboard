@@ -915,12 +915,19 @@ async function hereCommand($: any, sid: string, code: c.OriginCode, op: pr.HereO
   }
   // A key that cannot be written, or a grant that went while it was, leaves no `here`: the session is marked (a write that timed out may still land, and
   // the mark keeps it from counting), a key that may be there is removed, and the row gets its end.
+  // The write may have replaced the key of the session that was here before: unless that key is read back, that session's `here` has ended too, which gets
+  // its own row and a sentence in the reply.
+  const prev = before !== 'error' && before !== undefined && before.sid !== sid ? before.sid : undefined
   const undo = async (text: string, drop: boolean) => {
     hereGone.add(sid)
     if (drop) await hereDrop($, sid)
     await ledgerAdd($, { kind: 'here-off', code: 'void', by: sid, was: sid })
     await logq($, sid, 'error', 'here-void')
-    return { text }
+    if (prev === undefined) return { text }
+    const now = await hereRead($)
+    if (now !== 'error' && now?.sid === prev) return { text }
+    if (!(await ledgerAdd($, { kind: 'here-off', code: 'void', by: sid, was: prev }))) await logq($, sid, 'error', 'here-ledger')
+    return { text: `${text} ${pr.HERE_PREV_ENDED}` }
   }
   const value: pr.Here = { v: 1, sid, at, until }
   hereGone.delete(sid)
@@ -932,8 +939,10 @@ async function hereCommand($: any, sid: string, code: c.OriginCode, op: pr.HereO
   }
   if (wrote === 'timeout') return undo(pr.HERE_STORE_FAILED, true)
   if (grants.get(sid)?.level !== level || epochOf(sid) !== epoch) return undo(pr.HERE_GRANT_CHANGED, true)
+  // The session that was here before is here no longer: its end gets a row.
+  if (prev !== undefined && !(await ledgerAdd($, { kind: 'here-off', code: 'moved', by: sid, was: prev }))) await logq($, sid, 'error', 'here-ledger')
   await logq($, sid, 'here-on', code)
-  return { text: pr.hereOnText(go.goWhen(until, -new Date(until).getTimezoneOffset()), before !== 'error' && before !== undefined && before.sid !== sid) }
+  return { text: pr.hereOnText(go.goWhen(until, -new Date(until).getTimezoneOffset()), prev !== undefined) }
 }
 
 // What a caller other than the person's command adds to a lead grant (the new panel taking a conductor's offer, engine/lead-accept.ts): the grant's question is

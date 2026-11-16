@@ -421,7 +421,7 @@ export type RowKind = (typeof ROW_KINDS)[number]
 // end the go's end as an ISO time, repo, lane the lead's name then), `go-end` (id, code off | expired | grantor-off | void, by the session that ended it) and
 // `go-read` (id, by the reading session, code listed | later, lane its lane name), once per reading session.
 // Here's rows (ADR 0009, the relay): `here-on` (by the session the person typed /callboard here in, tier its level, end the end as an ISO time, lane its name),
-// written before the store key; `here-off` (code off | grant-off | void, by the session that ended it, was the session that was here, absent when the key could not be read).
+// written before the store key; `here-off` (code off | grant-off | moved | void, by the session that ended it, was the session that was here, absent when the key could not be read; a failed `here` that also ended another session's writes one row for each). The end after 12 hours writes no row: the `here-on` row carries it.
 // raised (a `requested` row): what raised the ask (one of RAISED), so the audit can count the tiers' allows by it after the request file is gone.
 // opt, lh (a question's `answer` rows, code 'answer'): the chosen option's index as a string, and the first 16 hex of SHA-256(id + "\n" + label); no label text. Strings, since the audit drops a row with another type.
 export type LedgerRow = { t: string; kind: RowKind; code?: string; id?: string; lane?: string; repo?: string; tool?: string; pattern?: string; hash?: string; tier?: string; why?: string; nonce?: string; cap?: CapKind; target?: string; by?: string; tuid?: string; via?: 'person'; short?: string; opt?: string; lh?: string; was?: string; dialog?: 'yes' | 'none'; end?: string; raised?: string }
@@ -661,6 +661,8 @@ export const HERE_NO_TIER = 'Nothing changed: a relay lands only in a lead, cond
 export const HERE_LEDGER_FAILED = 'Nothing changed: the ledger did not answer.'
 export const HERE_STORE_FAILED = 'Nothing changed: the store did not answer.'
 export const HERE_GRANT_CHANGED = 'Nothing changed: this session stopped being a lead, conductor or manager meanwhile.'
+// Added to a failed `here` when the key of the session that was here before is no longer read back.
+export const HERE_PREV_ENDED = 'The session that was here before may no longer be: type /callboard here there again if you want it back.'
 // until: the end as the person reads it. moved: another session was here until now.
 export const hereOnText = (until: string, moved: boolean): string =>
   `You are here until ${until}: a prompt or question in this session's reach that no session settles is put to you in this session.${moved ? ' The session that was here before no longer is.' : ''} The sessions above keep their relay, so one may still ask you in its own panel. /callboard here off ends it.`

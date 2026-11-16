@@ -300,11 +300,19 @@ export async function hereDrop($: any, sid: string): Promise<'gone' | 'other' | 
 }
 // A session whose grant ends while it is here is here no longer, a later grant in the same session included: the mark first (no await before it), then the
 // key, then its `here-off` row. A key that could not be removed gets no row and is logged; the mark still keeps this session from relaying by it.
+// A saved grant that is refused at a restart ends it the same way. Two calls for one session at once write one row: the second leaves it to the first.
+const hereOffBusy = new Set<string>()
 export async function hereGrantOff($: any, sid: string): Promise<void> {
   hereGone.add(sid)
-  const r = await hereDrop($, sid)
-  if (r === 'failed') return logq($, sid, 'error', 'here-grant-off')
-  if (r === 'gone') await ledgerAdd($, { kind: 'here-off', code: 'grant-off', by: sid, was: sid })
+  if (hereOffBusy.has(sid)) return
+  hereOffBusy.add(sid)
+  try {
+    const r = await hereDrop($, sid)
+    if (r === 'failed') return await logq($, sid, 'error', 'here-grant-off')
+    if (r === 'gone') await ledgerAdd($, { kind: 'here-off', code: 'grant-off', by: sid, was: sid })
+  } finally {
+    hereOffBusy.delete(sid)
+  }
 }
 
 // Whether the switch is on and this session is a lane or a lead: the cheap first test. The scope (a lane's or a lead's name) is judged once the lead is known.

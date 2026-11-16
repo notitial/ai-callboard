@@ -149,22 +149,24 @@ The risk list is used in two senses, and the go separates them.
 - A question that asks for a go is relayed like any other question, and the person's pick is their go for that one
   question.
 - **The relay lands where the person says.** The person types `/callboard here` in the session they are working from;
-  it is a command, so its origin is checked. Relays for requests in that session's reach then land there, whatever
-  the top tier, until they type it in another session or 12 hours pass. Without it the top tier relays as before.
-  *Built 2026-11-16.* The command is typed in a lead's, conductor's or manager's session (a lane or a plain session
-  is refused) and moves permission prompts and questions alike. It ends when typed in another session, at
-  `/callboard here off` (any origin: it only narrows), when that session's grant ends, or after 12 hours. It is one
-  `$.store` key, `relay-here` (`{ v, sid, at, until }`), written after a `here-on` ledger row and read by one
-  function; a `here-off` row records its end. The key is not bound to its row by a hash: a process running as the
-  person could write it and move where a question shows, but the person still answers it themselves, in a session
-  that could already answer by the rubric, which is less than a forged decision file allows (ADR 0004). The tiers
-  above keep their relay as the fallback: if the session the person named does not act, the request reaches the next
-  tier in its window as before, so now and then a question still opens in the other panel. The other choice, to
-  refuse the top tier's relay while `here` stands, could leave a prompt with nobody able to put it to the person.
-  It does not end unattended mode and is not ended by it. A restart that restores the session's grant does not end
-  it either, as a closed panel ends no go; a grant the person drops does, and a new grant in that session does not
-  bring it back. A lead moved to another folder stays `here`, for its new reach. `here off` does not take back a
-  relay question already on screen: that request is in front of the person, and their click still lands.
+  it is a command, so its origin is checked. Relays for requests in that session's reach then land there, whatever the
+  top tier, until they type it in another session or 12 hours pass. Without it the top tier relays as before. *Built
+  2026-11-16.* The command is typed in a lead's, conductor's or manager's session (a lane or a plain session is
+  refused) and moves permission prompts and questions alike. It ends when typed in another session, at `/callboard
+  here off` (any origin: it only narrows), when that session's grant ends, or after 12 hours. It is one `$.store` key,
+  `relay-here` (`{ v, sid, at, until }`), written after a `here-on` ledger row and read by one function; a `here-off`
+  row records its end (the end after 12 hours has none: the `here-on` row carries it). The key is not bound to its row
+  by a hash: a process running as the person could write it and move where a question shows, but the person still
+  answers it themselves, in a session that could already answer by the rubric, which is less than a forged decision
+  file allows (ADR 0004). The tiers above keep their relay as the fallback: if the session the person named does not
+  act, the request reaches the next tier in its window as before, so now and then a question still opens in the other
+  panel. The other choice, to refuse the top tier's relay while `here` stands, could leave a prompt with nobody able
+  to put it to the person. It does not end unattended mode and is not ended by it. A restart that restores the
+  session's grant does not end it either, as a closed panel ends no go; a grant the person drops does, and so does a
+  saved grant that is refused at a restart; a new grant in that session does not bring it back while the mod keeps
+  running (a key that could not be removed is held back by a mark in memory, which a restart loses). A lead moved to
+  another folder stays `here`, for its new reach. `here off` does not take back a relay question already on screen:
+  that request is in front of the person, and their click still lands.
 
 ### Audit
 

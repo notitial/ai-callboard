@@ -501,6 +501,7 @@ async function leadRestoreTry($: any, me: string, hint: c.LeadHint): Promise<str
   if (cwd !== hint.pin) {
     await $.store.delete(`${c.LEAD_HINT_PREFIX}${me}`)
     void goGrantorOff($, me).catch(() => undefined)
+    void hereGrantOff($, me).catch(() => undefined)
     return void (await end('wrong-folder'))
   }
   // A lane is never a lead too (the rebind refuses a lead in turn); a read that does not answer counts as a binding.
@@ -2013,6 +2014,7 @@ async function conductorRestoreTry($: any, me: string, box: { hint: c.ConductorH
   if (cwd === 'timeout' || typeof cwd !== 'string') return 'cwd-unreadable'
   if (cwd !== hint.home) {
     await $.store.delete(key)
+    void hereGrantOff($, me).catch(() => undefined)
     return void (await end('wrong-folder'))
   }
   // A lane on its way back: its binding, its restore hint, or a store record naming this session. A pending rebind alone is tried again:

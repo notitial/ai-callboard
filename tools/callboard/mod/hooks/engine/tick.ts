@@ -72,6 +72,7 @@ import { prToolRegister, prPollDue, prPollTick, prNoticeTick } from './pr-watch.
 import { leadStartTick, offerSweep, conductorGrantCheck } from './lead-start.ts'
 import { ownerTick } from './lead-records.ts'
 import { goWatchDue, goWatchOn, goWatchTick, goGrantorOff } from './go.ts'
+import { hereGrantOff } from './answer-hook.ts'
 import { getRequest, getSeen, setInteractive, setRequest, setSeen } from '../state.ts'
 
 const RESUME_TTL_MS = 120_000
@@ -376,6 +377,7 @@ export async function sessionStart($: any, e: any, next: any) {
         else if (!h) {
           await $.store.delete(`${c.LEAD_HINT_PREFIX}${me}`)
           void goGrantorOff($, me).catch(() => undefined)
+          void hereGrantOff($, me).catch(() => undefined)
           await restoreEnded($, me, 'lead', 'invalid')
         } else await leadRestore($, me, h, 0)
       }
@@ -391,6 +393,7 @@ export async function sessionStart($: any, e: any, next: any) {
         if (!p) await restoreEnded($, me, 'conductor', 'error')
         else if (!h) {
           await $.store.delete(`${c.CONDUCTOR_HINT_PREFIX}${me}`)
+          void hereGrantOff($, me).catch(() => undefined)
           await restoreEnded($, me, 'conductor', 'invalid')
         } else await conductorRestore($, me, h, 0)
       }
@@ -406,6 +409,7 @@ export async function sessionStart($: any, e: any, next: any) {
         const h = c.parseManagerHint(raw, now)
         if (!h) {
           await $.store.delete(`${c.MANAGER_HINT_PREFIX}${me}`)
+          void hereGrantOff($, me).catch(() => undefined)
           await restoreEnded($, me, 'manager', 'invalid')
         } else managerRestorePending.set(me, { hint: h, tries: 0 })
       }
