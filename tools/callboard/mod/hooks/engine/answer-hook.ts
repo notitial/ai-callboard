@@ -313,7 +313,7 @@ async function promptLeadOf($: any, level: 'lane' | 'lead', sid: string, cwd: st
 
 // This session's own registry row, by one file read (not the whole table): the row of the pid the request was made under, kept only if it names this session and
 // the same process start. undefined: unknown (a changing, missing or odd file).
-async function promptOwnRow($: any, w: WaitCtx): Promise<any | undefined> {
+async function promptOwnRow($: any, w: { sid: string; p: WaitCtx['p']; req: { pid: number; procStart: string } }): Promise<any | undefined> {
   if (!(await dirOk($, w.p.sessions, w.p.uid))) return undefined
   const r = await readSmallR($, `${w.p.sessions}/${w.req.pid}.json`, w.p.uid, c.REGISTRY_FILE_MAX, true)
   if (r.state !== 'ok') return undefined
@@ -521,6 +521,60 @@ export async function promptAskingClear($: any, sid: string, always = false): Pr
   return true
 }
 
+// The live tiers in reach of an ask of this session: the lead of a lane, or a conductor or the manager. `own` is the asker's registry row, undefined when the
+// session list does not show exactly one usable row for it (then nobody is in reach).
+type Cov = NonNullable<Awaited<ReturnType<typeof promptCoverage>>>
+async function promptReach($: any, cov: Cov, sid: string, cwd: string, tool: string, lead: { sid: string; name?: string } | undefined): Promise<{ own: { pid: number; procStart: string } | undefined; reach: pr.Tier[]; leadName?: string; leadSid?: string }> {
+  const leadName = lead?.name
+  // A named lead is reached by its name, which outlives a restart; an unnamed one only by its session id.
+  const leadSid = leadName ? undefined : lead?.sid
+  const row = await registryOf($, sid)
+  const own = row && typeof row.pid === 'number' && typeof row.procStart === 'string' ? { pid: row.pid as number, procStart: row.procStart as string } : undefined
+  const liveNow = await registryEntries($)
+  const reach = own && liveNow ? await promptReachTiers($, liveNow, cov.a, { sid, pid: own.pid, procStart: own.procStart, level: cov.level, lane: cov.lane ?? cov.self, ...(leadName ? { leadName } : {}), ...(leadSid ? { leadSid } : {}), repo: cwd, tool }, cov.level === 'lane' && lead === undefined).catch(() => [] as pr.Tier[]) : ([] as pr.Tier[])
+  return { own, reach, ...(leadName ? { leadName } : {}), ...(leadSid ? { leadSid } : {}) }
+}
+
+// The person's head start on a question that is about to be ended for its form: MIN_AGE_MS of awake time with the card open. true: the time passed with no click,
+// the switch still on and the lane still covered. false: the card is the person's (a click, an abort, the switch, a pause that failed).
+async function promptFormWait($: any, signal: AbortSignal, w: { sid: string; tid: string; tool: string; p: WaitCtx['p']; started: number; leadName?: string; req: { pid: number; procStart: string } }): Promise<boolean> {
+  let last = await $.clock.now()
+  let awake = pr.awakeAdd(0, last - w.started)
+  let seenWaiting = false
+  for (;;) {
+    if (signal.aborted || doneIds.has(w.tid) || (await promptsOff($))) return false
+    const cv = await promptCoverage($, w.sid)
+    if (cv === undefined || !pr.requestCovered(cv.a, { tool: w.tool }, { lane: cv.lane, lead: w.leadName, self: cv.self })) return false
+    // The dialog counts as closed only once the own row has been seen waiting for this call and is then not (as in promptWait).
+    const rowNow = await promptOwnRow($, w).catch(() => undefined)
+    if (rowNow) {
+      const waiting = rowNow.status === 'waiting' && (rowNow.waitingFor ?? null) !== null
+      if (waiting && typeof rowNow.statusUpdatedAt === 'number' && rowNow.statusUpdatedAt >= w.started) seenWaiting = true
+      else if (seenWaiting && !waiting) return false
+    }
+    if (awake >= pr.MIN_AGE_MS) return true
+    if (!(await pause($, pr.pollFor(false)))) return false
+    const now = await $.clock.now()
+    awake = pr.awakeAdd(awake, now - last)
+    last = now
+  }
+}
+
+// A subagent's ask that would be denied: the row of the denial, or undefined when nothing changes for it (the switch is off or does not cover this session, or
+// no live tier is in reach, so the main session's own call could not rise either).
+async function promptSubagentRow($: any, e: any): Promise<Omit<pr.LedgerRow, 't' | 'kind'> | undefined> {
+  const sid = await $.session.id()
+  if (!c.SID_RE.test(sid)) return undefined
+  const cov = await promptCoverage($, sid)
+  if (!cov || (await promptsOff($)) || !(await where($))) return undefined
+  const tool = String(e.tool_name)
+  const cwd = String(await sessionRoot($).catch(() => ''))
+  const lead = await promptLeadOf($, cov.level, sid, cwd, cov.lead)
+  const { reach, leadName } = await promptReach($, cov, sid, cwd, tool, lead)
+  if (reach.length === 0 || !pr.requestCovered(cov.a, { tool }, { lane: cov.lane, lead: leadName, self: cov.self })) return undefined
+  return { lane: cov.lane ?? cov.self, repo: cwd, tool, pattern: pr.patternOf(tool, e.tool_input, cwd), hash: await sha($, pr.canonical(e.tool_input)) }
+}
+
 // The hook. nextOnce runs the chain beneath at most once, so a failure after it never runs it a second time.
 async function promptHook($: any, e: any, nextOnce: (x: any) => Promise<any>, signal: AbortSignal): Promise<any> {
   const sid = await $.session.id()
@@ -591,6 +645,12 @@ async function promptHook($: any, e: any, nextOnce: (x: any) => Promise<any>, si
       if (!pr.covers(cov.a, { lane: cov.lane, lead: lead?.name, self: cov.self })) return beneath
     }
     const base = { lane: cov.lane ?? cov.self, repo: cwd, tool, pattern: pr.patternOf(tool, input, cwd), hash }
+    // The live tiers in reach of this ask, with the asker's own registry row and its lead (read once).
+    const reachOf = async () => {
+      if (!leadRead) lead = await promptLeadOf($, cov.level, sid, cwd, cov.lead)
+      leadRead = true
+      return promptReach($, cov, sid, cwd, tool, lead)
+    }
     if (!usable || entry === undefined) {
       await ledgerAdd($, { ...base, kind: 'not-judgeable', code: 'no-check' })
       return beneath
@@ -612,19 +672,21 @@ async function promptHook($: any, e: any, nextOnce: (x: any) => Promise<any>, si
       }
       const shape = pr.questionShape(input)
       if (!shape.ok) {
-        await ledgerAdd($, { ...base, kind: 'not-judgeable', code: shape.code })
-        return beneath
+        // A question with no answer form cannot rise. With a tier in reach it is ended with a fixed message that says how to ask again, once the person has had
+        // their first 30 seconds with the card; a click, the switch going off or a failed pause leaves it theirs, with the row it always had.
+        const r = pr.questionDeniable(shape.code) ? await reachOf() : undefined
+        const asker = r !== undefined && r.reach.length > 0 && pr.requestCovered(cov.a, { tool }, { lane: cov.lane, lead: r.leadName, self: cov.self }) ? r.own : undefined
+        if (asker === undefined || !(await promptFormWait($, signal, { sid, tid: tid as string, tool, p, started, leadName: r?.leadName, req: asker }))) {
+          await ledgerAdd($, { ...base, kind: 'not-judgeable', code: shape.code })
+          return beneath
+        }
+        if (!(await ledgerAdd($, { ...base, kind: 'question-denied', code: shape.code }))) return beneath
+        return { ...(beneath && typeof beneath === 'object' ? beneath : {}), decision: { behavior: 'deny' as const, message: pr.FORM_DENY_MESSAGE } }
       }
     }
     // 7. A live tier: the lead of a lane, or a conductor or the manager (a lead's own prompt starts at the conductor). Nobody in reach, or an asker that the
     // session list does not show: no row for a judge, the dialog stays the person's.
-    if (!leadRead) lead = await promptLeadOf($, cov.level, sid, cwd, cov.lead)
-    const leadName = lead?.name
-    // A named lead is reached by its name, which outlives a restart; an unnamed one only by its session id.
-    const leadSid = leadName ? undefined : lead?.sid
-    const own = await registryOf($, sid)
-    const liveNow = await registryEntries($)
-    const reach = own && typeof own.pid === 'number' && typeof own.procStart === 'string' && liveNow ? await promptReachTiers($, liveNow, cov.a, { sid, pid: own.pid, procStart: own.procStart, level: cov.level, lane: cov.lane ?? cov.self, ...(leadName ? { leadName } : {}), ...(leadSid ? { leadSid } : {}), repo: cwd, tool }, cov.level === 'lane' && lead === undefined).catch(() => [] as pr.Tier[]) : ([] as pr.Tier[])
+    const { own, reach, leadName, leadSid } = await reachOf()
     if (reach.length === 0 && own && typeof own.pid === 'number' && typeof own.procStart === 'string') {
       await ledgerAdd($, { ...base, kind: 'abandoned', code: 'no-tier' })
       return beneath
@@ -1158,10 +1220,17 @@ export async function toolCheck($: any, e: any, next: any) {
 }
 
 export async function permissionRequest($: any, e: any, next: any) {
-  // The dialog of a subagent's ask is shown only after the hooks return, so a wait would hide it from the person. Its ask stays his:
-  // the chain beneath at once, with no request file, no wait and no notice.
+  // The dialog of a subagent's ask is shown only after the hooks return, so a wait would hide it from the person and its ask cannot rise: the chain beneath at
+  // once, with no request file and no wait. Where the main session's own call could rise (the switch covers this session and a tier is in reach) and nothing
+  // beneath answered, the ask is denied with a fixed message that tells the main session to run the call itself; the row first, and no row, no denial.
   const agent = (e as { agent_id?: unknown }).agent_id
-  if (typeof agent === 'string' && agent !== '') return next(e)
+  if (typeof agent === 'string' && agent !== '') {
+    const under = await next(e)
+    if (under && typeof under === 'object' && Object.keys(under).length > 0) return under
+    const row = await promptSubagentRow($, e).catch(() => undefined)
+    if (!row || next.signal?.aborted || !(await ledgerAdd($, { ...row, kind: 'subagent-denied' }).catch(() => false))) return under
+    return { decision: { behavior: 'deny' as const, message: pr.SUBAGENT_DENY_MESSAGE } }
+  }
   let once: Promise<any> | undefined
   const nextOnce = (x: any) => (once ??= Promise.resolve(next(x)))
   try {

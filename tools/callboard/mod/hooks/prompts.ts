@@ -408,7 +408,7 @@ export function applyCheck(a: ApplyIn): ApplyOut {
 
 // ---- the ledger: machine-wide, one JSON row per line, no input text ----
 // Every kind of row the mod writes. The prompt audit reads its kinds from this list.
-export const ROW_KINDS = ['requested', 'answered', 'escalated', 'dropped', 'returned', 'superseded', 'expired-denied', 'off', 'abandoned', 'dialog', 'not-judgeable', 'no-tier', 'answering-on', 'answering-off', 'relayed', 'relay-lost', 'relay-left', 'relay-late', 'relay-closed', 'deny-unclear', 'lead-offer', 'lead-offer-void', 'lead-grant', 'lead-owner', 'lead-resume', 'lead-stop', 'go-grant', 'go-end', 'go-read', 'pr-watch', 'pr-notice'] as const
+export const ROW_KINDS = ['requested', 'answered', 'escalated', 'dropped', 'returned', 'superseded', 'expired-denied', 'off', 'abandoned', 'dialog', 'not-judgeable', 'subagent-denied', 'question-denied', 'no-tier', 'answering-on', 'answering-off', 'relayed', 'relay-lost', 'relay-left', 'relay-late', 'relay-closed', 'deny-unclear', 'lead-offer', 'lead-offer-void', 'lead-grant', 'lead-owner', 'lead-resume', 'lead-stop', 'go-grant', 'go-end', 'go-read', 'pr-watch', 'pr-notice'] as const
 export type RowKind = (typeof ROW_KINDS)[number]
 // A `lead-owner` row (ADR 0007), written before the lead record changes: code made | joined | left | off, hash the repo's key, repo, lane the lead's name at the
 // time (for reading only), target the lead's session id, by the conductor's session id (made, joined), was the conductor the lead left (left, off), nonce (made).
@@ -513,6 +513,10 @@ export function questionShape(input: unknown): QuestionShape {
   if (typeof q.question !== 'string' || (q.header !== undefined && typeof q.header !== 'string') || 'answers' in i) return { ok: false, code: 'question-shape' }
   return { ok: true, question: q.question, header: typeof q.header === 'string' ? q.header : '' }
 }
+// The shape refusals that end in the form deny (FORM_DENY_MESSAGE) when a tier is in reach: the question has no form a tier or the relay could answer.
+// `question-person` is not one: it has an answer form, and the header is the lane's own mark that the question is the person's.
+const FORM_DENY_CODES = ['question-count', 'question-multi', 'question-options', 'question-shape']
+export const questionDeniable = (code: string): boolean => FORM_DENY_CODES.includes(code)
 // What the tier is shown of a question: its header, text and numbered options, from the request's copy.
 type QuestionView = { header: string; question: string; options: { label: string; description: string }[] }
 export function questionView(input: unknown): QuestionView | undefined {
@@ -768,6 +772,10 @@ export const UNCLEAR_SUFFIX = ' Write a cleaner command (smaller, plain, no enco
 export const unclearMessage = (why: string): string => `${UNCLEAR_PREFIX}${why}${UNCLEAR_SUFFIX}`
 // What the 20-minute deny tells the lane when some tier was live and nobody answered.
 export const DENY_TIMEOUT_MESSAGE = 'Nobody answered this prompt within 20 minutes, so it was denied. Ask again if it is still needed.'
+// The two denials of an ask that cannot rise (ADR 0011, What cannot rise). Fixed texts with nothing of the lane's in them: each refuses the way the ask
+// was made, says so, and says how to ask again. Neither is a tier's or the person's decision on the call or the question itself.
+export const SUBAGENT_DENY_MESSAGE = "Callboard denied this because a subagent's permission ask cannot be passed up to a lead, conductor or manager. It is not a decision on the call itself. If the call is still needed, the main session should run it itself, where it can be judged."
+export const FORM_DENY_MESSAGE = 'Callboard ended this question because of its form, not its content: nobody answered it and nothing was decided. It cannot be passed up as asked. Ask again as one single-choice question with two to four short options.'
 // A decision's `why` that is the cleaner-command deny starts with the prefix; the row counts it apart.
 export const isUnclear = (why: string): boolean => why.startsWith(UNCLEAR_PREFIX)
 
