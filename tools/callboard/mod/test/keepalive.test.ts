@@ -1,5 +1,6 @@
 import { expect, test } from 'claude-code/testing'
-import { REST_TEXT, REST_SET, REST_FAILED, REST_SUBAGENT, REST_TOOL, REST_TOOL_DESC, helpText, LANES_CHANGED_TEXT, nudgeText, KEEPALIVE_TEXT, noticeText, configSetText, CONFIG_DEFAULTS, OFF_NOTHING } from '../hooks/core'
+import { REST_TEXT, REST_SET, REST_FAILED, REST_SUBAGENT, REST_TOOL, helpText, LANES_CHANGED_TEXT, nudgeText, KEEPALIVE_TEXT, noticeText, configSetText, CONFIG_DEFAULTS, OFF_NOTHING } from '../hooks/core'
+import { toolText } from '../hooks/tool-text'
 import { h, GOOD, SID, extraStat, laneSeed, longTest, storeFiles, submitted, toolDefs } from './harness'
 import type { Trace } from './harness'
 import { advanceQuiet, cue, fileStat, kaLog, lane, LEAD_LANES, leadAt, logged, MIN, newTrace, notices, nudges, OWN_ROW, ownTurn, PERSON, person, pings, realTurn, REG, REGFILE, renameThroughTick, retireTarget, SELFREG, sent, STATUS_NONE, STOREFILE, storeText, stv, ticks, tickTwice, TURN, waitFor, warm } from './fixtures'
@@ -86,7 +87,7 @@ const restTool = (input: Record<string, unknown> = {}) => ({ tool: `mcp__callboa
 test('the rest tool: the session\'s own agent sets the same rest as /callboard rest, mid-turn, with no question; the next real turn restores the pings', async ($, on) => {
   const stdins: string[] = []
   await warm($, on, stdins)
-  expect(toolDefs).toContain(JSON.stringify({ name: REST_TOOL, description: REST_TOOL_DESC, inputSchema: { type: 'object', properties: {} } }))
+  expect(toolDefs).toContain(JSON.stringify({ name: REST_TOOL, description: toolText(REST_TOOL, 'any'), inputSchema: { type: 'object', properties: {} } }))
   // Called while the agent's own turn runs, it holds past that turn's end.
   await $.prompt.submit({ text: 'go idle' } as any)
   await $.turn.start({ turnId: 'real', text: 'go idle' } as any)

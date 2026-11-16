@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 import { refusalText, STOPPABLE_BY_NAME, RESTORE_YES, RESTORE_NO, ATTACH_YES, ATTACH_NO, SID_KEPT, reboundToast, restoreChangedToast, OFF_NOTHING } from '../hooks/core'
-import { h, GOOD, LANESDIR, NO, OPEN_RESULT, PS_TABLE, ROOT, SESSIONS, SID, T0, YES, extraStat, laneSeed, longTest, psStartsGone, renames, resultFiles, storeFiles, teeTexts, toasts, toolDefs } from './harness'
+import { h, GOOD, LANESDIR, NO, OPEN_RESULT, PS_TABLE, ROOT, SESSIONS, SID, T0, YES, extraStat, laneSeed, longTest, psStartsGone, renames, resultFiles, storeFiles, teeTexts, toasts, toolDefs, toolDesc } from './harness'
 import type { Trace } from './harness'
 import { ATTACHED, ATTSESS, ATT_REC, LANES, LANE_COMPOSE, LANE_HINT, LEADSID, LEAD_LANES, MFOLDER, NEWSID, OTHER, OTHERLEAD, PARK_API, PIN, REG, REGFILE, RESULT, SELFREG, STATUS_NONE, STOREFILE, STORE_LANE, SVC, TWIN, allEvents, attRec, attacher, bornStore, callCreate, closeWrites, cue, cueSession, doLane, drive, events, fileStat, grantAt, killed, lane, laneSections, lateLane, lead, leadAt, leadCall, leadReg, leadSelfReg, logged, newTrace, notices, ownReg, park, parkSess, parker, pause, putStore, rebindAsks, rebinder, rebinds, recOf, renameThroughTick, sleepMs, started, statusTable, statusText, storeJson, tickTwice, ticks, unanswered, waitFor } from './fixtures'
 
@@ -604,7 +604,7 @@ test('lane_park sends a park cue and signals once on the target\'s ok; no report
   const argv: string[][] = []
   const stdins: string[] = []
   await parker($, on, stdins, argv)
-  expect(toolDefs.filter((d) => d.includes('"lane_park"')).at(-1)).toContain("Park the lane's session: stop it and close its tab, but keep the conversation. lane_unpark reopens it later. The session must confirm first: idle for 30 seconds, an empty prompt box, no background agents or shells. No report is needed; the lane's record stays, the only stop that keeps it. The call itself waits up to 40 seconds for the idle time, so call it right after the lane's last turn; if it still refuses not-idle, wait the seconds it names and try once, never in a loop. Works for lanes you made and lanes a session joined. lane: the lane name.")
+  expect(toolDefs.filter((d) => d.includes('"lane_park"')).at(-1)).toContain(toolDesc('lane_park', 'lead'))
   const r = await park($)
   expect(r.result.startsWith('lane API parked: SIGTERM sent to process 4500. The tab closes and the conversation is kept. lane_unpark API reopens it.')).toBe(true)
   expect(stdins).toContain('park\n')
@@ -722,8 +722,8 @@ test('lane_open and lane_rename refuse a parked lane; lane_open takes a record w
   putStore([PARK_API({ name: 'LABLANE', sid: OTHER, parked: T0 })])
   expect(JSON.stringify(await $.tool.call(leadCall('open')))).toContain('lane_open refused: parked: that lane is parked. lane_unpark reopens its conversation. lane_retire or lane_terminate removes the lane.')
   expect(JSON.stringify(await $.tool.call(leadCall('rename', { lane: 'LABLANE', sid: NEWSID })))).toContain('lane_rename refused: parked:')
-  expect(toolDefs.filter((d) => d.includes('"lane_open"')).at(-1)).toContain('Refused when a live session already carries the lane name. Refused for a parked lane: use lane_unpark.')
-  expect(toolDefs.filter((d) => d.includes('"lane_list"')).at(-1)).toContain('whether a live session carries its name or it is parked, and how many minutes it has waited')
+  expect(toolDefs.filter((d) => d.includes('"lane_open"')).at(-1)).toContain(toolDesc('lane_open', 'lead'))
+  expect(toolDefs.filter((d) => d.includes('"lane_list"')).at(-1)).toContain(toolDesc('lane_list', 'lead'))
   putStore([PARK_API({ name: 'LABLANE', sid: OTHER })])
   const p = $.tool.call(leadCall('open'))
   await h.clock!.advance(500)
@@ -754,10 +754,8 @@ longTest('lane_unpark writes <LANE>.reopen with the record\'s sid, waits for ok,
   const argv: string[][] = []
   const stdins: string[] = []
   await unparker($, on, stdins, argv)
-  expect(toolDefs.filter((d) => d.includes('"lane_unpark"')).at(-1)).toContain("Reopen a lane's saved conversation in its VS Code window, with its full history. Use it for a parked lane, or one whose session was closed. Not for a retired lane: retire is final, so lane_open starts a new conversation for it. The session becomes the lane again by itself within a few seconds; then call lane_resume. lane: the lane name.")
-  expect(toolDefs.filter((d) => d.includes('"lane_retire"')).at(-1)).toContain('Retire is final: the conversation cannot be reopened with lane_unpark. Use lane_park for a lane you may need again, the only stop that keeps the lane.')
-  expect(toolDefs.filter((d) => d.includes('"lane_retire"')).at(-1)).toContain("Once the session has stopped, the lane's record is deleted too (the .archive/<LANE> folder and signed report stay). A lane with no live session is removed directly, with no signed report.")
-  expect(toolDefs.filter((d) => d.includes('"lane_retire"')).at(-1)).toContain("The call itself waits up to 40 seconds for the idle time, so call it right after the lane's last turn; if it still refuses not-idle, wait the seconds it names and try once, never in a loop.")
+  expect(toolDefs.filter((d) => d.includes('"lane_unpark"')).at(-1)).toContain(toolDesc('lane_unpark', 'lead'))
+  expect(toolDefs.filter((d) => d.includes('"lane_retire"')).at(-1)).toContain(toolDesc('lane_retire', 'lead'))
   windowAnswers(`ok ${OTHER}\n`)
   const r = await unparkCall($)
   expect(r.result.startsWith(`lane LABLANE reopened as session ${OTHER}. It becomes the lane again within a few seconds. Then call lane_resume. If lane_resume answers not-bound, wait 5 seconds and retry once.`)).toBe(true)
