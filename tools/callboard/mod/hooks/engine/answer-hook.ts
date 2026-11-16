@@ -907,7 +907,7 @@ async function promptApply($: any, w: WaitCtx, d: pr.Decision, awake: number, gr
   // Only a call that carries an `@claude` body, and only once the other checks would let the decision through, reads the cap.
   const cap = w.cap && ledger === 'found' && d.decision === 'allow' && d.via !== 'person' ? await capOf($, w.p, w.cap) : undefined
   const out = pr.applyCheck({ req: w.req, decision: d, liveHash, awakeMs: awake, expiresAt: pr.expiresAfter(relay !== undefined), byOk, ...(relay ? { relay } : {}), ...(w.tool === pr.QUESTION_TOOL ? { question: { labels: pr.questionLabels(w.input) } } : {}), ledger, graceMs, cap })
-  // The two drops that rest on those lookups are held for the next poll when one failed; the final codes (id, hash, nonce, expired, dialog, cap) never are.
+  // The two drops that rest on those lookups are held for the next poll when one failed; the final codes (id, hash, nonce, expired, cap) never are.
   return unsure && 'drop' in out && (out.drop === 'by-sid' || out.drop === 'relay') ? { out: { hold: 'lookup' } } : { out, ...(tier ? { tier } : {}) }
 }
 

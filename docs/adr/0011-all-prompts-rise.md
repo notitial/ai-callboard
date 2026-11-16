@@ -146,6 +146,7 @@ person; this decision does not depend on it and adds no notice of its own.
 |---|---|---|---|
 | No usable `tool.check` entry: none, two calls in flight on one hash, or too old. A prompt that is not an ask in `tool.check` has none either. | `not-judgeable no-check` | Without it there is no tool-use id: the hook could not see the person's click, and a late answer could land on another call. The classifier refuses a non-ask too (`not-ask`), as a second check. | The check-in and the toast |
 | A subagent's ask | none | The engine shows its dialog only after the hooks return; a wait would hide it. | The check-in and the toast |
+| The request file or its ledger row cannot be written | `abandoned hook-failed` | Without the file no tier can read the request, and without the row no decision could pass the ledger check. | The check-in and the toast |
 | No live tier in reach | `abandoned no-tier` | There is nobody to ask. | The toast |
 | Nobody can be asked, or a host answers (the approver is not the person) | none | The prompt is not one a person clicks in the lane's panel. | Nothing is waiting on the person |
 | A question of a shape with no answer form: several questions, multi-select, a `Person` header | `not-judgeable question-…` | The relay carries one single-choice question with the lane's own labels; `Person` is the lane's own mark. | The check-in and the toast |
