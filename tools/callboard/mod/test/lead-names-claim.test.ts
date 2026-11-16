@@ -123,7 +123,7 @@ test('reserve: the person adds and removes a machine name; a lead may not carry 
   expect(logged(stdins)).toContain('refused:reserve-not-person:plugin')
   expect(h.store.has('reserved')).toBe(false)
   expect((await $.command.run(lane('reserve MANAGER'))).text).toMatch(/built in/)
-  expect((await $.command.run(lane('reserve HARBOR'))).text).toBe(reserveAddedText('HARBOR'))
+  expect((await $.command.run(lane('reserve add HARBOR'))).text).toBe(reserveAddedText('HARBOR'))
   expect((h.store.get('reserved') as any).names).toEqual(['HARBOR'])
   expect(logged(stdins)).toContain('reserve-add:prompt')
   expect((await $.command.run(lane('reserve harbor'))).text).toMatch(/reserved already on this machine/)

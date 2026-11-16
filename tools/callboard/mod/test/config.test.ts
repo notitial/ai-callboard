@@ -19,6 +19,19 @@ test('/callboard on from any origin gets the usage line: no dialog, no state, no
   expect((await $.command.run(lane('status'))).text).toBe(STATUS_NONE)
 })
 
+test('the prompt box offers the /callboard words from the command table, after the engine\'s own rows, and only for a /callboard draft', async ($, on) => {
+  await started($, on, [])
+  const ask = async (text: string) => {
+    const start = text.lastIndexOf(' ') + 1
+    return (await $.prompt.autocomplete({ text, cursor: text.length, token: text.slice(start), start })).suggestions.map((s: { text: string }) => s.text)
+  }
+  expect(await ask('/callboard co')).toEqual(['conductor', 'config'])
+  expect(await ask('/callboard checkin r')).toEqual(['resume'])
+  expect(await ask('/callboard config checkin o')).toEqual(['on', 'off'])
+  expect(await ask('/callboard checkin pause 3')).toEqual([])
+  expect(await ask('/other co')).toEqual([])
+})
+
 test('each dialog offers its own exact button pair', async ($, on) => {
   const hint = { lane: { name: 'LABLANE', at: 1 }, counters: {}, savedAt: T0 }
   try {
