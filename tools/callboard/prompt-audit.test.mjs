@@ -1235,6 +1235,16 @@ test('questions: the opt and lh fields are read, and a non-string one drops the 
   assert.deepEqual(rep.anomalies, [])
   assert.match(rep.notes.join('\n'), /1 ledger line\(s\) were not valid rows/)
 })
+test('a note counts the agents\' allows of asks a hook, setting, plugin or ceiling raised, by what raised them; a rule\'s ask is not counted', () => {
+  const fx = fixture()
+  ledger(fx, [ON(), ...clean(uid(1), BASE, uid(101), { raised: 'hook' }), ...clean(uid(2), BASE + 60_000, uid(102), { raised: 'hook' }), ...clean(uid(3), BASE + 120_000, uid(103), { raised: 'ceiling' }), ...clean(uid(4), BASE + 180_000, uid(104), { raised: 'rule' }), ...clean(uid(5), BASE + 240_000, uid(105))])
+  const rep = run(fx)
+  assert.ok(rep.notes.includes("agents' allows of asks raised by a hook, setting, plugin or ceiling: ceiling 1, hook 2"), rep.notes.join('|'))
+  const none = fixture()
+  ledger(none, [ON(), ...clean(uid(1), BASE, uid(101), { raised: 'rule' })])
+  assert.equal(run(none).notes.some((x) => x.startsWith("agents' allows of asks raised")), false)
+})
+
 test('questions: the notes: no questions row, a row past 90 days, not-judgeable counts, and the QUESTIONS table', () => {
   const fx = fixture()
   ledger(fx, [ON(), ASKS(), ...qClean(), R('not-judgeable', BASE + 100, { ...QT, code: 'question-scope' }), R('not-judgeable', BASE + 200, { ...QT, code: 'question-scope' }), R('not-judgeable', BASE + 300, { ...QT, code: 'question-multi' }), R('not-judgeable', BASE + 400, { ...T, code: 'no-check' })])

@@ -80,7 +80,7 @@ const LABEL_MAX = 256
 
 const ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const KINDS = new Set(['requested', 'answered', 'escalated', 'dropped', 'returned', 'superseded', 'expired-denied', 'off', 'abandoned', 'dialog', 'not-judgeable', 'no-tier', 'answering-on', 'answering-off', 'relayed', 'relay-lost', 'relay-left', 'relay-late', 'relay-closed', 'deny-unclear', 'lead-offer', 'lead-offer-void', 'lead-grant', 'lead-owner', 'lead-resume', 'lead-stop', 'go-grant', 'go-end', 'go-read', 'pr-watch', 'pr-notice'])
-const FIELDS = ['code', 'id', 'lane', 'repo', 'tool', 'pattern', 'hash', 'tier', 'why', 'nonce', 'tuid', 'by', 'via', 'short', 'opt', 'lh', 'target', 'was', 'dialog', 'end']
+const FIELDS = ['code', 'id', 'lane', 'repo', 'tool', 'pattern', 'hash', 'tier', 'why', 'nonce', 'tuid', 'by', 'via', 'short', 'opt', 'lh', 'target', 'was', 'dialog', 'end', 'raised']
 // The rows of a go carry the go's id, which is no request's.
 const GO_KINDS = new Set(['go-grant', 'go-end', 'go-read'])
 const ENDS = new Set(['returned', 'superseded', 'expired-denied', 'off', 'abandoned'])
@@ -895,6 +895,19 @@ function ruleLeadCalls({ groups, flag, notes, problems }, tx, txRan) {
   }
 }
 
+// A note (not an anomaly): the tiers' own allows of asks that a hook, a setting, a plugin or a ceiling raised (ADR 0011), by what raised them. A person's
+// answer through a relay is not counted.
+function noteRaised({ groups, notes }) {
+  const by = {}
+  for (const g of groups) {
+    const raised = g.requested[0]?.raised
+    const ret = g.returned[0]
+    if (ret?.code !== 'allow' || ret.via === 'person' || !['hook', 'setting', 'plugin', 'ceiling'].includes(raised)) continue
+    by[raised] = (by[raised] ?? 0) + 1
+  }
+  if (Object.keys(by).length > 0) notes.push(`agents' allows of asks raised by a hook, setting, plugin or ceiling: ${Object.entries(by).sort().map(([c, n]) => `${c} ${n}`).join(', ')}`)
+}
+
 // Question notes (not anomalies).
 function noteQuestions({ groups, rows, notes, inRange, qById }, questions, tx, txRan) {
   const noQuestionRow = groups.filter((g) => g.returned[0]?.code === 'answer' && !qById.has(g.id)).length
@@ -1192,6 +1205,7 @@ export function audit({ root, projects, since, now = Date.now(), projectsExplici
   const { hookBacked, hookAllowOther, hookDenies } = ruleHookDecisions(ctx, tx)
   ruleLeadCalls(ctx, tx, txRan)
   noteQuestions(ctx, questions, tx, txRan)
+  noteRaised(ctx)
   anomalies.sort((x, y) => (x.rule < y.rule ? -1 : x.rule > y.rule ? 1 : 0))
 
   const { relayCounts, relayedList } = buildRelay(ctx, tx)

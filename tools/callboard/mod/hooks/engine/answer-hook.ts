@@ -656,7 +656,7 @@ async function promptHook($: any, e: any, nextOnce: (x: any) => Promise<any>, si
     if (doneIds.has(tid as string)) await promptDone($, { tool_use_id: tid })
     const row = { ...base, id, tier: [...reach].sort((x, y) => pr.TIER_RANK[x.level] - pr.TIER_RANK[y.level])[0].level }
     // Without a `requested` row no decision could ever pass the ledger check: the dialog is left to the person.
-    if (!(await ledgerAdd($, { ...row, kind: 'requested', nonce }))) throw new Error('ledger-unwritable')
+    if (!(await ledgerAdd($, { ...row, kind: 'requested', nonce, raised: judged.raisedBy }))) throw new Error('ledger-unwritable')
     st.requested = true
     return await promptWait($, beneath, signal, { sid, tid: tid as string, id, nonce, dir, input, tool, cwd, home: homeOf(p), p, started, row, req, leadName, cap: pr.claudeCap(tool, input), st })
   } catch (err) {

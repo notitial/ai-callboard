@@ -383,8 +383,9 @@ export type RowKind = 'requested' | 'answered' | 'escalated' | 'dropped' | 'retu
 // The go's rows (ADR 0009), each written before its effect: `go-grant` (id the go's, by the granting session, tier its level, hash the SHA-256 of the go file's bytes,
 // end the go's end as an ISO time, repo, lane the lead's name then), `go-end` (id, code off | expired | grantor-off | void, by the session that ended it) and
 // `go-read` (id, by the reading session, code listed | later, lane its lane name), once per reading session.
+// raised (a `requested` row): what raised the ask (one of RAISED), so the audit can count the tiers' allows by it after the request file is gone.
 // opt, lh (a question's `answer` rows, code 'answer'): the chosen option's index as a string, and the first 16 hex of SHA-256(id + "\n" + label); no label text. Strings, since the audit drops a row with another type.
-export type LedgerRow = { t: string; kind: RowKind; code?: string; id?: string; lane?: string; repo?: string; tool?: string; pattern?: string; hash?: string; tier?: string; why?: string; nonce?: string; cap?: CapKind; target?: string; by?: string; tuid?: string; via?: 'person'; short?: string; opt?: string; lh?: string; was?: string; dialog?: 'yes' | 'none'; end?: string }
+export type LedgerRow = { t: string; kind: RowKind; code?: string; id?: string; lane?: string; repo?: string; tool?: string; pattern?: string; hash?: string; tier?: string; why?: string; nonce?: string; cap?: CapKind; target?: string; by?: string; tuid?: string; via?: 'person'; short?: string; opt?: string; lh?: string; was?: string; dialog?: 'yes' | 'none'; end?: string; raised?: string }
 export function ledgerLine(row: LedgerRow): string {
   const r: LedgerRow = { ...row }
   if (r.why !== undefined) r.why = capBytes(redact(r.why).replace(/[\r\n]+/g, ' '), WHY_MAX).text

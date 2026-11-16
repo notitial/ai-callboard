@@ -185,22 +185,25 @@ const CLASSIFY: [string, any, string, unknown, string][] = [
   ['a hook ask on a workflow rerun', { decision: 'ask', hook: 'PreToolUse', reason: 'x' }, 'mcp__github__actions_run_trigger', { owner: 'o', repo: 'r', method: 'rerun_failed_jobs', run_id: 7 }, 'requested hook'],
   ['a setting', { decision: 'ask', setting: 'permissions.x' }, 'Bash', PRQ, 'requested setting'],
   ['a plugin', { decision: 'ask', plugin: 'other' }, 'Bash', PRQ, 'requested plugin'],
-  ['a ceiling', { decision: 'ask', ceiling: 'ask' }, 'Bash', PRQ, 'requested ceiling'],
+  ['the plan-mode exit behind a hook ask (a dialog, whatever raised it)', { decision: 'ask', hook: 'PreToolUse', reason: 'x' }, 'ExitPlanMode', { plan: 'p' }, 'dialog'],
   ['a question with no asks scope (stays his)', { decision: 'ask' }, 'AskUserQuestion', { questions: [{ question: 'q', header: 'h', options: [{ label: 'a' }, { label: 'b' }] }] }, 'not-judgeable question-scope'],
 ]
 for (const [name, verdict, tool, input, want] of CLASSIFY) {
   test(`prompts: classifier: ${name}`, async ($, on) => {
     await answerer($, on, [], { verdict })
     const c2 = callOf(tool, input)
-    const r = await runRequest($, [stop(8000)], c2.over, c2.check)
-    expect(r).toEqual({})
     const [kind, code] = want.split(' ')
+    let raised: unknown
+    const r = await runRequest($, [...(kind === 'requested' ? [at(4000, () => { raised = readReq().raisedBy })] : []), stop(8000)], c2.over, c2.check)
+    expect(r).toEqual({})
     if (kind === 'requested') {
+      expect(raised).toBe(code)
+      expect(ledgerRows()[0].raised).toBe(code)
       expect(rowKinds()).toEqual(['requested', 'off'])
       expect(ledgerRows()[0].tier).toBe('lead')
       expect(JSON.stringify(ledgerRows())).not.toContain('"input"')
     } else {
-      expect(rowKinds()).toEqual([`${kind} ${code}`])
+      expect(rowKinds()).toEqual([code === undefined ? kind : `${kind} ${code}`])
       expect(reqFiles().length).toBe(0)
     }
   })
