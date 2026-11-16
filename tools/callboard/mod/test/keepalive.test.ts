@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { REST_TEXT, REST_SET, REST_SUBAGENT, REST_TOOL, REST_TOOL_DESC, helpText, LANES_CHANGED_TEXT, nudgeText, KEEPALIVE_TEXT, noticeText, configSetText, CONFIG_DEFAULTS, OFF_NOTHING } from '../hooks/core'
+import { REST_TEXT, REST_SET, REST_FAILED, REST_SUBAGENT, REST_TOOL, REST_TOOL_DESC, helpText, LANES_CHANGED_TEXT, nudgeText, KEEPALIVE_TEXT, noticeText, configSetText, CONFIG_DEFAULTS, OFF_NOTHING } from '../hooks/core'
 import { h, GOOD, SID, extraStat, laneSeed, longTest, storeFiles, submitted, toolDefs } from './harness'
 import type { Trace } from './harness'
 import { advanceQuiet, cue, fileStat, kaLog, lane, LEAD_LANES, leadAt, logged, MIN, newTrace, notices, nudges, OWN_ROW, ownTurn, PERSON, person, pings, realTurn, REG, REGFILE, renameThroughTick, retireTarget, SELFREG, sent, STATUS_NONE, STOREFILE, storeText, stv, ticks, tickTwice, TURN, waitFor, warm } from './fixtures'
@@ -114,6 +114,65 @@ test('the rest tool: a subagent is refused, so it never rests its parent session
   await advanceQuiet(40 * MIN)
   expect(pings()).toEqual([KEEPALIVE_TEXT])
   expect(kaLog(stdins)).toEqual(['keepalive:'])
+})
+
+test('the rest tool: a reload of the mod keeps the rest, and a state write that fails denies the call and leaves the pings on', async ($, on) => {
+  const stdins: string[] = []
+  const trace = newTrace()
+  await warm($, on, stdins, trace)
+  await advanceQuiet(10 * MIN)
+  expect(await $.tool.call(restTool())).toEqual({ result: REST_SET })
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await advanceQuiet(45 * MIN)
+  expect(pings()).toEqual([])
+  expect(kaLog(stdins)).toEqual(['keepalive-skipped:rest'])
+  await realTurn($, 'back')
+  trace.failKeys = new Set(['restAt'])
+  expect(await $.tool.call(restTool())).toEqual({ deny: REST_FAILED })
+  expect(logged(stdins).filter((x) => x === 'command:rest:tool').length).toBe(1)
+  await advanceQuiet(50 * MIN)
+  expect(pings()).toEqual([KEEPALIVE_TEXT])
+})
+
+// How many pings an idle stretch gets, by the stored settings: a slot comes every `ping after` minutes and the stop clock refuses one at or past `stop after`.
+for (const [what, cfg, count] of [
+  ['the lowest stop (1 h) gives 1 ping', { pingAfterMin: 50, stopAfterH: 1 }, 1],
+  ['a stop of 3 h a Mac saved earlier still gives 3', { pingAfterMin: 50, stopAfterH: 3 }, 3],
+  ['the widest bounds (ping 30, stop 8 h) give 15', { pingAfterMin: 30, stopAfterH: 8 }, 15],
+] as const) {
+  longTest(`keepalive: ${what}`, async ($, on) => {
+    const stdins: string[] = []
+    await warm($, on, stdins)
+    for (const arg of [`ping ${cfg.pingAfterMin}`, `stop ${cfg.stopAfterH}`]) await $.command.run(lane(`config ${arg}`))
+    await realTurn($, 'work on')
+    // Below the cache nudge's level, so every slot is a ping.
+    h.tokensNow = 120_000
+    for (let i = 1; i <= count; i++) {
+      await advanceQuiet(cfg.pingAfterMin * MIN)
+      expect(sent(stdins)).toBe(i)
+      await h.clock!.advance(2000)
+      await ownTurn($, KEEPALIVE_TEXT)
+    }
+    await advanceQuiet(cfg.pingAfterMin * MIN)
+    expect(sent(stdins)).toBe(count)
+    expect(kaLog(stdins).filter((x) => x === 'keepalive-stopped:')).toEqual(['keepalive-stopped:'])
+  })
+}
+
+test('keepalive: with the lowest stop (1 h) a large idle session gets its one ping and no cache nudge', async ($, on) => {
+  const stdins: string[] = []
+  await warm($, on, stdins)
+  await $.command.run(lane('config stop 1'))
+  await realTurn($, 'work on')
+  h.tokensNow = 200_000
+  await advanceQuiet(50 * MIN)
+  expect(sent(stdins)).toBe(1)
+  await h.clock!.advance(2000)
+  await ownTurn($, KEEPALIVE_TEXT)
+  await advanceQuiet(50 * MIN)
+  expect(sent(stdins)).toBe(1)
+  expect(logged(stdins).some((x) => x.startsWith('nudge-due'))).toBe(false)
+  expect(submitted.includes(nudgeText('cache'))).toBe(false)
 })
 
 test('/rest is /callboard rest: the same answer and the same quiet gap, from any origin, with any arguments ignored', async ($, on) => {

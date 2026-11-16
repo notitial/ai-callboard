@@ -2566,17 +2566,17 @@ function parseCheckinArgs(rest: string): CheckinOp {
 }
 // `/callboard rest`: this session is left alone for hours. Per session and one-time: the keepalive sends no more pings (and no
 // cache nudge in their place) in this idle gap, so the prompt cache expires; the next real turn there ends it. `/callboard config keepalive off` is the Mac-wide switch.
-export const REST_SET = 'Rest set for this session: no more keepalive pings in this idle gap, so its prompt cache will expire. The next real turn here turns pings back on.'
+export const REST_SET = 'Rest set for this session: no more keepalive pings in this idle gap, so its prompt cache will expire. The next real turn here turns pings back on. A PR notice still wakes it.'
 export const REST_TEXT = `${REST_SET} /callboard config keepalive off stops them on this whole Mac.`
 export const REST_FAILED = 'Rest not set: the session state could not be written. Nothing changed.'
 // The `rest` tool: the same rest, set by a session's own main agent for itself. It only narrows, so it asks nothing. A subagent is refused: the
 // rest is the session's, and a subagent's call would rest its parent.
 export const REST_TOOL = 'rest'
 export const REST_TOOL_DESC =
-  "Stop the keepalive pings for this session's current idle gap, as /callboard rest does, so its prompt cache expires. Call it as the last step of a turn when the person tells you to go idle, or when you expect them to be away for hours. It takes no input, covers this session only and holds once: the next real turn here turns pings back on. For the main agent only."
+  "Stop the keepalive pings for this session's current idle gap, as /callboard rest does, so its prompt cache expires. Call it as the last step of a turn when the person tells you to go idle, or when you expect them to be away for hours. It takes no input, covers this session only and holds once: the next real turn here turns pings back on. A PR notice for a pull request you watch with pr_watch still wakes you. For the main agent only."
 export const REST_SUBAGENT = 'rest is for the main agent only: it would rest the whole session. Tell the main agent instead.'
 // The one line each briefing (lane, lead, conductor, manager) carries about the tool.
-export const REST_BRIEF = '- `rest`: call it when the person tells you to go idle, or when you expect them to be away for hours. It stops the keepalive pings for this idle gap; the next real turn turns them back on.'
+export const REST_BRIEF = '- `rest`: call it when the person tells you to go idle, or when you expect them to be away for hours. It stops the keepalive pings for this idle gap; the next real turn turns them back on. A PR notice still reaches you.'
 export const CHECKIN_USAGE = 'Use /callboard checkin pause <N>m or <N>h (1 minute to 24 hours), or /callboard checkin on.'
 export const CHECKIN_NOT_PERSON = 'Only you can pause check-ins: type /callboard checkin yourself.'
 export const CHECKIN_ON_TEXT = 'Check-ins are on again in this session.'

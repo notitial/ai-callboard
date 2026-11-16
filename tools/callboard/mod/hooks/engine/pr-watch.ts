@@ -34,7 +34,7 @@ import { writeIn, readStoreFile, registryEntries, idleCheck, regOnce } from './s
 import { ledgerAdd } from './answer-hook.ts'
 import { personRow } from './compaction.ts'
 import { ensureTimer } from './tick.ts'
-import { getLane, getRequest, getNudgeDue, getRest, getTurnEnd } from '../state.ts'
+import { getLane, getRequest, getNudgeDue, getTurnEnd } from '../state.ts'
 
 type Paths = { uid: number; root: string }
 type Owed = { file: string; note: pw.Note }
@@ -464,15 +464,15 @@ async function prCold($: any, sid: string, from: number | undefined, n: number) 
 }
 
 // The tick's step: the owed notes go out as one turn of the mod's own when the session is a person's interactive one, idle with an empty prompt box, with no
-// dialog, compaction request or nudge pending, no `/callboard rest` in force, nothing else submitted in this tick, and its prompt cache hot: at most
+// dialog, compaction request or nudge pending, nothing else submitted in this tick, and its prompt cache hot: at most
 // KEEPALIVE_COLD_MS since its last turn ended or its last prompt, and that time known. A cold session is not woken (prCold): its notes wait for its next
 // turn. At most PR_WAKES_PER_HOUR wakes an hour. The notes are claimed before the submit, so a slow submit sends them once; only a submit that threw gives
-// them back.
+// them back. A rest does not hold them: it stops pings, and a PR notice is news the session asked for.
 export async function prNoticeTick($: any, sid: string, submitsAtStart: number) {
   await spoolLoad($, sid)
   const n = prPending.get(sid)?.length ?? 0
   if (n === 0 || dialogOpen.has(sid) || mem.submits !== submitsAtStart) return
-  if ((await getRequest($)).value != null || (await getNudgeDue($)).value != null || typeof (await getRest($)).value === 'number') return
+  if ((await getRequest($)).value != null || (await getNudgeDue($)).value != null) return
   const now = await $.clock.now()
   const turnEnd = (await getTurnEnd($)).value
   const reg = regOnce($)
