@@ -114,6 +114,7 @@ import { loadLeadRecords, boundState } from './lead-records.ts'
 import { managerCommand } from './commands.ts'
 import { ownerLeave, ownerRename, leadNameHeld } from './lead-records.ts'
 import { goGrantorOff } from './go.ts'
+import { hereGrantOff } from './answer-hook.ts'
 import { epochOf, heldNo, levelBrief, levelSave } from './levels.ts'
 import { usageDrop, usageSweep } from './usage.ts'
 import type { LevelDesc, GrantDialog } from './levels.ts'
@@ -369,6 +370,8 @@ export function leadDrop($: any, sid: string): Promise<boolean> {
   // failed manager grant, must not delete a mark the person never answered (managerForget, from /callboard off and the restore's Cancel, does).
   managerSavedAt.delete(sid)
   managerCwd.delete(sid)
+  // A session that was `here` (/callboard here) is here no longer: the key goes beside the drop, which does not wait for it.
+  void hereGrantOff($, sid).catch(() => undefined)
   // The saved grant goes too, so the session is not lead again after a restart.
   const unsave = Promise.resolve()
     .then(() => $.store.delete(`${c.LEAD_HINT_PREFIX}${sid}`))

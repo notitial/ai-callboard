@@ -1,8 +1,8 @@
 import { expect, test } from 'claude-code/testing'
 import * as prm from '../hooks/prompts'
 import { h, PROMPTS_DIR, ROOT, SID, T0, leadFiles, longTest, pdirs, pfs, psFail } from './harness'
-import { APISID, LEADSID, TURN } from './fixtures'
-import { APIQ, CNDT, GONE, LDIR, LEDGER_FILE, OFF_FILE, PDIR, QASK, QIN, SHORT, THASH, TID, TID2, addCondT, answerCall, answerer, asConductor, askPost, askRelay, at, beneathHooks, byCond, byMgr, callOf, decFile, decOf, decideBy, handDecision, holdRelay, ledgerRows, noFiles, pcall, putFile, putFileAt, putQ, putRelay, putRelayT, readReq, refusal, relayQ, reqFiles, rowKinds, runRequest, said, stop, tier } from './answer-fixtures'
+import { APISID, LEADSID, MGR_SESS, TURN, mgrAt, waitFor } from './fixtures'
+import { APIQ, CNDT, GONE, MGRT, addMgrT, relayQ as relayQOf, LDIR, LEDGER_FILE, OFF_FILE, PDIR, QASK, QIN, SHORT, THASH, TID, TID2, addCondT, answerCall, answerer, asConductor, askPost, askRelay, at, beneathHooks, byCond, byMgr, callOf, decFile, decOf, decideBy, handDecision, holdRelay, ledgerRows, noFiles, pcall, putFile, putFileAt, putQ, putRelay, putRelayT, readReq, refusal, relayQ, reqFiles, rowKinds, runRequest, said, stop, tier } from './answer-fixtures'
 import type { Ans } from './answer-fixtures'
 
 longTest('prompts hook: a pass-up file does not end the wait; the lead\'s later decision is dropped, the wait goes on to the 20-minute deny', async ($, on) => {
@@ -504,3 +504,192 @@ for (const [name, o] of [['no asks scope', {}], ['the old asks flag', { asksOld:
     expect(reqFiles().length).toBe(0)
   })
 }
+
+// ---- /callboard here: the relay lands in the session the person said they are in (ADR 0009) ----
+// This session (SID) is the lead LEAD; the manager MANAGER is live above it, so without `here` the lead's prompt_escalate passes up.
+const HOUR = 3_600_000
+const hereCmd = ($: any, args = '', origin: unknown = { kind: 'composer' }) => $.command.run({ command: 'callboard', args: args === '' ? 'here' : `here ${args}`, origin } as any)
+const hereRows = () => ledgerRows().filter((x) => String(x.kind).startsWith('here-')).map((x) => `${x.kind}${x.code ? ` ${x.code}` : ''}`)
+const withMgr = () => {
+  addMgrT()
+  h.sessions = { ...h.sessions, ...h.extraRows }
+}
+const hereLead = async ($: any, on: any) => {
+  beneathHooks(on)
+  await tier($, on, [], { asksScope: 'all' })
+  withMgr()
+  expect((await hereCmd($)).text).toContain('You are here until ')
+}
+const passesUp = async ($: any, id = TID) => expect(said(await $.tool.call(pcall('prompt_escalate', { id, why: 'x' })))).toContain('Passed up')
+
+test('here: with a manager live, a lead the person said they are with relays a permission prompt: the here line, the steps, a relay file and a relayed row of its own level, and the person\'s Yes becomes the decision', async ($, on) => {
+  await hereLead($, on)
+  expect(h.store.get(prm.HERE_KEY)).toEqual({ v: 1, sid: SID, at: T0, until: T0 + 12 * HOUR })
+  expect(hereRows()).toEqual(['here-on'])
+  expect(ledgerRows().find((x) => x.kind === 'here-on')).toEqual(expect.objectContaining({ by: SID, tier: 'lead', end: new Date(T0 + 12 * HOUR).toISOString() }))
+  putQ()
+  expect(said(await $.tool.call(pcall('prompt_list')))).toContain('The person said they are here: put it to them with prompt_escalate, or answer it by the rubric.')
+  const r = said(await $.tool.call(pcall('prompt_escalate', { id: TID, why: 'a push to main' })))
+  expect(r.split('\n')[0]).toBe('The person said they are in your session, so the person decides this one; the callboard mod reads their answer, not you. Steps:')
+  expect(r).toContain(`header exactly "Relay ${SHORT}"`)
+  expect(JSON.parse(pfs.get(`${LDIR()}/${TID}.relay.json`)!.text).by).toEqual({ level: 'lead', sid: SID, name: 'LEAD' })
+  expect(pfs.has(`${LDIR()}/${TID}.escalate-lead.json`)).toBe(false)
+  expect(ledgerRows().filter((x) => x.kind === 'relayed')).toEqual([expect.objectContaining({ id: TID, tier: 'lead', code: 'lead', short: SHORT, by: SID })])
+  const q = relayQ(TID)
+  expect((await askRelay($, [q])) ?? {}).toEqual({})
+  await $.classic.PostToolUse(askPost([q], { [q.question]: 'Yes' }))
+  expect(decOf()).toMatchObject({ decision: 'allow', via: 'person', by: { level: 'lead', sid: SID, name: 'LEAD' } })
+})
+
+test('here: the same for a lane\'s question: the lead relays it with the lane\'s own labels and the person\'s pick becomes the answer', async ($, on) => {
+  await hereLead($, on)
+  putQ({ tool: 'AskUserQuestion', raisedBy: 'mode', input: QIN })
+  expect(said(await $.tool.call(pcall('prompt_list')))).toContain("The person said they are here: put it to them with prompt_escalate, which shows them the lane's own options")
+  const r = said(await $.tool.call(pcall('prompt_escalate', { id: TID, why: 'the brief does not settle it' })))
+  expect(r.split('\n')[0]).toBe('The person said they are in your session, so the person decides this question; the callboard mod reads their pick, not you. Steps:')
+  expect(JSON.parse(pfs.get(`${LDIR()}/${TID}.relay.json`)!.text).by.level).toBe('lead')
+  const q = { header: `Relay ${SHORT}`, question: `Lane svc-api asks: which port? (${SHORT})`, options: ['3000', '8080'].map((label) => ({ label, description: 'd' })), multiSelect: false }
+  expect((await askRelay($, [q])) ?? {}).toEqual({})
+  await $.classic.PostToolUse(askPost([q as any], { [q.question]: '8080' }))
+  expect(decOf()).toMatchObject({ decision: 'answer', answer: { index: 1, label: '8080' }, via: 'person', by: { level: 'lead', sid: SID } })
+})
+
+test('here: in the lane, the person\'s answer through a lead\'s relay lands with a manager live above that lead', async ($, on) => {
+  await answerer($, on, [])
+  addMgrT()
+  const r = await runRequest($, [
+    at(1000, () => { h.sessions = { ...h.sessions, ...h.extraRows } }),
+    at(4000, () => { putRelay(readReq()); putFileAt(`${readReq().id}.asked`) }),
+    at(40_000, () => handDecision(readReq(), { decision: 'allow', via: 'person', why: 'the person answered Yes via the lead LEAD' }, { via: 'person' })),
+  ])
+  expect(r).toEqual({ decision: { behavior: 'allow' } })
+  expect(rowKinds()).toEqual(['requested', 'answered allow', 'returned allow'])
+  expect(ledgerRows().at(-1)).toEqual(expect.objectContaining({ via: 'person', tier: 'lead', by: LEADSID }))
+})
+
+test('here: the manager sees a request a lead relayed as with the person, and may not answer it', async ($, on) => {
+  await mgrAt($, on, [], { sess: MGR_SESS({ name: 'MANAGER', nameSource: 'user' }) })
+  h.store.set('answering', { scope: 'all', asks: false, savedAt: T0 })
+  putQ({ ...APIQ, leadName: undefined })
+  putRelayT({ level: 'lead', sid: LEADSID, name: 'LEAD' })
+  pfs.set(`${LDIR(APISID)}/${TID}.relay.json`, pfs.get(`${LDIR()}/${TID}.relay.json`)!)
+  expect(said(await $.tool.call(pcall('prompt_list')))).toContain('With the person: the lead LEAD is asking them.')
+  expect(said(await $.tool.call(answerCall()))).toContain(refusal('with-person'))
+})
+
+test('here: a lead that is here and does nothing leaves the manager its relay, in its own window', async ($, on) => {
+  await mgrAt($, on, [], { sess: MGR_SESS({ name: 'MANAGER', nameSource: 'user' }) })
+  h.store.set('answering', { scope: 'all', asks: false, savedAt: T0 })
+  h.store.set(prm.HERE_KEY, { v: 1, sid: LEADSID, at: T0, until: T0 + 12 * HOUR })
+  putQ({ ...APIQ, leadName: undefined })
+  expect(said(await $.tool.call(pcall('prompt_list')))).toContain('You are the top tier for this prompt')
+  expect(said(await $.tool.call(pcall('prompt_escalate', { id: TID, why: 'x' }))).split('\n')[0]).toContain('You are the top tier here')
+  expect(JSON.parse(pfs.get(`${LDIR(APISID)}/${TID}.relay.json`)!.text).by.level).toBe('manager')
+})
+
+test('here: a key that names another session, or one this session cannot read, changes nothing: the lead passes up as with no key', async ($, on) => {
+  beneathHooks(on)
+  await tier($, on)
+  withMgr()
+  h.store.set(prm.HERE_KEY, { v: 1, sid: MGRT, at: T0, until: T0 + 12 * HOUR })
+  putQ()
+  expect(said(await $.tool.call(pcall('prompt_list')))).toContain('The manager MANAGER is above you.')
+  await passesUp($)
+  for (const [n, bad] of [{ v: 2, sid: SID, at: T0, until: T0 + 12 * HOUR }, { v: 1, sid: SID, at: T0, until: T0 + 13 * HOUR }, { v: 1, sid: SID, at: T0 + 1000, until: T0 + HOUR }, 'here'].entries()) {
+    h.store.set(prm.HERE_KEY, bad)
+    const id = `${n}b1b2c3d-7777-4000-8000-123456789abc`
+    putQ({ id })
+    await passesUp($, id)
+  }
+  expect(ledgerRows().filter((x) => x.kind === 'relayed')).toEqual([])
+})
+
+test('here: it ends after 12 hours and at /callboard here off (any origin); the lead then passes up again', async ($, on) => {
+  await hereLead($, on)
+  h.nowMs = T0 + 12 * HOUR - 60_000
+  putQ({ at: h.nowMs - prm.MIN_AGE_MS })
+  expect(said(await $.tool.call(pcall('prompt_escalate', { id: TID, why: 'x' })))).toContain('The person said they are in your session')
+  h.nowMs = T0 + 12 * HOUR
+  putQ({ id: TID2, at: h.nowMs - prm.MIN_AGE_MS })
+  expect(said(await $.tool.call(pcall('prompt_list')))).toContain('The manager MANAGER is above you.')
+  await passesUp($, TID2)
+  // On again, then off from a plugin's turn: off only narrows, so any origin may type it.
+  expect((await hereCmd($)).text).toContain('You are here until ')
+  expect((await hereCmd($, 'off', { kind: 'plugin' })).text).toBe(prm.HERE_OFF_TEXT)
+  expect(h.store.has(prm.HERE_KEY)).toBe(false)
+  expect(hereRows()).toEqual(['here-on', 'here-on', 'here-off off'])
+  expect(ledgerRows().at(-1)).toEqual(expect.objectContaining({ by: SID, was: SID }))
+  const id = '5b1b2c3d-7777-4000-8000-123456789abc'
+  putQ({ id, at: h.nowMs - prm.MIN_AGE_MS })
+  await passesUp($, id)
+  expect((await hereCmd($, 'off')).text).toBe(prm.HERE_OFF_NONE)
+  expect(hereRows().length).toBe(3)
+})
+
+test('here: typed in another session it moves there (one key for the machine), and the lead passes up again', async ($, on) => {
+  await hereLead($, on)
+  // Another session's /callboard here wrote its own row and replaced the key.
+  h.store.set(prm.HERE_KEY, { v: 1, sid: MGRT, at: T0 + 1000, until: T0 + 1000 + 12 * HOUR })
+  h.nowMs = T0 + 2000
+  putQ({ at: h.nowMs - prm.MIN_AGE_MS })
+  await passesUp($)
+  // Typed here again: the reply says the other session is here no longer.
+  expect((await hereCmd($)).text).toContain('The session that was here before no longer is.')
+  expect((h.store.get(prm.HERE_KEY) as { sid: string }).sid).toBe(SID)
+})
+
+test('here: /callboard off in the session that is here ends it with the grant: the key goes and a here-off row says why', async ($, on) => {
+  await hereLead($, on)
+  await $.command.run({ command: 'callboard', args: 'off', origin: { kind: 'composer' } } as any)
+  await waitFor(() => hereRows().includes('here-off grant-off'))
+  expect(h.store.has(prm.HERE_KEY)).toBe(false)
+  expect(hereRows()).toEqual(['here-on', 'here-off grant-off'])
+})
+
+test('here: on is the person\'s own command, in a tier\'s session: a model, a plugin and a peer are refused before any write; a bad word is the usage line; the phone is the person too', async ($, on) => {
+  beneathHooks(on)
+  await tier($, on)
+  for (const origin of [{}, { kind: 'plugin' }, { kind: 'peer' }, { kind: 'peer-send-message' }, { kind: 'model' }]) {
+    expect((await hereCmd($, '', origin)).text).toBe(prm.HERE_NOT_PERSON)
+  }
+  expect((await hereCmd($, 'on')).text).toBe(prm.HERE_USAGE)
+  expect((await hereCmd($, 'off now')).text).toBe(prm.HERE_USAGE)
+  expect(h.store.has(prm.HERE_KEY)).toBe(false)
+  expect(hereRows()).toEqual([])
+  // The phone is the person too.
+  expect((await hereCmd($, '', { kind: 'bridge' })).text).toContain('You are here until ')
+  expect(hereRows()).toEqual(['here-on'])
+})
+
+test('here: a lane and a plain session are refused with one line, and nothing is written', async ($, on) => {
+  await answerer($, on, [])
+  expect((await hereCmd($)).text).toBe(prm.HERE_NO_TIER)
+  // Out of its lane it is a plain session: still no tier.
+  await $.command.run({ command: 'callboard', args: 'off', origin: { kind: 'composer' } } as any)
+  expect((await hereCmd($)).text).toBe(prm.HERE_NO_TIER)
+  expect(h.store.has(prm.HERE_KEY)).toBe(false)
+  expect(hereRows()).toEqual([])
+})
+
+test('here: the row is written before the key: a ledger that does not answer leaves no key, and a store that does not answer leaves a void row', async ($, on) => {
+  beneathHooks(on)
+  await tier($, on)
+  h.pfsFails = (a) => a[0] === '/usr/bin/tee' && String(a[a.length - 1]).includes('/ledger-')
+  expect((await hereCmd($)).text).toBe(prm.HERE_LEDGER_FAILED)
+  expect(h.store.has(prm.HERE_KEY)).toBe(false)
+  h.pfsFails = undefined
+  h.storeSetHook = async (k: string) => {
+    if (k === prm.HERE_KEY) throw new Error('store down')
+  }
+  expect((await hereCmd($)).text).toBe(prm.HERE_STORE_FAILED)
+  h.storeSetHook = undefined
+  expect(h.store.has(prm.HERE_KEY)).toBe(false)
+  expect(hereRows()).toEqual(['here-on', 'here-off void'])
+  // Off that cannot delete the key says so, and writes no row: the key still stands.
+  expect((await hereCmd($)).text).toContain('You are here until ')
+  h.storeDeleteFails = true
+  expect((await hereCmd($, 'off')).text).toBe(prm.HERE_OFF_FAILED)
+  h.storeDeleteFails = false
+  expect(h.store.has(prm.HERE_KEY)).toBe(true)
+  expect(hereRows()).toEqual(['here-on', 'here-off void', 'here-on'])
+})

@@ -23,7 +23,10 @@ enforces.
   still asks the person for each go.
   A go the person gives in callboard's own go dialog, in a lead's session, counts in that lead's lanes for the work it
   names; they read it with `go_status` (ADR 0009). You give no go and never pass one on in your own words. A lane's
-  question that asks for a go goes through the mod's relay at whichever tier relays, you included.
+  question that asks for a go goes through the mod's relay at whichever tier relays, you included. One that reaches
+  you as the top tier is relayed: leaving it unasked is the person's call, never your default. Where the person typed
+  `/callboard here` in a lead's or conductor's session, that session relays the requests in its reach and you keep
+  your relay as the fallback.
 
 ## Starting and resuming
 

@@ -268,6 +268,31 @@ export async function answeringNow($: any): Promise<pr.Answering | undefined> {
   return (await escalationNow($)).a
 }
 
+// ---- here: the session the person said they are in (/callboard here, ADR 0009) ----
+// The stored key while it counts (pr.parseHere), undefined when there is none, or 'error' when the store did not answer.
+export async function hereRead($: any): Promise<pr.Here | undefined | 'error'> {
+  try {
+    const raw = await withTimeout($, (async () => $.store.get(pr.HERE_KEY))(), c.ENGINE_CALL_TIMEOUT_MS)
+    return raw === 'timeout' ? 'error' : pr.parseHere(raw, await $.clock.now())
+  } catch {
+    return 'error'
+  }
+}
+// Whether this session is the one the person said they are in: the key counts, names this session, and the session holds a lead, conductor or manager grant
+// now. The one reader of the key for the relay; anything that cannot be read is no, so the request passes up as it would with no key.
+export async function hereNow($: any, sid: string): Promise<boolean> {
+  if (grants.get(sid) === undefined) return false
+  const here = await hereRead($)
+  return here !== 'error' && here?.sid === sid
+}
+// A session whose grant ends while it is here is here no longer, a later grant in the same session included: the key goes, then its `here-off` row.
+export async function hereGrantOff($: any, sid: string): Promise<void> {
+  const here = await hereRead($)
+  if (here === 'error' || here?.sid !== sid) return
+  await withTimeout($, (async () => $.store.delete(pr.HERE_KEY))(), c.ENGINE_CALL_TIMEOUT_MS)
+  await ledgerAdd($, { kind: 'here-off', code: 'grant-off', by: sid, was: sid })
+}
+
 // Whether the switch is on and this session is a lane or a lead: the cheap first test. The scope (a lane's or a lead's name) is judged once the lead is known.
 async function promptCoverage($: any, sid: string): Promise<{ a: pr.Answering; level: 'lane' | 'lead'; lane?: string; self?: string; lead?: string } | undefined> {
   const a = await answeringNow($)

@@ -769,6 +769,8 @@ export const COMMAND_TABLE: readonly CommandRow[] = [
   { form: 'escalation [off]', help: 'Let the lead tier answer the prompts its lanes raise, or stop that.' },
   { form: 'go [TEXT]', help: 'In a lead: give one go for the work TEXT names, after you confirm. A bare go lists the live goes.' },
   { form: 'go off [SHORT]', help: 'End the live goes, or the one SHORT names.' },
+  { form: 'here', help: 'In a lead, conductor or manager: for 12 hours, put to you in this session the prompts and questions in its reach that no session settles.' },
+  { form: 'here off', help: 'End that: the top session asks you again.' },
   { form: 'conductor [NAME]', help: 'Make this session a conductor, named NAME if given, after you confirm.' },
   { form: 'conductor add NAME|PATH', help: 'Add a repo to the repos a conductor reaches.' },
   { form: 'conductor remove NAME|PATH', help: 'Take a repo off the repos a conductor reaches.' },
@@ -833,7 +835,7 @@ export const helpText = (): string => mdPage('**Callboard commands**', ['Command
 export const HELP_USAGE = `${usageLine()} Run /callboard help for the full list.`
 // The words after `lead` and `conductor` that are subcommands, so never a NAME (any letter case): the subcommands, the other /callboard command words (a typo of
 // one is the usage line, not a rename), and on and off, the typos of a switch these commands do not have.
-const GRANT_WORDS: readonly string[] = ['join', 'leave', 'add', 'remove', 'on', 'off', 'status', 'lanes', 'lane', 'help', 'config', 'manager', 'reserve', 'checkin', 'rest', 'escalation', 'go', 'lead', 'conductor']
+const GRANT_WORDS: readonly string[] = ['join', 'leave', 'add', 'remove', 'on', 'off', 'status', 'lanes', 'lane', 'help', 'config', 'manager', 'reserve', 'checkin', 'rest', 'escalation', 'go', 'here', 'lead', 'conductor']
 export const isGrantWord = (w: string): boolean => GRANT_WORDS.includes(w.toLowerCase())
 // A NAME typed for /callboard lead or conductor is the person's own: another origin is refused with these fixed texts, with no dialog.
 export const LEAD_NAME_NOT_PERSON = 'Only you can name a lead: type /callboard lead NAME yourself.'

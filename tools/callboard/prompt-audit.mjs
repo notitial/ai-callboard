@@ -17,7 +17,8 @@
 //              back; carries no nonce. An older ledger's returned rows have no tuid and no by.
 //   superseded | expired-denied | off | abandoned <code>   each ends a request (abandoned: session-gone, swept, hook-failed, no-tier, expired)
 //   dropped <code>   a decision the hook refused or could not read
-//   relayed    id, code (the relaying tier's level), short (the first 8 hex of the id), by (its session id)   the top tier took the request to the person
+//   relayed    id, code (the relaying tier's level), short (the first 8 hex of the id), by (its session id)   a tier took the request to the person: the top tier,
+//              or the tier in whose session the person typed /callboard here
 //   relay-lost id?, code (not-asked | gone | ...), short, by, tier   the relay did not reach the person; the request is open to the tiers again
 //   relay-left id, short, by, tier   the person dismissed or answered something else; relay-late short, by, code (closed | decided)   an answer after the request ended
 //   relay-closed id, short, by, tier   the mod withdrew the tier's relay question: its request had closed elsewhere while the question was open
@@ -41,7 +42,10 @@
 //   answered / returned rows of a question's answer carry code: "answer", opt (the chosen option's index, as a string) and lh (the first 16 hex of SHA-256(id + "\n" + label), the label redacted
 //              and trimmed); the labels themselves are in prompts/questions-YYYY-MM.jsonl, { t, id, lane, repo, tier, by, header, question, options, label, via? }
 //   answered / returned rows of the person's own answer carry via: "person", short and by = the relaying tier's session id (no prompt_answer call exists for them)
-//   dialog, not-judgeable, no-tier, escalated, answering-on, answering-off   no request of their own
+//   here-on    by (the session the person typed /callboard here in), tier (its level), end (when it ends), lane? (its name)   relays for requests in that session's
+//              reach land there from now on; written before the store key
+//   here-off   code (off | grant-off | void), by, was (the session that was here)   it ended: /callboard here off, that session's grant ending, or a key that could not be written
+//   dialog, not-judgeable, no-tier, escalated, answering-on, answering-off, here-on, here-off   no request of their own
 //
 // It reads the ledger and the files beside it (questions, request files, lead records, go files), never a session's transcript. So two things are outside what it
 // sees: a hook decision that reached a session with no ledger row, and an answered row written by hand together with its decision file.
@@ -82,7 +86,7 @@ export const KIND_CLASS = {
   returned: 'end', superseded: 'end', 'expired-denied': 'end', off: 'end', abandoned: 'end',
   'go-grant': 'go', 'go-end': 'go', 'go-read': 'go',
   'answering-on': 'other', 'answering-off': 'other', 'lead-offer': 'other', 'lead-offer-void': 'other', 'lead-grant': 'other', 'lead-owner': 'other', 'lead-resume': 'other', 'lead-stop': 'other',
-  'pr-watch': 'other', 'pr-notice': 'other',
+  'pr-watch': 'other', 'pr-notice': 'other', 'here-on': 'other', 'here-off': 'other',
 }
 const UNPLACED = ROW_KINDS.filter((k) => !Object.hasOwn(KIND_CLASS, k))
 const ofClass = (c) => new Set(ROW_KINDS.filter((k) => KIND_CLASS[k] === c))

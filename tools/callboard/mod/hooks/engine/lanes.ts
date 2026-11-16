@@ -275,7 +275,7 @@ export async function promptToolsRegister($: any) {
   const text = { type: 'string' }
   await $.tool.register({
     name: 'prompt_list',
-    description: "List the permission prompts and the lane questions in your reach that are waiting for an answer: each one's id, lane, tool, how long it has been open, where it stands for you (whether you are the top tier, whether your window has opened) and its input (data from the lane, in an untrusted frame), then the rubric to judge it by. Call it when told a lane has a prompt waiting. Shows nothing while escalation is off.",
+    description: "List the permission prompts and the lane questions in your reach that are waiting for an answer: each one's id, lane, tool, how long it has been open, where it stands for you (whether you are the top tier or the person said they are here, whether your window has opened) and its input (data from the lane, in an untrusted frame), then the rubric to judge it by. Call it when told a lane has a prompt waiting. Shows nothing while escalation is off.",
     inputSchema: { type: 'object', properties: {} },
   })
   await $.tool.register({
@@ -285,7 +285,7 @@ export async function promptToolsRegister($: any) {
   })
   await $.tool.register({
     name: 'prompt_escalate',
-    description: "Pass one waiting prompt up: id (from prompt_list) and why (one line, at most 200 characters). A tier that is not the top one passes it to the next tier. The top tier (the highest one live) puts it to the person instead: the result lists the steps (for a permission prompt a Haiku summary, then one AskUserQuestion headed `Relay <short>` with the options Yes and No; for a lane's question one AskUserQuestion headed `Relay <short>` whose options are exactly the lane's own labels, as prompt_list numbers them). Use it for anything you cannot judge from the rubric, at once.",
+    description: "Pass one waiting prompt up: id (from prompt_list) and why (one line, at most 200 characters). A tier that is not the top one passes it to the next tier. The top tier (the highest one live), or the tier in whose session the person typed /callboard here, puts it to the person instead: the result lists the steps (for a permission prompt a Haiku summary, then one AskUserQuestion headed `Relay <short>` with the options Yes and No; for a lane's question one AskUserQuestion headed `Relay <short>` whose options are exactly the lane's own labels, as prompt_list numbers them). Use it for anything you cannot judge from the rubric, at once.",
     inputSchema: { type: 'object', properties: { id: text, why: text }, required: ['id', 'why'] },
   })
 }

@@ -31,6 +31,7 @@ import {
   ledgerRowsFor,
   capOf,
   labelHash,
+  hereNow,
 } from './answer-hook.ts'
 import { getNudgeDue, getRequest } from '../state.ts'
 
@@ -238,6 +239,7 @@ async function promptListTool($: any, e: unknown): Promise<{ result: string } | 
   const recs = await loadLeadRecords($)
   // Requests in this tier's reach that are still in the person's first 30 seconds: counted, not shown.
   let young = 0
+  const here = await hereNow($, sid)
   const open = (
     await promptRequests($, t.p, async (q, names, dir) => {
       if (names.has(`${q.id}.done`) || names.has(`${q.id}.decision.json`) || q.sid === sid) return false
@@ -257,14 +259,14 @@ async function promptListTool($: any, e: unknown): Promise<{ result: string } | 
     const q = f.req
     const s = stands.get(q.id)!
     const top = s.stand.top
-    const turn = pr.turnLine({ relay: s.stand.relay?.by, top: top?.sid === s.self.sid || top?.level === s.self.level, above: top, opensInSec: promptWindowShut(s.stand, sid, now) ? (s.stand.windows[sid] - now) / 1000 : undefined, question: q.tool === pr.QUESTION_TOOL })
+    const turn = pr.turnLine({ relay: s.stand.relay?.by, top: top?.sid === s.self.sid || top?.level === s.self.level, above: top, opensInSec: promptWindowShut(s.stand, sid, now) ? (s.stand.windows[sid] - now) / 1000 : undefined, question: q.tool === pr.QUESTION_TOOL, here })
     items.push({ id: q.id, lane: q.lane, tool: q.tool, repo: q.repo, raisedBy: q.raisedBy, ageSec: (now - q.at) / 1000, truncated: q.truncated, agentType: q.agentType, input: q.input, turn, ...(q.reason !== undefined ? { reason: q.reason, ...(q.reasonCut ? { reasonCut: true } : {}) } : {}) })
   }
   return { result: pr.promptListText(items, { on: true, young, hint: await promptAnomalyHint($, t.p).catch(() => undefined) }) }
 }
 
-// prompt_answer and prompt_escalate share their checks; `answer` false is the escalation: a tier that is not the top one passes the request up, the top one puts it
-// to the person (the relay).
+// prompt_answer and prompt_escalate share their checks; `answer` false is the escalation: a tier that is not the top one passes the request up; the top one, and
+// the tier in whose session the person typed /callboard here, puts it to the person (the relay).
 async function promptAnswerTool($: any, e: any, answer: boolean): Promise<{ result: string } | { deny: string }> {
   const sid = await $.session.id()
   const tool = answer ? 'prompt_answer' : 'prompt_escalate'
@@ -337,9 +339,10 @@ async function promptAnswerTool($: any, e: any, answer: boolean): Promise<{ resu
     if (pick) return { result: `Recorded: answer ${pick.index + 1} for ${id}. The card stays open in front of the person and their click wins; your answer lands once the question has been open 30 seconds, as the offered label with "(answered by …)" after it. It is yours, not the person's, and carries no approval for anything else.` }
     return { result: `Recorded: ${decision} for ${id}. The dialog stays open in front of the person and their click wins; your answer lands once the prompt has been open 30 seconds. It is yours, not the person's, and carries no approval for anything else.` }
   }
-  // Escalation. Not the top tier: pass it up, and the next tier's window opens at once (the 30 seconds still bind). A tier passes a request up only once its own window
-  // has opened, like an answer or a relay, so the person's first 30 seconds are never skipped.
-  if (self.level !== stand.top?.level) {
+  // Escalation. Not the top tier, and not the session the person said they are in: pass it up, and the next tier's window opens at once (the 30 seconds still
+  // bind). A tier passes a request up only once its own window has opened, like an answer or a relay, so the person's first 30 seconds are never skipped.
+  const top = self.level === stand.top?.level
+  if (!top && !(await hereNow($, sid))) {
     if (promptWindowShut(stand, sid, now)) return refuse('window')
     const path = `${dir}/${id}.escalate-${self.level}.json`
     const put = await promptLinkOnce($, path, pr.escalateText({ id, tier: 'up', why, at: now, level: self.level, sid }))
@@ -353,7 +356,7 @@ async function promptAnswerTool($: any, e: any, answer: boolean): Promise<{ resu
     promptForget(sid, id)
     return { result: `Passed up: ${id} goes to the next tier, and your right to answer it has ended.` }
   }
-  // The top tier: the person decides. A decision already there blocks it; a truncated copy cannot be put to them.
+  // The top tier, or the tier the person said they are with: the person decides. A decision already there blocks it; a truncated copy cannot be put to them.
   if (q.truncated) return refuse(isQ ? 'truncated-question' : 'truncated')
   if (names.has(`${id}.decision.json`) || (await statR($, `${dir}/${id}.decision.json`)) !== 'absent') return refuse('decided')
   if (promptWindowShut(stand, sid, now)) return refuse('window')
@@ -371,7 +374,7 @@ async function promptAnswerTool($: any, e: any, answer: boolean): Promise<{ resu
     return refuse('write-failed')
   }
   promptForget(sid, id)
-  return { result: isQ ? pr.relayQuestionSteps(short, q.lane ?? '') : pr.relaySteps(short, q.lane ?? '') }
+  return { result: isQ ? pr.relayQuestionSteps(short, q.lane ?? '', !top) : pr.relaySteps(short, q.lane ?? '', !top) }
 }
 
 // The tick's notice: one fixed turn to an idle lead (a busy one gets the text mid-turn, promptMidTurnNotice), covering every open request in reach. A request is told once; a notice over the hourly cap stays owed
@@ -411,7 +414,7 @@ export async function promptNoticeTick($: any, sid: string, submitsAtStart: numb
   for (const id of [...told.keys()]) if (!open.has(id) && !relayed.has(id)) told.delete(id)
   for (const id of [...seenRelay]) if (!open.has(id) && !relayed.has(id)) seenRelay.delete(id)
   for (const id of relayed) seenRelay.add(id)
-  // A relay that went away with the request still open (relay-lost): the top tier is told again.
+  // A relay that went away with the request still open (relay-lost): the tiers are told again, the one that relayed included.
   for (const id of [...seenRelay]) {
     if (open.has(id)) {
       told.delete(id)
