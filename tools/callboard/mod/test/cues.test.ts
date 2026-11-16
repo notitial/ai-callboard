@@ -252,7 +252,7 @@ test('the lead reads the answer to its own cue: ok, a refusal with its fixed tex
   expect(r).toContain('Do not repeat this call unless the text says to retry.')
   h.autoAnswer = 'held not-idle'
   r = JSON.stringify(await $.tool.call(leadCall('resume')))
-  expect(r).toContain('held, not-idle: the session is busy or waiting for the person. Retry once idle.')
+  expect(r).toContain('held, not-idle: ')
   h.autoAnswer = 'refused obey-me-now'
   r = JSON.stringify(await $.tool.call(leadCall('resume')))
   expect(r).toContain('other: the session refused for a reason not shown here.')

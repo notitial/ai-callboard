@@ -230,7 +230,10 @@ longTest('a grant that fails after the ledger row writes a void row of the same 
   h.registerGate = refusing
   expect(await cue(129, CUE)).toBe('lead refused grant-failed 129\n')
   expect(ledgerRows().map((r) => `${r.kind}${r.code ? ` ${r.code}` : ''}`)).toEqual(['lead-offer', 'lead-grant', 'lead-offer-void grant-failed'])
-  expect(c.leadOpenRate(ledgerRows(), KEY, T0 + 10_000)).toBe('ok')
+  expect(ledgerRows()[1].by).toBeTruthy()
+  expect(c.leadOpenLimit([], ledgerRows(), ledgerRows()[1].by, T0 + 10_000)).toEqual({ ok: true })
+  // Seven more successful opens leave it one short of the backstop: the voided grant is not among them.
+  expect(c.leadOpenLimit([], [...ledgerRows(), ...Array.from({ length: 7 }, (_, k) => ({ kind: 'lead-grant', nonce: `x${k}`, by: ledgerRows()[1].by, t: ledgerRows()[1].t }))], ledgerRows()[1].by, T0 + 10_000)).toEqual({ ok: true })
   expect(leadKey()).toBeUndefined()
   expect(h.sessions['4300.json']).toContain('LEAD-N')
 })
@@ -241,7 +244,7 @@ longTest('/callboard off typed while the accept runs refuses off-meanwhile and g
   h.renameGate = new Promise<void>((r) => (release = r))
   h.cueFile = { ino: 130, text: CUE, present: true }
   const ticking = tickTwice()
-  await new Promise((r) => setTimeout(r, 50))
+  await waitFor(() => h.renameWaiting)
   await $.command.run(lane('off'))
   release()
   await ticking
@@ -267,7 +270,7 @@ longTest('a panel that took over 25 s is refused late after the rename, writes n
   h.renameGate = new Promise<void>((r) => (release = r))
   h.cueFile = { ino: 132, text: CUE, present: true }
   const ticking = tickTwice()
-  await new Promise((r) => setTimeout(r, 50))
+  await waitFor(() => h.renameWaiting)
   await h.clock!.advance(26_000)
   release()
   await ticking

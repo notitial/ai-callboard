@@ -19,6 +19,21 @@ test('/callboard on from any origin gets the usage line: no dialog, no state, no
   expect((await $.command.run(lane('status'))).text).toBe(STATUS_NONE)
 })
 
+test('the prompt box offers the /callboard words from the command table, after the engine\'s own rows, and only for a /callboard draft', async ($, on) => {
+  // What the engine's own typeahead answers beneath the plugins: one row of its own, which must stay first.
+  on('prompt.autocomplete', () => ({ suggestions: [{ text: 'engine-row' }] }))
+  await started($, on, [])
+  const ask = async (text: string) => {
+    const start = text.lastIndexOf(' ') + 1
+    return (await $.prompt.autocomplete({ text, cursor: text.length, token: text.slice(start), start })).suggestions.map((s: { text: string }) => s.text)
+  }
+  expect(await ask('/callboard co')).toEqual(['engine-row', 'conductor', 'config'])
+  expect(await ask('/callboard checkin r')).toEqual(['engine-row', 'resume'])
+  expect(await ask('/callboard config checkin o')).toEqual(['engine-row', 'on', 'off'])
+  expect(await ask('/callboard checkin pause 3')).toEqual(['engine-row'])
+  expect(await ask('/other co')).toEqual(['engine-row'])
+})
+
 test('each dialog offers its own exact button pair', async ($, on) => {
   const hint = { lane: { name: 'LABLANE', at: 1 }, counters: {}, savedAt: T0 }
   try {
@@ -115,7 +130,7 @@ test('config: /callboard config prints the settings from any origin and logs not
   const stdins: string[] = []
   await person($, on, stdins)
   for (const origin of [PERSON, { kind: 'bridge' }, { kind: 'plugin' }, { kind: 'peer' }, { kind: 'script' }])
-    expect((await $.command.run(lane('config', origin))).text).toBe(['**Callboard settings**', '', '| Setting | Value | Default |', '|---|---|---|', '| Keepalive | ON | ✓ |', '| Ping after | 50 min | ✓ |', '| Stop after | 3 h | ✓ |', '| Idle level | 300k | ✓ |', '| Working level | 400k | ✓ |', '| Check-ins | ON | ✓ |', '| Conductor leads | ON | ✓ |', '| Escalation | OFF | ON |'].join('\n'))
+    expect((await $.command.run(lane('config', origin))).text).toBe(['**Callboard settings**', '', '| Setting | Value | Default |', '|---|---|---|', '| Keepalive | ON | ✓ |', '| Ping after | 50 min | ✓ |', '| Stop after | 2 h | ✓ |', '| Idle level | 300k | ✓ |', '| Working level | 400k | ✓ |', '| Check-ins | ON | ✓ |', '| Conductor leads | ON | ✓ |', '| Escalation | OFF | ON |'].join('\n'))
   expect(logged(stdins)).toEqual([])
   expect(h.store.has('config')).toBe(false)
   expect((await $.command.run(lane('bogus'))).text).toBe(USAGE)
@@ -191,9 +206,9 @@ test('config: out of range or unknown is refused with the usage; the two levels 
 test('config: invalid stored fields fall back to their defaults, logged once per load', async ($, on) => {
   const stdins: string[] = []
   await person($, on, stdins)
-  h.store.set('config', { keepalive: 'no', pingAfterMin: 99, stopAfterH: 2, idleK: 350, workingK: 450, path: '/etc/x', savedAt: 1 })
+  h.store.set('config', { keepalive: 'no', pingAfterMin: 99, stopAfterH: 4, idleK: 350, workingK: 450, path: '/etc/x', savedAt: 1 })
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
-  expect((await $.command.run(lane('config'))).text).toBe(['**Callboard settings**', '', '| Setting | Value | Default |', '|---|---|---|', '| Keepalive | ON | ✓ |', '| Ping after | 50 min | ✓ |', '| Stop after | 2 h | 3 h |', '| Idle level | 350k | 300k |', '| Working level | 450k | 400k |', '| Check-ins | ON | ✓ |', '| Conductor leads | ON | ✓ |', '| Escalation | OFF | ON |'].join('\n'))
+  expect((await $.command.run(lane('config'))).text).toBe(['**Callboard settings**', '', '| Setting | Value | Default |', '|---|---|---|', '| Keepalive | ON | ✓ |', '| Ping after | 50 min | ✓ |', '| Stop after | 4 h | 2 h |', '| Idle level | 350k | 300k |', '| Working level | 450k | 400k |', '| Check-ins | ON | ✓ |', '| Conductor leads | ON | ✓ |', '| Escalation | OFF | ON |'].join('\n'))
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
   expect(logged(stdins).filter((x) => x.startsWith('config-invalid'))).toEqual(['config-invalid:keepalive', 'config-invalid:pingAfterMin'])
 })

@@ -12,7 +12,8 @@ const LEDGER = `${PROMPTS_DIR}/ledger-2023-11.jsonl`
 const RESULT = `${ROOT}/open/LEAD-N.result`
 const offers = () => [...pfs.keys()].filter((k) => k.startsWith(`${OFFERS_DIR}/`))
 const iso = (msAgo: number) => new Date(T0 - msAgo).toISOString()
-const seedRows = (...rows: Record<string, unknown>[]) => pfs.set(LEDGER, { text: rows.map((r) => JSON.stringify({ hash: KEY, nonce: 'n', ...r })).join('\n') + '\n', mtimeSec: T0 / 1000 })
+// Ledger rows as the conductor SID's earlier opens left them.
+const seedRows = (...rows: Record<string, unknown>[]) => pfs.set(LEDGER, { text: rows.map((r, i) => JSON.stringify({ hash: KEY, nonce: `n${i}`, by: SID, lane: `LEAD-${i}`, ...r })).join('\n') + '\n', mtimeSec: T0 / 1000 })
 const mvs = (argv: string[][], needle: string) => argv.filter((a) => a[0] === '/bin/mv' && a.some((x) => x.includes(needle)))
 const cueTexts = (argv: string[][]) => mvs(argv, `${ROOT}/cue/`).map((a) => teeTexts.get(a[3]))
 
@@ -124,7 +125,7 @@ longTest('lead_open refuses a name a lane or a live session carries, in any lett
   expect(await open($, `ok ${NEWSID}\n`)).toContain('is on as session')
 })
 
-longTest('lead_open refuses when an offer or a claim is in place, or the hour is spent; each writes nothing', async ($, on) => {
+longTest('lead_open refuses when an offer or a claim is in place; each writes nothing', async ($, on) => {
   const argv: string[][] = []
   await conductor($, on, argv)
   pfs.set(`${OFFERS_DIR}/${KEY}.json`, { text: '{}', mtimeSec: T0 / 1000 })
@@ -135,10 +136,73 @@ longTest('lead_open refuses when an offer or a claim is in place, or the hour is
   pfs.delete(`${OFFERS_DIR}/${KEY}.claim`)
   expect(ledgerRows()).toEqual([])
   expect(mvs(argv, '.lead')).toEqual([])
-  seedRows({ kind: 'lead-grant', t: iso(10 * 60_000) })
-  expect(await open($)).toContain(REASON_TEXT['open-rate'])
-  expect(mvs(argv, '.lead')).toEqual([])
+})
+
+// The per-conductor limits: nothing is written when one holds, and the refusal says which limit it is and what to do.
+longTest('lead_open refuses a fifth lead of a conductor, parked ones counted, and names the leads that hold the slots; another conductor\'s leads do not count', async ($, on) => {
+  const argv: string[][] = []
+  await conductor($, on, argv, { seed: () => putLeadRecs([{ name: 'LEAD-A', conductorSid: SID, sid: '00000001-aaaa-4bbb-8ccc-dddddddddddd' }, { name: 'LEAD-B', conductorSid: SID, sid: LEADSID, parked: 5 }, { name: 'LEAD-C', conductorSid: SID, sid: '00000003-aaaa-4bbb-8ccc-dddddddddddd' }, { name: 'LEAD-D', conductorSid: SID, sid: '00000004-aaaa-4bbb-8ccc-dddddddddddd' }, { name: 'OTHER', conductorSid: OTHERLEAD }]) })
+  const r = await open($)
+  expect(r).toContain('lead-cap: you hold 4 lead slots')
+  expect(r).toContain('LEAD-A, LEAD-B (parked), LEAD-C, LEAD-D')
+  expect(r).toContain('Retire one with lead_retire')
+  expect(r).not.toContain('OTHER')
+  wroteNothing(argv)
+})
+
+longTest('lead_open counts `made` and `joined` leads of the conductor, and not those of a repo out of its reach', async ($, on) => {
+  const argv: string[][] = []
+  await conductor($, on, argv, {
+    seed: () => {
+      putLeadRecs([{ name: 'LEAD-A', conductorSid: SID, sid: '00000001-aaaa-4bbb-8ccc-dddddddddddd', how: 'made' }, { name: 'LEAD-B', conductorSid: SID, sid: '00000002-aaaa-4bbb-8ccc-dddddddddddd', how: 'joined' }, { name: 'LEAD-C', conductorSid: SID, sid: '00000003-aaaa-4bbb-8ccc-dddddddddddd', how: 'joined' }])
+      putLeadRecs([{ name: 'LEAD-D', conductorSid: SID, sid: '00000004-aaaa-4bbb-8ccc-dddddddddddd' }, { name: 'LEAD-E', conductorSid: SID, sid: '00000005-aaaa-4bbb-8ccc-dddddddddddd' }], '/Users/x/elsewhere')
+    },
+  })
+  expect(await open($, `ok ${NEWSID}\n`)).toContain('is on as session')
+  pfs.delete(`${OFFERS_DIR}/${KEY}.json`)
+  putLeadRecs([{ name: 'LEAD-A', conductorSid: SID, sid: '00000001-aaaa-4bbb-8ccc-dddddddddddd' }, { name: 'LEAD-B', conductorSid: SID, sid: '00000002-aaaa-4bbb-8ccc-dddddddddddd' }, { name: 'LEAD-C', conductorSid: SID, sid: '00000003-aaaa-4bbb-8ccc-dddddddddddd' }, { name: 'LEAD-F', conductorSid: SID, sid: '00000006-aaaa-4bbb-8ccc-dddddddddddd' }])
+  h.openResult = undefined
+  const r = await open($, undefined, { name: 'LEAD-M' })
+  // The first open's offer has no grant in this test, so it still holds a slot beside the four records.
+  expect(r).toContain('lead-cap: you hold 5 lead slots')
+  expect(r).toContain('LEAD-A, LEAD-B, LEAD-C, LEAD-F, LEAD-N (still opening)')
+  expect(r).not.toContain('LEAD-D')
+})
+
+longTest('lead_open: a record with no session id (a lead force stopped while lanes name it) holds no slot', async ($, on) => {
+  const argv: string[][] = []
+  await conductor($, on, argv, { seed: () => putLeadRecs([{ name: 'LEAD-A', conductorSid: SID, sid: '00000001-aaaa-4bbb-8ccc-dddddddddddd' }, { name: 'LEAD-B', conductorSid: SID, sid: '00000002-aaaa-4bbb-8ccc-dddddddddddd' }, { name: 'LEAD-C', conductorSid: SID, sid: '00000003-aaaa-4bbb-8ccc-dddddddddddd' }, { name: 'LEAD-D', conductorSid: SID, sid: undefined }]) })
+  expect(await open($, `ok ${NEWSID}\n`)).toContain('is on as session')
+})
+
+longTest('lead_open allows three owned leads, and an eighth open an hour; the ninth is refused with the time the oldest leaves the hour; nothing is written', async ($, on) => {
+  const argv: string[][] = []
+  await conductor($, on, argv, { seed: () => putLeadRecs([{ name: 'LEAD-A', conductorSid: SID, sid: '00000001-aaaa-4bbb-8ccc-dddddddddddd' }, { name: 'LEAD-B', conductorSid: SID, sid: '00000002-aaaa-4bbb-8ccc-dddddddddddd' }, { name: 'LEAD-C', conductorSid: SID, sid: '00000003-aaaa-4bbb-8ccc-dddddddddddd' }]) })
+  const grants = (ages: number[]) => ages.map((m) => ({ kind: 'lead-grant', t: iso(m * 60_000) }))
+  seedRows(...grants([59, 50, 40, 30, 20, 10, 5]))
+  expect(await open($, `ok ${NEWSID}\n`)).toContain('lead LEAD-N is on as session 12345678')
+  expect(mvs(argv, '.lead').length).toBe(1)
+  pfs.delete(`${OFFERS_DIR}/${KEY}.json`)
+  seedRows(...grants([59, 50, 40, 30, 20, 10, 5, 1]))
+  h.openResult = undefined
+  const r = await open($, undefined, { name: 'LEAD-M' })
+  expect(r).toContain('open-backstop: you have opened, or are opening, 8 leads in the last hour')
+  expect(r).toContain(`allowed in 1 min, at ${new Date(Math.ceil((T0 + 60_000) / 60_000) * 60_000).toISOString().slice(11, 16)} UTC`)
+  expect(mvs(argv, '.lead').length).toBe(1)
   expect(offers()).toEqual([])
+})
+
+longTest('lead_open: grants of another conductor and voided or older ones do not count against the backstop', async ($, on) => {
+  const argv: string[][] = []
+  await conductor($, on, argv)
+  const OTHER = '8a1b2c3d-0000-4000-8000-123456789abc'
+  seedRows(
+    ...[5, 10, 15, 20, 25, 30, 35, 40].map((m) => ({ kind: 'lead-grant', by: OTHER, t: iso(m * 60_000) })),
+    { kind: 'lead-grant', t: iso(61 * 60_000) },
+    { kind: 'lead-grant', nonce: 'v1', t: iso(5 * 60_000) },
+    { kind: 'lead-offer-void', nonce: 'v1', by: undefined, t: iso(4 * 60_000) },
+  )
+  expect(await open($, `ok ${NEWSID}\n`)).toContain('is on as session')
 })
 
 // With no cap on live leads, a looping conductor could fill the repo's record file; the open then stops before any write, not after a grant that leaves a lead with no owner.
@@ -149,8 +213,8 @@ longTest('lead_open refuses a repo whose lead record file is full, before any wr
   wroteNothing(argv)
 })
 
-// A live lead is no bar to an open: the conductor's own, one another conductor owns and one made by hand (no owner), all live in the repo. The hourly rate still holds.
-longTest('lead_open opens beside live leads of the repo (its own, another conductor\'s, one made by hand), and the hourly rate still refuses a second open', async ($, on) => {
+// A live lead is no bar to an open: the conductor's own, one another conductor owns and one made by hand (no owner), all live in the repo. 
+longTest('lead_open opens beside live leads of the repo (its own, another conductor\'s, one made by hand)', async ($, on) => {
   const argv: string[][] = []
   const OTHERCOND = '8a1b2c3d-0000-4000-8000-123456789abc'
   const HANDSID = '7a1b2c3d-0000-4000-8000-123456789abc'
@@ -166,15 +230,9 @@ longTest('lead_open opens beside live leads of the repo (its own, another conduc
   expect(await open($, `ok ${NEWSID}\n`)).toContain('lead LEAD-N is on as session 12345678')
   expect(ledgerRows().map((x) => x.kind)).toEqual(['lead-offer'])
   expect(mvs(argv, '.lead').length).toBe(1)
-  // The new panel's grant row (the accept side) uses the hour of the repo, whatever leads it holds.
-  seedRows({ kind: 'lead-grant', t: iso(10 * 60_000) })
-  h.openResult = undefined
-  expect(await open($, undefined, { name: 'LEAD-M' })).toContain(REASON_TEXT['open-rate'])
-  expect(mvs(argv, '.lead').length).toBe(1)
-  expect(offers()).toEqual([])
 })
 
-longTest('lead_open: three offers in an hour use the repo up, a failing open included; an offer older than the hour does not count', async ($, on) => {
+longTest('lead_open: failed and refused opens spend nothing; the next open still goes through', async ($, on) => {
   const argv: string[][] = []
   await conductor($, on, argv)
   seedRows({ kind: 'lead-offer', t: iso(61 * 60_000) }, { kind: 'lead-offer', t: iso(62 * 60_000) }, { kind: 'lead-offer', t: iso(63 * 60_000) })
@@ -186,11 +244,23 @@ longTest('lead_open: three offers in an hour use the repo up, a failing open inc
     expect(offers()).toEqual([])
   }
   h.openResult = undefined
-  expect(await open($)).toContain(REASON_TEXT['open-rate'])
-  expect(ledgerRows().map((x) => x.kind).filter((k) => k === 'lead-offer').length).toBe(3 + 3)
+  expect(await open($, `ok ${NEWSID}\n`)).toContain('is on as session')
   expect(ledgerRows().filter((x) => x.kind === 'lead-offer-void').length).toBe(3)
   expect(ledgerRows().some((x) => x.kind === 'lead-grant')).toBe(false)
-  expect(mvs(argv, '.lead').length).toBe(3)
+  expect(mvs(argv, '.lead').length).toBe(4)
+})
+
+longTest('lead_open: an offer of this conductor still open holds a slot; one the panel answered or one older than ten minutes does not', async ($, on) => {
+  const argv: string[][] = []
+  await conductor($, on, argv, { seed: () => putLeadRecs([{ name: 'LEAD-A', conductorSid: SID, sid: '00000001-aaaa-4bbb-8ccc-dddddddddddd' }, { name: 'LEAD-B', conductorSid: SID, sid: '00000002-aaaa-4bbb-8ccc-dddddddddddd' }, { name: 'LEAD-C', conductorSid: SID, sid: '00000003-aaaa-4bbb-8ccc-dddddddddddd' }]) })
+  seedRows({ kind: 'lead-offer', hash: 'f'.repeat(64), nonce: 'p1', lane: 'LEAD-P', t: iso(2 * 60_000) })
+  const r = await open($)
+  expect(r).toContain('LEAD-P (still opening)')
+  expect(ledgerRows().length).toBe(1)
+  expect(mvs(argv, '.lead')).toEqual([])
+  expect(offers()).toEqual([])
+  seedRows({ kind: 'lead-offer', hash: 'f'.repeat(64), nonce: 'p1', lane: 'LEAD-P', t: iso(2 * 60_000) }, { kind: 'lead-grant', hash: 'f'.repeat(64), nonce: 'p1', t: iso(60_000) })
+  expect(await open($, `ok ${NEWSID}\n`)).toContain('is on as session')
 })
 
 longTest('a write that fails after the ledger row takes the offer back and voids the row with its code; nothing is left to block the next try', async ($, on) => {

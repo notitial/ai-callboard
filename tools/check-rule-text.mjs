@@ -1,5 +1,5 @@
 // Checks that rules/callboard.md quotes the callboard mod's fixed texts exactly: the keepalive text, the prompt notice, the
-// opener and the closing line of the PR notice, and the opener of each of the four compaction nudges. A session matches those turns against the rule, so a drifted word
+// opener and the closing line of the PR notice, the opener of the signed-done notice, and the opener of each of the four compaction nudges. A session matches those turns against the rule, so a drifted word
 // would make it treat a real turn as an ordinary message.
 //   node tools/check-rule-text.mjs
 // Exit 0 when every quote matches, 1 with one line per mismatch, 2 when a file cannot be read. Needs node 22.18 or later,
@@ -33,6 +33,10 @@ const PR_OPENER = '[callboard] PR notice.'
 if (!prWatch.PR_NOTICE_HEAD.startsWith(`${PR_OPENER} `) || !quoted(PR_OPENER)) problems.push('rules/callboard.md does not quote the opener of PR_NOTICE_HEAD exactly')
 if (!quoted(prWatch.PR_NOTICE_TAIL)) problems.push('rules/callboard.md does not quote PR_NOTICE_TAIL exactly')
 
+// The signed-done notice: the rule quotes how it opens.
+const DONE_OPENER = '[callboard] Signed done:'
+if (!core.doneText([{ lane: 'A', code: 'done', since: 0 }])?.startsWith(`${DONE_OPENER} `) || !quoted(DONE_OPENER)) problems.push('rules/callboard.md does not quote the opener of the signed-done notice exactly')
+
 // The nudge section lists each opener as a backquoted line that starts with [callboard]; a trailing " ..." marks where the quote stops.
 const nudgeSection = rule.split('## The compaction nudge')[1]?.split('\n## ')[0] ?? ''
 const openers = [...nudgeSection.matchAll(/^ {2}- `(\[callboard\] [^`]*?)(?: \.\.\.)?`/gm)].map((m) => m[1])
@@ -50,4 +54,4 @@ if (problems.length) {
   for (const p of problems) console.error(p)
   process.exit(1)
 }
-console.log(`rules/callboard.md matches the mod: keepalive, prompt notice, PR notice, ${openers.length} nudge openers`)
+console.log(`rules/callboard.md matches the mod: keepalive, prompt notice, PR notice, signed-done notice, ${openers.length} nudge openers`)

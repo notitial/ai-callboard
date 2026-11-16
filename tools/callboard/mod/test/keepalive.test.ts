@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
-import { REST_TEXT, helpText, LANES_CHANGED_TEXT, nudgeText, KEEPALIVE_TEXT, noticeText, configSetText, CONFIG_DEFAULTS, OFF_NOTHING } from '../hooks/core'
-import { h, GOOD, SID, extraStat, laneSeed, longTest, storeFiles, submitted } from './harness'
+import { REST_TEXT, REST_SET, REST_FAILED, REST_SUBAGENT, REST_TOOL, REST_TOOL_DESC, helpText, LANES_CHANGED_TEXT, nudgeText, KEEPALIVE_TEXT, noticeText, configSetText, CONFIG_DEFAULTS, OFF_NOTHING } from '../hooks/core'
+import { h, GOOD, SID, extraStat, laneSeed, longTest, storeFiles, submitted, toolDefs } from './harness'
 import type { Trace } from './harness'
 import { advanceQuiet, cue, fileStat, kaLog, lane, LEAD_LANES, leadAt, logged, MIN, newTrace, notices, nudges, OWN_ROW, ownTurn, PERSON, person, pings, realTurn, REG, REGFILE, renameThroughTick, retireTarget, SELFREG, sent, STATUS_NONE, STOREFILE, storeText, stv, ticks, tickTwice, TURN, waitFor, warm } from './fixtures'
 
@@ -79,6 +79,100 @@ test('/callboard rest: no ping and no cache nudge in this gap, logged once; a re
   await $.turn.complete(TURN as any)
   await advanceQuiet(60 * MIN)
   expect(pings().length).toBe(2)
+})
+
+const restTool = (input: Record<string, unknown> = {}) => ({ tool: `mcp__callboard__${REST_TOOL}`, ...input }) as any
+
+test('the rest tool: the session\'s own agent sets the same rest as /callboard rest, mid-turn, with no question; the next real turn restores the pings', async ($, on) => {
+  const stdins: string[] = []
+  await warm($, on, stdins)
+  expect(toolDefs).toContain(JSON.stringify({ name: REST_TOOL, description: REST_TOOL_DESC, inputSchema: { type: 'object', properties: {} } }))
+  // Called while the agent's own turn runs, it holds past that turn's end.
+  await $.prompt.submit({ text: 'go idle' } as any)
+  await $.turn.start({ turnId: 'real', text: 'go idle' } as any)
+  h.lastQuestion = undefined
+  expect(await $.tool.call(restTool())).toEqual({ result: REST_SET })
+  expect(h.lastQuestion).toBe(undefined)
+  expect(logged(stdins)).toContain('command:rest:tool')
+  await $.turn.complete(TURN as any)
+  await advanceQuiet(55 * MIN)
+  expect(pings()).toEqual([])
+  expect(kaLog(stdins)).toEqual(['keepalive-skipped:rest'])
+  // A real turn in this session ends it, as it ends a typed one.
+  await realTurn($, 'back')
+  await advanceQuiet(50 * MIN)
+  expect(pings()).toEqual([KEEPALIVE_TEXT])
+})
+
+test('the rest tool: a subagent is refused, so it never rests its parent session', async ($, on) => {
+  const stdins: string[] = []
+  await warm($, on, stdins)
+  await advanceQuiet(10 * MIN)
+  expect(await $.tool.call(restTool({ agentId: 'a1' }))).toEqual({ deny: REST_SUBAGENT })
+  expect(logged(stdins)).toContain('refused:rest-subagent')
+  expect(logged(stdins).some((x) => x.startsWith('command:rest'))).toBe(false)
+  await advanceQuiet(40 * MIN)
+  expect(pings()).toEqual([KEEPALIVE_TEXT])
+  expect(kaLog(stdins)).toEqual(['keepalive:'])
+})
+
+test('the rest tool: a reload of the mod keeps the rest, and a state write that fails denies the call and leaves the pings on', async ($, on) => {
+  const stdins: string[] = []
+  const trace = newTrace()
+  await warm($, on, stdins, trace)
+  await advanceQuiet(10 * MIN)
+  expect(await $.tool.call(restTool())).toEqual({ result: REST_SET })
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await advanceQuiet(45 * MIN)
+  expect(pings()).toEqual([])
+  expect(kaLog(stdins)).toEqual(['keepalive-skipped:rest'])
+  await realTurn($, 'back')
+  trace.failKeys = new Set(['restAt'])
+  expect(await $.tool.call(restTool())).toEqual({ deny: REST_FAILED })
+  expect(logged(stdins).filter((x) => x === 'command:rest:tool').length).toBe(1)
+  await advanceQuiet(50 * MIN)
+  expect(pings()).toEqual([KEEPALIVE_TEXT])
+})
+
+// How many pings an idle stretch gets, by the stored settings: a slot comes every `ping after` minutes and the stop clock refuses one at or past `stop after`.
+for (const [what, cfg, count] of [
+  ['the lowest stop (1 h) gives 1 ping', { pingAfterMin: 50, stopAfterH: 1 }, 1],
+  ['a stop of 3 h a Mac saved earlier still gives 3', { pingAfterMin: 50, stopAfterH: 3 }, 3],
+  ['the widest bounds (ping 30, stop 8 h) give 15', { pingAfterMin: 30, stopAfterH: 8 }, 15],
+] as const) {
+  longTest(`keepalive: ${what}`, async ($, on) => {
+    const stdins: string[] = []
+    await warm($, on, stdins)
+    for (const arg of [`ping ${cfg.pingAfterMin}`, `stop ${cfg.stopAfterH}`]) await $.command.run(lane(`config ${arg}`))
+    await realTurn($, 'work on')
+    // Below the cache nudge's level, so every slot is a ping.
+    h.tokensNow = 120_000
+    for (let i = 1; i <= count; i++) {
+      await advanceQuiet(cfg.pingAfterMin * MIN)
+      expect(sent(stdins)).toBe(i)
+      await h.clock!.advance(2000)
+      await ownTurn($, KEEPALIVE_TEXT)
+    }
+    await advanceQuiet(cfg.pingAfterMin * MIN)
+    expect(sent(stdins)).toBe(count)
+    expect(kaLog(stdins).filter((x) => x === 'keepalive-stopped:')).toEqual(['keepalive-stopped:'])
+  })
+}
+
+test('keepalive: with the lowest stop (1 h) a large idle session gets its one ping and no cache nudge', async ($, on) => {
+  const stdins: string[] = []
+  await warm($, on, stdins)
+  await $.command.run(lane('config stop 1'))
+  await realTurn($, 'work on')
+  h.tokensNow = 200_000
+  await advanceQuiet(50 * MIN)
+  expect(sent(stdins)).toBe(1)
+  await h.clock!.advance(2000)
+  await ownTurn($, KEEPALIVE_TEXT)
+  await advanceQuiet(50 * MIN)
+  expect(sent(stdins)).toBe(1)
+  expect(logged(stdins).some((x) => x.startsWith('nudge-due'))).toBe(false)
+  expect(submitted.includes(nudgeText('cache'))).toBe(false)
 })
 
 test('/rest is /callboard rest: the same answer and the same quiet gap, from any origin, with any arguments ignored', async ($, on) => {
@@ -220,7 +314,7 @@ for (const [what, set, line] of [
   })
 }
 
-test('keepalive: a ping turn moves neither the turn mark nor the stop clock and records no nudge; a lane that signed done stays retire-able (F1)', async ($, on) => {
+test('keepalive: a ping turn moves neither the turn mark nor the stop clock and records no nudge; a lane that signed done stays retire-able', async ($, on) => {
   const stdins: string[] = []
   const trace = newTrace()
   await renameThroughTick($, on, stdins, 1, trace)
@@ -297,14 +391,14 @@ test('keepalive: a lane a lead started (its start text is real work) and then le
   expect(pings()).toEqual([KEEPALIVE_TEXT])
 })
 
-longTest('keepalive: pings stop 3 hours after the last real turn, logged once; a real turn starts them again', async ($, on) => {
+longTest('keepalive: pings stop 2 hours after the last real turn, so an idle gap gets 2, logged once; a real turn starts them again', async ($, on) => {
   const stdins: string[] = []
   const trace = newTrace()
   await warm($, on, stdins, trace)
   const realEnd = stv(trace, 'realEndAt')
-  // Below the cache nudge's level, so the third slot is a ping too.
+  // Below the cache nudge's level, so the second slot is a ping too.
   h.tokensNow = 120_000
-  for (let i = 1; i <= 3; i++) {
+  for (let i = 1; i <= 2; i++) {
     await advanceQuiet(50 * MIN)
     expect(sent(stdins)).toBe(i)
     await h.clock!.advance(2000)
@@ -312,15 +406,15 @@ longTest('keepalive: pings stop 3 hours after the last real turn, logged once; a
     await ownTurn($, KEEPALIVE_TEXT)
     expect(stv(trace, 'realEndAt')).toBe(realEnd)
   }
-  // 150 minutes after the real turn: the next gap ends past 3 hours.
+  // 100 minutes after the real turn: the next gap ends past 2 hours.
   await advanceQuiet(50 * MIN)
-  expect(sent(stdins)).toBe(3)
+  expect(sent(stdins)).toBe(2)
   expect(kaLog(stdins).filter((x) => x === 'keepalive-stopped:')).toEqual(['keepalive-stopped:'])
   await h.clock!.advance(30 * MIN)
   expect(kaLog(stdins).filter((x) => x === 'keepalive-stopped:').length).toBe(1)
   await realTurn($, 'back')
   await advanceQuiet(50 * MIN)
-  expect(sent(stdins)).toBe(4)
+  expect(sent(stdins)).toBe(3)
 })
 
 for (const [what, arrange] of [

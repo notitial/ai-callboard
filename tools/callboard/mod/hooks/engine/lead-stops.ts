@@ -235,7 +235,7 @@ async function parkCall($: any, x: Ctx) {
   if (!(await signal($, sid, tool, e, t, fresh.entry))) return no('kill-failed', 'the signal failed.')
   try {
     const marked = await recordEdit($, t, t.sid, 'park', await $.clock.now())
-    toast($, `Lead ${t.name} parked`)
+    toast($, marked ? c.stopStuckToast('Lead', t.name, 'unmarked') : `Lead ${t.name} parked`)
     if (marked) {
       await log($, sid, 'park-unmarked', marked)
       return { result: c.parkUnmarkedLeadText(t.name, fresh.entry.pid as number, marked) }
@@ -244,6 +244,7 @@ async function parkCall($: any, x: Ctx) {
     return { result: c.parkedLeadText(t.name, fresh.entry.pid as number) }
   } catch {
     await logq($, sid, 'error', 'after-signal-lead_park')
+    toast($, c.stopStuckToast('Lead', t.name, 'unknown'))
     return { result: c.afterSignalFailedLeadText('park', t.name, fresh.entry.pid as number) }
   } finally {
     signalledCalls.delete(stopKey(sid, tool, e.lead))
@@ -395,10 +396,10 @@ async function retireCall($: any, x: Ctx) {
   await log($, sid, 'retiring', t.name)
   if (!(await signal($, sid, tool, e, t, fresh.entry))) return no('kill-failed', 'the signal failed.')
   try {
-    toast($, `Lead ${t.name} retired (idle, report signed)`)
     return await afterStop($, sid, 'retire', t, fresh.entry)
   } catch {
     await logq($, sid, 'error', 'after-signal-lead_retire')
+    toast($, c.stopStuckToast('Lead', t.name, 'unknown'))
     return { result: c.afterSignalFailedLeadText('retire', t.name, fresh.entry.pid as number) }
   } finally {
     signalledCalls.delete(stopKey(sid, tool, e.lead))
@@ -411,11 +412,13 @@ async function afterStop($: any, sid: string, verb: 'retire' | 'terminate', t: T
   const pid = victim.pid as number
   if (!(await ended($, victim))) {
     await logq($, sid, 'error', 'lead-still-running')
+    toast($, c.stopStuckToast('Lead', t.name, 'alive'))
     return { result: c.stoppedLeadText(verb, t.name, pid, 'alive') }
   }
   // The binding is read before it is deleted: a record kept with no session carries its owner only by the proof made from it.
   const proof = verb === 'terminate' ? await keptProof($, t, victim.sessionId) : undefined
   const keys = await dropKeys($, sid, victim.sessionId)
+  if (verb === 'retire' && !t.rec) toast($, `Lead ${t.name} retired (idle, report signed)`)
   if (!t.rec) return { result: c.stoppedLeadText(verb, t.name, pid, 'stopped', !keys) }
   let change: RecChange = 'remove'
   if (verb === 'terminate') {
@@ -440,9 +443,11 @@ async function afterStop($: any, sid: string, verb: 'retire' | 'terminate', t: T
   if (bad && proven && !(await keptBy($, t))) await Promise.resolve($.store.delete(proof!.key)).catch(() => undefined)
   if (bad && bad !== 'unknown-lead') {
     await logq($, sid, 'error', `lead-unremoved ${bad}`)
+    toast($, c.stopStuckToast('Lead', t.name, 'unremoved'))
     return { result: c.stoppedLeadText(verb, t.name, pid, { unremoved: bad }, !keys) }
   }
   await log($, sid, change === 'remove' ? 'lead-removed' : 'lead-unsessioned', t.name)
+  if (verb === 'retire') toast($, `Lead ${t.name} retired (idle, report signed)`)
   return { result: c.stoppedLeadText(verb, t.name, pid, change === 'remove' ? 'removed' : proven ? 'kept' : 'kept-unproven', !keys) }
 }
 
@@ -485,6 +490,7 @@ async function terminateCall($: any, x: Ctx) {
     return await afterStop($, sid, 'terminate', t, fresh.entry)
   } catch {
     await logq($, sid, 'error', 'after-signal-lead_terminate')
+    toast($, c.stopStuckToast('Lead', t.name, 'unknown'))
     return { result: c.afterSignalFailedLeadText('terminate', t.name, fresh.entry.pid as number) }
   } finally {
     signalledCalls.delete(stopKey(sid, tool, e.lead))

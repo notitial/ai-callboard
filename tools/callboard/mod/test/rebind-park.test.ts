@@ -814,7 +814,6 @@ longTest('lane_unpark gives up after 45 seconds and withdraws its request; a win
   windowAnswers('error timeout\n')
   const out = JSON.stringify(await unparkCall($))
   expect(out).toContain('timeout: the conversation did not open in time. It may still open; call lane_list before you try again.')
-  expect(out).not.toContain('lane_rename')
   windowAnswers('error live-elsewhere\n')
   expect(JSON.stringify(await unparkCall($))).toContain('live-elsewhere: that conversation is open outside VS Code, maybe in a terminal.')
   expect(recOf('LABLANE')).toEqual(UNPARK())

@@ -279,26 +279,24 @@ for (const [what, arrange, cache] of [
   ['an idle session below 150k', () => { h.tokensNow = 149_999 }, false],
   ['a working session (a background agent) at 200k', () => { h.tokensNow = 200_000; h.agentsNow = [{ status: 'running' }] }, false],
 ] as const) {
-  test(`keepalive: after 2 pings since the real turn, the third slot of ${what} ${cache ? 'gets the cache nudge in place of the ping' : 'is a ping'}`, async ($, on) => {
+  test(`keepalive: after 1 ping since the real turn, the second slot of ${what} ${cache ? 'gets the cache nudge in place of the ping' : 'is a ping'}`, async ($, on) => {
     const stdins: string[] = []
     await warm($, on, stdins)
     arrange()
-    for (let i = 1; i <= 2; i++) {
-      await advanceQuiet(50 * MIN)
-      expect(sent(stdins)).toBe(i)
-      expect(logged(stdins).some((x) => x.startsWith('nudge-due'))).toBe(false)
-      await h.clock!.advance(2000)
-      await ownTurn($, KEEPALIVE_TEXT)
-    }
+    await advanceQuiet(50 * MIN)
+    expect(sent(stdins)).toBe(1)
+    expect(logged(stdins).some((x) => x.startsWith('nudge-due'))).toBe(false)
+    await h.clock!.advance(2000)
+    await ownTurn($, KEEPALIVE_TEXT)
     await advanceQuiet(50 * MIN)
     if (cache) {
       expect(logged(stdins)).toContain('nudge-due:cache')
       await h.clock!.advance(2000)
       expect(logged(stdins)).toContain('nudged:cache')
       expect(submitted.filter((t) => t === nudgeText('cache'))).toEqual([nudgeText('cache')])
-      expect(sent(stdins)).toBe(2)
+      expect(sent(stdins)).toBe(1)
     } else {
-      expect(sent(stdins)).toBe(3)
+      expect(sent(stdins)).toBe(2)
       expect(submitted.includes(nudgeText('cache'))).toBe(false)
       expect(logged(stdins).some((x) => x.startsWith('nudge-due'))).toBe(false)
     }
@@ -309,14 +307,12 @@ test('keepalive: the ping count starts again at a real turn: its first slot is a
   const stdins: string[] = []
   await warm($, on, stdins)
   h.tokensNow = 200_000
-  for (let i = 1; i <= 2; i++) {
-    await advanceQuiet(50 * MIN)
-    await h.clock!.advance(2000)
-    await ownTurn($, KEEPALIVE_TEXT)
-  }
-  expect(sent(stdins)).toBe(2)
+  await advanceQuiet(50 * MIN)
+  await h.clock!.advance(2000)
+  await ownTurn($, KEEPALIVE_TEXT)
+  expect(sent(stdins)).toBe(1)
   await realTurn($, 'back')
   await advanceQuiet(50 * MIN)
-  expect(sent(stdins)).toBe(3)
+  expect(sent(stdins)).toBe(2)
   expect(logged(stdins).some((x) => x.startsWith('nudge-due'))).toBe(false)
 })

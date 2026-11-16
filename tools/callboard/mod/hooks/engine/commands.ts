@@ -22,6 +22,8 @@ import {
   leadEpoch,
   laneObs,
   attnTold,
+  attnMid,
+  attnToasted,
   laneBrief,
   mem,
 } from '../mem.ts'
@@ -86,17 +88,33 @@ async function notPerson($: any, sid: string, command: string, code: c.OriginCod
   return { text }
 }
 
-async function restCommand($: any, sid: string, code: string) {
+// Sets the rest for this session and logs it: the one path of the command and the tool. False when the session state could not be written.
+async function restSet($: any, sid: string, code: string): Promise<boolean> {
   try {
-    if ((await setRest($, await $.clock.now())).isSet === false) throw new Error('not set')
+    if ((await setRest($, await $.clock.now())).isSet === false) return false
   } catch {
-    return { text: c.REST_FAILED }
+    return false
   }
   await logq($, sid, 'command', `rest:${code}`)
-  return { text: c.REST_TEXT }
+  return true
+}
+async function restCommand($: any, sid: string, code: string) {
+  return { text: (await restSet($, sid, code)) ? c.REST_TEXT : c.REST_FAILED }
 }
 
-// /callboard checkin pause <N>m|<N>h and checkin on: the person's own, as config; a plugin, another session or a script gets a fixed refusal.
+// The `rest` tool: /callboard rest set by the calling session's own main agent, through the same restSet. It asks nothing, as the command: it only
+// narrows. A subagent is refused, because the rest is the session's and its call would rest the parent.
+export async function restCall($: any, e: any) {
+  const sid = await $.session.id()
+  ensureTimer($)
+  if ((e as { agentId?: string }).agentId !== undefined) {
+    await logq($, sid, 'refused', 'rest-subagent')
+    return { deny: c.REST_SUBAGENT }
+  }
+  return (await restSet($, sid, 'tool')) ? { result: c.REST_SET } : { deny: c.REST_FAILED }
+}
+
+// /callboard checkin pause [<N>m|<N>h] and checkin resume: the person's own, as config; a plugin, another session or a script gets a fixed refusal.
 async function checkinCommand($: any, sid: string, code: c.OriginCode, op: c.CheckinOp): Promise<{ text: string }> {
   if (op === 'bad') return { text: c.CHECKIN_USAGE }
   if (!c.originIsPerson(code)) return notPerson($, sid, 'checkin', code, c.CHECKIN_NOT_PERSON)
@@ -401,9 +419,12 @@ async function leadClickQuestion($: any, sid: string, res: { text: string; code?
 // session holds a valid manager file (manager-exists). The grant lives in memory, and the person's yes also saves manager:<sid> (levelSave), so the
 // same conversation asks again when it starts or resumes (managerRestoreAsk runs this function with restore set: the restore question, and its own log lines;
 // `saved` is the hint it restores from: when it names this session's start folder and is younger than MANAGER.silentGraceMs, nothing is asked and every other
-// check runs as after a yes).
+// check runs as after a yes). A restore's result also carries a `code` saying how it ended (the refusal, 'unanswered', 'cancelled'), which managerRestoreAsk
+// reads to try again, wait for the person's next prompt or tell them; the person's own command gets no code. `mark` is the caller's note of this try: `asked` is set when a restore is
+// not silent, so the caller can keep every later try of the same restore from being silent, and `yes` once the yes is given (or stands in for a silent
+// restore), so the caller knows a failure came after it.
 // After the grant the presence file must be written (one per machine rests on it), and a second manager that won the same moment makes both step back.
-export async function managerCommand($: any, sid: string, code: c.OriginCode, want: string | undefined, busy: () => Promise<{ text: string }>, restore = false, alive: () => boolean = () => true, saved?: c.ManagerHint): Promise<{ text: string }> {
+export async function managerCommand($: any, sid: string, code: c.OriginCode, want: string | undefined, busy: () => Promise<{ text: string }>, restore = false, alive: () => boolean = () => true, saved?: c.ManagerHint, mark?: { asked?: boolean; yes?: boolean }): Promise<{ text: string; code?: string }> {
   // The off counter before any await: for a restore with no question, an off typed during the checks below counts as one meanwhile.
   const seq = offSeq.get(sid) ?? 0
   await reservedGet($, sid, true)
@@ -411,9 +432,10 @@ export async function managerCommand($: any, sid: string, code: c.OriginCode, wa
   // gives MANAGER here and is refused by the check below.
   const own = want === undefined ? ((await registryEntries($).catch(() => undefined)) ?? []).filter((e) => e.j.sessionId === sid) : []
   const name = want ?? (own.length === 1 && c.managerNameRefusal(own[0].j.name) === undefined ? (own[0].j.name as string) : c.MANAGER_DEFAULT)
+  const coded = (text: string, code: string): { text: string; code?: string } => (restore ? { text, code } : { text })
   const refuse = async (why: string) => {
     await log($, sid, restore ? 'manager-restore-rejected' : 'refused', why)
-    return { text: c.managerRefusalText(why) }
+    return coded(c.managerRefusalText(why), why)
   }
   if (c.managerNameRefusal(name)) return refuse('manager-name')
   // Another NAME changes nothing, and the answer says so.
@@ -436,32 +458,36 @@ export async function managerCommand($: any, sid: string, code: c.OriginCode, wa
   const root = await withTimeout($, sessionRoot($), c.ENGINE_CALL_TIMEOUT_MS).catch(() => undefined)
   const here = typeof root === 'string' && root !== '' && root !== 'timeout' ? root : undefined
   const silent = restore && saved !== undefined && c.managerSilentOk(saved, here, await $.clock.now(), MANAGER.silentGraceMs)
+  if (restore && !silent && mark) mark.asked = true
   let live: Awaited<ReturnType<typeof registryEntries>>
-  return grantDialog($, sid, MANAGER, {
+  let wasBusy = false
+  const done = await grantDialog($, sid, MANAGER, {
     silent,
     seq: silent ? seq : undefined,
     question: restore ? c.MANAGER_RESTORE_QUESTION : c.askedFrom(c.MANAGER_QUESTION, code),
     yes: c.MANAGER_YES,
     no: c.MANAGER_NO,
     header: c.HEADER.manager,
-    busy,
+    busy: () => {
+      wasBusy = true
+      return busy()
+    },
     person: c.originIsPerson(code),
     on: () => grants.get(sid)?.level === 'manager',
-    // A restore: only the person's Cancel removes the saved grant; no answer (a timeout, a dismissal, an error) restores nothing and keeps it.
+    // A restore: only the person's Cancel removes the saved grant; no answer (a timeout, a dismissal, an error) restores nothing and keeps it, and
+    // managerRestoreAsk tells the person and asks again after their next prompt.
     onNotYes: restore
       ? async (r) => {
           if (r === 'no') {
             await Promise.resolve($.store.delete(`${c.MANAGER_HINT_PREFIX}${sid}`)).catch(logFail($, sid, 'manager-hint-delete'))
             await log($, sid, 'manager-restore-cancelled')
-          } else {
-            await log($, sid, 'manager-restore-unanswered')
-            toast($, c.MANAGER_UNANSWERED_TOAST)
-          }
-          return { text: 'Manager stays off.' }
+          } else await log($, sid, 'manager-restore-unanswered')
+          return { text: 'Manager stays off.', code: r === 'no' ? 'cancelled' : 'unanswered' }
         }
       : undefined,
     // The post-click re-check, as the lead's: the marks are read and set with no await between.
     postClick: () => {
+      if (mark) mark.yes = true
       if (restore && !alive()) return refuse('changed')
       if (laneBinding.has(sid) || leadGranting.has(sid)) return refuse(laneBinding.has(sid) ? 'lane-holder' : 'lead-holder')
     },
@@ -477,9 +503,10 @@ export async function managerCommand($: any, sid: string, code: c.OriginCode, wa
       } catch {
         set = 'error'
       }
-      if (set !== undefined || offNow()) {
+      // A restore whose pending entry went while the tools registered (an off) grants nothing, as an off does.
+      if (set !== undefined || offNow() || (restore && !alive())) {
         await logq($, sid, 'error', set === undefined ? 'off-meanwhile' : `manager-register-${set}`)
-        return { text: c.MANAGER_FAILED }
+        return coded(c.MANAGER_FAILED, set === undefined ? 'off-meanwhile' : set === 'timeout' ? 'tools-timeout' : 'tools')
       }
       grants.set(sid, { level: 'manager', pins: [], name })
       if (here !== undefined) managerCwd.set(sid, here)
@@ -493,7 +520,7 @@ export async function managerCommand($: any, sid: string, code: c.OriginCode, wa
         if (epochOf(sid) === grantEpoch) await leadDrop($, sid)
         if (why !== 'manager-presence') return refuse(why)
         await log($, sid, 'error', why)
-        return { text: c.MANAGER_FAILED }
+        return coded(c.MANAGER_FAILED, why)
       }
       if (epochOf(sid) !== grantEpoch) return { text: MANAGER.offText }
       if (wrote !== true) return stepBack('manager-presence')
@@ -514,6 +541,14 @@ export async function managerCommand($: any, sid: string, code: c.OriginCode, wa
     },
     text: c.MANAGER_ON_TEXT,
   })
+  // The person's own command, once its dialog was answered or left unanswered, ends a restore that still waits: they decided by hand, whatever the answer,
+  // so no restore question follows it. The saved grant stays (only the restore's Cancel and an off remove it).
+  const waits = managerRestorePending.get(sid)
+  if (!restore && !wasBusy && c.originIsPerson(code) && waits) {
+    waits.byHand = true
+    managerRestorePending.delete(sid)
+  }
+  return done
 }
 
 // /callboard conductor add|remove, the person's own command only (from the prompt or the phone); any other origin is refused with no dialog. add asks once
@@ -949,6 +984,8 @@ export async function grantLead($: any, sid: string, code: c.OriginCode, busy: (
         leadEpoch.set(sid, epochOf(sid) + 1)
         laneObs.delete(sid)
         attnTold.delete(sid)
+        attnMid.delete(sid)
+        attnToasted.delete(sid)
         // The goes this lead gave were for the old folder's lanes: they end, beside the grant, which does not wait for the rows.
         void goGrantorOff($, sid).catch(() => undefined)
       }
@@ -981,6 +1018,12 @@ export async function grantLead($: any, sid: string, code: c.OriginCode, busy: (
     return some ? { ...res, text: `${res.text}${c.JOIN_AFTER_RENAME}` } : res
   }
   return leadClickQuestion($, sid, res)
+}
+
+// The rows the prompt box's typeahead adds while the draft is /callboard and a word: the words the command table offers there, after the engine's own rows.
+export async function commandComplete(_: any, e: { text: string; start: number; token: string }, next: (e: any) => Promise<{ suggestions: readonly c.Completion[] }>) {
+  const base = await next(e)
+  return { suggestions: [...base.suggestions, ...c.completions(e.text.slice(0, e.start), e.token)] }
 }
 
 export async function commandRun($: any, e: any) {

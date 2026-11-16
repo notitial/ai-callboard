@@ -145,7 +145,12 @@ live checkouts, of `~/.claude/settings*.json` or of callboard's state folder, be
 agent to answer. Until the hook is in place, escalation stays off on that machine:
 
 1. ai-toolkit carries the hook and your toolkit checkout is up to date. Run `/setup-claude` yourself: it links the
-   hook into `~/.claude/hooks/` and wires it in `~/.claude/settings.json`. An agent never edits settings.
+   hook into `~/.claude/hooks/` and wires it in `~/.claude/settings.json`, as `/bin/bash -p "$HOME/.claude/hooks/protected-paths-guard.sh" || exit 2`.
+   Callboard counts that command as wired, with `$HOME`, `${HOME}` or the absolute path of the linked hook inside the quotes
+   (a `~` inside the quotes does not count). Nothing else counts: not the bare link path (it lets a call through when the
+   hook cannot start; an install from before the wrapper needs `/setup-claude` again), not another command (another
+   interpreter, no `|| exit 2`, extra commands), not an entry with `async`, `if`, `args` or another field beyond `type`,
+   `command`, `timeout`, `statusMessage` and `onFailure`, not a `timeout` under 10, and not a settings `env` that sets `HOME`. An agent never edits settings.
 2. The hook protects a folder only when it holds a `.protected-checkout` file. The file is untracked, so only you
    make it. Run these once, with `<checkout>` your ai-manager checkout and `<toolkit>` your ai-toolkit checkout:
 
@@ -260,7 +265,7 @@ ai-toolkit's `/setup-claude` and `/cleanup-claude` leave everything in this guid
 
 Follow [docs/manager/README.md](manager/README.md), Starting and resuming. In short: a plain session in this
 checkout, without `CLAUDE_CONFIG_DIR`, on Opus (`/model opus`), then type `/callboard manager [NAME]` yourself. With
-no NAME the session is named `MANAGER`. The grant lives in memory and your yes saves it: the same conversation, started or resumed, asks once whether to restore the manager (a compaction asks nothing).
+no NAME the session is named `MANAGER`. The grant lives in memory and your yes saves it: the same conversation, started or resumed, asks whether to restore the manager (a compaction asks nothing; an unanswered question is asked again after the next prompt there).
 
 The only name callboard reserves built in is `MANAGER`. A manager on a second machine needs a different name, because
 Remote Control lists every machine's sessions. Reserve it on that machine first, typed yourself, then use it:
@@ -291,7 +296,7 @@ ADR 0002, Design addition v15.1: per-machine reserved names.
 | Mod loaded | type `/callboard status` in a session | it answers a status table with a `Lane` row (`NONE`) and a `Lead` row (`OFF`) or similar |
 | Reserved names | type `/callboard reserve` | the manager's name, when it is not `MANAGER`, is listed |
 | Deny lines | read `permissions.deny` in `~/.claude/settings.json` | the two store and list-file lines are there |
-| Protected-paths hook | `jq -e '[.hooks.PreToolUse[]?.hooks[]?.command] \| any(endswith("/protected-paths-guard.sh"))' ~/.claude/settings.json`, and `ls <checkout>/.protected-checkout <toolkit>/.protected-checkout ~/.claude/callboard/.protected-checkout` | `true`, and all three markers exist; escalation is on by default only while this holds (`/callboard status` names what is missing) |
+| Protected-paths hook | `jq -e '[.hooks.PreToolUse[]?.hooks[]?.command] \| any(. == "/bin/bash -p \"$HOME/.claude/hooks/protected-paths-guard.sh\" \|\| exit 2")' ~/.claude/settings.json` (a rough pre-check: it finds the command the toolkit writes and does not look at the matcher, `disableAllHooks`, `env` or the entry's other fields), and `ls <checkout>/.protected-checkout <toolkit>/.protected-checkout ~/.claude/callboard/.protected-checkout` | `true`, and all three markers exist; escalation is on by default only while this holds (`/callboard status` is the authority and names what is missing) |
 | Usage watcher | `bash tools/usage-watcher/install.sh --status --ref <commit>` | exit 0, the job loaded |
 | Summary | `ls -l ~/.local/state/usage-watcher/usage-summary.json` | written in the last 5 minutes |
 | Retired hook | read `hooks.SessionStart` in `~/.claude/settings.json` | no `account-stamp.sh` entry |

@@ -5,6 +5,9 @@
 #   bash tools/test-all.sh NAME [NAME…]   run only the named suites (names are the first column)
 # A suite whose tool is missing (node, claude, python3, plutil) shows as skip, never as pass. Exit 1 if any suite fails,
 # 2 on an unknown option or suite name (checked before anything runs).
+# It takes the machine-wide test turn first (tools/test-turn.sh) and waits while another run holds it, then runs each
+# suite under `nice -n 10`. Exit 3: the turn is stale (older than 25 minutes, its holder not known to be gone); the
+# message says how to clear it.
 # Adding a suite: add one `suite` line below and the same name to the Build / Test list in CLAUDE.md.
 
 set -u
@@ -14,14 +17,18 @@ ONLY=" "
 for a in "$@"; do
   case $a in
     --quick) QUICK=1 ;;
-    -h | --help) sed -n '2,8p' "$0"; exit 0 ;;
+    -h | --help) sed -n '2,11p' "$0"; exit 0 ;;
     -*) echo "unknown option: $a" >&2; exit 2 ;;
     *) ONLY="$ONLY$a " ;;
   esac
 done
 LOG=$(mktemp -d "${TMPDIR:-/tmp}/test-all-XXXXXX") || exit 2
 [ -n "$LOG" ] && [ -d "$LOG" ] || exit 2
-trap 'rm -rf "$LOG"' EXIT
+. "$ROOT/tools/test-turn.sh" || exit 2
+trap 'release_test_turn; rm -rf "$LOG"' EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 RAN=0 FAILS="" PASSED=0 SKIPPED=0 LISTING=0 NAMES=" "
 suite() {  # suite <name> <slow:0|1> <needs> <command>; needs is one or more commands on PATH, space-separated
@@ -36,7 +43,7 @@ suite() {  # suite <name> <slow:0|1> <needs> <command>; needs is one or more com
     command -v "$n" >/dev/null 2>&1 || { printf '%-24s skip  (needs %s)\n' "$name" "$n"; SKIPPED=$((SKIPPED + 1)); return; }
   done
   start=$SECONDS
-  (cd "$ROOT" && bash -c "$cmd") > "$LOG/$name.log" 2>&1
+  (cd "$ROOT" && $TEST_TURN_NICE bash -c "$cmd") > "$LOG/$name.log" 2>&1
   rc=$?
   if [ "$rc" -eq 0 ]; then
     printf '%-24s pass  %4ss\n' "$name" $((SECONDS - start)); PASSED=$((PASSED + 1))
@@ -50,12 +57,14 @@ suite() {  # suite <name> <slow:0|1> <needs> <command>; needs is one or more com
 # suite (the slow part); the row still shows pass, so run this without it before any change to
 # tools/callboard/mod. CI does not set it.
 # rule-text needs node 22.18 or later: it checks that rules/callboard.md quotes the mod's fixed texts exactly.
+# test-turn checks the machine-wide turn of this script and of tools/callboard/test.sh, on a lock folder of its own.
 # usage-watcher-install needs macOS (plutil), the Command Line Tools and /usr/bin/python3 3.9 or later.
 suites() {
   suite callboard              1 'node claude /usr/bin/python3' 'bash tools/callboard/test.sh'
   suite usage-watcher          0 /usr/bin/python3           '/usr/bin/python3 -I tools/usage-watcher/test_watch.py'
   suite usage-watcher-install  0 'plutil /usr/bin/python3'  'bash tools/usage-watcher/test-install.sh'
   suite rule-text              0 node                       'node tools/check-rule-text.mjs'
+  suite test-turn              0 ''                         'bash tools/test-turn.test.sh'
 }
 
 LISTING=1
@@ -67,6 +76,7 @@ for n in $ONLY; do
 done
 [ "$UNKNOWN" = 0 ] || exit 2
 
+take_test_turn || exit 3
 suites
 
 echo

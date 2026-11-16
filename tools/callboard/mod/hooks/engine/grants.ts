@@ -19,12 +19,18 @@ import {
   leadObs,
   attnTold,
   attnCapped,
+  attnMid,
+  attnToasted,
   obsAt,
   orders,
   orderChecked,
   managerSeen,
   managerSeenBusy,
   leadlessSeen,
+  laneEnds,
+  doneNotices,
+  doneCapped,
+  doneHold,
   leadSavedAt,
   leadRestorePending,
   conductorApproved,
@@ -338,6 +344,8 @@ export function leadDrop($: any, sid: string): Promise<boolean> {
   leadObs.delete(sid)
   attnTold.delete(sid)
   attnCapped.delete(sid)
+  attnMid.delete(sid)
+  attnToasted.delete(sid)
   obsAt.delete(sid)
   orders.delete(sid)
   orderChecked.delete(sid)
@@ -345,6 +353,9 @@ export function leadDrop($: any, sid: string): Promise<boolean> {
   managerSeen.delete(sid)
   managerSeenBusy.delete(sid)
   leadlessSeen.delete(sid)
+  laneEnds.delete(sid)
+  doneCapped.delete(sid)
+  doneHold.delete(sid)
   leadSavedAt.delete(sid)
   leadRestorePending.delete(sid)
   renameRefused.delete(sid)
@@ -449,6 +460,7 @@ async function restoreAttempt<A>($: any, me: string, d: LevelDesc, attempt: () =
   } catch {
     again = undefined
     await logq($, me, `${d.level}-restore-rejected`, 'error')
+    toast($, c.notRestoredToast(d.level, 'error'))
   }
   if (again !== undefined && epochOf(me) === epoch) return again
   d.pending.delete(me)
@@ -462,8 +474,15 @@ export const LEAD_RESTORE_TRIES = 15
 // One try: a code when it is to be tried again, undefined when it ended (made lead, or refused and logged).
 async function leadRestoreTry($: any, me: string, hint: c.LeadHint): Promise<string | undefined> {
   const reject = (code: string) => log($, me, 'lead-restore-rejected', code)
+  // A final end that no toast of its own tells. `told`: the reason the person reads, when the log's code would say more than is known.
+  const end = async (code: string, told = code) => {
+    await reject(code)
+    toast($, c.notRestoredToast('lead', told))
+  }
   const epoch = epochOf(me)
   const dropped = () => epochOf(me) !== epoch
+  // A lead that still holds its grant in memory (a compaction) has nothing to restore: no check runs, so none can say it was not restored.
+  if (grants.get(me)?.level === 'lead') return
   // A person's session only: a headless run resumed under this id is not made lead; the key is kept and the tick asks again (the registry row of a
   // reopened panel may come a moment after session.start).
   if (!(await interactive($, me))) return dropped() ? undefined : 'not-interactive'
@@ -479,12 +498,12 @@ async function leadRestoreTry($: any, me: string, hint: c.LeadHint): Promise<str
   if (cwd !== hint.pin) {
     await $.store.delete(`${c.LEAD_HINT_PREFIX}${me}`)
     void goGrantorOff($, me).catch(() => undefined)
-    return void (await reject('wrong-folder'))
+    return void (await end('wrong-folder'))
   }
   // A lane is never a lead too (the rebind refuses a lead in turn); a read that does not answer counts as a binding.
   const held = await withTimeout($, getLane($), c.ENGINE_CALL_TIMEOUT_MS)
   if (dropped()) return
-  if (held === 'timeout' || held?.value != null || laneBinding.has(me)) return void (await reject('lane-holder'))
+  if (held === 'timeout' || held?.value != null || laneBinding.has(me)) return void (await end('lane-holder', held === 'timeout' ? 'lane-check-slow' : undefined))
   // The person granted lead meanwhile: that grant stands.
   if (leadBusy(me)) return
   leadGranting.add(me)
@@ -504,7 +523,7 @@ async function leadRestoreTry($: any, me: string, hint: c.LeadHint): Promise<str
     try {
       set = await withTimeout($, leadToolsOnce($, me), c.ENGINE_CALL_TIMEOUT_MS)
     } catch {
-      return void (await reject('tools'))
+      return void (await end('tools'))
     }
     // An off or a Cancel while the tools were registering: nothing is granted, and nothing is tried again.
     if (dropped()) return
@@ -527,8 +546,9 @@ export async function leadRestore($: any, me: string, hint: c.LeadHint, tries: n
   if (tries >= LEAD_RESTORE_TRIES) {
     leadRestorePending.delete(me)
     await log($, me, 'lead-restore-rejected', again)
-    // The second-lead check never got an answer, or the name never landed: the key is kept, and the person is told why the lead did not come back.
+    // The key is kept, and the person is told why the lead did not come back. A session that never showed as a person's has nobody to tell.
     if (again === 'registry-unreadable' || again === 'lead-check-slow' || again === 'lead-needs-name') toast($, c.leadNotRestoredToast(again))
+    else if (again !== 'not-interactive') toast($, c.notRestoredToast('lead', again))
     return
   }
   leadRestorePending.set(me, { hint, tries })
@@ -1049,14 +1069,41 @@ function owedItems(sid: string, items: c.AttentionItem[]): { told: Set<string>; 
   for (const k of told) if (!keys.has(k)) told.delete(k)
   return { told, owed: items.filter((i) => !told.has(c.checkinKey(i))) }
 }
-// The timing gates of a check-in: on in the config, not paused, no wake in the last 30 minutes, and the session idle for 20.
-async function checkinGates($: any, sid: string, now: number): Promise<boolean> {
-  if (!(await cfgGet($, sid)).checkin) return false
+// The turn end a check-in counts the lead's idle time from: a done notice's own turn does not restart it (c.idleTurnEnd).
+function idleEnd(sid: string, turnEnd: unknown): unknown {
+  if (typeof turnEnd !== 'number') return turnEnd
+  const r = c.idleTurnEnd(turnEnd, doneHold.get(sid))
+  if (r.hold) doneHold.set(sid, r.hold)
+  else doneHold.delete(sid)
+  return r.at
+}
+// The timing gates of a check-in: on in the config, not paused, no wake in the last 30 minutes ('off' otherwise). 'all' once the session has been idle for 20
+// minutes; before that 'prompt': only a waiting prompt is due (c.checkinDueItems).
+async function checkinGates($: any, sid: string, now: number): Promise<'off' | 'prompt' | 'all'> {
+  if (!(await cfgGet($, sid)).checkin) return 'off'
   const pause = (await getCheckinPause($)).value
-  if (typeof pause === 'number' && pause > now) return false
-  if (mem.wokeAt !== undefined && now - mem.wokeAt < c.CHECKIN_WAKE_MS) return false
-  const turnEnd = (await getTurnEnd($)).value
-  return typeof turnEnd === 'number' && now - Math.max(turnEnd, lastSubmitAt.get(sid) ?? 0) >= c.CHECKIN_IDLE_MS
+  if (typeof pause === 'number' && pause > now) return 'off'
+  if (mem.wokeAt !== undefined && now - mem.wokeAt < c.CHECKIN_WAKE_MS) return 'off'
+  const turnEnd = idleEnd(sid, (await getTurnEnd($)).value)
+  return typeof turnEnd === 'number' && now - Math.max(turnEnd, lastSubmitAt.get(sid) ?? 0) >= c.CHECKIN_IDLE_MS ? 'all' : 'prompt'
+}
+// The waiting prompts among the items that are due: left for the mid-turn hook (a busy session gets no idle submit).
+function promptsMid(sid: string, now: number, due: c.AttentionItem[], render: (items: c.AttentionItem[]) => string | undefined, label: string) {
+  const prompts = due.filter((i) => i.code === 'prompt')
+  if (prompts.length === 0) attnMid.delete(sid)
+  else attnMid.set(sid, { at: now, items: prompts, render, label })
+}
+// The person's toast, one per wait: for every waiting prompt this session would be told of, whatever the timing gates say (the switch, a pause, a wake, a
+// busy session), so it is the one alert no gate holds back. all: every condition that holds now; a toasted key whose condition cleared is forgotten.
+function promptToast($: any, sid: string, prompts: c.AttentionItem[], all: c.AttentionItem[], what: 'Lane' | 'Lead') {
+  const toasted = attnToasted.get(sid) ?? new Set<string>()
+  attnToasted.set(sid, toasted)
+  const keys = new Set(all.map(c.checkinKey))
+  for (const k of toasted) if (!keys.has(k)) toasted.delete(k)
+  const fresh = prompts.filter((i) => i.code === 'prompt' && !toasted.has(c.checkinKey(i)))
+  const text = c.promptWaitingToast(what, fresh.map((i) => i.lane))
+  for (const i of fresh) toasted.add(c.checkinKey(i))
+  if (text !== undefined) toast($, text)
 }
 export async function checkinTick($: any, sid: string, submitsAtStart: number) {
   if (grants.get(sid)?.level === 'conductor') return conductorCheckin($, sid, submitsAtStart)
@@ -1101,17 +1148,23 @@ export async function checkinTick($: any, sid: string, submitsAtStart: number) {
   // The repo reads above wait: an off or a re-grant meanwhile has cleared this grant's memory, and the observations are not written back over it.
   if (epochOf(sid) !== ep) return
   laneObs.set(sid, obs)
-  const { told, owed } = owedItems(sid, c.checkinItems(obs, now))
-  if (owed.length === 0) return
-  if (!(await checkinGates($, sid, now))) return
+  const items = c.checkinItems(obs, now)
+  const { told, owed } = owedItems(sid, items)
+  const gate = owed.length === 0 ? 'off' : await checkinGates($, sid, now)
+  const due = gate === 'off' ? [] : c.checkinDueItems(owed, gate === 'all')
   // The manager is told only of lanes no live lead reaches, by leadHere's rule (a lane naming its lead: a live
   // lead of its repo with that registry name; a legacy lane: any live lead of its repo). The leads of a repo are read at most once per evaluation. A lane a lead
   // reaches is left untold, so it is told once its lead is gone. The filter runs right after the timing gates, before the notice's own gate
   // reads, and a manager left with nothing owed stops here.
-  // A 'held' repo counts as having a live lead, so no notice.
+  // A 'held' repo counts as having a live lead, so no notice. A prompt that has waited CHECKIN_PROMPT_MANAGER_MS is the manager's too, live lead or not: the
+  // lead was told at CHECKIN_PROMPT_MS and the lane still waits.
   const leadless = async (items: c.AttentionItem[]) => {
     const out: c.AttentionItem[] = []
     for (const i of items) {
+      if (c.promptWaitedLong(i, now)) {
+        out.push(i)
+        continue
+      }
       const l = base.lanes.find((x) => x.name === i.lane)
       if (!l?.repo) continue
       const leads = await repoLeads(l.repo)
@@ -1119,8 +1172,18 @@ export async function checkinTick($: any, sid: string, submitsAtStart: number) {
     }
     return out
   }
-  const mine = base.g.level === 'manager' ? await leadless(owed) : owed
-  if (mine.length === 0) return
+  const mgr = base.g.level === 'manager'
+  const mine = mgr ? await leadless(due) : due
+  const prompts = items.filter((i) => i.code === 'prompt')
+  const toastFor = mgr ? await leadless(prompts) : prompts
+  // A turn that goes out carries every owed item, not only the due ones: a prompt-only turn would start the session's 20 idle minutes over and hold the
+  // others back.
+  const send = mine.length === 0 ? [] : mgr ? await leadless(owed) : owed
+  // The repo reads of the filter wait: an off or a re-grant meanwhile has cleared this grant's memory.
+  if (epochOf(sid) !== ep) return
+  promptToast($, sid, toastFor, items, 'Lane')
+  promptsMid(sid, now, mine, c.checkinText, 'checkin')
+  if (send.length === 0) return
   // Signed done drops gone and quiet. Read only once the notice's own gates hold; quiet by the live session's id, gone by the record's.
   const signed = async (items: c.AttentionItem[]) => {
     const send: c.AttentionItem[] = []
@@ -1138,7 +1201,7 @@ export async function checkinTick($: any, sid: string, submitsAtStart: number) {
     }
     return send
   }
-  await attentionNotice($, sid, mine, submitsAtStart, ep, signed)
+  await attentionNotice($, sid, send, submitsAtStart, ep, signed)
 }
 
 // A conductor's check-in, over the leads it owns: a record of a repo in its reach that names it, whose lead is bound to it, that has a session and is not parked.
@@ -1177,9 +1240,17 @@ async function conductorCheckin($: any, sid: string, submitsAtStart: number) {
   // The reads above wait: an off or a re-grant meanwhile has cleared this grant's memory, and the observations are not written back over it.
   if (epochOf(sid) !== ep) return
   leadObs.set(sid, obs)
-  const { owed } = owedItems(sid, c.checkinItems(obs, now))
-  if (owed.length === 0) return
-  if (!(await checkinGates($, sid, now))) return
+  const items = c.checkinItems(obs, now)
+  const { owed: all } = owedItems(sid, items)
+  const gate = all.length === 0 ? 'off' : await checkinGates($, sid, now)
+  const due = gate === 'off' ? [] : c.checkinDueItems(all, gate === 'all')
+  // The gate reads wait: an off or a re-grant meanwhile has cleared this grant's memory.
+  if (epochOf(sid) !== ep) return
+  promptToast($, sid, items, items, 'Lead')
+  promptsMid(sid, now, due, c.leadCheckinText, 'lead-checkin')
+  if (due.length === 0) return
+  // The turn carries every owed item, as a lead's does.
+  const owed = all
   // Signed done drops gone and quiet, as for a lane: the lead's report (.archive/<NAME>/REPORT.md of its repo) ends in `status: done <sid>`. Read only once the notice's
   // own gates hold; quiet by the live session's id, gone by the record's.
   const told = attnTold.get(sid)
@@ -1199,6 +1270,87 @@ async function conductorCheckin($: any, sid: string, submitsAtStart: number) {
     return send
   }
   await attentionNotice($, sid, owed, submitsAtStart, ep, signed, { render: c.leadCheckinText, label: 'lead-checkin' })
+}
+
+// ---- a lane's end: signed done to the lead, gone unsigned to the person ----
+// Runs after a lead's check-in step and only reads what it observed (laneObs); a check-in step that observed nothing leaves it nothing to do. The report of
+// a lane seen idle is read once per status time, that of a lane gone (and seen live under this grant) once per goneSince; with nothing new to read and nothing
+// owed, no file is touched. A signature is told to the lead once per lane, session and signature, through the attention notice's gates, when check-ins are on
+// and not paused and the lead has been idle c.LANE_DONE_IDLE_MS. The notice has its own hourly budget (c.LANE_DONE_PER_HOUR), and its turn does not restart
+// the idle time a check-in waits for. A lane gone with no signed report is toasted once (not within 30 minutes of a wake: the lanes slept too); the wake
+// does not hold the done notice. The manager and a conductor get neither.
+export async function laneEndTick($: any, sid: string, submitsAtStart: number) {
+  if (grants.get(sid)?.level !== 'lead') return
+  // The end of the notice's own turn is learned here, at every step (once a minute), so a turn that ends a minute or more after it is not taken for it.
+  if (doneHold.has(sid)) idleEnd(sid, (await getTurnEnd($)).value)
+  const obs = laneObs.get(sid)
+  if (!obs) return
+  const ep = epochOf(sid)
+  let kept = laneEnds.get(sid)
+  if (kept?.ep !== ep) laneEnds.set(sid, (kept = { ep, by: new Map<string, c.LaneEnd>(), told: new Set<string>() }))
+  // The check-in step writes a new map at each observation: the same map means it observed nothing this minute (a failed read), so nothing is new.
+  if (kept.seen === obs) return
+  kept.seen = obs
+  const { by: ends, told } = kept
+  for (const k of [...ends.keys()]) if (!obs.has(k)) ends.delete(k)
+  const now = await $.clock.now()
+  if (!(await cfgGet($, sid)).checkin) return
+  const pause = (await getCheckinPause($)).value
+  if (typeof pause === 'number' && pause > now) return
+  const awake = mem.wokeAt === undefined || now - mem.wokeAt >= c.CHECKIN_WAKE_MS
+  const reads = c.laneEndReads(obs, ends).filter((r) => r.kind === 'idle' || awake)
+  if (reads.length > 0) {
+    const base = await leadCore($, sid)
+    if ('err' in base) return
+    const read: { r: (typeof reads)[number]; sig: string | undefined; failed: boolean }[] = []
+    for (const r of reads) {
+      const l = base.lanes.find((x) => x.name === r.lane)
+      // A record parked or cleared of its session since the observation was stopped on purpose: nothing ended by itself.
+      if (!l || (r.kind === 'gone' && (l.sid === undefined || l.parked !== undefined))) continue
+      // Idle by the live session's id, gone by the record's, as the check-in reads a signature.
+      const signer = r.kind === 'idle' ? obs.get(r.lane)?.sid ?? '' : (l.sid as string)
+      const rep: Awaited<ReturnType<typeof readReport>> = await readReport($, l).catch(() => ({ no: 'report-read' }))
+      // No file at the path is a lane that has not signed; any other failed read says nothing of the report.
+      read.push({ r, sig: !('no' in rep) && c.reportSigned(rep.text, signer) ? c.doneSig(signer, rep.size) : undefined, failed: 'no' in rep && rep.gone !== true })
+    }
+    // The reads wait: an off or a re-grant meanwhile ends this step, and nothing is kept or said for the old grant.
+    if (epochOf(sid) !== ep || !grants.has(sid)) return
+    const unsigned: string[] = []
+    const unread: string[] = []
+    for (const { r, sig, failed } of read) {
+      const e = ends.get(r.lane) ?? {}
+      // A failed read is tried again at the next observation, c.LANE_END_READ_TRIES times in all for that status time or exit; then the report counts as unread.
+      const n = c.laneEndTries(e, r.kind, r.at)
+      if (failed && n < c.LANE_END_READ_TRIES) {
+        ends.set(r.lane, { ...e, tried: { kind: r.kind, at: r.at, n } })
+        continue
+      }
+      ends.set(r.lane, { ...(r.kind === 'idle' ? { at: r.at, gone: e.gone } : { at: e.at, gone: r.at }), sig })
+      if (r.kind === 'gone' && sig === undefined) (failed ? unread : unsigned).push(r.lane)
+    }
+    for (const [names, bad] of [[unsigned, false], [unread, true]] as const) {
+      const text = c.laneGoneToast(names, bad)
+      if (text === undefined) continue
+      toast($, text)
+      await logq($, sid, 'lane-gone-toast', `${bad ? 'unread' : 'unsigned'}:${names.length}`)
+    }
+  }
+  const owed = c.laneDoneItems(obs, ends, told)
+  if (owed.length === 0) return
+  const turnEnd = (await getTurnEnd($)).value
+  if (typeof turnEnd !== 'number' || now - Math.max(turnEnd, lastSubmitAt.get(sid) ?? 0) < c.LANE_DONE_IDLE_MS) return
+  // Since when the lead was idle for a check-in, before this notice: its own turn leaves that time as it was.
+  const from = Math.max(c.idleTurnEnd(turnEnd, doneHold.get(sid)).at, lastSubmitAt.get(sid) ?? 0)
+  const sigs = new Map(owed.map((i) => [i.lane, ends.get(i.lane)?.sig]))
+  // A submit that timed out may never start a turn: it sets no hold, so the next turn to end is not taken for the notice's. A hold an earlier notice left stays.
+  const sent = async (items: c.AttentionItem[], confirmed: boolean) => {
+    for (const i of items) {
+      const sig = sigs.get(i.lane)
+      if (sig !== undefined) told.add(c.doneKey(i.lane, sig))
+    }
+    if (confirmed) doneHold.set(sid, { from, prevEnd: turnEnd })
+  }
+  await attentionNotice($, sid, owed, submitsAtStart, ep, undefined, { render: c.doneText, label: 'lane-done', sent, budget: { times: doneNotices, capped: doneCapped, max: c.LANE_DONE_PER_HOUR } })
 }
 
 // ---- the deadline of an order ----
@@ -1255,9 +1407,9 @@ export async function orderTick($: any, sid: string, submitsAtStart: number) {
 }
 
 // The shared attention notice: the caller owns timing and pause, this owns the mechanical gates. One notice per key; the hourly cap is
-// the lanes-changed notice's (a notice over it stays owed, logged once per capped stretch); a submit that throws puts its items back, one that times out does not.
+// the lanes-changed notice's unless the caller brings its own budget (a notice over it stays owed, logged once per capped stretch); a submit that throws puts its items back, one that times out does not.
 // filter: the caller's own last reads (the check-in's report signatures), run only once the gates hold.
-async function attentionNotice($: any, sid: string, items: c.AttentionItem[], submitsAtStart: number, ep: number, filter?: (items: c.AttentionItem[]) => Promise<c.AttentionItem[]>, opts?: { render?: (items: c.AttentionItem[]) => string | undefined; label?: string; sent?: (items: c.AttentionItem[]) => Promise<void> }) {
+async function attentionNotice($: any, sid: string, items: c.AttentionItem[], submitsAtStart: number, ep: number, filter?: (items: c.AttentionItem[]) => Promise<c.AttentionItem[]>, opts?: { render?: (items: c.AttentionItem[]) => string | undefined; label?: string; sent?: (items: c.AttentionItem[], confirmed: boolean) => Promise<void>; budget?: { times: Map<string, number[]>; capped: Set<string>; max: number } }) {
   const render = opts?.render ?? c.checkinText
   const told = attnTold.get(sid)
   if (!told) return
@@ -1265,11 +1417,14 @@ async function attentionNotice($: any, sid: string, items: c.AttentionItem[], su
   if (render(untold(items)) === undefined || dialogOpen.has(sid) || mem.submits !== submitsAtStart) return
   const sentAt = lastSubmitAt.get(sid)
   if ((await getRequest($)).value != null || (await getNudgeDue($)).value != null) return
+  // The hourly cap: the lanes-changed notice's, or the caller's own budget (opts.budget), which then leaves the shared one untouched.
+  const times = opts?.budget?.times ?? laneNotices
+  const cappedSet = opts?.budget?.capped ?? attnCapped
   const capped = async () => {
-    if (c.noticeAllowed(laneNotices.get(sid) ?? [], await $.clock.now(), c.LANES_NOTICES_PER_HOUR)) return false
-    if (!attnCapped.has(sid)) {
-      attnCapped.add(sid)
-      await log($, sid, 'notice-capped', 'attention')
+    if (c.noticeAllowed(times.get(sid) ?? [], await $.clock.now(), opts?.budget?.max ?? c.LANES_NOTICES_PER_HOUR)) return false
+    if (!cappedSet.has(sid)) {
+      cappedSet.add(sid)
+      await log($, sid, 'notice-capped', opts?.budget ? (opts.label ?? 'attention') : 'attention')
     }
     return true
   }
@@ -1293,18 +1448,60 @@ async function attentionNotice($: any, sid: string, items: c.AttentionItem[], su
   if (text === undefined) return
   const keys = fresh.map(c.checkinKey)
   for (const k of keys) told.add(k)
-  attnCapped.delete(sid)
-  cappedLogged.delete(sid)
-  laneNotices.set(sid, c.pushRecent(laneNotices.get(sid) ?? [], now))
+  cappedSet.delete(sid)
+  if (!opts?.budget) cappedLogged.delete(sid)
+  times.set(sid, c.pushRecent(times.get(sid) ?? [], now))
   const sent = await withTimeout($, submitOwn($, text, false).then(() => 'ok' as const, () => 'failed' as const), ACTION_TIMEOUT_MS)
   if (sent === 'failed') {
     turnKind.delete(sid)
     for (const k of keys) told.delete(k)
   }
-  if (sent !== 'failed') await opts?.sent?.(fresh).catch(() => undefined)
+  if (sent !== 'failed') await opts?.sent?.(fresh, sent === 'ok').catch(() => undefined)
   const codes = [...new Set(fresh.map((i) => i.code))].sort().join('+')
   const label = opts?.label ?? 'checkin'
   await log($, sid, sent === 'ok' ? label : sent === 'timeout' ? `${label}-unconfirmed` : `${label}-failed`, `${codes}:${fresh.length}`)
+}
+
+// The check-in in the middle of a turn (like promptMidTurnNotice): a busy lead, conductor or manager gets no idle submit, and a lane waiting on a prompt would wait
+// until its turn ends. After a main-agent tool call the hook returns the fixed check-in text for the waiting prompts the last observation left owed (attnMid), as
+// additionalContext beside the tool's result. It reads no file. Same told marks and hourly cap as the idle notice, so a wait is told once, by whichever path
+// comes first. An observation older than two periods is not used (a stalled check-in step), the switch, the pause and the wake gate are read again here, and a
+// compaction that is armed or waiting to resume keeps it owed.
+export async function checkinMidTurn($: any, e: any): Promise<string | undefined> {
+  if (typeof e?.agent_id === 'string' && e.agent_id !== '') return undefined
+  const sid = await $.session.id()
+  if (typeof sid !== 'string' || !c.SID_RE.test(sid) || !grants.has(sid)) return undefined
+  const mid = attnMid.get(sid)
+  const told = attnTold.get(sid)
+  if (!mid || !told || !mid.items.some((i) => !told.has(c.checkinKey(i)))) return undefined
+  try {
+    if ((await getRequest($)).value != null) return undefined
+    const now = await $.clock.now()
+    if (now < mid.at || now - mid.at > 2 * c.CHECKIN_EVERY_MS) return undefined
+    // A pause or the switch turned off since the observation: nothing is told.
+    if ((await checkinGates($, sid, now)) === 'off') return undefined
+    if (!c.noticeAllowed(laneNotices.get(sid) ?? [], now, c.LANES_NOTICES_PER_HOUR)) {
+      if (!attnCapped.has(sid)) {
+        attnCapped.add(sid)
+        await log($, sid, 'notice-capped', 'attention')
+      }
+      return undefined
+    }
+    // Nothing is awaited between this read of the marks and their change.
+    if (attnMid.get(sid) !== mid || attnTold.get(sid) !== told) return undefined
+    const fresh = mid.items.filter((i) => !told.has(c.checkinKey(i)))
+    const text = mid.render(fresh)
+    if (text === undefined) return undefined
+    for (const i of fresh) told.add(c.checkinKey(i))
+    attnMid.delete(sid)
+    attnCapped.delete(sid)
+    laneNotices.set(sid, c.pushRecent(laneNotices.get(sid) ?? [], now))
+    await logq($, sid, mid.label, `prompt:${fresh.length} mid-turn`)
+    return text
+  } catch {
+    await logq($, sid, 'error', 'mid-turn-checkin')
+    return undefined
+  }
 }
 
 // ---- the rename carry ----
@@ -1386,23 +1583,64 @@ export async function managerForget($: any, sid: string): Promise<boolean> {
 // still holds the grant in memory (a compaction) is never asked. Manager: the usual grant with every usual check again after the yes (one per Mac, a reserved
 // name, not a lane, lead or conductor). A saved grant that names the folder the session started in and was saved less than MANAGER.silentGraceMs ago
 // (c.managerSilentOk, judged in managerCommand) is granted with no question and every one of those checks; any silent-only condition that fails asks as
-// before. Cancel: the saved grant goes. No answer: it stays, nothing is restored. A check that fails: logged, nothing restored, the saved grant stays. The tries
-// count only the ticks before the registry shows the session's own row.
+// before. Cancel: the saved grant goes. No answer: it stays, nothing is restored, and the same question is asked again once the person has sent a prompt in
+// this session (managerRestoreWake), a few times at most. A check that fails: logged, nothing restored, the saved grant stays; a failure that can clear by
+// itself is tried again from the tick, each try the whole restore with its question and checks (c.managerRestoreStep holds the limits); once a try had to ask,
+// every later try asks too. Every final end that
+// is not the person's own (an off, a Cancel, a grant by hand) gets one toast. The tries count only the ticks before the registry shows the session's own row.
 const MANAGER_RESTORE_TRIES = 15
 
+// A final end found by the tick or the start: the entry goes, the log line, and the toast unless nobody is there to read it.
+async function managerRestoreEnd($: any, sid: string, pend: MgrPending, why: string, tell = true) {
+  if (managerRestorePending.get(sid) === pend) managerRestorePending.delete(sid)
+  await log($, sid, 'manager-restore-rejected', why)
+  if (tell) toast($, c.notRestoredToast('manager', why))
+}
 async function managerRestoreAsk($: any, me: string, pend: MgrPending) {
   let busy = false
+  const seq = offSeq.get(me) ?? 0
+  let code: string | undefined
   pend.asking = true
+  pend.yes = false
   try {
-    await managerCommand($, me, 'prompt', pend.hint.name, async () => {
+    code = (await managerCommand($, me, 'prompt', pend.hint.name, async () => {
       busy = true
       return { text: '' }
-    }, true, () => managerRestorePending.get(me) === pend, pend.hint)
+      // A restore that once had to ask never comes back with no question on a later try: the saved grant is passed only until then.
+    }, true, () => managerRestorePending.get(me) === pend, pend.asked ? undefined : pend.hint, pend)).code
+  } catch {
+    code = 'error'
+    await logq($, me, 'manager-restore-rejected', 'error')
   } finally {
     pend.asking = false
   }
-  // A question already open asks again at the next idle tick; every other end is final for this start.
-  if (!busy && managerRestorePending.get(me) === pend) managerRestorePending.delete(me)
+  // A question already open asks again at the next idle tick. A grant (this restore's, or the person's own meanwhile) has ended the restore.
+  if (busy || grants.get(me)?.level === 'manager') return
+  // An off typed meanwhile, or the person's own /callboard manager, is the person's end: nothing is tried or asked again.
+  let step: c.RestoreStep = { next: 'end' }
+  if ((offSeq.get(me) ?? 0) === seq && !pend.byHand) {
+    // A failure after the yes is counted apart, whatever its code: each new try asks the person again, or grants and steps back again.
+    const afterYes = pend.yes === true
+    if (code === 'unanswered') pend.unanswered = (pend.unanswered ?? 0) + 1
+    else if (afterYes) pend.afterYes = (pend.afterYes ?? 0) + 1
+    else pend.fails = (pend.fails ?? 0) + 1
+    step = c.managerRestoreStep(code, (afterYes ? pend.afterYes : pend.fails) ?? 0, pend.unanswered ?? 0, afterYes)
+  }
+  if (step.next === 'end') {
+    if (managerRestorePending.get(me) === pend) managerRestorePending.delete(me)
+  } else {
+    // A try that granted and stepped back dropped the entry: it is put back for the next try.
+    pend.waiting = step.next === 'wait'
+    managerRestorePending.set(me, pend)
+    if (step.next === 'retry') await log($, me, 'manager-restore-retry', code)
+  }
+  if (step.toast !== undefined) toast($, step.toast)
+}
+// A prompt that is not the mod's own reached this session (the person's, or a message another session sent: the hook cannot tell them apart): a restore
+// question that got no answer is asked again at the next idle tick. The person's click in the dialog is still the only yes.
+export function managerRestoreWake(sid: string) {
+  const pend = managerRestorePending.get(sid)
+  if (pend?.waiting) pend.waiting = false
 }
 export async function managerTick($: any, sid: string) {
   if (grants.get(sid)?.level === 'manager') {
@@ -1414,23 +1652,23 @@ export async function managerTick($: any, sid: string) {
     return
   }
   const pend = managerRestorePending.get(sid)
-  if (!pend || pend.asking) return
+  if (!pend || pend.asking || pend.waiting) return
   const row = await registryOf($, sid)
   if (managerRestorePending.get(sid) !== pend) return
   if (row === undefined && pend.tries++ < MANAGER_RESTORE_TRIES) return
-  if (row?.kind !== 'interactive') {
-    managerRestorePending.delete(sid)
-    return void (await log($, sid, 'manager-restore-rejected', 'not-person'))
-  }
+  // A row of another kind (a --bg worker) has no person to tell; a row that never showed may have one.
+  if (row?.kind !== 'interactive') return void (await managerRestoreEnd($, sid, pend, 'not-person', row === undefined))
   // A lane on its way back (a rebind still waiting, a lane hint, a store record naming this session) is not asked, as the conductor's restore (conductorRestoreTry).
   if (rebindPending.has(sid)) return
-  const reject = async (why: string) => {
-    if (managerRestorePending.get(sid) === pend) managerRestorePending.delete(sid)
-    await log($, sid, 'manager-restore-rejected', why)
-  }
+  const reject = (why: string) => managerRestoreEnd($, sid, pend, why)
   if (c.parseHint(await $.store.get(`${c.HINT_PREFIX}${sid}`).catch(() => undefined), await $.clock.now())?.lane) return void (await reject('lane-holder'))
   const lanes = await loadLanes($).catch(() => 'lanes-error')
-  if (typeof lanes === 'string') return
+  // A lane list that cannot be read is tried again at the next tick, within the same limit as a failed try.
+  if (typeof lanes === 'string') {
+    if (managerRestorePending.get(sid) !== pend) return
+    pend.fails = (pend.fails ?? 0) + 1
+    return pend.fails <= c.MANAGER_RESTORE_RETRIES ? undefined : void (await reject('lanes-error'))
+  }
   if (lanes.some((l) => l.sid === sid)) return void (await reject('lane-holder'))
   if ((await idleCheck($, sid)) !== undefined) return
   if (managerRestorePending.get(sid) !== pend) return
@@ -1747,8 +1985,15 @@ async function conductorRestoreTry($: any, me: string, box: { hint: c.ConductorH
   const hint = box.hint
   const key = `${c.CONDUCTOR_HINT_PREFIX}${me}`
   const reject = (code: string) => log($, me, 'conductor-restore-rejected', code)
+  // A final end that no toast of its own tells. `told`: the reason the person reads, when the log's code would say more than is known.
+  const end = async (code: string, told = code) => {
+    await reject(code)
+    toast($, c.notRestoredToast('conductor', told, hint.home))
+  }
   const epoch = epochOf(me)
   const dropped = () => epochOf(me) !== epoch
+  // A conductor that still holds its grant in memory (a compaction) has nothing to restore: no check runs, so none can say it was not restored.
+  if (grants.get(me)?.level === 'conductor') return
   // A person's own row: kind interactive. No row yet: tried again (a reopened panel's row may come a moment after session.start). Another kind (a
   // --bg worker resumed under this id) or none: the try ends and the key is kept.
   const row = await registryOf($, me)
@@ -1765,26 +2010,26 @@ async function conductorRestoreTry($: any, me: string, box: { hint: c.ConductorH
   if (cwd === 'timeout' || typeof cwd !== 'string') return 'cwd-unreadable'
   if (cwd !== hint.home) {
     await $.store.delete(key)
-    return void (await reject('wrong-folder'))
+    return void (await end('wrong-folder'))
   }
   // A lane on its way back: its binding, its restore hint, or a store record naming this session. A pending rebind alone is tried again:
   // rebindTick clears it once it finds no record, and waits for this restore while it is pending.
   const held = await withTimeout($, getLane($), c.ENGINE_CALL_TIMEOUT_MS)
   if (dropped()) return
-  if (held === 'timeout' || held?.value != null || laneBinding.has(me)) return void (await reject('lane-holder'))
+  if (held === 'timeout' || held?.value != null || laneBinding.has(me)) return void (await end('lane-holder', held === 'timeout' ? 'lane-check-slow' : undefined))
   const now = await $.clock.now()
-  if (c.parseHint(await $.store.get(`${c.HINT_PREFIX}${me}`).catch(() => undefined), now)?.lane) return void (await reject('lane-holder'))
+  if (c.parseHint(await $.store.get(`${c.HINT_PREFIX}${me}`).catch(() => undefined), now)?.lane) return void (await end('lane-holder'))
   const lanes = await loadLanes($).catch(() => 'lanes-error')
   if (dropped()) return
   if (typeof lanes === 'string') return 'lanes-error'
-  if (lanes.some((l) => l.sid === me)) return void (await reject('lane-holder'))
+  if (lanes.some((l) => l.sid === me)) return void (await end('lane-holder'))
   if (rebindPending.has(me)) return 'rebind-pending'
   if (grants.get(me)?.level === 'conductor') return
   // A lead (a grant or a pending lead restore) stands.
-  if (leadBusy(me) || leadRestorePending.has(me)) return void (await reject('lead-holder'))
+  if (leadBusy(me) || leadRestorePending.has(me)) return void (await end('lead-holder'))
   const used = await conductorRepoInUse($, hint.home)
   if (dropped()) return
-  if (used === 'conductor-repo-in-use') return void (await reject(used))
+  if (used === 'conductor-repo-in-use') return void (await end(used))
   if (used) return used
   // A list file that cannot be read now restores nothing and is tried again; one that is not there has nothing to restore.
   const f = await readConductorFile($, hint.home)
@@ -1818,7 +2063,7 @@ async function conductorRestoreTry($: any, me: string, box: { hint: c.ConductorH
     const a = await conductorApply($, me, hint.home, approved, r.ok, epoch)
     if (a === 'dropped') return
     if (a === 'timeout') return 'tools-timeout'
-    if (a !== 'ok') return void (await reject('tools'))
+    if (a !== 'ok') return void (await end('tools'))
   } finally {
     leadGranting.delete(me)
   }
@@ -1839,7 +2084,7 @@ export async function conductorRestore($: any, me: string, hint: c.ConductorHint
   if (tries >= CONDUCTOR_RESTORE_TRIES) {
     conductorRestorePending.delete(me)
     await log($, me, 'conductor-restore-rejected', again)
-    if (again === 'file-bad') toast($, c.conductorFileBadToast(box.hint.home))
+    toast($, again === 'file-bad' ? c.conductorFileBadToast(box.hint.home) : c.notRestoredToast('conductor', again, box.hint.home))
     return
   }
   if ((again === 'rebind-pending' || again === 'file-bad') && again !== last) await log($, me, 'conductor-restore-retry', again)
@@ -1875,12 +2120,17 @@ async function conductorRestoreAsk($: any, me: string, pend: CondPending) {
       return void toast($, c.conductorUnansweredToast(hint.home))
     }
     end()
-    if (leadBusy(me) || leadRestorePending.has(me)) return void (await log($, me, 'conductor-restore-rejected', 'lead-holder'))
+    // A check that fails after the click is a final end: logged, and the person is told.
+    const refused = async (code: string, told = code) => {
+      await log($, me, 'conductor-restore-rejected', code)
+      toast($, c.notRestoredToast('conductor', told, hint.home))
+    }
+    if (leadBusy(me) || leadRestorePending.has(me)) return void (await refused('lead-holder'))
     // Every check again after the click.
     const held = await withTimeout($, getLane($), c.ENGINE_CALL_TIMEOUT_MS)
-    if (held === 'timeout' || held?.value != null || laneBinding.has(me)) return void (await log($, me, 'conductor-restore-rejected', 'lane-holder'))
+    if (held === 'timeout' || held?.value != null || laneBinding.has(me)) return void (await refused('lane-holder', held === 'timeout' ? 'lane-check-slow' : undefined))
     const used = await conductorRepoInUse($, hint.home)
-    if (used) return void (await log($, me, 'conductor-restore-rejected', used))
+    if (used) return void (await refused(used))
     const f = await readConductorFile($, hint.home)
     const r2 = f.state === 'ok' ? await resolveConductorList($, hint.home, f.entries) : undefined
     if (epochOf(me) !== epoch) return void (await log($, me, 'conductor-restore-rejected', 'changed'))
@@ -1892,7 +2142,7 @@ async function conductorRestoreAsk($: any, me: string, pend: CondPending) {
     leadGranting.add(me)
     try {
       const a = await conductorApply($, me, hint.home, shown, shown, epoch)
-      if (a !== 'ok') return void (await log($, me, 'conductor-restore-rejected', a === 'dropped' ? 'changed' : 'tools'))
+      if (a !== 'ok') return void (await (a === 'dropped' ? log($, me, 'conductor-restore-rejected', 'changed') : refused('tools')))
     } finally {
       leadGranting.delete(me)
     }

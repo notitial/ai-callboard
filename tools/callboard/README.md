@@ -13,7 +13,7 @@ texts are in the code, and `/callboard help` lists every command. Nothing loads 
 | `mod/` | The Claude Code mod. Pure logic is in `mod/hooks/core.ts` and its siblings; the engine side is in `mod/hooks/engine/` (layout: ADR 0005) |
 | `extension/` | The VS Code extension that opens, reopens and closes lane panels. It has no commands of its own. What it does: [`extension/README.md`](extension/README.md) |
 | `link-extension.py` | Links that extension into VS Code from this checkout, once per machine (Install) |
-| `prompt-audit.mjs` | Read-only audit of prompt answering; usage and exit codes are in its header comment |
+| `prompt-audit.mjs` | Read-only audit of prompt answering, from the machine-wide ledger and the files beside it (it reads no transcript). It runs from this checkout with node 22.18 or later; usage and exit codes are in its header comment |
 | `test.sh` | The test entry point (Tests) |
 
 ## The roles
@@ -30,8 +30,9 @@ A session takes a role with one `/callboard` command and a confirmation dialog. 
   (below).
 - **Conductor.** `/callboard conductor [NAME]` in a small repo of its own. It reaches the leads it owns, in the repos
   listed in `.claude/callboard-conductor.json`: it lists their lanes, resumes, compacts, parks and retires those
-  leads, and opens a new lead in a listed repo without asking you (`lead_open`). It never creates, starts or retires
-  a lane itself, and a force stop of any lane or lead asks you.
+  leads, and opens a new lead in a listed repo without asking you (`lead_open`). It holds at most four leads at
+  once, and a parked lead keeps its slot until it is retired (ADR 0006). It never creates, starts or retires a lane
+  itself, and a force stop of any lane or lead asks you.
 - **Manager.** `/callboard manager [NAME]`: one per machine, reaching every lane and lead in any repo. It resumes and
   compacts lanes; every stop, every removal and every call to a lead asks you. Its role is in `docs/manager/README.md`.
 
@@ -42,24 +43,31 @@ its mod reloads.
 Three kinds of stop, from least to most final: `lane_park` closes the tab and keeps the conversation (`lane_unpark`
 reopens it with its history); `lane_retire` ends a signed-done session and removes the lane (final); `lane_terminate`
 is the force stop and always asks you. A conductor (for the leads it owns) or the manager stops a lead with
-`lead_park`, `lead_retire` and `lead_terminate`.
+`lead_park`, `lead_retire` and `lead_terminate`. A stop that got its signal and did not finish (the session still
+runs, or its record could not be removed or marked) is told to you in a toast, beside the tool's result for the
+caller.
 
 ## A normal day
 
 1. Start Claude Code in the repo (VS Code or a terminal), name the session with `/rename`, and type
    `/callboard lead` (or `/callboard lead NAME`). Confirm the dialog. When the same session starts again in the
-   same folder it is lead again, until you run `/callboard off` (a saved grant lapses after 30 days).
+   same folder it is lead again, until you run `/callboard off` (a saved grant lapses after 30 days). A role that
+   could not be restored says why in a toast (When something is refused, below).
 2. Ask the lead for work. It writes each lane a brief (`.archive/<LANE>/BRIEF.md` in the lane's folder, the repo root by default), opens a panel, names the
    session and starts it with the brief. In a terminal you start a `claude` yourself, type `/callboard lane NAME`,
    and the lead prompts it from then on.
 3. The lanes work. When a lane waits on a permission prompt, the dialog stays in front of you; with escalation on,
    the lead (then the conductor, then the manager) may answer it, never in your first 30 seconds, and your click
    normally wins (a Yes that lands in a short gap can be missed: ADR 0004). Merges, force pushes, pushes to main or production and destructive deletes are always passed up
-   to you.
+   to you. A prompt that has waited 5 minutes is put in front of the lane's lead at once, in the middle of its turn
+   if it is busy, and in front of the manager after 10 minutes; you get one toast per wait in each window that
+   watches the lane. That alert lets no one answer the prompt: it only says that one is waiting.
 4. A lane that waits on a pull request registers it with `pr_watch` and is told when checks finish, reviews arrive
    or the PR is mergeable, merged or closed. A merge is still yours.
 5. A big lane is asked to compact before it loses its notes, and a lead can order it to. You never type that.
-6. A lane finishes, signs its report, and the lead retires it. A lane you may need again is parked instead.
+6. A lane finishes, signs its report, and the lead retires it. The lead is told of a signature within a few minutes
+   of going idle, without waiting for its check-in or the lane's own message; a lane whose session ends with the
+   report unsigned shows a toast in the lead's window. A lane you may need again is parked instead.
 7. Before a long stretch, give the lead one go for the whole body of work (`/callboard go TEXT`) so its lanes do
    not ask again for each step (it counts only while the protected-paths guard is in place). A go never covers a merge, a force push, a push to
    main or production, or a delete outside the lane's own work, and the rest of the list the dialog and `go_status`
@@ -67,17 +75,21 @@ is the force stop and always asks you. A conductor (for the leads it owns) or th
    does.
 
 A lead that you leave idle is told when a lane needs it (its session is gone, it waits on a prompt, it went
-quiet without signing), unless you pause that with `/callboard checkin pause`.
+quiet without signing), unless you pause that with `/callboard checkin pause` (an hour, or the time you give;
+`checkin resume` ends it). The toasts for a waiting prompt are shown even then.
 
 ## Commands
 
-`/callboard help` prints the full table and is the authority. The families:
+`/callboard help` prints the full table and is the authority: every form is listed once, with its help line, in
+`COMMAND_TABLE` (`mod/hooks/core.ts`), and the help, the usage lines and the slash menu's hint are cut from it. The
+prompt box completes from the same table: after `/callboard ` and the first letter of a word it offers the words
+that fit, each with its help line. The families:
 
-- **Look:** `status`, `lanes`, `config` (printed from any origin, with no model turn).
+- **Look:** `status`, `lanes`, `config`, `reserve`, `help` (printed from any origin, with no model turn).
 - **Roles:** `lead [NAME]`, `lead join [CONDUCTOR]`, `lead leave`, `lane [NAME]`, `lane off`, `conductor [NAME]`,
-  `conductor add|remove`, `manager [NAME]`, and `off` to drop whatever the session holds.
-- **Settings:** `config [SETTING VALUE]`, `reserve [remove] [NAME]`, `checkin pause Nm|Nh`, `checkin on`, `escalation [off]`, `rest`
-  (or `/rest`), `go [TEXT]`, `go off`.
+  `conductor add|remove NAME|PATH`, `manager [NAME]`, and `off` to drop whatever the session holds.
+- **Settings:** `config SETTING VALUE`, `config reset`, `reserve [add] NAME`, `reserve remove NAME`,
+  `checkin pause [Nm|Nh]`, `checkin resume`, `escalation [off]`, `rest` (or `/rest`), `go [TEXT]`, `go off [SHORT]`.
 
 Anything that widens what a session may do (a role, a name, a setting, a reserved name, a go) needs your own prompt
 or phone: from a plugin, another session or a script it is refused, or asks you first. `off`, `rest`,
@@ -175,12 +187,18 @@ afterwards (`docs/setup.md`, Install check).
 
 A session's prompt cache lives an hour from its last call. An idle session pays about 1.25 times its context to
 write that cache again, where a short turn inside the hour costs about 0.1 times. So the mod pings an idle session
-just before its cache expires (about 50 minutes), stops after a few hours with no real work, and sends nothing
-while the Mac sleeps. A big session is asked to compact instead of being pinged. A lane signed done is never
-pinged, and the manager does not send its own keepalive, so a session never gets two.
+just before its cache expires (about 50 minutes), stops 2 hours after the last real work (two pings, with the
+defaults), and sends nothing while the Mac sleeps. A big session is asked to compact instead of being pinged again.
+A lane signed done is never pinged, and the manager does not send its own keepalive, so a session never gets two.
+
+A Mac that ever saved a `/callboard config` change keeps the stop time it stored then (3 hours, the earlier
+default). `/callboard config stop 2` or `/callboard config reset` gives it the 2 hours.
 
 Type `/rest` in a session you will not touch for hours: it stops the pings for that idle gap and the cache expires.
-Its next real turn restores them. `/callboard config keepalive off` stops pings for every session on this Mac.
+Its next real turn restores them. An agent can set the same rest for its own session with the `rest` tool, when you
+tell it to go idle or it expects you to be away for hours; it asks nothing, because it only narrows, and a
+subagent's call is refused. A rest stops pings only: a PR notice still wakes a lane that rests while it waits on CI,
+and that turn ends the rest. `/callboard config keepalive off` stops pings for every session on this Mac.
 
 A compaction asked for by the mod (a nudge, past 300k tokens by default, or a lead's order) is always the session's
 own act: it writes where it is to its report or STATE file, calls `request_compact`, and carries on from its
@@ -224,15 +242,27 @@ says to. The session's log in `~/.claude/callboard/log/` has the same code and w
 | `store-busy` | Two callboard processes wrote one store; retry |
 | `target-is-lead`, `sid-mismatch` | A manager's or conductor's stop met a session or record it must not touch; read the text, the lane's lead or you can still stop it |
 | `not-owner` | A conductor reached a lead it does not own |
+| `lead-cap`, `open-backstop` (`lead_open`) | The conductor holds four leads already (the text names them; retire one), or it opened too many in the last hour (the text gives the time the next open is allowed) |
 
 Other symptoms:
 
 - **Nothing happens after a prompt.** Check `/callboard status` and `lanes`; escalation reads `ON (default)` only
-  while the protected-paths hook and its `.protected-checkout` markers are in place (`docs/setup.md`). Without them,
-  or after `/callboard escalation off`, every prompt stays yours. Typing `/callboard escalation` yourself pins it on
+  while the protected-paths hook and its `.protected-checkout` markers are in place (`docs/setup.md`). The hook
+  counts only as ai-toolkit's wrapped entry, exactly as `docs/setup.md` shows it: a bare path to the hook (an
+  install from before the wrapper), another command or an extra field reads as not wired, until ai-toolkit's
+  `/setup-claude` rewrites the entry. Without the hook and the markers, or after `/callboard escalation off`, every
+  prompt stays yours. Typing `/callboard escalation` yourself pins it on
   with no guard, and the status then reads `ON`.
 - **To stop prompt answering at once**, `touch ~/.claude/callboard/prompts/OFF` (`docs/setup.md`, ADR 0004); remove
   the file to allow it again.
+- **A role did not come back after a restart.** A restore that ends without restoring shows one toast with the
+  reason ("Lead not restored: ...", "Conductor not restored: ...", "Manager not restored: ..."); run the role's
+  command again by hand. A failure that can clear by itself is tried again first. The manager's restore asks you,
+  and a question left unanswered is asked again after the next prompt in that session, three times in all; then a
+  toast says to run `/callboard manager`. Your click in the dialog stays the only yes.
+- **A toast says a lane waits on a prompt.** Answer it in that lane's panel. The lead or the manager was told too,
+  when it could be: one that sits in a long tool call, waits on background work or has a dialog open is not, and
+  the toast is the alert that is left.
 - **A stopped lane's tab stays.** Check the extension is linked and VS Code was started after the link.
 - **A lane whose lead is gone** (ended, or turned off) shows under `NAME (not live)` in the manager's `lane_list`;
   the manager can clear it with `lane_retire` or `lane_terminate`.
@@ -253,6 +283,11 @@ case small (ADR 0002, Consequences). Beyond that, specific to what you see:
   `/callboard reserve remove`.
 - A PR notice's counts include the lane's own comments; a registration that gets no answer still uses one of the
   30 an hour; a lead that is closed leaves its gone lanes' trackers unpolled until they are swept (ADR 0010).
+- The prompt audit reads the ledger and the files beside it, never a transcript. A hand-written `answered` row with
+  its decision file passes, a decision that reached a session with no ledger row is not reported, and neither is
+  a click lost in the short gap of ADR 0004.
+- The `/callboard` typeahead is tested against the test kit only: how a terminal, a VS Code panel or a phone draws
+  the rows is not checked against a live engine.
 - A go dialog left open for 10 minutes inside a tool call may be cut off by the engine, and its text can run long with
   many lanes: unverified live (ADR 0009, probes).
 
@@ -266,6 +301,16 @@ It runs the core logic tests, the prompt audit tests, the extension tests, `clau
 `claude plugin test` (the slow part, about 2 minutes) and the `link-extension.py` tests. CI runs all of it.
 `CALLBOARD_SKIP_MOD_TESTS=1` skips only the mod tests for a quick local run. How the mod tests are written:
 `CLAUDE.md`.
+
+The script takes a machine-wide turn first (`tools/test-turn.sh`) and runs its steps at a lower priority, so two
+local runs never overlap: while another run of it or of `tools/test-all.sh` holds the turn, it says so and waits.
+A turn whose holder is gone is taken over at once. If the turn is older than 25 minutes and its holder is not
+known to be gone, the script stops with exit 3. Check that no test run is still going, then clear it and run the
+script again:
+
+```bash
+rm -r /tmp/ai-manager-fulltest.lock
+```
 
 The mod paths that act on cues, the restores and the compaction run only against mocks. Before a change reaches the
 live checkout, try it in a lab VS Code (its own `--user-data-dir`, launched with `env -i`): rename, start, resume

@@ -79,7 +79,7 @@ first; it is the source for every step here, and wins where the two differ.
    `chmod go-w <conductor repo>/.claude`. The live checkout needs no deny lines: the hook and the markers below
    protect it (docs/setup.md, Keep agents off the live checkout).
    - Protected-paths hook: docs/setup.md, Escalation is on by default once the protected-paths hook is in place. Run
-     `jq -e '[.hooks.PreToolUse[]?.hooks[]?.command] | any(endswith("/protected-paths-guard.sh"))' ~/.claude/settings.json`
+     `jq -e '[.hooks.PreToolUse[]?.hooks[]?.command] | any(. == "/bin/bash -p \"$HOME/.claude/hooks/protected-paths-guard.sh\" || exit 2")' ~/.claude/settings.json` (a rough pre-check: it finds the command the toolkit writes and does not look at the matcher, `disableAllHooks`, `env` or the entry's other fields; `/callboard status` is the authority)
      and `ls ~/.claude/hooks/protected-paths-guard.sh`. If either fails, tell the person to update their ai-toolkit
      checkout and run `/setup-claude` themselves, then come back: it is ai-toolkit's, never yours to wire or edit.
      Then run `ls <checkout>/.protected-checkout <toolkit>/.protected-checkout ~/.claude/callboard/.protected-checkout`; for each marker that is
@@ -107,7 +107,7 @@ first; it is the source for every step here, and wins where the two differ.
    `/cleanup-claude` leave this link alone (docs/setup.md).
 10. **Reserved name.** Only when callboard is loaded. Ask the person which name this machine's manager
     will carry. `MANAGER` needs nothing (it is built in). Another name (a second machine's manager): ask them to type
-    `/callboard reserve` and paste the answer. Not listed: give them `/callboard reserve NAME` with their name filled
+    `/callboard reserve` and paste the answer. Not listed: give them `/callboard reserve add NAME` with their name filled
     in, to type themselves (only their own prompt can change the list), then `/callboard reserve` again to check.
 11. **Tests.** Offer `bash tools/test-all.sh --quick` (run it on a yes; it only reads and uses temp folders).
 

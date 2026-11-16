@@ -36,7 +36,7 @@ repo's.
 | 0003 | Callboard loads from a live checkout (`0003-symlinked-install.md`) | accepted | 2026-11-06 |
 | 0004 | Prompt answering (`0004-prompt-answering.md`) | accepted, amended | 2026-11-06 |
 | 0005 | Callboard's module layout (`0005-callboard-module-layout.md`) | proposed | 2026-11-12 |
-| 0006 | A conductor opens leads and wakes them (`0006-conductor-opens-leads.md`) | accepted, amended | 2026-11-13 |
+| 0006 | A conductor opens leads and wakes them (`0006-conductor-opens-leads.md`) | accepted, amended | 2026-11-16 |
 | 0007 | A conductor owns its leads (`0007-conductor-owns-leads.md`) | proposed | 2026-11-15 |
 | 0009 | A go given once (`0009-go-given-once.md`) | proposed | 2026-11-15 |
 | 0010 | PR notices for lanes (`0010-pr-notices.md`) | proposed | 2026-11-15 |
