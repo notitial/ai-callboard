@@ -826,7 +826,7 @@ export function completions(draft: string, word: string): Completion[] {
 }
 
 // What escalation does not hold back: the one wording of it, appended to the answer of /callboard escalation.
-export const DIALOG_LINE = 'Nothing is held back from the tiers by the mod: every prompt of a lane or a lead rises, the plan-mode exit included, and the rubric says what they surface to you. Writes to the checkouts, the settings and callboard\'s state are stopped by a hook before any prompt exists, not here. Merges, force pushes, pushes to main, master or production and destructive deletes rise too: the rubric passes them up.'
+export const DIALOG_LINE = 'Nothing is held back from the tiers by the mod: an ask that tool.check reports from a lane or a lead rises, the plan-mode exit included, and the rubric says what they surface to you. What cannot rise (a subagent\'s ask, a call with no usable tool.check entry, no live tier, a question with no answer form) stays in the lane\'s panel, and the waiting-prompt toast tells you. A prompt that a host answers is not yours to click: nothing waits on you there. Writes to the checkouts, the settings and callboard\'s state are stopped by a hook before any prompt exists, not here. Merges, force pushes, pushes to main, master or production and destructive deletes rise too: the rubric passes them up.'
 // /callboard with no argument and /callboard help: one row per form in COMMAND_TABLE, in the shared table style (mdPage).
 export const helpText = (): string => mdPage('**Callboard commands**', ['Command', 'What it does'], COMMAND_TABLE.map((r) => [r.form, r.help].map(mdEscape)))
 // A word the handler does not know: the short list, then the way to the full one.
@@ -2527,7 +2527,8 @@ export function laneListText(lanes: Lane[], entries: RegEntry[], now: number, vi
 // Once a minute the tick observes the lanes in a lead's reach (registry only); a lead idle 20 min, awake 30 min and not paused gets one fixed notice when a lane
 // may need it. The text asks the lead to look; it carries no approval and names nothing but lane names.
 // A lane waiting on a prompt does not wait for the lead's 20 idle minutes: a lead that is idle is told at once, a busy one in the middle of its turn, the manager
-// too once the wait reaches CHECKIN_PROMPT_MANAGER_MS whoever leads the lane, and the person in a toast.
+// too once the wait reaches CHECKIN_PROMPT_MANAGER_MS whoever leads the lane, and the person in a toast. A prompt a tier holds as an open request is not told to that
+// tier again (checkinSkipHeld); the toast is unchanged.
 export const CHECKIN_EVERY_MS = 60_000
 export const CHECKIN_IDLE_MS = 20 * 60_000
 export const CHECKIN_WAKE_MS = 30 * 60_000
@@ -2609,6 +2610,19 @@ export function checkinItems(obs: Iterable<[string, LaneObs]>, now: number): Att
 export const checkinKey = (i: AttentionItem): string => `checkin:${i.lane}:${i.code}:${i.since}`
 // What the timing gates let through: every item once the session has been idle CHECKIN_IDLE_MS, a waiting prompt at any time.
 export const checkinDueItems = (owed: AttentionItem[], idleLong: boolean): AttentionItem[] => (idleLong ? owed : owed.filter((i) => i.code === 'prompt'))
+// A waiting prompt that a tier already holds as an open request is told by the request's own notice: its check-in is skipped, in the idle turn, in the text beside
+// a tool result and in the manager's 10-minute notice alike. held: the session ids with an open request in this tier's reach (undefined: they could not be read,
+// so nothing is skipped); sidOf: the live session of the lane or lead an item names. Only `prompt` items are skipped, and only from what is owed: the told marks
+// are pruned against the unfiltered items, so a prompt already told is not told again when a request later holds it and ends. A prompt never told stays owed while
+// held, and its check-in fires once the request ends with the session still waiting. The person's toast is fed the unfiltered items.
+export const checkinSkipHeld = (items: AttentionItem[], held: ReadonlySet<string> | undefined, sidOf: (lane: string) => string | undefined): AttentionItem[] => {
+  if (held === undefined || held.size === 0) return items
+  return items.filter((i) => {
+    if (i.code !== 'prompt') return true
+    const s = sidOf(i.lane)
+    return s === undefined || !held.has(s)
+  })
+}
 // A prompt that has waited long enough for the manager to hear of it beside the lane's own lead.
 export const promptWaitedLong = (i: AttentionItem, now: number): boolean => i.code === 'prompt' && now - i.since >= CHECKIN_PROMPT_MANAGER_MS
 // The person's toast for prompts that wait: names through NAME_RE only, at most ATTENTION_MAX. None left: no toast.

@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { GOOD, h, NO, PS_TABLE, ROOT, SID, T0, leadFiles, longTest, resultFiles, toasts } from './harness'
+import { GOOD, h, NO, PROMPTS_DIR, PS_TABLE, ROOT, SID, T0, leadFiles, longTest, pdirs, pfs, resultFiles, toasts } from './harness'
 import { ANY, APISID, LEADPATH, MGR_SESS, MIN, OTHER, OTHERLEAD, OWN_ROW, PIN, QUIET, RESULT, TURN, bareList, checkins, ckLane, ckLead, ckRow, ckText, cueSession, grantAt, idleFor, lane, leadAt, leadCall, leadFileText, leadReg, leadSelfReg, logged, madeLane, mdBox, mgrAt, midCtx, newTrace, notices, postBeneath, putStore, regAs, sleepFor, started, statusTable, ticks } from './fixtures'
 
 longTest('check-in: a lane quiet 30 min gets one fixed notice from an idle lead, not before; once per since; again after it worked (seen busy twice)', async ($, on) => {
@@ -61,6 +61,109 @@ test('check-in: a busy lead is told of a lane waiting on a prompt beside a tool 
   await idleFor(24 * MIN)
   expect(checkins()).toEqual([])
   expect(toasts).toEqual([PROMPT_TOAST])
+})
+
+// A request of lane API (session OTHER, or `sid`) in the prompts folder, open and in the reach of the lead LEAD of PIN (and the manager above it), with the switch on.
+const REQ_ID = '7a1b2c3d-0000-4000-8000-123456789abc'
+function putOpenRequest(over: Record<string, unknown> = {}) {
+  const sid = typeof over.sid === 'string' ? over.sid : OTHER
+  const q = { id: REQ_ID, sid, pid: 4500, procStart: 'Tue Oct 27 20:37:50 2026', level: 'lane', lane: 'API', leadName: 'LEAD', repo: PIN, tool: 'Bash', inputHash: 'c'.repeat(64), raisedBy: 'rule', at: T0, expiresAt: T0 + 21 * MIN, nonce: 'n-1', input: { command: 'ssh host uptime' }, truncated: false, ...over }
+  h.store.set('answering', { scope: 'all', asks: false, savedAt: T0 })
+  pdirs.add(PROMPTS_DIR)
+  pdirs.add(`${PROMPTS_DIR}/${sid}`)
+  pfs.set(`${PROMPTS_DIR}/${sid}/${REQ_ID}.request.json`, { text: JSON.stringify(q), mtimeSec: T0 / 1000 })
+}
+const endRequest = (sid = OTHER) => pfs.set(`${PROMPTS_DIR}/${sid}/${REQ_ID}.done`, { text: '', mtimeSec: h.nowMs / 1000 })
+const ckMid = async ($: any) => (await midCtx($)).filter((t: string) => t.startsWith('[callboard] Check-in:'))
+
+test('check-in: a lane waiting on a prompt that the lead holds as a request gets no check-in at 5 min, the toast still shows; the request ending with the lane still waiting brings the check-in back', async ($, on) => {
+  await ckLead($, on, [], WAITING)
+  putOpenRequest()
+  await idleFor(8 * MIN)
+  expect(checkins()).toEqual([])
+  expect(toasts).toEqual([PROMPT_TOAST])
+  await idleFor(8 * MIN)
+  expect(checkins()).toEqual([])
+  endRequest()
+  await idleFor(4 * MIN)
+  expect(checkins()).toEqual([ckText(PROMPT)])
+  expect(toasts).toEqual([PROMPT_TOAST])
+})
+
+test('check-in: a prompt already told to the lead is not told again when a request later holds it and ends with the lane still waiting', async ($, on) => {
+  await ckLead($, on, [], WAITING)
+  await idleFor(8 * MIN)
+  expect(checkins()).toEqual([ckText(PROMPT)])
+  putOpenRequest()
+  await idleFor(4 * MIN)
+  endRequest()
+  await idleFor(8 * MIN)
+  expect(checkins()).toEqual([ckText(PROMPT)])
+})
+
+for (const [what, put] of [
+  ['of a lane of another lead', () => putOpenRequest({ leadName: 'OTHERLEAD' })],
+  ['with answering off', () => { putOpenRequest(); h.store.delete('answering') }],
+  ['the lead has passed up', () => { putOpenRequest(); pfs.set(`${PROMPTS_DIR}/${OTHER}/${REQ_ID}.escalate-lead.json`, { text: JSON.stringify({ id: REQ_ID, tier: 'up', why: 'x', at: T0 + MIN, level: 'lead', sid: SID }), mtimeSec: T0 / 1000 }) }],
+] as const) {
+  test(`check-in: a request ${what} is not the lead's to hold: the check-in comes as it did`, async ($, on) => {
+    await ckLead($, on, [], WAITING)
+    put()
+    await idleFor(8 * MIN)
+    expect(checkins()).toEqual([ckText(PROMPT)])
+    expect(toasts).toEqual([PROMPT_TOAST])
+  })
+}
+
+test('check-in: a request left open past its expiresAt holds nothing: the lead is told of the lane still waiting', async ($, on) => {
+  await ckLead($, on, [], WAITING)
+  putOpenRequest()
+  await idleFor(20 * MIN)
+  expect(checkins()).toEqual([])
+  await idleFor(4 * MIN)
+  expect(checkins()).toEqual([ckText(PROMPT)])
+  expect(toasts).toEqual([PROMPT_TOAST])
+})
+
+longTest('check-in: a request put to the person holds past its expiresAt, as its wait does, and no longer than that wait', async ($, on) => {
+  await ckLead($, on, [], WAITING)
+  putOpenRequest()
+  pfs.set(`${PROMPTS_DIR}/${OTHER}/${REQ_ID}.relay.json`, { text: JSON.stringify({ id: REQ_ID, short: REQ_ID.slice(0, 8), by: { level: 'lead', sid: SID, name: 'LEAD' }, at: T0 + MIN, nonce: 'n-1' }), mtimeSec: T0 / 1000 })
+  await idleFor(24 * MIN)
+  expect(checkins()).toEqual([])
+  expect(toasts).toEqual([PROMPT_TOAST])
+  await idleFor(92 * MIN)
+  expect(checkins()).toEqual([])
+  await idleFor(8 * MIN)
+  expect(checkins()).toEqual([ckText(PROMPT)])
+})
+
+test('check-in: a busy lead is not told beside a tool result of a lane waiting on a prompt it holds as a request, until the request ends', async ($, on) => {
+  postBeneath(on)
+  await ckLead($, on, [], WAITING)
+  putOpenRequest()
+  h.sessions = { ...leadSelfReg({ status: 'busy' }), ...ckRow(WAITING) }
+  await idleFor(8 * MIN)
+  expect(toasts).toEqual([PROMPT_TOAST])
+  expect(await ckMid($)).toEqual([])
+  endRequest()
+  await idleFor(2 * MIN)
+  expect(await ckMid($)).toEqual([ckText(PROMPT)])
+  expect(toasts).toEqual([PROMPT_TOAST])
+})
+
+test('manager check-ins: a lane waiting on a prompt 10 min that the manager holds as a request gets no manager turn, the toast still shows; it is told once the request ends', async ($, on) => {
+  const sess = { ...leadSelfReg({ name: 'MANAGER' }), ...cueSession(OTHER, 'LABLANE', '/data/x/work/lab', { pid: 4600, statusUpdatedAt: T0 }), ...cueSession(APISID, 'API', `${PIN}/api`, { pid: 4500, ...WAITING }), ...leadReg() }
+  await mgrAt($, on, [], { clock: true, sess, seed: () => leadFiles.set(LEADPATH, { text: leadFileText() }) })
+  h.psTable = `${PS_TABLE} 4400     1 /x/native-binary/claude\n`
+  await $.turn.complete(TURN as any)
+  putOpenRequest({ sid: APISID })
+  await idleFor(12 * MIN)
+  expect(checkins()).toEqual([])
+  expect(toasts.filter((t) => t === PROMPT_TOAST)).toEqual([PROMPT_TOAST])
+  endRequest(APISID)
+  await idleFor(4 * MIN)
+  expect(checkins()).toEqual([ckText(PROMPT)])
 })
 
 test('check-in: a busy lead is not told in the middle of a turn of a quiet lane, nor of a waiting prompt while check-ins are paused', async ($, on) => {

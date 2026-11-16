@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 import { LEADS_CHANGED_NOTE, LEADS_CHANGED_TEXT } from '../hooks/core'
-import { LEADRECDIR, PS_TABLE, SID, T0, extraStat, h, leadFiles, longTest, submitted, toasts } from './harness'
-import { APISID, CSESS, LEADPATH, LEADSID, MIN, OTHERLEAD, PIN, TURN, bindOwner, ckLane, ckTail, condOn, idleFor, lane, leadFileText, leadReg, listed, midCtx, ownedBy, postBeneath, putLeadRecs, putStore, ticks, leadRecsJson, waitFor } from './fixtures'
+import { LEADRECDIR, PROMPTS_DIR, PS_TABLE, SID, T0, extraStat, h, leadFiles, longTest, pdirs, pfs, submitted, toasts } from './harness'
+import { APISID, CSESS, LEADPATH, LEADPS, LEADSID, MIN, OTHERLEAD, PIN, TURN, bindOwner, ckLane, ckTail, condOn, idleFor, lane, leadFileText, leadReg, listed, midCtx, ownedBy, postBeneath, putLeadRecs, putStore, ticks, leadRecsJson, waitFor } from './fixtures'
 
 // An owning conductor's check-ins on its leads and the leads-changed notice (the lead's own: checkins.test.ts, lead.test.ts).
 const THEIRS = '7a1b2c3d-0000-4000-8000-123456789abc'
@@ -77,6 +77,22 @@ test('lead check-in: a busy conductor is told of an owned lead waiting on a prom
   expect(await midCtx($)).toEqual([])
   expect(leadCheckins()).toEqual([])
   expect(toasts.filter((t) => t.includes('waiting on a prompt'))).toEqual(['Lead LEAD: waiting on a prompt for over 5 min.'])
+})
+
+test('lead check-in: an owned lead waiting on a prompt that the conductor holds as a request gets no check-in at 5 min, the toast still shows; the request ending brings it back', async ($, on) => {
+  await ckOwn($, on, { lead: { status: 'waiting', waitingFor: 'permission prompt', statusUpdatedAt: T0 } })
+  const id = '7a1b2c3d-0000-4000-8000-123456789abc'
+  const q = { id, sid: LEADSID, pid: 4242, procStart: LEADPS, level: 'lead', lane: 'LEAD', repo: PIN, tool: 'Bash', inputHash: 'c'.repeat(64), raisedBy: 'rule', at: T0, expiresAt: T0 + 21 * MIN, nonce: 'n-1', input: { command: 'ssh host uptime' }, truncated: false }
+  h.store.set('answering', { scope: 'all', asks: false, savedAt: T0 })
+  pdirs.add(PROMPTS_DIR)
+  pdirs.add(`${PROMPTS_DIR}/${LEADSID}`)
+  pfs.set(`${PROMPTS_DIR}/${LEADSID}/${id}.request.json`, { text: JSON.stringify(q), mtimeSec: T0 / 1000 })
+  await idleFor(8 * MIN)
+  expect(leadCheckins()).toEqual([])
+  expect(toasts.filter((t) => t.includes('waiting on a prompt'))).toEqual(['Lead LEAD: waiting on a prompt for over 5 min.'])
+  pfs.set(`${PROMPTS_DIR}/${LEADSID}/${id}.done`, { text: '', mtimeSec: h.nowMs / 1000 })
+  await idleFor(4 * MIN)
+  expect(leadCheckins()).toEqual([leadCk('`LEAD` (waiting on a prompt for over 5 min)')])
 })
 
 longTest('lead check-in: an owned lead whose session is gone is told', async ($, on) => {

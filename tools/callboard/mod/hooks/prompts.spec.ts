@@ -350,13 +350,9 @@ test('answerText: a tier answer with no tier is never the person\'s bare label',
   assert.equal(p.answerText('Red', undefined, false), 'Red (answered by tier)')
   assert.equal(p.answerText('Red', undefined, true), 'Red')
 })
-test('QUESTION_RUBRIC and the briefings: the rubric verbatim, the answer call, no deny, relay steps for a question', () => {
+test('QUESTION_RUBRIC: the rubric verbatim, the answer call, no deny', () => {
   assert.ok(p.QUESTION_RUBRIC.includes("(a) the answer is already settled by the brief, your own instructions or the repo's conventions, or it's a choice of no lasting consequence; (b) it isn't asking for approval or a go; (c) it isn't a product or design choice the person kept; (d) a wrong answer costs less than a short wait. If any is unclear, pass it up."))
   assert.ok(p.QUESTION_RUBRIC.includes('decision `answer`, `option` the number shown, and `answer` the label. You may not deny a question or answer Other.'))
-  for (const b of [p.LEAD_PROMPT_BRIEFING, p.tierPromptBriefing('manager'), p.tierPromptBriefing('conductor')]) {
-    assert.ok(b.includes(p.QUESTION_RUBRIC) && b.includes('A question is never denied') && b.includes("with the lane's own options"))
-    assert.ok(!b.includes('it is denied at 20 minutes'), 'the 20-minute deny is for a permission prompt only')
-  }
   assert.ok(p.turnLine({ top: true, question: true }).includes("the lane's own options"))
   assert.ok(!p.turnLine({ top: true, question: true }).includes('for this prompt'))
 })

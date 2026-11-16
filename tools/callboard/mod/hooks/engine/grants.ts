@@ -115,6 +115,7 @@ import { managerCommand } from './commands.ts'
 import { ownerLeave, ownerRename, leadNameHeld } from './lead-records.ts'
 import { goGrantorOff } from './go.ts'
 import { toolText } from '../tool-text.ts'
+import { promptHeldSids } from './answer-tiers.ts'
 import { epochOf, heldNo, levelBrief, levelSave } from './levels.ts'
 import { usageDrop, usageSweep } from './usage.ts'
 import type { LevelDesc, GrantDialog } from './levels.ts'
@@ -1062,14 +1063,17 @@ export async function checkinDue($: any, sid: string): Promise<boolean> {
   }
   return true
 }
-// The told set keeps only conditions that still hold: one that cleared and comes back has a new since. Returns the items not told yet.
-function owedItems(sid: string, items: c.AttentionItem[]): { told: Set<string>; owed: c.AttentionItem[] } {
+// The told set keeps only conditions that still hold (all: every observed item): one that cleared and comes back has a new since. Returns the items not told yet
+// among `askable`, the ones the session may be told of (all of them unless some are held back, as c.checkinSkipHeld does).
+function owedItems(sid: string, all: c.AttentionItem[], askable: c.AttentionItem[] = all): { told: Set<string>; owed: c.AttentionItem[] } {
   const told = attnTold.get(sid) ?? new Set<string>()
   attnTold.set(sid, told)
-  const keys = new Set(items.map(c.checkinKey))
+  const keys = new Set(all.map(c.checkinKey))
   for (const k of told) if (!keys.has(k)) told.delete(k)
-  return { told, owed: items.filter((i) => !told.has(c.checkinKey(i))) }
+  return { told, owed: askable.filter((i) => !told.has(c.checkinKey(i))) }
 }
+// The live sessions of the lanes (or leads) that wait on a prompt: the only ones whose requests promptHeldSids reads.
+const promptSids = (items: c.AttentionItem[], obs: Map<string, c.LaneObs>): Set<string> => new Set(items.flatMap((i) => (i.code === 'prompt' ? [obs.get(i.lane)?.sid ?? ''] : [])).filter((s) => s !== ''))
 // The turn end a check-in counts the lead's idle time from: a done notice's own turn does not restart it (c.idleTurnEnd).
 function idleEnd(sid: string, turnEnd: unknown, now: number): unknown {
   if (typeof turnEnd !== 'number') return turnEnd
@@ -1150,7 +1154,10 @@ export async function checkinTick($: any, sid: string, submitsAtStart: number) {
   if (epochOf(sid) !== ep) return
   laneObs.set(sid, obs)
   const items = c.checkinItems(obs, now)
-  const { told, owed } = owedItems(sid, items)
+  // A waiting prompt this tier already holds as an open request is told by the request's own notice: no check-in for it (the toast below still shows it).
+  const held = items.some((i) => i.code === 'prompt') ? await promptHeldSids($, sid, promptSids(items, obs)) : undefined
+  if (epochOf(sid) !== ep) return
+  const { told, owed } = owedItems(sid, items, c.checkinSkipHeld(items, held, (l) => obs.get(l)?.sid))
   const gate = owed.length === 0 ? 'off' : await checkinGates($, sid, now)
   const due = gate === 'off' ? [] : c.checkinDueItems(owed, gate === 'all')
   // The manager is told only of lanes no live lead reaches, by leadHere's rule (a lane naming its lead: a live
@@ -1242,7 +1249,9 @@ async function conductorCheckin($: any, sid: string, submitsAtStart: number) {
   if (epochOf(sid) !== ep) return
   leadObs.set(sid, obs)
   const items = c.checkinItems(obs, now)
-  const { owed: all } = owedItems(sid, items)
+  const held = items.some((i) => i.code === 'prompt') ? await promptHeldSids($, sid, promptSids(items, obs)) : undefined
+  if (epochOf(sid) !== ep) return
+  const { owed: all } = owedItems(sid, items, c.checkinSkipHeld(items, held, (l) => obs.get(l)?.sid))
   const gate = all.length === 0 ? 'off' : await checkinGates($, sid, now)
   const due = gate === 'off' ? [] : c.checkinDueItems(all, gate === 'all')
   // The gate reads wait: an off or a re-grant meanwhile has cleared this grant's memory.
@@ -2263,15 +2272,15 @@ export async function promptCompose($: any, e: any, next: any) {
   }
   if (gated) setSection(c.LEAD_BRIEFING_ID, c.leadBriefing(pin, sid))
   if (gated) setSection(c.LEAD_MANAGER_ID, leadManager ? c.LEAD_MANAGER_TEXT : undefined)
-  // ADR 0004: the lead's prompt section, beside the briefing (whose approved text is left alone).
-  if (gated) setSection(pr.LEAD_PROMPTS_ID, grants.get(sid)?.level === 'lead' ? pr.LEAD_PROMPT_BRIEFING : undefined)
+  // ADR 0004: the lead's prompt section, beside the briefing.
+  if (gated) setSection(pr.LEAD_PROMPTS_ID, grants.get(sid)?.level === 'lead' ? pr.tierPromptSection('lead') : undefined)
   if (gated) setSection(c.LEAD_CONDUCTOR_ID, seenConductors.length > 0 ? c.leadConductorText(seenConductors) : undefined)
   if (managerText !== undefined) setSection(c.MANAGER_BRIEFING_ID, managerText)
   if (conductorText !== undefined) setSection(c.CONDUCTOR_BRIEFING_ID, conductorText)
   // The conductor's and the manager's prompt section (the lead's is above).
   {
     const lvl = grants.get(sid)?.level
-    const tierText = lvl === 'conductor' && conductorText !== undefined ? pr.tierPromptBriefing('conductor') : lvl === 'manager' && managerText !== undefined ? pr.tierPromptBriefing('manager') : undefined
+    const tierText = lvl === 'conductor' && conductorText !== undefined ? pr.tierPromptSection('conductor') : lvl === 'manager' && managerText !== undefined ? pr.tierPromptSection('manager') : undefined
     setSection(pr.TIER_PROMPTS_ID, tierText)
   }
   if (laneText !== undefined) setSection(c.LANE_BRIEFING_ID, laneText)
