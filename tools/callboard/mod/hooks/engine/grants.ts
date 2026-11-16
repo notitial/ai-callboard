@@ -1213,6 +1213,8 @@ async function conductorCheckin($: any, sid: string, submitsAtStart: number) {
   const { owed: all } = owedItems(sid, items)
   const gate = all.length === 0 ? 'off' : await checkinGates($, sid, now)
   const owed = gate === 'off' ? [] : c.checkinDueItems(all, gate === 'all')
+  // The gate reads wait: an off or a re-grant meanwhile has cleared this grant's memory.
+  if (epochOf(sid) !== ep) return
   promptsDue(sid, now, owed, items, 'Lead', c.leadCheckinText, 'lead-checkin', $)
   if (owed.length === 0) return
   // Signed done drops gone and quiet, as for a lane: the lead's report (.archive/<NAME>/REPORT.md of its repo) ends in `status: done <sid>`. Read only once the notice's
@@ -1345,7 +1347,8 @@ async function attentionNotice($: any, sid: string, items: c.AttentionItem[], su
 // The check-in in the middle of a turn (like promptMidTurnNotice): a busy lead, conductor or manager gets no idle submit, and a lane waiting on a prompt would wait
 // until its turn ends. After a main-agent tool call the hook returns the fixed check-in text for the waiting prompts the last observation left owed (attnMid), as
 // additionalContext beside the tool's result. It reads no file. Same told marks and hourly cap as the idle notice, so a wait is told once, by whichever path
-// comes first. An observation older than two periods is not used (a stalled check-in step), and a compaction that is armed or waiting to resume keeps it owed.
+// comes first. An observation older than two periods is not used (a stalled check-in step), the switch, the pause and the wake gate are read again here, and a
+// compaction that is armed or waiting to resume keeps it owed.
 export async function checkinMidTurn($: any, e: any): Promise<string | undefined> {
   if (typeof e?.agent_id === 'string' && e.agent_id !== '') return undefined
   const sid = await $.session.id()
@@ -1357,6 +1360,8 @@ export async function checkinMidTurn($: any, e: any): Promise<string | undefined
     if ((await getRequest($)).value != null) return undefined
     const now = await $.clock.now()
     if (now < mid.at || now - mid.at > 2 * c.CHECKIN_EVERY_MS) return undefined
+    // A pause or the switch turned off since the observation: nothing is told.
+    if ((await checkinGates($, sid, now)) === 'off') return undefined
     if (!c.noticeAllowed(laneNotices.get(sid) ?? [], now, c.LANES_NOTICES_PER_HOUR)) {
       if (!attnCapped.has(sid)) {
         attnCapped.add(sid)

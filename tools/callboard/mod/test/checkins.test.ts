@@ -77,6 +77,18 @@ test('check-in: a busy lead is not told in the middle of a turn of a quiet lane,
   expect(checkins()).toEqual([])
 })
 
+test('check-in: a pause typed after the observation, or the lead\'s own lane_resume, takes the waiting prompt back from the mid-turn path', async ($, on) => {
+  postBeneath(on)
+  await ckLead($, on, [], WAITING)
+  h.sessions = { ...leadSelfReg({ status: 'busy' }), ...ckRow(WAITING) }
+  await idleFor(8 * MIN)
+  expect((await $.command.run(lane('checkin pause 1m'))).text).toBe('Check-ins paused in this session for 1 min.')
+  expect(await midCtx($)).toEqual([])
+  expect((await $.command.run(lane('checkin on'))).text).toBe('Check-ins are on again in this session.')
+  expect((await $.tool.call(leadCall('resume', { lane: 'API' }))).result).toContain('cue resume acted')
+  expect(await midCtx($)).toEqual([])
+})
+
 test('manager check-ins: a lane waiting on a prompt 10 min is told to the manager even with its lead live, not at 5 min', async ($, on) => {
   const sess = { ...leadSelfReg({ name: 'MANAGER' }), ...cueSession(OTHER, 'LABLANE', '/data/x/work/lab', { pid: 4600, statusUpdatedAt: T0 }), ...cueSession(APISID, 'API', `${PIN}/api`, { pid: 4500, ...WAITING }), ...leadReg() }
   await mgrAt($, on, [], { clock: true, sess, seed: () => leadFiles.set(LEADPATH, { text: leadFileText() }) })
