@@ -113,6 +113,7 @@ import { leadCue } from './lead-cues.ts'
 import { leadCompactTo } from './lead-tools.ts'
 import { recordViews } from './lead-records.ts'
 import { goTailFor } from './go.ts'
+import { unattendedHeld } from './answer-hook.ts'
 import { toolText } from '../tool-text.ts'
 import type { Role } from '../tool-text.ts'
 
@@ -270,7 +271,7 @@ export async function promptToolsRegister($: any, role: Exclude<Role, 'any'>) {
   await $.tool.register({
     name: 'prompt_answer',
     description: toolText('prompt_answer', role),
-    inputSchema: { type: 'object', properties: { id: text, decision: { type: 'string', enum: ['allow', 'deny', 'answer'] }, why: text, option: { type: 'integer', minimum: 1, maximum: 4 }, answer: text }, required: ['id', 'decision', 'why'] },
+    inputSchema: { type: 'object', properties: { id: text, decision: { type: 'string', enum: ['allow', 'deny', 'answer', 'park'] }, why: text, option: { type: 'integer', minimum: 1, maximum: 4 }, answer: text }, required: ['id', 'decision', 'why'] },
   })
   await $.tool.register({
     name: 'prompt_escalate',
@@ -1054,8 +1055,12 @@ async function leadPrep($: any, e: unknown, sid: string) {
   if ('err' in base) return { err: base.err }
   const pick = c.leadLane(base.lanes, base.g, (e as { lane?: unknown }).lane)
   if (!pick.ok) return { err: [pick.reason, c.reasonWhy(pick.reason)] as const }
-  return { lane: pick.lane, entries: base.live.flatMap((r) => (typeof r.j.sessionId === 'string' ? [regEntry(r)] : [])) }
+  const entries = base.live.flatMap((r) => (typeof r.j.sessionId === 'string' ? [regEntry(r)] : []))
+  // liveLanes: the lanes in this lead's reach whose session is live now, read wide (liveLaneNames), for the ceiling an unattended window puts on them.
+  return { lane: pick.lane, entries, liveLanes: c.liveLaneNames(base.lanes.filter((l) => c.inReach(base.g, l)), entries).length }
 }
+// Inside an unattended window a lead has at most c.UNATTENDED_LIVE_LANES lanes live: the tools that open a lane's session refuse past it.
+const lanesFull = async ($: any, liveLanes: number): Promise<boolean> => liveLanes >= c.UNATTENDED_LIVE_LANES && (await unattendedHeld($))
 
 // ---- /callboard lane: an existing session becomes a lane of the lead that runs in its repo ----
 // leadName: the lead's registry name now (c.leadNameOf), stamped on the record so only that lead reaches the lane; none leaves the record legacy.
@@ -1385,6 +1390,7 @@ export async function laneOpenCall($: any, e: any, next: any) {
     if (prep.lane.adopted) return no('adopted-record', c.reasonWhy('adopted-record'))
     if (prep.lane.parked !== undefined) return no('parked', c.reasonWhy('parked'))
     if (prep.entries.some((x) => x.name === prep.lane.name)) return no('name-in-use', 'a live session already carries that lane name.')
+    if (await lanesFull($, prep.liveLanes)) return no('unattended-lanes', c.reasonWhy('unattended-lanes'))
     const r = await openExchange($, sid, prep.lane.name, 'open', c.OPEN_TEXT, 'no window answered within 45 seconds. A VS Code window with the lane folder as its first workspace folder must run the callboard panels extension. A panel may still appear: check for an unnamed session in that folder first.', no)
     if ('deny' in r) return r
     await log($, sid, 'opened', prep.lane.name)
@@ -1433,6 +1439,7 @@ export async function laneUnparkCall($: any, e: any, next: any) {
     }
     if (live.length > 0) return no('session-live', c.reasonWhy('session-live'))
     if (prep.entries.some((x) => x.name === name && x.sessionId !== want)) return no('name-in-use', c.reasonWhy('name-in-use'))
+    if (await lanesFull($, prep.liveLanes)) return no('unattended-lanes', c.reasonWhy('unattended-lanes'))
     const r = await openExchange($, sid, name, 'reopen', `${want}\n`, c.reasonWhy('reopen-timeout'), no)
     if ('deny' in r) return r
     if (r.sid !== want) return no('reopen-bad-result', c.reasonWhy('reopen-bad-result'))

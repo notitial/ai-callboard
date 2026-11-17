@@ -2,7 +2,7 @@ import { expect, test } from 'claude-code/testing'
 import * as g from '../hooks/go'
 import { CONDUCTOR_HINT_PREFIX, HOUR_MS } from '../hooks/core'
 import { h, GO_DIR, LANESDIR, LEADRECDIR, ROOT, SID, T0, YES, extraStat, fakeSha, longTest, pdirs, pfs, repoKey, storeFiles, targetLogs, toasts } from './harness'
-import { ledgerRows, putLedger, wireGuard } from './answer-fixtures'
+import { ledgerRows, putLedger, putWindow, wireGuard } from './answer-fixtures'
 import { APISID, APP2, COND, condSelf, putCond, LEADSID, OTHER, OTHERLEAD, PERSON, PIN, SVC, bindOwner, ckLane, ckRow, callCreate, condOn, condPresenceOf, creator, cueSession, dirStat, grantAt, lane, leadAt, leadCall, leadSelfReg, mgrAt, ownedBy, putLeadRecs, putStore, regAs, started, ticks, waitFor } from './fixtures'
 
 // ---- the go (ADR 0009): the dialog in a lead's session, the go file and its rows, go_request, go_status, /callboard go ----
@@ -194,6 +194,25 @@ test('go_request in a lead a conductor owns opens no dialog and uses none of the
   const before = h.askCount
   expect((await goCmd($, WORK)).text).toContain('cancelled')
   expect(h.askCount).toBe(before + 1)
+})
+
+test('go_request in a lead a conductor owns, inside an unattended window: the window\'s refusal comes first, and no dialog opens', async ($, on) => {
+  await giver($, on)
+  ownedBy(OTHERLEAD)
+  extraStat.set(`${COND}/.git`, dirStat)
+  putCond(['../app'])
+  h.store.set(`conductor:${OTHERLEAD}`, { home: COND, repos: [PIN], savedAt: T0 - 60_000 })
+  condPresenceOf(OTHERLEAD, 4243, 'CONDX', [PIN])
+  h.sessions = { ...h.sessions, ...regAs(OTHERLEAD, 4243, 'CONDX') }
+  putWindow()
+  const asked = h.askCount
+  expect(String((await $.tool.call(tool('go_request', { text: WORK }))).deny)).toBe(`go_request refused: unattended: ${g.GO_REFUSE.unattended}`)
+  expect(h.askCount).toBe(asked)
+  expect(goKinds()).toEqual([])
+  // Once the window is off, the conductor's refusal applies as before.
+  await $.command.run(lane('unattended off'))
+  expect(String((await $.tool.call(tool('go_request', { text: WORK }))).deny)).toContain('go_request refused: conductor-owns: ')
+  expect(h.askCount).toBe(asked)
 })
 
 test('lane_create in a lead a conductor owns tells it to ask the conductor for a go; a go of the conductor that reaches it is named instead', async ($, on) => {

@@ -204,6 +204,9 @@ export const LEAD_STORE_MAX = 16
 // Per conductor: the leads it owns at once (live and parked, as its lead records name it), and the backstop on a conductor that loops, successful opens an hour.
 export const LEADS_PER_CONDUCTOR = 4
 export const OPENS_PER_CONDUCTOR_HOUR = 8
+// Per lead, inside an unattended window (ADR 0008): the lanes it may have live at once. A lane tool that opens a lane's session refuses past it; lanes already
+// live are not stopped.
+export const UNATTENDED_LIVE_LANES = 4
 // how: `made` for a lead a conductor opened (nonce: the offer's), `joined` for one the person assigned. conductorName is the conductor's name when the record was
 // written, for display only. sid is the lead's session id, written with the record; a record keeps none only when its lead was force stopped while lanes still
 // name it. parked: when the lead was parked (ms).
@@ -1054,7 +1057,7 @@ export function originCode(origin: unknown): OriginCode {
   return 'other'
 }
 export const originIsPerson = (code: OriginCode): boolean => code === 'prompt' || code === 'phone'
-const ORIGIN_WORDS: Record<OriginCode, string> = { prompt: 'your prompt', phone: 'your phone', plugin: 'another plugin', session: 'another session', other: 'a script' }
+export const ORIGIN_WORDS: Record<OriginCode, string> = { prompt: 'your prompt', phone: 'your phone', plugin: 'another plugin', session: 'another session', other: 'a script' }
 // A question from the person's own prompt or phone stays as written; any other origin is named in front.
 export const askedFrom = (question: string, code: OriginCode): string => (originIsPerson(code) ? question : `Asked from ${ORIGIN_WORDS[code]}. ${question}`)
 // There is no callboard on or off, only a lead and a lane.
@@ -1651,6 +1654,7 @@ export const REASON_TEXT: Record<string, string> = {
   'offer-open': 'an open for that repo is still waiting, or was never cleared. Retry in a few minutes.',
   'open-in-flight': 'you already have an open running. Wait for it.',
   'lead-cap': `you hold ${LEADS_PER_CONDUCTOR} lead slots, the most a conductor holds at once. A parked lead keeps its slot. Retire one with lead_retire, then open again.`,
+  'unattended-lanes': `unattended mode is on and ${UNATTENDED_LIVE_LANES} of your lanes are live, the most a lead runs at once while the person is away. Wait until one has finished, or park one, then open this one.`,
   'open-backstop': `you have opened, or are opening, ${OPENS_PER_CONDUCTOR_HOUR} leads in the last hour, the most a conductor opens an hour. Retry when the oldest of them is an hour old.`,
   'ledger-unreadable': 'the ledger could not be read, so the open limits cannot be checked. Retry in a moment.',
   'offer-write': 'the open offer could not be written.',
