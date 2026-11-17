@@ -9,11 +9,11 @@ import * as pr from '../prompts.ts'
 import * as g from '../go.ts'
 import { dialogOpen, goAsked, goWatch, conductorHome } from '../mem.ts'
 import { sha, where, statR, dirOk, readSmallR, run, MKDIR, rmF, log, logq, toast, withTimeout } from './base.ts'
-import { loadLanes } from './store.ts'
+import { loadLanes, registryEntries } from './store.ts'
 import { grantOf } from './grants.ts'
 import { epochOf } from './levels.ts'
 import { leadCore } from './lanes.ts'
-import { loadLeadRecords, boundState } from './lead-records.ts'
+import { loadLeadRecords, boundState, bindingOf, ownOwner } from './lead-records.ts'
 import type { LeadRecs } from './lead-records.ts'
 import { ensureTimer } from './tick.ts'
 import { ledgerAdd, ledgerRowsFor, promptNewId, guardCheck, unattendedHeld } from './answer-hook.ts'
@@ -147,6 +147,12 @@ type Given = { go: g.Go; ends: string } | { no: string; why?: string }
 async function goGive($: any, sid: string, text: unknown, hours: number, author: 'tier' | 'person', capped: boolean): Promise<Given> {
   const level = grantOf(sid)?.level
   if (level !== 'lead' && level !== 'conductor') return { no: level === 'manager' ? 'manager' : 'not-lead' }
+  // A lead a conductor owns opens no dialog of its own: its go_request is refused while its owner binding stands, the conductor live or not, and it asks the
+  // conductor instead, whose one dialog covers it and its lanes. The person's own /callboard go in the lead's panel still opens the dialog.
+  if (level === 'lead' && author === 'tier') {
+    const b = await bindingOf($, sid)
+    if (b) return { no: 'conductor-owns', why: g.goOwnedText(await ownerNameOf($, sid)) }
+  }
   if (g.goTextNo(text) !== undefined) return { no: 'bad-text' }
   const missing = await guardCheck($)
   if (missing !== undefined) return { no: 'guard', why: `${g.GO_REFUSE.guard}: ${pr.GUARD_WHY[missing]}.` }
@@ -235,6 +241,16 @@ async function goGive($: any, sid: string, text: unknown, hours: number, author:
   return { go, ends: when(ends) }
 }
 
+// The conductor that owns a lead, for the refusal's text: live (with its name) when it is live and trusted (ownOwner); unbound when the binding no longer
+// matches its record, so the conductor's go cannot reach the lead either; else gone (compacting, stopped, or not readable now).
+async function ownerNameOf($: any, sid: string): Promise<g.OwnedState> {
+  const live = await registryEntries($).catch(() => undefined)
+  if (!live) return { state: 'gone' }
+  const o = await ownOwner($, sid, live).catch(() => undefined)
+  if (o === 'record-changed') return { state: 'unbound' }
+  return o !== undefined && typeof o === 'object' ? { state: 'live', ...(typeof o.name === 'string' && c.NAME_RE.test(o.name) ? { name: o.name } : {}) } : { state: 'gone' }
+}
+
 const refusal = (r: { no: string; why?: string }): string => `${r.no}: ${r.why ?? g.GO_REFUSE[r.no] ?? r.no}`
 
 // go_request: the main agent of a lead or a conductor asks the person for a go. The tool only opens the dialog; its text is the tier's, and the end is always the default.
@@ -304,13 +320,14 @@ export async function goStatusCall($: any, _e: any) {
 }
 
 // The end of a lane_create result (no lane session yet: a live go that reaches this lead's lanes, its own or its conductor's, will cover the lane it opens) and of
-// a lane_start result (laneSid: the lane's session, covered or not). Anything that cannot be read is "no go".
+// a lane_start result (laneSid: the lane's session, covered or not). Anything that cannot be read is "no go". A lead a conductor owns is told to ask the conductor.
 export async function goTailFor($: any, sid: string, laneSid?: string): Promise<string> {
+  const none = async () => g.goTail(undefined, undefined, (await bindingOf($, sid).catch(() => undefined)) !== undefined)
   try {
     const found = await goesLive($)
-    if ('no' in found || found.length === 0) return g.goTail(undefined)
+    if ('no' in found || found.length === 0) return none()
     const lanes = laneSid === undefined ? [] : await loadLanes($)
-    if (typeof lanes === 'string') return g.goTail(undefined)
+    if (typeof lanes === 'string') return none()
     const box: RecBox = {}
     const hits: Found[] = []
     for (const f of found) {
@@ -318,9 +335,9 @@ export async function goTailFor($: any, sid: string, laneSid?: string): Promise<
       if (laneSid === undefined ? g.goReachesLead(f.go, sid, o.owned) : g.goCovers(f.go, laneSid, lanes, o.owned) !== undefined) hits.push(f)
     }
     const hit = hits.sort((a, b) => b.go.ends - a.go.ends)[0]
-    return g.goTail(hit?.go, hit ? when(hit.go.ends) : undefined)
+    return hit ? g.goTail(hit.go, when(hit.go.ends)) : none()
   } catch {
-    return g.goTail(undefined)
+    return none()
   }
 }
 

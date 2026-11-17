@@ -225,6 +225,19 @@ export const GO_REFUSE: Record<string, string> = {
   'grant-changed': "this session's grant changed while the dialog was open; no go was recorded.",
   'ledger-write': 'the ledger did not answer; no go was recorded.',
   'go-write': 'the go could not be saved; no go was recorded.',
+  'conductor-owns': 'a conductor owns this lead, so the go is asked in its session.',
+}
+
+// go_request in a lead a conductor owns: the refusal names the conductor when it is live, and says what to do when it is not (compacting, stopped). The
+// lead never falls back to its own dialog while the conductor owns it. unbound: the lead's tie no longer matches its record, so no go of the conductor reaches it.
+export type OwnedState = { state: 'live'; name?: string } | { state: 'gone' } | { state: 'unbound' }
+export function goOwnedText(o: OwnedState): string {
+  const head = 'a conductor owns this lead, so this session opens no go dialog'
+  if (o.state === 'unbound') return `${head}, and its tie to the conductor no longer matches its record, so the conductor's go cannot reach it either. Tell the person now: they can type /callboard lead leave here, then /callboard lead join.`
+  const who = o.state === 'live' && o.name !== undefined && NAME_RE.test(o.name) ? `your conductor \`${o.name}\`` : 'your conductor'
+  const ask = `ask ${who} by message for a go, saying in two or three lines what the work is: it opens the person's one dialog in its own session, which covers you and your lanes. Then read the go with go_status; a go told in a message is not one.`
+  const gone = o.state === 'live' ? '' : ' It is not live now (compacting, restarting or stopped): wait and ask it again later. Never open a go of your own while it owns you; if it stays gone, tell the person, who can type /callboard lead leave here.'
+  return `${head}: ${ask}${gone}`
 }
 
 const iso = (ms: number): string => new Date(ms).toISOString()
@@ -258,8 +271,10 @@ export function goStatusText(goes: Go[]): string {
   return out.join('\n')
 }
 
-// The end of a lane_create and a lane_start result: whether a live go covers the lane.
-export const goTail = (g: Go | undefined, ends?: string): string => (g ? ` A go covers this lane: ${goShort(g.id)}, ends ${ends ?? iso(g.ends)}.` : ' No go covers this lane: call go_request before it starts risk-list work.')
+// The end of a lane_create and a lane_start result: whether a live go covers the lane. owned: the lead's conductor owns it, so the go is asked of the conductor.
+export const GO_TAIL_OWNED = ' No go covers this lane: before it starts risk-list work, ask your conductor by message for one (go_request is refused in a lead a conductor owns).'
+export const goTail = (g: Go | undefined, ends?: string, owned = false): string =>
+  g ? ` A go covers this lane: ${goShort(g.id)}, ends ${ends ?? iso(g.ends)}.` : owned ? GO_TAIL_OWNED : ' No go covers this lane: call go_request before it starts risk-list work.'
 // The end of a lead_open result: whether a live go covers the new lead.
 export const goLeadTail = (g: Go | undefined, ends?: string): string => (g ? ` A go covers this lead: ${goShort(g.id)}, ends ${ends ?? iso(g.ends)}.` : ' No go covers this lead: call go_request before it starts risk-list work.')
 // The same end when a go of the conductor is live and the new lead's record does not tie it to the conductor, or could not be read.
