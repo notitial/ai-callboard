@@ -966,18 +966,18 @@ test('the turn-on dialog is short: the end, what changes, what is seen, the live
     q,
     [
       'Turn on unattended mode on this Mac until 07:30? /callboard unattended off ends it.',
-      'Nothing is put to you. The manager MANAGER decides what asks: it allows only what it would allow with you here, and parks what the rules keep for you (the risk list, a merge, a push to main).',
+      'No prompt or question is passed on to you. The manager MANAGER decides what asks: it allows only what it would allow with you here, and parks what the rules keep for you (the risk list, a merge, a push to main). A lane\'s question it cannot settle may get the most cautious option, marked provisional for you to review.',
       "A lead's, a conductor's or the manager's own question is refused: it takes the safe default and notes it for you.",
       'Only calls that ask are seen: a lane in auto or bypass mode, or a call an allow rule lets through, raises nothing to park.',
-      'Live lanes now: ALPHA 2, BETA 1. A lead runs at most 4 live lanes.',
-      'Their own permission prompts are refused too, so keep the manager in auto mode: in any other mode even its board write is refused.',
+      'Live lanes now: ALPHA 2, BETA 1. A lead runs at most 4 live lanes. Restart sessions started before the last callboard update first.',
+      "The manager's and a conductor's own permission prompts are refused too, so keep the manager in auto mode: in any other mode even its board write may be refused.",
     ].join('\n'),
   )
   // One short line each, no blank line, and far shorter than the form it replaces (about 2000 characters).
   assert.equal(q.split('\n').length, 6)
-  assert.ok(q.length < 800, String(q.length))
+  assert.ok(q.length < 1000, String(q.length))
   const many = Array.from({ length: 10 }, (_, i) => ({ lead: `L${'x'.repeat(38)}${i}`, n: 1 }))
-  assert.ok(p.unattendedQuestion('Sun 16 Nov 19:25', 'M'.repeat(40), many).length < 1200)
+  assert.ok(p.unattendedQuestion('Sun 16 Nov 19:25', 'M'.repeat(40), many).length < 1400)
   assert.match(p.unattendedQuestion('07:30', 'MANAGER', []), /Live lanes now: none\./)
   assert.match(p.unattendedQuestion('07:30', 'MANAGER', undefined), /Live lanes now: could not be read\./)
   // A name that is not a name is left out, and past eight leads the rest are counted.

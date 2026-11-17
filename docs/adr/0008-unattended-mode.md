@@ -139,5 +139,5 @@ Each gets a dated line pointing here when the code that makes it true lands, not
   which is the same handler with the same person-only origin gate and the same dialog. The `on`, `on for` and
   `on until` forms stand. A span under 30 minutes, or over 14 hours, is refused with the nearest end that fits.
   The mod sees a permission mode only on a permission event, never as a session's state, so the dialog carries a
-  fixed line that the manager must be in auto mode (in another mode its own prompts are refused, its board write
-  too); no turn-on is refused over a mode.
+  fixed line that the manager must be in auto mode (in another mode its own prompts are refused unless a rule already allows
+  them, its board write too); no turn-on is refused over a mode.

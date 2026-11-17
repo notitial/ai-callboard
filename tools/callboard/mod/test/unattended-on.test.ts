@@ -122,9 +122,13 @@ test('unattended: a span or a time alone turns it on like on for and on until: 1
 
 test('/unattended is /callboard unattended: the same dialog and window from the person, the same refusal from any other origin, and a bare one lists', async ($, on) => {
   await manager($, on)
-  const slash = (args: string, origin?: unknown) => $.command.run({ command: 'unattended', args, origin: origin ?? { kind: 'composer' } } as any).then((r: any) => String(r.text))
+  const slash = (args: unknown, origin: unknown = { kind: 'composer' }) => $.command.run({ command: 'unattended', args, origin } as any).then((r: any) => String(r.text))
   const asked = h.askCount
   for (const kind of ['plugin', 'peer', 'cron']) for (const args of ['1h', 'on', '17:30', '45m']) expect(await slash(args, { kind })).toBe(prm.UNATTENDED_ON_NOT_PERSON)
+  // An origin with no kind is no person's; args that are not a string read as none (the state, for the person only).
+  expect(await slash('1h', {})).toBe(prm.UNATTENDED_ON_NOT_PERSON)
+  expect(await slash(7, { kind: 'plugin' })).toBe(prm.UNATTENDED_NOT_PERSON)
+  expect(await slash({ x: 1 })).toContain('Unattended mode is off')
   expect(h.askCount).toBe(asked)
   nothingOn()
   const text = await slash('1h')

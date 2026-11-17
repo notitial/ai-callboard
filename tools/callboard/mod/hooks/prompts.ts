@@ -955,11 +955,11 @@ export function unattendedQuestion(until: string, manager: string, lanes: { lead
   const live = lanes === undefined ? 'could not be read' : shown.length === 0 ? 'none' : `${shown.map((l) => `${l.lead} ${l.n}`).join(', ')}${more}`
   return [
     `Turn on unattended mode on this Mac until ${until}? /callboard unattended off ends it.`,
-    `Nothing is put to you. The manager ${NAME_RE.test(manager) ? manager : 'MANAGER'} decides what asks: it allows only what it would allow with you here, and parks what the rules keep for you (the risk list, a merge, a push to main).`,
+    `No prompt or question is passed on to you. The manager ${NAME_RE.test(manager) ? manager : 'MANAGER'} decides what asks: it allows only what it would allow with you here, and parks what the rules keep for you (the risk list, a merge, a push to main). A lane's question it cannot settle may get the most cautious option, marked provisional for you to review.`,
     "A lead's, a conductor's or the manager's own question is refused: it takes the safe default and notes it for you.",
     'Only calls that ask are seen: a lane in auto or bypass mode, or a call an allow rule lets through, raises nothing to park.',
-    `Live lanes now: ${live}. A lead runs at most ${UNATTENDED_LIVE_LANES} live lanes.`,
-    "Their own permission prompts are refused too, so keep the manager in auto mode: in any other mode even its board write is refused.",
+    `Live lanes now: ${live}. A lead runs at most ${UNATTENDED_LIVE_LANES} live lanes. Restart sessions started before the last callboard update first.`,
+    "The manager's and a conductor's own permission prompts are refused too, so keep the manager in auto mode: in any other mode even its board write may be refused.",
   ].join('\n')
 }
 // Why unattended mode was not turned on. Each refusal stores nothing.

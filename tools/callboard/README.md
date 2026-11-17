@@ -112,7 +112,7 @@ caller.
    work too, and a bare `on` is 8 hours), with a manager live, escalation on for everything and check-ins on. A short dialog says
    what changes; nothing is on until you click Turn on. A span under 30 minutes is refused with the earliest end it
    takes. Keep the manager in auto mode: in any other mode its own permission prompts, its board write included, are
-   refused while the window is on. Restart sessions started before the last callboard update first, so an old lane and
+   refused while the window is on (unless a rule already allows them). Restart sessions started before the last callboard update first, so an old lane and
    an old tier do not relay. While it is on nothing is put to you: no relay, a lead's,
    conductor's or the manager's own question is refused, and so are the manager's and a conductor's own permission
    prompts. The manager decides what asks, allows only what
