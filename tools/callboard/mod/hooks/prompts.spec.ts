@@ -969,7 +969,7 @@ test('the turn-on dialog is short: the end, what changes, what is seen, the live
       'No prompt or question is passed on to you. The manager MANAGER decides what asks: it allows only what it would allow with you here, and parks what the rules keep for you (the risk list, a merge, a push to main). A lane\'s question it cannot settle may get the most cautious option, marked provisional for you to review.',
       "A lead's, a conductor's or the manager's own question is refused: it takes the safe default and notes it for you.",
       'Only calls that ask are seen: a lane in auto or bypass mode, or a call an allow rule lets through, raises nothing to park.',
-      'Live lanes now: ALPHA 2, BETA 1. A lead runs at most 4 live lanes. Restart sessions started before the last callboard update first.',
+      'Live lanes now: ALPHA 2, BETA 1. A lead runs at most 4 live lanes and cannot ask for a go. Restart sessions started before the last callboard update first.',
       "The manager's and a conductor's own permission prompts are refused too, so keep the manager in auto mode: in any other mode even its board write may be refused.",
     ].join('\n'),
   )

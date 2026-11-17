@@ -133,8 +133,9 @@ Each gets a dated line pointing here when the code that makes it true lands, not
 
 ## Amendments
 
-- **2026-11-17: the turn-on is short.** The dialog is six short lines (the end, what changes, that only calls that ask
-  are seen, the live lanes, the manager's mode), each said once, in the pattern of ADR 0009's short dialog. A span
+- **2026-11-17: the turn-on is short.** The dialog is six short lines (the end; what the manager decides and parks; that a
+  tier's own question is refused; that only calls that ask are seen; the live lanes and the lead's limits; the
+  manager's mode), each said once, in the pattern of ADR 0009's short dialog. A span
   or a time alone turns it on: `/callboard unattended 1h`, `45m`, `17:30`, or `/unattended` with the same words,
   which is the same handler with the same person-only origin gate and the same dialog. The `on`, `on for` and
   `on until` forms stand. A span under 30 minutes, or over 14 hours, is refused with the nearest end that fits.

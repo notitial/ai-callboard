@@ -944,7 +944,7 @@ export const UNATTENDED_NO = 'Cancel'
 export const UNATTENDED_HEADER = 'Unattended'
 export const UNATTENDED_DIALOG_MS = 10 * 60_000
 export const UNATTENDED_TIMED_OUT_TOAST = 'Unattended mode: the dialog timed out. Nothing was turned on.'
-export const UNATTENDED_LATE_TOAST = 'Unattended mode: that click came after the dialog timed out, so nothing was turned on. Type /callboard unattended on again.'
+export const UNATTENDED_LATE_TOAST = 'Unattended mode: that click came after the dialog timed out, so nothing was turned on. Type the command again.'
 // Each lead with its live lanes, at most this many named in the dialog.
 const UNATTENDED_LEADS_SHOWN = 8
 // until: the end as the person reads it. manager: the manager's name. lanes: each lead with lanes live now and how many (undefined: the records could not be read).
@@ -958,7 +958,7 @@ export function unattendedQuestion(until: string, manager: string, lanes: { lead
     `No prompt or question is passed on to you. The manager ${NAME_RE.test(manager) ? manager : 'MANAGER'} decides what asks: it allows only what it would allow with you here, and parks what the rules keep for you (the risk list, a merge, a push to main). A lane's question it cannot settle may get the most cautious option, marked provisional for you to review.`,
     "A lead's, a conductor's or the manager's own question is refused: it takes the safe default and notes it for you.",
     'Only calls that ask are seen: a lane in auto or bypass mode, or a call an allow rule lets through, raises nothing to park.',
-    `Live lanes now: ${live}. A lead runs at most ${UNATTENDED_LIVE_LANES} live lanes. Restart sessions started before the last callboard update first.`,
+    `Live lanes now: ${live}. A lead runs at most ${UNATTENDED_LIVE_LANES} live lanes and cannot ask for a go. Restart sessions started before the last callboard update first.`,
     "The manager's and a conductor's own permission prompts are refused too, so keep the manager in auto mode: in any other mode even its board write may be refused.",
   ].join('\n')
 }
@@ -970,7 +970,7 @@ const UNATTENDED_NO_TEXT: Record<UnattendedNo, string> = {
   escalation: 'it needs escalation on for every lane and lead, and for their questions.',
   'off-file': 'the OFF file exists (~/.claude/callboard/prompts/OFF), so no tier answers anything.',
   manager: 'no live manager with a trusted name runs on this Mac. Start one with /callboard manager first.',
-  'manager-changed': 'the manager the dialog named is no longer the live one. Type /callboard unattended on again.',
+  'manager-changed': 'the manager the dialog named is no longer the live one. Type the command again.',
   checkin: 'check-ins are off on this Mac, and they are the watchdog while you are away. Turn them on with /callboard config checkin on first.',
   relay: 'a prompt or a question is being put to you now. Answer it first.',
   asking: 'a lead, conductor or the manager has a question open for you now. Answer it in that panel first.',
