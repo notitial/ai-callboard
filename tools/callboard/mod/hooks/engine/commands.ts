@@ -1264,7 +1264,7 @@ export async function grantLead($: any, sid: string, code: c.OriginCode, busy: (
 // A restore whose saved folder is gone, in a folder with the same repo token (moveCheck): the person is asked in the lead's own dialog, and their click is the
 // grant, through grantLead's steps with every check again after it (the move checks too). Before the grant is set: the `lead-moved` row (no row, no grant),
 // the goes the lead gave end (a new folder is a new reach, as at a re-grant) and its conductor tie goes (the record names the old repo). Cancel is the person's
-// no: the saved grant goes, as at any lead question. No answer, or a check that fails after the click, keeps the saved grant (its goes end): the next start asks again.
+// no: the saved grant goes, as at any lead question. No answer, or a check that fails after the click, keeps the saved grant (its goes and conductor tie end): the next start asks again.
 // A dialog already open in the session leaves the entry for the next idle tick.
 export async function leadMoveAsk($: any, sid: string, pend: LeadPending) {
   const from = pend.hint.pin
@@ -1273,9 +1273,11 @@ export async function leadMoveAsk($: any, sid: string, pend: LeadPending) {
   const done = () => {
     if (mine()) leadRestorePending.delete(sid)
   }
-  // An end with no grant: the goes the lead gave in the old folder end, as at a move or a refusal for another folder, so a later grant here finds none.
+  // An end with no grant: the goes the lead gave in the old folder end, as at a move or a refusal for another folder, and so does its conductor tie (the record
+  // names the old repo), so a later grant here finds neither.
   const refused = async (code: string) => {
     void goGrantorOff($, sid).catch(() => undefined)
+    await ownerLeave($, sid, 'off').catch(() => undefined)
     await log($, sid, 'lead-restore-rejected', code)
     toast($, c.notRestoredToast('lead', code, from))
   }
