@@ -389,6 +389,17 @@ test('restoreRefusal needs the lane listed, the folder to match and the name unu
   assert.equal(c.restoreRefusal({ counters: {}, savedAt: NOW }, [], '/x', []), undefined)
 })
 
+test('parkedReportSigned: the last line is `status: done` with the record\'s own session id; an older signature, another id or no id is not', () => {
+  const sid = '1a1b2c3d-0000-4000-8000-123456789abc'
+  const other = '4a1b2c3d-0000-4000-8000-123456789abc'
+  assert.equal(c.parkedReportSigned(`notes\nstatus: done ${sid}\n`, sid), true)
+  assert.equal(c.parkedReportSigned(`notes\nstatus: done ${sid}\n\n`, sid), true)
+  assert.equal(c.parkedReportSigned(`status: done ${sid}\nmore work\n`, sid), false)
+  assert.equal(c.parkedReportSigned(`status: done ${other}\n`, sid), false)
+  assert.equal(c.parkedReportSigned(`status: done ${sid}\n`, undefined), false)
+  assert.equal(c.parkedReportSigned('', sid), false)
+})
+
 test('the restore toast for a wrong folder names the saved folder and says where to run the command; other reasons keep the plain command', () => {
   assert.equal(c.notRestoredToast('lead', 'wrong-folder', '/Users/x/old/app'), 'Lead not restored: the session started in another folder than the one its saved grant names (app), so the saved grant was removed. Run /callboard lead in this folder.')
   assert.equal(c.notRestoredToast('conductor', 'wrong-folder', '/Users/x/old/hub'), 'Conductor not restored: the session started in another folder than the one its saved grant names (hub), so the saved grant was removed. Run /callboard conductor in this folder.')
