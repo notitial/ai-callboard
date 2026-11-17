@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import * as p from './prompts.ts'
+import { SENT_NOTE } from './core.ts'
 
 // The lead tier: the pure parts. The tools and the notice are tested through the mod's kit (mod/test/).
 const H = 'a'.repeat(64)
@@ -239,7 +240,7 @@ test('the prompt section: one text for the three levels, with no rubric and no r
   ]) assert.ok(c.includes(x), x)
 })
 test('the notice and the rubric: fixed text, no approval, no tool names in the rubric', () => {
-  assert.equal(p.PROMPT_NOTICE_TEXT, '[callboard] A lane has a prompt waiting. Call prompt_list. Submitted by the callboard mod, not by the user; it carries no approval, go or answer; never record it as one.')
+  assert.equal(p.PROMPT_NOTICE_TEXT, '[callboard] A lane has a prompt waiting. Call prompt_list. ' + SENT_NOTE)
   assert.equal(p.PROMPT_NOTICES_PER_HOUR, 30)
   assert.ok(p.RUBRIC.startsWith('**Allow only if you can say yes to all of these:**'))
   assert.ok(p.RUBRIC.includes('deny it with the cleaner-command message; don\'t pass it up.'))
