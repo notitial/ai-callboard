@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 import * as prm from '../hooks/prompts'
-import { h, SID, T0, leadFiles, longTest, pfs } from './harness'
+import { h, SID, T0, leadFiles, longTest, pfs, toasts } from './harness'
 import { APISID, LEADPATH, MGR_SESS, PIN, SVC, lane, mgrAt } from './fixtures'
 import { UNATTENDED_KEY } from '../hooks/engine/answer-hook'
 import { APIQ, LDIR, MGRT, PDIR, QASK, QIN, QTEXT, TID, TID2, addMgrT, answerCall, answerer, at, byMgr, callOf, handDecision, ledgerRows, pcall, putLedger, putQ, putWindow, readReq, refusal, runRequest, said, stop, tier, win, winShort } from './answer-fixtures'
@@ -110,6 +110,10 @@ longTest('provisional: the answer lands as the label with the provisional text, 
   expect(r).toEqual({ decision: { behavior: 'allow', updatedInput: { ...QIN, answers: { [QTEXT]: PROV_TEXT } } } })
   expect(kinds()).toEqual(['requested', 'answered answer', 'returned answer'])
   expect(of('returned')[0]).toMatchObject({ code: 'answer', opt: '1', tier: 'manager', by: MGRT, prov: 'yes', u })
+  // The person's list sets it apart from what was allowed.
+  const listed = (await $.command.run(lane('unattended'))).text as string
+  expect(listed).toContain('Questions answered provisionally, for you to review (the lane was told to take only reversible steps on them) (1):\n- lane svc-api · AskUserQuestion · by the manager · the cautious option')
+  expect(listed).not.toContain('Allowed (')
 })
 
 longTest('provisional: a plain answer by the manager in the window reads as by day', async ($, on) => {
@@ -164,6 +168,20 @@ test('repeat: the manager\'s list marks a request whose lane had a call of the s
   expect(part(TID)).toContain(prm.REPEAT_LINE)
   expect(part(TID2)).not.toContain('REPEAT:')
   expect(text).toContain('6. A request marked REPEAT that reaches the same effect as the call denied, parked or held before: park it.')
+})
+
+test('repeat: the person\'s list shows a request asked again after a park in the window, with what came of it, and counts it', async ($, on) => {
+  await asManager($, on)
+  const u = winShort(putWindow())
+  const t = (ms: number) => new Date(T0 + ms).toISOString()
+  const row = (id: string, ms: number, o: Record<string, unknown>) => ({ t: t(ms), id, lane: 'API', repo: `${PIN}/api`, tool: 'Bash', pattern: 'ssh', u, ...o })
+  const A = '0b1b2c3d-0000-4000-8000-123456789abc'
+  const B = '0c1b2c3d-0000-4000-8000-123456789abc'
+  putLedger([row(A, 1000, { kind: 'requested' }), row(A, 2000, { kind: 'returned', code: 'park', tier: 'manager', why: 'a deploy' }), row(B, 3000, { kind: 'requested' }), row(B, 4000, { kind: 'returned', code: 'deny', tier: 'manager', why: 'parked before' })])
+  const listed = (await $.command.run(lane('unattended'))).text as string
+  expect(listed).toContain('Asked again after a call of the same lane, tool and pattern was denied, parked or held in this window (each also in its own section above) (1):\n- lane API · ssh · denied')
+  await $.command.run(lane('unattended off', { kind: 'peer' }))
+  expect(toasts.filter((x) => x.startsWith('Unattended mode ended'))).toEqual(['Unattended mode ended: 1 parked, 1 denied, 1 asked again. /callboard unattended lists it.'])
 })
 
 test('repeat: a deny of another window, or by day, marks nothing', async ($, on) => {

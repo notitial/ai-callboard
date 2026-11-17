@@ -77,7 +77,8 @@ Facts that bound the options:
   until the read succeeds. A failed read must not hand the questions back to an absent person, and must not let a
   park through either.
 - **The record.** Every request and decision of a window carries the window's mark in the ledger. The person's own
-  command lists the window: how it ended, and what was parked, held, still open, denied and allowed. When a window
+  command lists the window: how it ended, and what was parked, answered provisionally, held, still open, denied, allowed
+  and asked again after a deny, park or hold of the same pattern. When a window
   ends the person is shown a toast with the counts, and an unread mark stays until they run that command, which then
   lists every window since they last read it. A tier held back by its notice cap in a window leaves a row.
 - **The go.** The mode gives and widens no go. No session, a lead or a conductor, can open the go dialog while it is

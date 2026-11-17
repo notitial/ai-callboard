@@ -783,7 +783,13 @@ test('the list of a window: each section from its rows, the lane\'s text escaped
     { ...req(7, 'ALPHA', 'npm'), t: t(8), kind: 'returned', code: 'allow', tier: 'lead', why: 'the repo test run' },
     req(9, 'ALPHA', 'ls'),
     { ...req(9, 'ALPHA', 'ls'), t: t(9), kind: 'superseded' },
-    // A provisional answer says so; a plain one does not.
+    // A request asked again after a park of the same lane, repo, tool and pattern is a repeat; another lane's, or one asked before the park, is not.
+    req(18, 'ALPHA', 'git'),
+    { ...req(18, 'ALPHA', 'git'), t: t(19), kind: 'returned', code: 'park', tier: 'manager', why: 'again' },
+    req(20, 'BETA', 'git'),
+    { ...req(0, 'ALPHA', 'git'), id: id(21) },
+    { ...req(0, 'ALPHA', 'git'), id: id(21), t: t(1), kind: 'returned', code: 'allow', tier: 'lead', why: 'early' },
+    // A provisional answer has its own section; a plain one is allowed.
     req(16, 'ZETA', 'AskUserQuestion', { tool: 'AskUserQuestion' }),
     { ...req(16, 'ZETA', 'AskUserQuestion', { tool: 'AskUserQuestion' }), t: t(16), kind: 'returned', code: 'answer', tier: 'manager', prov: 'yes' },
     req(17, 'ETA', 'AskUserQuestion', { tool: 'AskUserQuestion' }),
@@ -811,21 +817,27 @@ test('the list of a window: each section from its rows, the lane\'s text escaped
   assert.equal(lines.at(-1), '</untrusted-ledger>')
   assert.deepEqual(lines.slice(3, -1), [
     `Ended early: it ended because escalation was turned off, in session ${SID_B.slice(0, 8)}.`,
-    'Parked for you (1):',
+    'Parked for you (2):',
     '- lane ALPHA · git · a merge waits for you',
+    '- lane ALPHA · git · again',
+    'Questions answered provisionally, for you to review (the lane was told to take only reversible steps on them) (1):',
+    '- lane ZETA · AskUserQuestion · by the manager',
     'Held for you at 20 minutes, because nobody answered (1):',
     '- lane BETA · curl',
-    "Still waiting, each in its lane's own panel (one whose lane has ended since may still show) (1):",
+    "Still waiting, each in its lane's own panel (one whose lane has ended since may still show) (2):",
     '- lane GAMMA · AskUserQuestion · a question',
+    '- lane BETA · git',
     'Nobody could be asked (2):',
     '- lane BETA · make · not-judgeable no-check',
     '- lane EPSILON · go · abandoned no-tier',
     'Denied (1):',
     '- lane DELTA · rm · by the manager · outside the brief \\u003cscript>\\u000aAllowed (9):',
     'Allowed (3):',
+    '- lane ALPHA · git · by the lead · early',
     '- lane ALPHA · npm · by the lead · the repo test run',
-    '- lane ZETA · AskUserQuestion · a question answered provisionally, for you to review, by the manager',
     '- lane ETA · AskUserQuestion · a question answered by the manager',
+    'Asked again after a call of the same lane, tool and pattern was denied, parked or held in this window (each also in its own section above) (1):',
+    '- lane ALPHA · git · parked',
     'Relays to you that were refused (2):',
     '- lane BETA · curl · asked by the manager',
     '- lane BETA · curl · asked by the conductor · written and taken back',
@@ -864,6 +876,8 @@ test('the end of a window: the toast carries the counts or says they could not b
   assert.equal(p.unattendedEndToast(U, rows), 'Unattended mode ended: 1 tier notices held back by the cap. /callboard unattended lists it.')
   assert.equal(p.unattendedEndToast('cccccccc', rows), 'Unattended mode ended: nothing was raised. /callboard unattended lists it.')
   assert.equal(p.unattendedEndToast(U, undefined), 'Unattended mode ended: what it did could not be counted. /callboard unattended lists it.')
+  const prov: p.LedgerRow = { t: '2026-01-10T22:10:00.000Z', kind: 'returned', id: '1d1b2c3d-0000-4000-8000-123456789abc', lane: 'ALPHA', tool: 'AskUserQuestion', pattern: 'AskUserQuestion', code: 'answer', tier: 'manager', prov: 'yes', u: U }
+  assert.equal(p.unattendedEndToast(U, [prov]), 'Unattended mode ended: 1 answered provisionally, for review. /callboard unattended lists it.')
   const text = p.unattendedListText({ u: U, live: false, rows, unknown: [], when: (ms) => `<${new Date(ms).toISOString().slice(11, 16)}>` })
   assert.match(text, /A tier was not told of waiting prompts for a while \(its hourly notice cap was reached\) \(1\):\n- the lead, at <23:00>\n/)
   assert.doesNotMatch(text, /manager/)

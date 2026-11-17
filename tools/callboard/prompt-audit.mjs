@@ -57,7 +57,7 @@
 //   unattended-off  code (command | escalation-off | escalation-off:stored | escalation-off:file | expired | invalid | unbound | ended | void), hash?, u?,
 //              origin? (the origin code of a command that ended it), by (the session that ended it)   a window ended; written after the stored value was removed
 //   unattended-unknown   code (the cause), by   the first read of a run of reads that could not tell whether a window is open; it ended nothing
-//   notice-capped   code (prompts), tier, by, u   a tier's notice of waiting prompts was held back by its hourly cap while a window was held (once per capped stretch)
+//   notice-capped   code (prompts), tier, by, u   a tier's notice of waiting prompts was held back by its hourly cap while a window was held (once per tier and window)
 //              Rule u reads the unattended rows (ADR 0008), by time and by the window's short id: a `relayed` row inside a window; a `park` answered by a tier other than
 //              the manager, a `park` with no window mark, or an answered row whose mark names a window it was not written in (a minute of slack at each end); a window
 //              whose declared end is over 14 hours from its opening (the end row is not judged: a Mac asleep past the end ends the window late); and a window with no end
