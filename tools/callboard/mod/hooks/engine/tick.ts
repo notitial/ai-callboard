@@ -6,6 +6,7 @@ import {
   cmpMarked,
   requestFails,
   leadRestorePending,
+  offSeq,
   cmpCutPending,
   grants,
   watch,
@@ -109,10 +110,12 @@ async function timedStep($: any, sid: string, work: Promise<unknown>, event: str
 }
 
 // A moved folder's question (leadMoveAsk) waits for a person's session that is idle with an empty prompt box. Not awaited: the dialog waits up to 90 s.
+// The off counter is read before the reads, so an off typed during them ends the question (leadMoveAsk).
 async function leadMoveTick($: any, sid: string, lr: LeadPending) {
   if (lr.asking) return
+  const seq = offSeq.get(sid) ?? 0
   if (!(await personRow($, sid)) || (await idleCheck($, sid)) !== undefined) return
-  void leadMoveAsk($, sid, lr).catch(logFail($, sid, 'lead-move-ask'))
+  void leadMoveAsk($, sid, lr, seq).catch(logFail($, sid, 'lead-move-ask'))
 }
 
 // The request step of the tick: what a request needs next (clear, drop, resume, compact now). It is guarded: a step that throws on every tick must not keep the

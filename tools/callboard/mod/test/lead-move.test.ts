@@ -5,7 +5,7 @@ import * as g from '../hooks/go'
 import { HOUR_MS, REPO_ID_FILE, REPO_ID_PREFIX, leadMoveQuestion, leadMovedToast, notRestoredToast } from '../hooks/core'
 import { h, NO, SID, T0, YES, GO_DIR, extraStat, fakeSha, gitFiles, longTest, pdirs, pfs, realFails, realMap, toasts } from './harness'
 import { ledgerRows, putLedger } from './answer-fixtures'
-import { LEADKEY, PIN, dirStat, lane, leadSelfReg, logged, started, statusText, ticks, waitFor } from './fixtures'
+import { LEADKEY, PIN, dirStat, lane, leadSelfReg, logged, pause, started, statusText, ticks, waitFor } from './fixtures'
 
 const OLD = '/Users/x/old/app'
 const NEW = '/Users/x/new/app'
@@ -135,6 +135,24 @@ test('a check that fails after the click (the token gone meanwhile): no lead, no
   expect(await statusText($)).toContain('| Lead | OFF |')
   expect(movedRows()).toEqual([])
   expect(h.store.get(LEADKEY)).toMatchObject({ pin: OLD })
+})
+
+test('an off typed while the moved-folder question is being set up: a later Lead grants nothing, and the saved grant stays gone', async ($, on) => {
+  await mover($, on, [], { seed: () => putGo() })
+  let release: () => void = () => undefined
+  h.rootHang = new Promise((r) => (release = () => r({ value: NEW })))
+  const tick = ticks(3)
+  await pause()
+  const off = $.command.run(lane('off'))
+  await pause()
+  h.rootHang = undefined
+  release()
+  await off
+  await tick
+  await ticks(3)
+  expect(await statusText($)).toContain('| Lead | OFF |')
+  expect(h.store.has(LEADKEY)).toBe(false)
+  expect(movedRows()).toEqual([])
 })
 
 test('a lead-moved row that cannot be written: no lead, the saved grant stays', async ($, on) => {

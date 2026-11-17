@@ -1266,7 +1266,7 @@ export async function grantLead($: any, sid: string, code: c.OriginCode, busy: (
 // the goes the lead gave end (a new folder is a new reach, as at a re-grant) and its conductor tie goes (the record names the old repo). Cancel is the person's
 // no: the saved grant goes, as at any lead question. No answer, or a check that fails after the click, keeps the saved grant (its goes and conductor tie end): the next start asks again.
 // A dialog already open in the session leaves the entry for the next idle tick.
-export async function leadMoveAsk($: any, sid: string, pend: LeadPending) {
+export async function leadMoveAsk($: any, sid: string, pend: LeadPending, seq = offSeq.get(sid) ?? 0) {
   const from = pend.hint.pin
   const to = pend.move!
   const mine = () => leadRestorePending.get(sid) === pend
@@ -1282,7 +1282,9 @@ export async function leadMoveAsk($: any, sid: string, pend: LeadPending) {
     toast($, c.notRestoredToast('lead', code, from))
   }
   let clicked = false
-  // A lead granted meanwhile (the person's own /callboard lead, or an earlier ask of a replaced entry) ends the question unasked.
+  // An off since the tick read its counter (leadDrop took the entry) or a replaced entry: nothing is asked. A lead granted meanwhile (the person's own
+  // /callboard lead, or an earlier ask of a replaced entry) ends the question unasked.
+  if (!mine() || (offSeq.get(sid) ?? 0) !== seq) return
   if (grants.get(sid)?.level === 'lead') return void done()
   pend.asking = true
   try {
@@ -1291,6 +1293,8 @@ export async function leadMoveAsk($: any, sid: string, pend: LeadPending) {
       question: c.leadMoveQuestion(from, to),
       onLog: ['lead-restored', 'moved'],
       onClick: () => (clicked = true),
+      // The off counter from the tick: an off typed before the dialog opened is seen after the click, and nothing is granted.
+      seq,
       toast: c.leadMovedToast(from, to),
       onNotYes: async (r) => {
         done()
@@ -1303,6 +1307,7 @@ export async function leadMoveAsk($: any, sid: string, pend: LeadPending) {
         return { text: 'Lead stays off.', code: 'move-unanswered' }
       },
       extraRecheck: async () => {
+        if (!mine()) return { text: 'Lead stays off.', code: 'off-meanwhile' }
         const p = await where($)
         const m = p ? await moveCheck($, pend.hint, to, homeOf(p), p.uid) : { again: 'cwd-unreadable' }
         return m === 'match' ? undefined : { text: 'Lead stays off.', code: 'move-changed' }
@@ -1321,7 +1326,8 @@ export async function leadMoveAsk($: any, sid: string, pend: LeadPending) {
     // the question; the saved grant stays for the next start.
     if (!clicked && (res.code === 'grant-failed' || res.code === 'registry-unreadable') && ++pend.tries < LEAD_RESTORE_TRIES) return
     done()
-    if (res.code !== undefined && res.code !== 'move-cancelled' && res.code !== 'move-unanswered') await refused(res.code)
+    // An off meanwhile has said its own words and ended the saved grant: no toast of a refusal.
+    if (res.code !== undefined && res.code !== 'move-cancelled' && res.code !== 'move-unanswered' && res.code !== 'off-meanwhile') await refused(res.code)
   } catch (e) {
     // No question asked again on every idle tick after a failure: the entry goes, and the person hears of it unless the grant was made.
     done()
