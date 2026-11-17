@@ -38,9 +38,10 @@ export const mem = {
   // The unattended window (engine/answer-hook.ts). unattended: the last read, kept for its TTL. unattendedSure: the last state a read was sure of. unattendedUnknown:
   // the run of unknown reads now under way has its ledger row. unattendedHash: the last value
   // hashed, by its canonical text. unattendedLookedAt: when the tick last looked. unattendedCloses: how many windows this process has ended, so a read under way
-  // across an end is not kept.
+  // across an end is not kept. unattendedU: the short id of the window last read on, until a read is sure it is off.
   unattended: undefined as { at: number; w: pr.Window } | undefined,
   unattendedSure: undefined as 'on' | 'off' | undefined,
+  unattendedU: undefined as string | undefined,
   unattendedUnknown: false,
   unattendedHash: undefined as { text: string; hash: string } | undefined,
   unattendedLookedAt: undefined as number | undefined,
@@ -334,6 +335,9 @@ export const promptCapLogged = new Set<string>()
 // is told twice at most. A request that closed meanwhile is dropped by the tick's scan and its marks here with it.
 export const promptMidSent = new Map<string, Set<string>>()
 export const promptMidRetold = new Map<string, Set<string>>()
+// The tiers whose notice step ran while an unattended window was on: when the window is off again their told marks are cleared once, so a request the window
+// kept from the person is told again.
+export const windowHeldSeen = new Set<string>()
 
 // A conductor's own lead offers, by its session id: the nonce and the time of each, newest last (capped, one day). conductorGrantCheck reads it to tell a grant it made from one it did not.
 export const condOffers = new Map<string, { nonce: string; at: number }[]>()

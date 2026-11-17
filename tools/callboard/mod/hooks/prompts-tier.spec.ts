@@ -565,3 +565,32 @@ test('tierLead: a lead\'s own request names its own lead; a lane\'s names its le
   assert.equal(p.tierLead({ level: 'lane', lane: 'svc-api', leadSid: SID_B }), '', 'known but unnamed: no record can name it')
   assert.equal(p.tierLead({ level: 'lane', lane: 'svc-api' }), undefined, 'a lane that names no lead follows the repo\'s only record')
 })
+
+test('an unattended window in the tier texts: no turn line offers the person, here counts for nothing, and each refusal has its text', () => {
+  const lines = [
+    p.turnLine({ top: true, away: 'manager' }),
+    p.turnLine({ top: true, away: 'manager', question: true }),
+    p.turnLine({ top: true, away: 'no-manager' }),
+    p.turnLine({ top: true, away: 'no-manager', question: true }),
+    p.turnLine({ top: false, away: 'no-manager', here: true }),
+    p.turnLine({ top: true, away: 'manager', here: true }),
+    p.turnLine({ top: false, above: { level: 'manager', name: 'MANAGER' }, away: 'no-manager', here: true }),
+  ]
+  for (const l of lines) assert.ok(!/put it to (the person|them)|The person said they are here/.test(l), l)
+  assert.equal(lines[0], 'Unattended mode: allow, deny or park it by the rubric and the unattended rules below. Nothing is put to the person.')
+  assert.equal(lines[1], 'Unattended mode: answer it with an offered option by the question rubric, or leave it open for the person. Nothing is put to them.')
+  assert.equal(lines[2], 'Unattended mode: you are the top tier for this prompt and the person is not asked. Answer it by the rubric if you can; otherwise leave it, and it is held for the person at 20 minutes.')
+  assert.equal(lines[3], "Unattended mode: you are the top tier for this question and the person is not asked. Answer it with an offered option by the rubric if you can; otherwise leave it, and it stays open in the lane's panel.")
+  assert.equal(lines[4], lines[2])
+  assert.equal(lines[5], lines[0])
+  // A tier with one above it passes up as by day, here or not.
+  assert.equal(lines[6], 'The manager MANAGER is above you. Answer it by the rubric, or pass it up with prompt_escalate.')
+  assert.ok(p.turnLine({ top: true, away: 'manager', opensInSec: 12 }).endsWith('Your window opens in 12 s; an answer, a relay or a pass-up before then is refused.'))
+  // A relay that is still there reads as it always did.
+  assert.ok(p.turnLine({ relay: { level: 'lead', name: 'LEAD' }, top: true, away: 'manager' }).startsWith('With the person: the lead LEAD is asking them.'))
+  for (const code of ['unattended', 'unattended-no-manager', 'park-not-allowed', 'unattended-unread']) assert.ok((p.PROMPT_REFUSE[code] ?? '').length > 10, code)
+  assert.ok(p.PROMPT_REFUSE.unattended.includes('allow, deny or park it'))
+  assert.ok(p.PROMPT_REFUSE['unattended-no-manager'].includes('held for the person at 20 minutes') && !p.PROMPT_REFUSE['unattended-no-manager'].includes('park'))
+  assert.ok(p.PROMPT_REFUSE['bad-input'].includes('or park in unattended mode'))
+  assert.ok(p.ROW_KINDS.includes('relay-refused'))
+})

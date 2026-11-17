@@ -540,15 +540,19 @@ test('unattendedBind: the on row of the same hash binds a value, an off row of i
   assert.equal(p.unattendedBind([], H, WIN, WIN.savedAt - 60_000), 'wait')
 })
 
-test('what unknown means: held after a sure on and never otherwise, and on for nothing', () => {
+test('what unknown means: held after a sure on or with a stored value seen, never with neither, and on for nothing', () => {
   const on: p.Window = { state: 'on', value: WIN, u: 'aaaaaaaa' }
   const unknown: p.Window = { state: 'unknown', cause: 'store', key: false }
+  const seen: p.Window = { state: 'unknown', cause: 'ledger', key: true }
   assert.equal(p.unattendedHeldOf(on, undefined), true)
   assert.equal(p.unattendedHeldOf(on, 'off'), true)
   assert.equal(p.unattendedHeldOf({ state: 'off' }, 'on'), false)
   assert.equal(p.unattendedHeldOf(unknown, 'on'), true)
   assert.equal(p.unattendedHeldOf(unknown, 'off'), false)
   assert.equal(p.unattendedHeldOf(unknown, undefined), false)
+  // A stored value that could not be judged holds, whatever this process read before; it permits nothing.
+  for (const sure of ['on', 'off', undefined] as const) assert.equal(p.unattendedHeldOf(seen, sure), true, String(sure))
+  assert.equal(p.unattendedOnOf(seen), false)
   assert.equal(p.unattendedOnOf(on), true)
   assert.equal(p.unattendedOnOf(unknown), false)
   assert.equal(p.unattendedOnOf({ state: 'off' }), false)
@@ -591,4 +595,173 @@ test('the unattended rows: the three kinds are ledger kinds, and a row keeps its
   for (const k of ['unattended-on', 'unattended-off', 'unattended-unknown'] as const) assert.ok(p.ROW_KINDS.includes(k), k)
   const line = p.ledgerLine({ t: 'x', kind: 'unattended-off', code: 'command', hash: H, u: 'aaaaaaaa', origin: 'session', by: SID_A })
   assert.deepEqual(JSON.parse(line), { t: 'x', kind: 'unattended-off', code: 'command', hash: H, u: 'aaaaaaaa', origin: 'session', by: SID_A })
+})
+
+// ---- what an unattended window does (ADR 0008) ----
+const U = 'aaaaaaaa'
+const MGR = { level: 'manager', sid: SID_B, name: 'MANAGER' }
+test('parseDecision: a park and a window mark are read; a mark that is not 8 hex, and a decision of a kind this code does not know, are no decision', () => {
+  const park = baseDec({ decision: 'park', by: MGR, u: U })
+  assert.deepEqual(p.parseDecision(JSON.stringify(park)), { ...park, via: undefined })
+  assert.deepEqual(p.parseDecision(JSON.stringify(baseDec({ u: U }))), { ...baseDec({ u: U }), via: undefined })
+  assert.equal(p.parseDecision(JSON.stringify(baseDec())).u, undefined)
+  for (const u of ['', 'AAAAAAAA', 'aaaaaaa', 'aaaaaaaaa', 'zzzzzzzz', 7, null]) assert.equal(p.parseDecision(JSON.stringify({ ...baseDec(), u })), undefined, String(u))
+  // What a hook that does not know a kind does with it: the file is not a decision, so it is dropped as a bad shape.
+  for (const decision of ['hold', 'provisional', 'PARK', '']) assert.equal(p.parseDecision(JSON.stringify({ ...baseDec(), decision })), undefined, decision)
+  assert.equal(p.parseDecision(JSON.stringify({ ...park, answer: { index: 0, label: 'Red' } })), undefined)
+})
+
+test('applyCheck: a park is the manager\'s own, names its window and lands only inside it; a window that cannot be read holds it', () => {
+  const park = (o: Partial<p.Decision> = {}) => baseDec({ decision: 'park', by: MGR, u: U, ...o })
+  const on = { state: 'on', u: U } as const
+  assert.deepEqual(apply({ decision: park(), window: on }), { ok: true })
+  // Not a manager's, the person's, or with no window named: not a park.
+  assert.deepEqual(apply({ decision: park({ by: { level: 'lead', sid: SID_B, name: 'LEAD' } }), window: on }), { drop: 'kind' })
+  assert.deepEqual(apply({ decision: park({ by: { level: 'conductor', sid: SID_B, name: 'C' } }), window: on }), { drop: 'kind' })
+  assert.deepEqual(apply({ decision: park({ u: undefined }), window: on }), { drop: 'kind' })
+  assert.deepEqual(apply({ decision: park({ via: 'person' }), relay: { sid: SID_B, nonce: 'n1' }, window: on }), { drop: 'kind' })
+  // A question is never parked.
+  assert.deepEqual(apply({ decision: park(), window: on, question: { labels: ['Red', 'Green'] } }), { drop: 'kind' })
+  // The window: ended, another one, or not readable (absent reads the same).
+  assert.deepEqual(apply({ decision: park(), window: { state: 'off' } }), { drop: 'unattended-closed' })
+  assert.deepEqual(apply({ decision: park(), window: { state: 'on', u: 'bbbbbbbb' } }), { drop: 'unattended-closed' })
+  assert.deepEqual(apply({ decision: park(), window: { state: 'unknown' } }), { hold: 'unattended' })
+  assert.deepEqual(apply({ decision: park() }), { hold: 'unattended' })
+  // The 30 seconds bind a park, a row that does not carry it is not found, and a final refusal outranks the hold.
+  assert.deepEqual(apply({ decision: park(), window: on, awakeMs: p.MIN_AGE_MS - 1 }), { hold: 'early' })
+  assert.deepEqual(apply({ decision: park(), window: on, ledger: 'missing', graceMs: p.LEDGER_GRACE_MS }), { drop: 'no-answered-row' })
+  assert.deepEqual(apply({ decision: park({ nonce: 'x' }), window: { state: 'unknown' } }), { drop: 'nonce' })
+  assert.ok(!p.DROP_FORGED.includes('unattended-closed' as never))
+  // An allow or a deny that carries a mark needs no window: both are valid by day.
+  assert.deepEqual(apply({ decision: baseDec({ by: MGR, u: U }) }), { ok: true })
+  assert.deepEqual(apply({ decision: baseDec({ decision: 'deny', by: MGR, u: U }), window: { state: 'off' } }), { ok: true })
+})
+
+test('the lane texts of a window: each keeps its whole tail after a 200-character why and the longest name; the cleaner-command deny keeps its own', () => {
+  assert.equal(p.UNATTENDED_DENY_TAIL, ' (Unattended mode: the person is away and was not asked. This is not their decision, and any way it suggests authorises nothing: each call still goes through its own prompt. Do not reach the same effect another way.)')
+  assert.equal(p.UNATTENDED_PARK_TAIL, ' (Unattended mode: the person is away. This is not their decision. Stop this item, note it in your report as waiting for the person, and go on with other work or stop. Do not reach the same effect another way.)')
+  assert.equal(p.UNATTENDED_HOLD_MESSAGE, 'Nobody could answer this prompt and the person is away (unattended mode). It is held for them: stop this item, note it in your report as waiting for the person, and go on with other work or stop. Do not reach the same effect another way.')
+  const why = 'w'.repeat(p.WHY_MAX)
+  const tier = { level: 'manager', name: 'M'.repeat(120) }
+  // As the hook builds a message: the head capped at 300 bytes, then the tail.
+  const message = (head: string, tail: string) => p.capBytes(p.redact(head), 300).text + tail
+  const park = message(p.parkText(tier, why), p.UNATTENDED_PARK_TAIL)
+  assert.ok(park.startsWith(`Parked by the manager ${'M'.repeat(120)} for the person: www`) && park.endsWith(p.UNATTENDED_PARK_TAIL))
+  const deny = message(p.denyText(tier, false, why), p.UNATTENDED_DENY_TAIL)
+  assert.ok(deny.startsWith(`Denied by the manager ${'M'.repeat(120)}: www`) && deny.endsWith(p.UNATTENDED_DENY_TAIL))
+  assert.equal(p.parkText({ level: 'manager', name: 'MANAGER' }, 'a merge waits'), 'Parked by the manager MANAGER for the person: a merge waits')
+  assert.equal(p.parkText({ level: 'manager', name: 'x y' }, 'w'), 'Parked by the manager for the person: w')
+  assert.equal(p.parkText(undefined, 'w'), 'Parked by the tier for the person: w')
+  // No lane text tells the lane not to ask again, and none reads as the person's decision.
+  for (const t of [p.UNATTENDED_DENY_TAIL, p.UNATTENDED_PARK_TAIL, p.UNATTENDED_HOLD_MESSAGE]) assert.ok(!/ask again/i.test(t) && /Do not reach the same effect another way\./.test(t), t)
+  const unclear = message(p.denyText(tier, false, `${p.UNCLEAR_PREFIX}${'w'.repeat(170)}`), p.UNCLEAR_SUFFIX)
+  assert.ok(unclear.endsWith(p.UNCLEAR_SUFFIX) && !unclear.includes('Unattended mode'))
+  // A tier's own question and its own prompt: fixed texts with nothing of the session's in them, and neither claims a decision.
+  assert.ok(p.TIER_QUESTION_DENY.includes('Take the safe default, note the open decision where the person will see it') && p.TIER_QUESTION_DENY.includes('nothing was decided'))
+  assert.ok(p.TIER_PROMPT_DENY.includes('It is not a decision on the call itself.') && p.TIER_PROMPT_DENY.includes('note it for the person and go on'))
+})
+
+test('prompt_list in a window: the manager\'s block follows the rubric and fits the budget with 20 requests of the longest texts; a lower tier gets one line', () => {
+  const block = p.unattendedBlock('Tue 18 Nov 07:00')
+  assert.ok(block.startsWith('**Unattended mode is on until Tue 18 Nov 07:00.** The person is away and nothing reaches them;'))
+  assert.ok(p.unattendedBlock().startsWith('**Unattended mode is on.** '))
+  for (const part of ['1. Allow only what the rubric above lets you allow or handle.', '**Park** it: `prompt_answer`, decision `park`', 'If unsure which, park.', "4. A call you can't see whole or understand: the cleaner-command deny, as always.", '5. A question: answer it only by the question rubric.', 'Do not call a stop tool, and do not ask the person anything']) assert.ok(block.includes(part), part)
+  // The go's own list, whole: one list for what always waits for the person.
+  assert.ok(block.includes('a merge; a force push; a push to main, master or production;') && block.includes("work the go's text does not name."))
+  // Nothing in the block names a tool that does not exist yet.
+  assert.ok(!block.includes('unattended_off'))
+  const big = { command: 'x'.repeat(p.STRING_CAP) }
+  const items: p.ListItem[] = Array.from({ length: 20 }, (_, n) => ({ id: `${String(n).padStart(8, '0')}-0000-4000-8000-123456789abc`, lane: 'L'.repeat(120), tool: n === 0 ? p.QUESTION_TOOL : 'Bash', repo: '/Users/x/repo', raisedBy: 'hook', ageSec: 60, truncated: false, input: n === 0 ? qIn() : big, turn: p.turnLine({ top: true, away: 'manager' }), reason: 'r'.repeat(p.REASON_CAP) }))
+  const text = p.promptListText(items, { on: true, unattended: { tier: 'manager', until: 'Tue 18 Nov 07:00' } })
+  assert.ok(new TextEncoder().encode(text).length <= p.LIST_TEXT_MAX)
+  assert.ok(text.endsWith(block) && text.includes(`${p.QUESTION_RUBRIC}\n\n${block}`))
+  assert.ok(/\d+ more are open; answer these and call prompt_list again\./.test(text))
+  const lower = p.promptListText(items.slice(1, 2), { on: true, unattended: { tier: 'lower' } })
+  assert.ok(lower.endsWith(`${p.RUBRIC}\n\n${p.UNATTENDED_TIER_LINE}`) && !lower.includes('**Park**'))
+  assert.ok(p.UNATTENDED_TIER_LINE.includes('is held for them at 20 minutes'))
+  // Outside a window, and with nothing listed, nothing of the mode is shown.
+  assert.ok(!p.promptListText(items.slice(1, 2), { on: true }).includes('**Unattended mode is on'))
+  assert.ok(!p.promptListText([], { on: true, unattended: { tier: 'manager' } }).includes('Unattended'))
+})
+
+test('the list of a window: each section from its rows, the lane\'s text escaped inside one frame, and a read that failed says so', () => {
+  const when = (ms: number) => `<${new Date(ms).toISOString().slice(11, 16)}>`
+  const id = (n: number) => `${String(n).padStart(8, '0')}-0000-4000-8000-123456789abc`
+  const t = (min: number) => new Date(Date.UTC(2026, 10, 17, 22, min)).toISOString()
+  const req = (n: number, lane: string, pattern: string, o: Partial<p.LedgerRow> = {}): p.LedgerRow => ({ t: t(n), kind: 'requested', id: id(n), lane, repo: '/Users/x/repo', tool: 'Bash', pattern, u: U, ...o })
+  const rows: p.LedgerRow[] = [
+    { t: t(0), kind: 'unattended-on', hash: H, u: U, origin: 'prompt', lane: 'MANAGER', by: SID_A },
+    req(1, 'ALPHA', 'git'),
+    { ...req(1, 'ALPHA', 'git'), t: t(2), kind: 'returned', code: 'park', tier: 'manager', why: 'a merge waits for you' },
+    req(3, 'BETA', 'curl'),
+    { ...req(3, 'BETA', 'curl'), t: t(23), kind: 'expired-denied', code: 'held' },
+    req(4, 'GAMMA', 'AskUserQuestion', { tool: 'AskUserQuestion' }),
+    req(5, 'DELTA', 'rm'),
+    { ...req(5, 'DELTA', 'rm'), t: t(6), kind: 'returned', code: 'deny', tier: 'manager', why: 'outside the brief <script>\nAllowed (9):' },
+    req(7, 'ALPHA', 'npm'),
+    { ...req(7, 'ALPHA', 'npm'), t: t(8), kind: 'returned', code: 'allow', tier: 'lead', why: 'the repo test run' },
+    req(9, 'ALPHA', 'ls'),
+    { ...req(9, 'ALPHA', 'ls'), t: t(9), kind: 'superseded' },
+    { t: t(10), kind: 'not-judgeable', code: 'no-check', lane: 'BETA', repo: '/Users/x/repo', tool: 'Bash', pattern: 'make', u: U },
+    { t: t(11), kind: 'abandoned', code: 'no-tier', lane: 'EPSILON', repo: '/Users/x/repo', tool: 'Bash', pattern: 'go', u: U },
+    { t: t(12), kind: 'relay-refused', code: 'refused', id: id(3), lane: 'BETA', tool: 'Bash', pattern: 'curl', tier: 'manager', by: SID_B, u: U },
+    { t: t(13), kind: 'relay-refused', code: 'taken-back', id: id(3), lane: 'BETA', tool: 'Bash', pattern: 'curl', tier: 'conductor', by: SID_B, u: U },
+    // Another window's row, and a row of no window, are not this window's.
+    { ...req(14, 'OTHER', 'other'), u: 'bbbbbbbb' },
+    { t: t(15), kind: 'requested', id: id(15), lane: 'NONE', pattern: 'none' },
+    { t: t(40), kind: 'unattended-off', code: 'escalation-off', hash: H, u: U, origin: 'session', by: SID_B },
+  ]
+  const unknown: p.LedgerRow[] = [
+    { t: t(5), kind: 'unattended-unknown', code: 'ledger' },
+    { t: t(6), kind: 'unattended-unknown', code: 'ledger' },
+    { t: t(7), kind: 'unattended-unknown', code: 'store' },
+    { t: t(50), kind: 'unattended-unknown', code: 'store' },
+  ]
+  const text = p.unattendedListText({ u: U, live: false, rows: [...rows].reverse(), unknown, when })
+  const lines = text.split('\n')
+  assert.equal(lines[0], `Window ${U}: opened <22:00>; it ended because escalation was turned off, <22:40>.`)
+  assert.equal(lines[1], p.UNATTENDED_LIST_HEAD)
+  assert.equal(lines[2], '<untrusted-ledger>')
+  assert.equal(lines.at(-1), '</untrusted-ledger>')
+  assert.deepEqual(lines.slice(3, -1), [
+    `Ended early: it ended because escalation was turned off, in session ${SID_B.slice(0, 8)}.`,
+    'Parked for you (1):',
+    '- lane ALPHA · git · a merge waits for you',
+    'Held for you at 20 minutes, because nobody answered (1):',
+    '- lane BETA · curl',
+    "Still waiting, each in its lane's own panel (one whose lane has ended since may still show) (1):",
+    '- lane GAMMA · AskUserQuestion · a question',
+    'Nobody could be asked (2):',
+    '- lane BETA · make · not-judgeable no-check',
+    '- lane EPSILON · go · abandoned no-tier',
+    'Denied (1):',
+    '- lane DELTA · rm · by the manager · outside the brief \\u003cscript>\\u000aAllowed (9):',
+    'Allowed (1):',
+    '- lane ALPHA · npm · by the lead · the repo test run',
+    'Relays to you that were refused (2):',
+    '- lane BETA · curl · asked by the manager',
+    '- lane BETA · curl · asked by the conductor · written and taken back',
+    'Reads of the window that gave no answer (3):',
+    '- the ledger did not answer: 2',
+    '- the store did not answer: 1',
+  ])
+  // The person's own off and the end time are not "ended early"; a live window says it is on.
+  const ended = (off: Partial<p.LedgerRow>) => p.unattendedListText({ u: U, live: false, rows: [rows[0], { t: t(40), kind: 'unattended-off', u: U, ...off }], unknown: [], when })
+  assert.equal(ended({ code: 'command', origin: 'phone' }), `Window ${U}: opened <22:00>; it was ended with /callboard unattended off from your phone, <22:40>.\nNothing was raised in this window.`)
+  assert.equal(ended({ code: 'expired' }), `Window ${U}: opened <22:00>; it ended at its end time, <22:40>.\nNothing was raised in this window.`)
+  assert.ok(ended({ code: 'command', origin: 'session', by: SID_B }).includes(`Ended early: it was ended with /callboard unattended off from another session, in session ${SID_B.slice(0, 8)}.`))
+  assert.ok(ended({ code: 'command', origin: '<b>' }).includes('from an unknown origin'))
+  assert.ok(ended({ code: 'new-code' }).includes('Ended early: it ended for a reason this version does not know.'))
+  assert.equal(p.unattendedListText({ u: U, live: true, rows: [rows[0]], unknown: [], when }), `Window ${U}: opened <22:00>; it is on now.\nNothing was raised in this window.`)
+  // A section past 30 items is cut and counted; a lane name that is not a plain word is not printed.
+  const many = Array.from({ length: 35 }, (_, n) => ({ ...req(100 + n, n === 0 ? 'bad name\n' : 'ALPHA', 'git'), kind: 'returned' as const, code: 'park', why: 'w' }))
+  const cut = p.unattendedListText({ u: U, live: true, rows: [rows[0], ...many], unknown: [], when }).split('\n')
+  assert.equal(cut[3], 'Parked for you (35):')
+  assert.equal(cut[4], '- lane (unnamed) · git · w')
+  assert.equal(cut[34], '- and 5 more')
+  assert.equal(cut.length, 36)
+  // A read that failed or was cut shows no list and names the audit; a failed read of the unknown rows says so.
+  assert.equal(p.unattendedListText({ u: U, live: true, rows: undefined, unknown: [], when }), p.UNATTENDED_LIST_UNREAD)
+  assert.ok(p.UNATTENDED_LIST_UNREAD.includes('tools/callboard/prompt-audit.mjs'))
+  assert.ok(p.unattendedListText({ u: U, live: true, rows: [rows[0]], unknown: undefined, when }).includes('could not be listed'))
 })

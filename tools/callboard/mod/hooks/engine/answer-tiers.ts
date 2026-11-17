@@ -12,6 +12,7 @@ import {
   turnKind,
   promptMidSent,
   promptMidRetold,
+  windowHeldSeen,
   mem,
 } from '../mem.ts'
 import { sha, dirOk, readSmallR, statR, where, run, INSTALL, TEE, rmF, log, submitOwn, logq } from './base.ts'
@@ -32,7 +33,11 @@ import {
   capOf,
   labelHash,
   hereNow,
+  unattendedNow,
+  unattendedHeld,
+  unattendedHold,
 } from './answer-hook.ts'
+import { goWhen } from '../go.ts'
 import { getNudgeDue, getRequest } from '../state.ts'
 
 const LN = '/bin/ln'
@@ -271,7 +276,10 @@ async function promptListTool($: any, e: unknown): Promise<{ result: string } | 
   const recs = await loadLeadRecords($)
   // Requests in this tier's reach that are still in the person's first 30 seconds: counted, not shown.
   let young = 0
-  const here = await hereNow($, sid)
+  // While an unattended window is held nothing is put to the person: `here` counts for nothing, the turn lines say so, and the mode's rules follow the rubric.
+  const hold = await unattendedHold($)
+  const manager = grantOf(sid)?.level === 'manager'
+  const here = !hold.held && (await hereNow($, sid))
   const open = (
     await promptRequests($, t.p, async (q, names, dir) => {
       if (names.has(`${q.id}.done`) || names.has(`${q.id}.decision.json`) || q.sid === sid) return false
@@ -291,10 +299,11 @@ async function promptListTool($: any, e: unknown): Promise<{ result: string } | 
     const q = f.req
     const s = stands.get(q.id)!
     const top = s.stand.top
-    const turn = pr.turnLine({ relay: s.stand.relay?.by, top: top?.sid === s.self.sid || top?.level === s.self.level, above: top, opensInSec: promptWindowShut(s.stand, sid, now) ? (s.stand.windows[sid] - now) / 1000 : undefined, question: q.tool === pr.QUESTION_TOOL, here })
+    const turn = pr.turnLine({ relay: s.stand.relay?.by, top: top?.sid === s.self.sid || top?.level === s.self.level, above: top, opensInSec: promptWindowShut(s.stand, sid, now) ? (s.stand.windows[sid] - now) / 1000 : undefined, question: q.tool === pr.QUESTION_TOOL, here, ...(hold.held ? { away: manager ? ('manager' as const) : ('no-manager' as const) } : {}) })
     items.push({ id: q.id, lane: q.lane, tool: q.tool, repo: q.repo, raisedBy: q.raisedBy, ageSec: (now - q.at) / 1000, truncated: q.truncated, agentType: q.agentType, input: q.input, turn, ...(q.reason !== undefined ? { reason: q.reason, ...(q.reasonCut ? { reasonCut: true } : {}) } : {}) })
   }
-  return { result: pr.promptListText(items, { on: true, young, hint: await promptAnomalyHint($, t.p).catch(() => undefined) }) }
+  const unattended = hold.held ? { tier: manager ? ('manager' as const) : ('lower' as const), ...(hold.until !== undefined ? { until: goWhen(hold.until, -new Date(hold.until).getTimezoneOffset()) } : {}) } : undefined
+  return { result: pr.promptListText(items, { on: true, young, hint: await promptAnomalyHint($, t.p).catch(() => undefined), ...(unattended ? { unattended } : {}) }) }
 }
 
 // prompt_answer and prompt_escalate share their checks; `answer` false is the escalation: a tier that is not the top one passes the request up; the top one, and
@@ -311,7 +320,7 @@ async function promptAnswerTool($: any, e: any, answer: boolean): Promise<{ resu
   const id = typeof e.id === 'string' ? e.id : ''
   const decision = e.decision
   const why = pr.cleanWhy(e.why)
-  if (!c.SID_RE.test(id) || why === undefined || (answer && decision !== 'allow' && decision !== 'deny' && decision !== 'answer')) return refuse('bad-input')
+  if (!c.SID_RE.test(id) || why === undefined || (answer && decision !== 'allow' && decision !== 'deny' && decision !== 'answer' && decision !== 'park')) return refuse('bad-input')
   if (!t.answering || t.off) return refuse('off')
   const found = await promptFind($, { p: t.p, live: t.live, answering: t.answering }, sid, id, !answer)
   if ('no' in found) return refuse(found.no)
@@ -331,6 +340,18 @@ async function promptAnswerTool($: any, e: any, answer: boolean): Promise<{ resu
     if (e.answer !== undefined && (typeof e.answer !== 'string' || pr.matchLabel(labels, e.answer) !== opt - 1)) return refuse('bad-answer')
     pick = { index: opt - 1, label: labels[opt - 1] }
   } else if (answer && decision === 'answer') return refuse('bad-input')
+  // The unattended window (ADR 0008). A park is the manager's alone and only while a window reads on: a window that cannot be read permits none. Every decision
+  // the manager makes while a window reads on carries the window's short id, in its file and on its row.
+  let u: string | undefined
+  if (answer && (decision === 'park' || self.level === 'manager')) {
+    const win = await unattendedNow($)
+    if (decision === 'park') {
+      if (self.level !== 'manager') return refuse('park-not-allowed')
+      if (win.state === 'unknown') return refuse('unattended-unread')
+      if (win.state !== 'on') return refuse('park-not-allowed')
+    }
+    if (self.level === 'manager' && win.state === 'on') u = win.u
+  }
   // The decision is judged on the copy the tier read. A truncated copy cannot be allowed (the rubric: seen whole), and cannot be put to the person either: it is
   // denied, asking the lane for a cleaner call.
   if (answer) {
@@ -351,7 +372,7 @@ async function promptAnswerTool($: any, e: any, answer: boolean): Promise<{ resu
     const lh = pick ? await labelHash($, id, pick.label).catch(() => undefined) : undefined
     if (pick && lh === undefined) return refuse('write-failed')
     const path = `${dir}/${id}.decision.json`
-    const body = JSON.stringify({ id, inputHash: q.inputHash, decision, ...(pick ? { answer: pick } : {}), why, by: { level: self.level, sid, name }, at: now, nonce: q.nonce })
+    const body = JSON.stringify({ id, inputHash: q.inputHash, decision, ...(pick ? { answer: pick } : {}), why, by: { level: self.level, sid, name }, at: now, nonce: q.nonce, ...(u !== undefined ? { u } : {}) })
     const put = await promptLinkOnce($, path, body)
     if (put === 'exists') return refuse('decided')
     if (put === 'failed') return refuse('write-failed')
@@ -363,18 +384,21 @@ async function promptAnswerTool($: any, e: any, answer: boolean): Promise<{ resu
     }
     // The row is written only after the file is in place; the hook holds a decision it sees a moment before its row for a few seconds. A row that cannot be written
     // takes the file back, so a decision never stands without its row.
-    if (!(await ledgerAdd($, { ...row, kind: 'answered', code: decision, by: sid, ...(cap ? { cap: cap.kind, target: cap.target } : {}), ...(pick ? { opt: String(pick.index), lh } : {}) }))) {
+    if (!(await ledgerAdd($, { ...row, kind: 'answered', code: decision, by: sid, ...(cap ? { cap: cap.kind, target: cap.target } : {}), ...(pick ? { opt: String(pick.index), lh } : {}), ...(u !== undefined ? { u } : {}) }))) {
       await rmF($, path)
       return refuse('write-failed')
     }
     if (decision === 'deny' && pr.isUnclear(why)) await ledgerAdd($, { ...row, kind: 'deny-unclear', code: 'deny', by: sid })
+    if (decision === 'park') return { result: `Recorded: park for ${id}. It closes the prompt for the person's return once the prompt has been open 30 seconds: the lane is told to stop this item and note it as waiting for the person, and the person's list shows your one line. It is yours, not the person's, and carries no approval for anything else.` }
     if (pick) return { result: `Recorded: answer ${pick.index + 1} for ${id}. The card stays open in front of the person and their click wins; your answer lands once the question has been open 30 seconds, as the offered label with "(answered by …)" after it. It is yours, not the person's, and carries no approval for anything else.` }
     return { result: `Recorded: ${decision} for ${id}. The dialog stays open in front of the person and their click wins; your answer lands once the prompt has been open 30 seconds. It is yours, not the person's, and carries no approval for anything else.` }
   }
   // Escalation. Not the top tier, and not the session the person said they are in: pass it up, and the next tier's window opens at once (the 30 seconds still
   // bind). A tier passes a request up only once its own window has opened, like an answer or a relay, so the person's first 30 seconds are never skipped.
+  // While an unattended window is held the person is not asked: `here` counts for nothing, so a tier below the top passes up as always.
+  const hold = await unattendedHold($)
   const top = self.level === stand.top?.level
-  if (!top && !(await hereNow($, sid))) {
+  if (!top && (hold.held || !(await hereNow($, sid)))) {
     if (promptWindowShut(stand, sid, now)) return refuse('window')
     const path = `${dir}/${id}.escalate-${self.level}.json`
     const put = await promptLinkOnce($, path, pr.escalateText({ id, tier: 'up', why, at: now, level: self.level, sid }))
@@ -388,6 +412,12 @@ async function promptAnswerTool($: any, e: any, answer: boolean): Promise<{ resu
     promptForget(sid, id)
     return { result: `Passed up: ${id} goes to the next tier, and your right to answer it has ended.` }
   }
+  // The top tier inside an unattended window: nothing is put to the person. The refusal is on record, no file is written, and the request stays open to this tier.
+  const refuseRelay = async (code: 'refused' | 'taken-back', u: string | undefined) => {
+    await ledgerAdd($, { ...row, kind: 'relay-refused', code, by: sid, ...(u !== undefined ? { u } : {}) })
+    return refuse(self.level === 'manager' ? 'unattended' : 'unattended-no-manager')
+  }
+  if (hold.held) return refuseRelay('refused', hold.u)
   // The top tier, or the tier the person said they are with: the person decides. A decision already there blocks it; a truncated copy cannot be put to them.
   if (q.truncated) return refuse(isQ ? 'truncated-question' : 'truncated')
   if (names.has(`${id}.decision.json`) || (await statR($, `${dir}/${id}.decision.json`)) !== 'absent') return refuse('decided')
@@ -398,6 +428,11 @@ async function promptAnswerTool($: any, e: any, answer: boolean): Promise<{ resu
   if (put === 'exists') return refuse('with-person')
   if (put === 'failed') return refuse('write-failed')
   if (await gone(path)) return refuse('closed')
+  // A window that opened while the relay was being written: the window is read again, past the kept read, and the relay is taken back before its row.
+  if (await unattendedHeld($, true)) {
+    await rmF($, path)
+    return refuseRelay('taken-back', mem.unattendedU)
+  }
   // The relay wins a race with a decision (prompt_answer takes its own decision back when it finds the relay, and only that side removes anything): a decision that
   // landed while the relay was written is removed here, so it cannot outlast the relay it lost to.
   await rmF($, `${dir}/${id}.decision.json`)
@@ -423,6 +458,14 @@ export async function promptNoticeTick($: any, sid: string, submitsAtStart: numb
   if (!answering || (await promptsOff($))) {
     promptTold.delete(sid)
     return
+  }
+  // An unattended window that this process read on and now reads off has ended: this tier's told marks go once, so a request the window kept from the
+  // person is told again and can be put to them.
+  if (mem.unattendedSure === 'on') windowHeldSeen.add(sid)
+  else if (mem.unattendedSure === 'off' && windowHeldSeen.delete(sid)) {
+    promptTold.delete(sid)
+    promptMidSent.delete(sid)
+    promptMidRetold.delete(sid)
   }
   const p = await where($)
   if (!p) return
