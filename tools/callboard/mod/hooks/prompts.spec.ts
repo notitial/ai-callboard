@@ -973,7 +973,7 @@ test('the turn-on dialog is short: the end, what changes, what is seen, the live
       "The manager's and a conductor's own permission prompts are refused too, so keep the manager in auto mode: in any other mode even its board write may be refused.",
     ].join('\n'),
   )
-  // One short line each, no blank line, and far shorter than the form it replaces (about 2000 characters).
+  // Six short lines, no blank line, under 1000 characters.
   assert.equal(q.split('\n').length, 6)
   assert.ok(q.length < 1000, String(q.length))
   const many = Array.from({ length: 10 }, (_, i) => ({ lead: `L${'x'.repeat(38)}${i}`, n: 1 }))
