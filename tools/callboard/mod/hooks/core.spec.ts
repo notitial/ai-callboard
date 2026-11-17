@@ -1213,7 +1213,7 @@ test('helpText is a header and a two-column table with one row per subcommand, m
   assert.deepEqual(lines.slice(0, 4), ['**Callboard commands**', '', '| Command | What it does |', '|---|---|'])
   const rows = lines.slice(4)
   const words = rows.map((l) => /^\| ([^ \\|]+)/.exec(l)![1])
-  assert.deepEqual(words, ['lanes', 'status', 'lead', 'lead', 'lead', 'lane', 'lane', 'escalation', 'go', 'go', 'here', 'here', 'unattended', 'unattended', 'conductor', 'conductor', 'conductor', 'manager', 'config', 'config', 'config', 'config', 'reserve', 'reserve', 'reserve', 'checkin', 'checkin', 'rest', 'off', 'help'])
+  assert.deepEqual(words, ['lanes', 'status', 'lead', 'lead', 'lead', 'lane', 'lane', 'escalation', 'go', 'go', 'here', 'here', 'unattended', 'unattended', 'unattended', 'unattended', 'unattended', 'conductor', 'conductor', 'conductor', 'manager', 'config', 'config', 'config', 'config', 'reserve', 'reserve', 'reserve', 'checkin', 'checkin', 'rest', 'off', 'help'])
   assert.ok(lines.some((l) => l.startsWith('| lead join \\[CONDUCTOR\\] |')) && lines.some((l) => l.startsWith('| lead leave |')))
   assert.ok(lines.includes('| lane \\[NAME\\] | Make this session a lane, named NAME if given. |'))
   assert.ok(lines.includes('| checkin pause \\[Nm\\|Nh\\] | Pause check-ins for N minutes or hours (1 minute to 24 hours), or for 1 hour if you give no time. |'))
@@ -2292,7 +2292,7 @@ test('the manager texts: the question, the buttons and header, the stop question
   assert.ok(c.managerBriefing('a`b').includes('(`MANAGER`)'), 'a name that is not a reserved one never enters the text')
   assert.equal(c.managerBriefingNote('MANAGER'), `${c.LEAD_BRIEFING_NOTE}\n\n${c.managerBriefing('MANAGER')}\n\n${c.NOTE_END}`)
   // The tools of the manager's and the conductor's grants.
-  assert.deepEqual(c.MANAGER_TOOLS, ['lane_list', 'lane_resume', 'lane_compact', 'lane_terminate', 'lane_retire', 'lead_resume', 'lead_compact', 'prompt_list', 'prompt_answer', 'prompt_escalate', 'lead_park', 'lead_unpark', 'lead_retire', 'lead_terminate'].map((t) => `mcp__callboard__${t}`))
+  assert.deepEqual(c.MANAGER_TOOLS, ['lane_list', 'lane_resume', 'lane_compact', 'lane_terminate', 'lane_retire', 'lead_resume', 'lead_compact', 'prompt_list', 'prompt_answer', 'prompt_escalate', 'lead_park', 'lead_unpark', 'lead_retire', 'lead_terminate', 'unattended_off'].map((t) => `mcp__callboard__${t}`))
   assert.deepEqual(c.CONDUCTOR_TOOLS, ['lane_list', 'lane_compact', 'lane_terminate', 'lead_open', 'lead_resume', 'lead_compact', 'prompt_list', 'prompt_answer', 'prompt_escalate', 'lead_park', 'lead_unpark', 'lead_retire', 'lead_terminate', 'go_request'].map((t) => `mcp__callboard__${t}`))
   assert.ok(c.REASON_TEXT['conductor-tool'].endsWith('and ask the person for a go.'))
   for (const code of ['busy', 'grant-changed', 'manager-tool', 'lane-or-lead', 'manager-holder']) {
@@ -3902,4 +3902,15 @@ test('notRestoredToast: the level, the reason and the command; a reason that nam
   assert.equal(c.notRestoredToast('conductor', 'some-new-code'), 'Conductor not restored. Run /callboard conductor.')
   // A code is looked up as an own key only.
   assert.equal(c.notRestoredToast('lead', 'constructor'), 'Lead not restored. Run /callboard lead.')
+})
+
+test('openedUnbound: a session a lead opened counts until a lane record names its id or a lane name is on it, and only while it is live', () => {
+  const S1 = '11111111-1111-4111-8111-111111111111'
+  const S2 = '22222222-2222-4222-8222-222222222222'
+  const S3 = '33333333-3333-4333-8333-333333333333'
+  const S4 = '44444444-4444-4444-8444-444444444444'
+  const lanes = [{ name: 'A', folder: '/r', brief: '/r/b', repo: '/r', sid: S2 }, { name: 'B', folder: '/r', brief: '/r/b', repo: '/r' }] as c.Lane[]
+  const entries = [{ sessionId: S1, name: 'claude' }, { sessionId: S2, name: 'A' }, { sessionId: S3, name: 'B' }] as c.RegEntry[]
+  assert.deepEqual(c.openedUnbound([S1, S2, S3, S4], lanes, entries), [S1])
+  assert.deepEqual(c.openedUnbound([], lanes, entries), [])
 })

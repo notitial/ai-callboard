@@ -28,6 +28,7 @@ import {
   managerDeclared,
   lastSaved,
   signalledCalls,
+  laneOpened,
   mem,
 } from '../mem.ts'
 import {
@@ -942,7 +943,7 @@ export async function rebindTick($: any, sid: string) {
 const SUBAGENT = ['subagent', 'for the main agent only.'] as const
 export async function leadBase($: any, e: unknown, sid: string) {
   if ((e as { agentId?: string }).agentId !== undefined) return { err: SUBAGENT }
-  // The manager has fourteen tools (c.MANAGER_TOOLS: five lane tools, six lead tools and the three prompt tools); every other lane tool refuses it, declared or not.
+  // The manager has fifteen tools (c.MANAGER_TOOLS: five lane tools, six lead tools, the three prompt tools and unattended_off); every other lane tool refuses it, declared or not.
   if (grantOf(sid)?.level === 'manager' && !c.MANAGER_TOOLS.includes(String((e as { tool?: unknown }).tool))) return { err: ['manager-tool', c.REASON_TEXT['manager-tool']] as const }
   // The conductor has fourteen (c.CONDUCTOR_TOOLS: three lane tools, lead_open, six lead tools, go_request and the three prompt tools).
   if (grantOf(sid)?.level === 'conductor' && !c.CONDUCTOR_TOOLS.includes(String((e as { tool?: unknown }).tool))) return { err: ['conductor-tool', c.REASON_TEXT['conductor-tool']] as const }
@@ -1046,10 +1047,16 @@ async function leadPrep($: any, e: unknown, sid: string) {
   const pick = c.leadLane(base.lanes, base.g, (e as { lane?: unknown }).lane)
   if (!pick.ok) return { err: [pick.reason, c.reasonWhy(pick.reason)] as const }
   const entries = base.live.flatMap((r) => (typeof r.j.sessionId === 'string' ? [regEntry(r)] : []))
-  // liveLanes: the lanes in this lead's reach whose session is live now, read wide (liveLaneNames), for the ceiling an unattended window puts on them.
-  return { lane: pick.lane, entries, liveLanes: c.liveLaneNames(base.lanes.filter((l) => c.inReach(base.g, l)), entries).length }
+  // liveLanes: for the ceiling an unattended window puts on live lanes, the lanes in this lead's reach whose session is live now, read wide (liveLaneNames), and
+  // the sessions this lead opened that are not yet a lane's (openedUnbound). but: the same count without one lane record and one session, for a rename.
+  const reach = base.lanes.filter((l) => c.inReach(base.g, l))
+  const opened = laneOpened.get(sid) ?? new Set<string>()
+  for (const s of [...opened]) if (!entries.some((x) => x.sessionId === s)) opened.delete(s)
+  const count = (lanes: c.Lane[], sessions: string[]) => c.liveLaneNames(lanes, entries).length + c.openedUnbound(sessions, reach, entries).length
+  const but = (lane: string, session: string) => count(reach.filter((l) => l.name !== lane), [...opened].filter((s) => s !== session))
+  return { lane: pick.lane, entries, liveLanes: count(reach, [...opened]), but }
 }
-// Inside an unattended window a lead has at most c.UNATTENDED_LIVE_LANES lanes live: the tools that open a lane's session refuse past it.
+// Inside an unattended window a lead has at most c.UNATTENDED_LIVE_LANES lanes live: the tools that open a lane's session, and a rename that binds one, refuse past it.
 const lanesFull = async ($: any, liveLanes: number): Promise<boolean> => liveLanes >= c.UNATTENDED_LIVE_LANES && (await unattendedHeld($))
 
 // ---- /callboard lane: an existing session becomes a lane of the lead that runs in its repo ----
@@ -1207,6 +1214,8 @@ export async function leadVerbCall($: any, e: any, next: any, verb: (typeof c.LE
         if (verb === 'rename' && to.reason === 'no-live-session') return no(to.reason, c.renameNoSessionText(prep.entries, prep.lane, sid, (e as { sid: string }).sid, await $.clock.now()))
         return no(to.reason, c.reasonWhy(to.reason))
       }
+      // A rename makes one more lane live: past the ceiling it is refused, whatever lane_open counted (a lead that restarted has no list of what it opened).
+      if (verb === 'rename' && (await lanesFull($, prep.but(prep.lane.name, to.sid)))) return no('unattended-lanes', c.reasonWhy('unattended-lanes'))
       // No lane_compact (a lead's, a conductor's or the manager's) cues a session that holds a live presence file (a lead carrying the lane's name in some
       // letter case), as lead_compact's lane-or-lead: a lead is reached only through the lead tools, the manager's behind the person's dialog. A file whose check
       // could not be made counts (fail closed).
@@ -1383,6 +1392,7 @@ export async function laneOpenCall($: any, e: any, next: any) {
     if (await lanesFull($, prep.liveLanes)) return no('unattended-lanes', c.reasonWhy('unattended-lanes'))
     const r = await openExchange($, sid, prep.lane.name, 'open', c.OPEN_TEXT, 'no window answered within 45 seconds. A VS Code window with the lane folder as its first workspace folder must run the callboard panels extension. A panel may still appear: check for an unnamed session in that folder first.', no)
     if ('deny' in r) return r
+    laneOpened.set(sid, (laneOpened.get(sid) ?? new Set<string>()).add(r.sid))
     await log($, sid, 'opened', prep.lane.name)
     return { result: `lane ${prep.lane.name}: panel opened as session ${r.sid}. Next: lane_rename with sid ${r.sid}, then lane_start.` }
   })

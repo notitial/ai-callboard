@@ -28,7 +28,7 @@ import {
   laneBrief,
   mem,
 } from '../mem.ts'
-import { logq, where, askOnce, timedOut, log, pickLead, pickFrom, ask, sha, withTimeout, toast, logFail } from './base.ts'
+import { logq, where, askOnce, askLimited, timedOut, log, pickLead, pickFrom, ask, sha, withTimeout, toast, logFail } from './base.ts'
 import type { Asked } from './base.ts'
 import { editStore, registryEntries, keptLanes, loadLanes } from './store.ts'
 import {
@@ -56,6 +56,7 @@ import {
   pinOf,
   secondLeadNo,
   watchInit,
+  regEntry,
 } from './grants.ts'
 import type { CondOut } from './grants.ts'
 import {
@@ -77,7 +78,7 @@ import { ensureTimer } from './tick.ts'
 import { grantNameNo } from './lead-open.ts'
 import { epochOf, heldNo, holdsOf, levelSave } from './levels.ts'
 import type { LevelDesc } from './levels.ts'
-import { ANSWERING_KEY, ledgerAdd, promptsOff, escalationNow, defaultForget, hereRead, hereDrop, unattendedNow, unattendedClose, ledgerRowsFor } from './answer-hook.ts'
+import { ANSWERING_KEY, ledgerAdd, promptsOff, escalationNow, defaultForget, hereRead, hereDrop, unattendedNow, unattendedClose, ledgerRowsFor, unattendedOpen, unattendedOffMark, unattendedOffSince, unattendedClosesNow, unattendedBusy } from './answer-hook.ts'
 import { ledgerRestore } from './answer-tiers.ts'
 import * as go from '../go.ts'
 import { goCommand, goGrantorOff } from './go.ts'
@@ -830,11 +831,13 @@ async function reserveCommand($: any, sid: string, code: c.OriginCode, op: c.Res
 // A time for the person, in this machine's zone.
 const whenLocal = (ms: number): string => go.goWhen(ms, -new Date(ms).getTimezoneOffset())
 
-// /callboard unattended (the person's own command: the state of the window) and /callboard unattended off (any origin, no dialog: it only narrows, bringing the
-// questions back to the person). Anything else is the usage line; no form of this command opens a window.
+// /callboard unattended (the person's own command: the state of the window), /callboard unattended on (the person's own, behind its dialog) and /callboard
+// unattended off (any origin, no dialog: it only narrows, bringing the questions back to the person). Anything else is the usage line.
 async function unattendedCommand($: any, sid: string, code: c.OriginCode, op: pr.UnattendedOp): Promise<{ text: string }> {
   if (op === 'bad') return { text: c.usageLine('unattended') }
+  if (typeof op === 'object') return unattendedOnCommand($, sid, code, op.on)
   if (op === 'off') {
+    await unattendedOffMark($)
     const r = await unattendedClose($, { code: 'command', origin: code })
     if (r === 'store-failed') await logq($, sid, 'error', 'unattended-store')
     return { text: r === 'closed' ? pr.UNATTENDED_ENDED : r === 'none' ? pr.UNATTENDED_NOT_ON : pr.UNATTENDED_OFF_FAILED }
@@ -844,6 +847,99 @@ async function unattendedCommand($: any, sid: string, code: c.OriginCode, op: pr
   const list = await unattendedList($, w).catch(() => pr.UNATTENDED_LIST_UNREAD)
   return { text: `${pr.unattendedState(w, whenLocal)}${list === undefined ? '' : `\n\n${list}`}` }
 }
+// What unattended mode needs, read before its dialog and again after the click: off now; escalation on for every lane, lead and question, with no OFF file; a
+// live manager with a trusted name (the ladder's own filter); check-ins on, as the watchdog; no relay open and no tier asking the person. manager: the name
+// the dialog shows. lanes: each lead with live lanes and how many (undefined: the lane records could not be read).
+type OnPre = { ok: true; manager: string; lanes?: { lead: string; n: number }[] } | { ok: false; why: pr.UnattendedNo; extra?: string }
+async function unattendedPre($: any, sid: string): Promise<OnPre> {
+  const w = await unattendedNow($, true)
+  if (w.state !== 'off') return { ok: false, why: w.state === 'on' ? 'on' : 'unread', extra: pr.unattendedState(w, whenLocal) }
+  const esc = await escalationNow($)
+  const offFile = await promptsOff($)
+  if (!esc.a || esc.a.scope !== 'all' || esc.a.asksScope !== 'all') return { ok: false, why: 'escalation', extra: pr.escalationState(esc.a, offFile, esc.source, esc.why) }
+  if (offFile) return { ok: false, why: 'off-file' }
+  const live = await registryEntries($)
+  if (!live) return { ok: false, why: 'registry' }
+  const manager = (await managersLive($, live, '').catch(() => [])).find((m) => m.unverified !== true && m.name !== undefined)?.name
+  if (manager === undefined) return { ok: false, why: 'manager' }
+  if (!(await cfgGet($, sid, true)).checkin) return { ok: false, why: 'checkin' }
+  const busy = await unattendedBusy($)
+  if (busy !== 'none') return { ok: false, why: busy === 'unread' ? 'prompts' : busy }
+  const lanes = await loadLanes($).catch(() => 'error')
+  if (typeof lanes === 'string') return { ok: true, manager }
+  const entries = live.flatMap((r) => (typeof r.j.sessionId === 'string' ? [regEntry(r)] : []))
+  const byLead = new Map<string, c.Lane[]>()
+  for (const l of lanes) if (l.leadName !== undefined) byLead.set(l.leadName, [...(byLead.get(l.leadName) ?? []), l])
+  return { ok: true, manager, lanes: [...byLead].map(([lead, ls]) => ({ lead, n: c.liveLaneNames(ls, entries).length })).filter((x) => x.n > 0).sort((a, b) => a.lead.localeCompare(b.lead)) }
+}
+
+// /callboard unattended on: from the person's own prompt or phone only. The end is fixed when the dialog opens; after the click every precondition is read
+// again, an off that came while the dialog was open wins, and the window then opens with the manager the dialog named. Each refusal stores nothing.
+async function unattendedOnCommand($: any, sid: string, code: c.OriginCode, end: pr.UnattendedEnd): Promise<{ text: string }> {
+  if (!c.originIsPerson(code)) return notPerson($, sid, 'unattended', code, pr.UNATTENDED_ON_NOT_PERSON)
+  const asked = await $.clock.now()
+  const until = pr.unattendedEndAt(end, asked)
+  if (until === undefined) return { text: pr.UNATTENDED_SPAN }
+  const no = async (why: pr.UnattendedNo, extra?: string) => {
+    await logq($, sid, 'refused', `unattended-on:${why}`)
+    return { text: pr.unattendedNoText(why, extra) }
+  }
+  const pre = await unattendedPre($, sid)
+  if (!pre.ok) return no(pre.why, pre.extra)
+  const closes = unattendedClosesNow()
+  const r = await askLimited($, sid, pr.unattendedQuestion(whenLocal(until), pre.manager, pre.lanes), {
+    yes: pr.UNATTENDED_YES,
+    no: pr.UNATTENDED_NO,
+    header: pr.UNATTENDED_HEADER,
+    ms: pr.UNATTENDED_DIALOG_MS,
+    timedOut: pr.UNATTENDED_TIMED_OUT_TOAST,
+    late: pr.UNATTENDED_LATE_TOAST,
+  })
+  if (r !== 'yes') return no(r === 'busy' ? 'busy' : r === 'timed-out' ? 'timed-out' : 'cancelled')
+  const again = await unattendedPre($, sid)
+  if (!again.ok) return no(again.why, again.extra)
+  if (again.manager !== pre.manager) return no('manager-changed')
+  // The last look before the window opens: an off typed in any session since the dialog opened.
+  const offed = await unattendedOffSince($, asked, closes)
+  if (offed !== false) return no(offed === true ? 'off-typed' : 'unread')
+  const now = await $.clock.now()
+  if (until - now < pr.UNATTENDED_MIN_MS) return no('span')
+  const opened = await unattendedOpen($, { v: 1, from: now, until, by: code === 'phone' ? 'phone' : 'prompt', manager: pre.manager, savedAt: now })
+  if (!opened.ok) {
+    await logq($, sid, 'error', `unattended-open:${opened.why}`)
+    return { text: pr.unattendedNoText(opened.why) }
+  }
+  await logq($, sid, 'command', `unattended-on:${code}`)
+  return { text: pr.unattendedOnText(whenLocal(until), pre.manager, opened.u) }
+}
+
+// unattended_off: the manager's main agent ends the window, as /callboard unattended off does, when the person tells it in their own turn that they are back.
+// It can only end one. A subagent and any other level are refused. The result gives the counts of what the window did, never a lane's text.
+export async function unattendedOffCall($: any, e: any) {
+  const sid = await $.session.id()
+  ensureTimer($)
+  if ((e as { agentId?: string }).agentId !== undefined) {
+    await logq($, sid, 'refused', 'unattended-off-subagent')
+    return { deny: pr.UNATTENDED_OFF_SUBAGENT }
+  }
+  if (grants.get(sid)?.level !== 'manager') {
+    await logq($, sid, 'refused', 'unattended-off-not-manager')
+    return { deny: pr.UNATTENDED_OFF_NOT_MANAGER }
+  }
+  const w = await unattendedNow($, true)
+  await unattendedOffMark($)
+  const r = await unattendedClose($, { code: 'manager' })
+  if (r === 'store-failed') {
+    await logq($, sid, 'error', 'unattended-store')
+    return { deny: pr.UNATTENDED_OFF_FAILED }
+  }
+  if (r === 'none') return { result: pr.UNATTENDED_NOT_ON }
+  await logq($, sid, 'command', 'unattended-off:manager')
+  const p = w.state === 'on' ? await where($) : undefined
+  const rows = p && w.state === 'on' ? await ledgerRowsFor($, p, `"u":"${w.u}"`) : 'unreadable'
+  return { result: `${pr.UNATTENDED_ENDED} ${w.state === 'on' && rows !== 'unreadable' ? pr.unattendedCounts(w.u, rows) : pr.UNATTENDED_COUNTS_UNREAD}` }
+}
+
 // What the live window did, or the last one on record in this month's and last month's ledgers: three bounded reads (the windows opened, the rows that carry
 // this window's short id, the reads that gave no answer). undefined: no window is on record.
 async function unattendedList($: any, w: pr.Window): Promise<string | undefined> {

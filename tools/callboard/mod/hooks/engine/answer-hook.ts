@@ -361,8 +361,74 @@ export async function unattendedClose($: any, how: { code: string; origin?: c.Or
   mem.unattendedCloses++
   const sid = await ownSid($)
   const row: Omit<pr.LedgerRow, 't'> = { kind: 'unattended-off', code: how.code, ...(hash !== undefined ? { hash, u: pr.windowShort(hash) } : {}), ...(how.origin !== undefined ? { origin: how.origin } : {}), ...(sid !== undefined ? { by: sid } : {}) }
-  if (!(await ledgerAdd($, row)) && sid !== undefined) await logq($, sid, 'error', 'unattended-ledger')
+  await offRow($, row)
   return 'closed'
+}
+
+// An `unattended-off` row the ledger refused is kept (at most UNATTENDED_OFF_DUE_MAX, the newest) and written again before this process's next read of the window,
+// so the window's end is on record and a value put back after it opens nothing. False: the row is not in the ledger yet.
+const UNATTENDED_OFF_DUE_MAX = 8
+async function offRow($: any, row: Omit<pr.LedgerRow, 't'>): Promise<boolean> {
+  if (await ledgerAdd($, row)) return true
+  if (!mem.unattendedOffDue.some((r) => r.hash === row.hash && r.code === row.code)) mem.unattendedOffDue = [...mem.unattendedOffDue, row].slice(-UNATTENDED_OFF_DUE_MAX)
+  const sid = await ownSid($)
+  if (sid !== undefined) await logq($, sid, 'error', 'unattended-ledger')
+  return false
+}
+async function offRowsRetry($: any): Promise<void> {
+  const due = mem.unattendedOffDue
+  if (due.length === 0) return
+  mem.unattendedOffDue = []
+  const left: Omit<pr.LedgerRow, 't'>[] = []
+  for (const row of due) if (!(await ledgerAdd($, row).catch(() => false))) left.push(row)
+  mem.unattendedOffDue = [...left, ...mem.unattendedOffDue].slice(-UNATTENDED_OFF_DUE_MAX)
+}
+
+// /callboard unattended off and unattended_off leave the time they ran in the store (best effort), whether or not a window was on: a turn-on dialog open in any
+// session meanwhile reads it after the click, and the off wins.
+export const UNATTENDED_OFF_AT_KEY = 'unattended-off-at'
+export async function unattendedOffMark($: any): Promise<void> {
+  const now = await $.clock.now()
+  await storeDo($, () => $.store.set(UNATTENDED_OFF_AT_KEY, now))
+}
+// Whether an off ran at or after `since`: the mark is read from the store, and this process's own ends count too. 'unread': the store did not answer.
+export async function unattendedOffSince($: any, since: number, closes: number): Promise<boolean | 'unread'> {
+  if (mem.unattendedCloses !== closes) return true
+  const got = await storeRead($, UNATTENDED_OFF_AT_KEY)
+  if (!got.read) return 'unread'
+  return typeof got.raw === 'number' && got.raw >= since
+}
+export const unattendedClosesNow = (): number => mem.unattendedCloses
+
+// What the turn-on checks before and after its dialog: an open relay (any `<id>.relay.json` in the prompts folders) or a tier asking the person (any file in
+// prompts/asking). 'unread': a folder could not be listed; with no prompts folder there is neither.
+export async function unattendedBusy($: any): Promise<'relay' | 'asking' | 'none' | 'unread'> {
+  const p = await where($)
+  if (!p) return 'unread'
+  const base = `${p.root}/prompts`
+  const st = await statR($, base)
+  if (st === 'absent') return 'none'
+  if (st === 'error' || !(await dirOk($, base, p.uid))) return 'unread'
+  const list = async (dir: string): Promise<{ name: string }[] | undefined> => {
+    try {
+      return (await $.fs.list(dir)) as { name: string }[]
+    } catch {
+      return undefined
+    }
+  }
+  const top = await list(base)
+  if (!top) return 'unread'
+  for (const d of top.filter((x) => c.SID_RE.test(x.name)).slice(0, PROMPT_DIRS_MAX)) {
+    const files = await list(`${base}/${d.name}`)
+    if (!files) return 'unread'
+    if (files.some((f) => /^[0-9a-f-]{36}\.relay\.json$/.test(f.name))) return 'relay'
+  }
+  if (top.some((x) => x.name === 'asking')) {
+    const asking = await list(`${base}/asking`)
+    if (!asking) return 'unread'
+    if (asking.some((f) => c.SID_RE.test(f.name))) return 'asking'
+  }
+  return 'none'
 }
 
 // One read of the window from the store and the ledger: `on` needs both to answer in this read. A value that was read and is over is off whether or not it
@@ -391,6 +457,9 @@ async function windowRead($: any, now: number): Promise<pr.Window> {
   // The ledger is read before the clock is judged, so a value with no row ends after the grace even while the clock reads before its start.
   const hash = await windowHash($, text!)
   if (hash === undefined) return windowUnknown('hash', true)
+  // An off row of this value that the ledger refused (offRow) still ends it here.
+  const due = mem.unattendedOffDue.find((r) => r.hash === hash)
+  if (due) return over(typeof due.code === 'string' ? due.code : 'void')
   const p = await where($)
   const rows = p ? await ledgerRowsFor($, p, `"hash":"${hash}"`) : 'unreadable'
   if (rows === 'unreadable') return windowUnknown('ledger', true)
@@ -412,10 +481,14 @@ export async function unattendedNow($: any, fresh = false): Promise<pr.Window> {
     const kept = mem.unattended
     // A kept `on` is not served past its window's end.
     if (!fresh && kept && now >= kept.at && now - kept.at < UNATTENDED_TTL_MS && !(kept.w.state === 'on' && now >= kept.w.value.until)) return kept.w
+    await offRowsRetry($)
     const closes = mem.unattendedCloses
+    const opens = mem.unattendedOpens
     w = await windowRead($, now)
     // A window ended in this process while the read was under way: what the read found is older than that end, so it is not kept and the answer is off.
     if (mem.unattendedCloses !== closes) return { state: 'off' }
+    // A window opened in this process meanwhile: the read may predate it, so it is neither kept nor taken as sure; the next read looks again.
+    if (mem.unattendedOpens !== opens) return w
     mem.unattended = { at: now, w }
   } catch {
     w = windowUnknown('error', false)
@@ -461,8 +534,9 @@ export async function unattendedTick($: any): Promise<void> {
 }
 
 // Opens a window for a value whose time fits now: the `unattended-on` row first, then the stored value, so a value never stands without its row. A value that
-// could not be stored gets an `unattended-off` row (void): should the write have landed after all, that row ends it at the next read.
-export async function unattendedOpen($: any, raw: unknown): Promise<{ ok: true; u: string } | { ok: false; why: 'value' | 'hash' | 'ledger' | 'store' }> {
+// could not be stored is removed (best effort) and gets an `unattended-off` row (void): should the write have landed after all, that row ends it at the next read.
+// A void row the ledger refused is kept and written again (offRow), and the answer says so ('store-void').
+export async function unattendedOpen($: any, raw: unknown): Promise<{ ok: true; u: string } | { ok: false; why: 'value' | 'hash' | 'ledger' | 'store' | 'store-void' }> {
   const value = pr.parseUnattended(raw)
   if (!value || pr.unattendedTime(value, await $.clock.now()) !== 'fits') return { ok: false, why: 'value' }
   const hash = await windowHash($, pr.canonical(value))
@@ -472,10 +546,12 @@ export async function unattendedOpen($: any, raw: unknown): Promise<{ ok: true; 
   const by = sid !== undefined ? { by: sid } : {}
   if (!(await ledgerAdd($, { kind: 'unattended-on', hash, u, end: new Date(value.until).toISOString(), origin: value.by, lane: value.manager, ...by }))) return { ok: false, why: 'ledger' }
   if (!(await storeDo($, () => $.store.set(UNATTENDED_KEY, value)))) {
-    await ledgerAdd($, { kind: 'unattended-off', code: 'void', hash, u, ...by })
-    return { ok: false, why: 'store' }
+    // The write may have landed all the same: this value, found now, is removed with its void row; otherwise the void row stands alone.
+    if ((await unattendedClose($, { code: 'void', only: pr.canonical(value) }).catch(() => 'store-failed' as const)) === 'closed') return { ok: false, why: 'store' }
+    return { ok: false, why: (await offRow($, { kind: 'unattended-off', code: 'void', hash, u, ...by })) ? 'store' : 'store-void' }
   }
   mem.unattended = undefined
+  mem.unattendedOpens++
   return { ok: true, u }
 }
 
@@ -1097,13 +1173,16 @@ async function promptWait($: any, beneath: any, signal: AbortSignal, w: WaitCtx)
   let presenceAt = 0
   let pauseFails = 0
   // A relay whose question the person had on screen (asked) never ends in the 20-minute deny, even if it is lost later: the prompt stays in the dialog (expired at 21 minutes).
-  // A relay taken back for an unattended window is the exception: the person is away, so the wait ends in the hold, also past the 21-minute expiry (takenBack).
+  // A relay taken back for an unattended window is the exception: the person is away, so what they saw no longer keeps the prompt for them, and the wait ends
+  // in the hold, also past the 21-minute expiry (takenBack). A relay seen after that starts over: takenBack holds only until then.
   let personSaw = false
   let takenBack = false
   const relayLost = async (code: string): Promise<void> => {
     const r = relay
-    if (askedSeen && code !== 'unattended') personSaw = true
-    if (code === 'unattended') takenBack = true
+    if (code === 'unattended') {
+      takenBack = true
+      personSaw = false
+    } else if (askedSeen) personSaw = true
     if (!(await ledgerAdd($, { ...w.row, kind: 'relay-lost', code, ...(r ? { short: r.short, by: r.by.sid, tier: r.by.level } : {}) }))) return
     await rmF($, [relayPath, askedPath, leftPath])
     relay = undefined
@@ -1130,6 +1209,7 @@ async function promptWait($: any, beneath: any, signal: AbortSignal, w: WaitCtx)
         relayFrom = awake
         presenceAt = awake
         noCount = 0
+        takenBack = false
         askedSeen = false
       }
       relay = rf

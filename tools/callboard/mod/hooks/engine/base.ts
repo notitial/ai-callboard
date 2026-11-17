@@ -280,6 +280,32 @@ export async function askOnce($: any, sid: string, question: string, yes: string
   }
 }
 
+// A mod dialog with its own time limit, `no` first, one per session at a time. Only the person's click on `yes` is a yes. After the limit the engine dialog may
+// still be on screen: a click on it then changes nothing, and the `late` toast says so; `timedOut` is toasted at the limit.
+export async function askLimited(
+  $: any,
+  sid: string,
+  question: string,
+  o: { yes: string; no: string; header: string; ms: number; timedOut: string; late: string },
+): Promise<'yes' | 'no' | 'error' | 'timed-out' | 'busy'> {
+  if (dialogOpen.has(sid)) return 'busy'
+  dialogOpen.add(sid)
+  try {
+    const asked = Promise.resolve($.ui.ask(question, { options: [o.no, o.yes], header: o.header })) as Promise<unknown>
+    const a = await withTimeout($, asked.then((x) => ({ x })), o.ms)
+    if (a === 'timeout') {
+      asked.then((x) => (x === o.yes ? toast($, o.late) : undefined)).catch(() => undefined)
+      toast($, o.timedOut)
+      return 'timed-out'
+    }
+    return a.x === o.yes ? 'yes' : a.x === o.no ? 'no' : 'error'
+  } catch {
+    return 'error'
+  } finally {
+    dialogOpen.delete(sid)
+  }
+}
+
 // The Join dialog's lead picker, with ask's time limit and error handling. More… turns the page; a dismissal, a failure or an answer not offered is 'error'.
 // The answer is wrapped, so a lead named like the timeout mark is still a name.
 export async function pickLead($: any, names: string[]): Promise<{ name: string } | 'error' | 'timed-out'> {
