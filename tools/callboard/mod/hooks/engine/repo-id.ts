@@ -3,17 +3,17 @@
 // Trust rules held here: .git is a real folder of the person's that is its own real path; the token file is a plain 0600 file of the person's with one link,
 // never followed and never replaced; only an id the mod minted (repoid:<id> in $.store) counts. No git config, ref or object is read.
 import * as c from '../core.ts'
-import { run, statR, realR, readSmallR, gitRoot, rmF, INSTALL, TEE, logq } from './base.ts'
+import { run, statR, realR, readSmallR, gitRoot, rmF, INSTALL, TEE, logq, withTimeout } from './base.ts'
 import { promptNewId } from './answer-hook.ts'
 
 const LN = '/bin/ln'
 
-// 'yes': <repo>/.git is a folder (lstat: not a link) of uid's and its own real path. 'error': a check that could not be made.
+// 'yes': <repo>/.git is a folder (lstat: not a link) of uid's that no group or other user can write, and its own real path. 'error': a check that could not be made.
 async function gitDirOk($: any, repo: string, uid: number): Promise<'yes' | 'no' | 'error'> {
   const dir = `${repo}/.git`
   const g = await statR($, dir)
   if (g === 'error') return 'error'
-  if (g === 'absent' || g.kind !== 'dir' || g.uid !== uid) return 'no'
+  if (g === 'absent' || g.kind !== 'dir' || g.uid !== uid || (g.mode & 0o022) !== 0) return 'no'
   const r = await realR($, dir)
   if (r === 'error') return 'error'
   return r !== 'absent' && r.path === dir ? 'yes' : 'no'
@@ -44,10 +44,13 @@ async function minted($: any, id: string): Promise<boolean | 'error'> {
 
 // A new token: its mark goes in the store first (a file never names an id the mod did not keep), then the file is linked into place with `ln -h`, which does
 // not follow a link at the name and fails when the name exists. The file is read again after, so the loser of a race between two leads takes the winner's id.
+// A mint whose link did not land takes its mark away again.
 async function mint($: any, repo: string, uid: number): Promise<{ id: string } | 'absent' | 'bad' | 'again'> {
   const id = await promptNewId($)
-  await $.store.set(`${c.REPO_ID_PREFIX}${id}`, { at: await $.clock.now() })
+  const key = `${c.REPO_ID_PREFIX}${id}`
+  await $.store.set(key, { at: await $.clock.now() })
   const tmp = `${repo}/.git/.${c.REPO_ID_FILE}.${id}.tmp`
+  let linked = false
   try {
     if ((await run($, [INSTALL, '-m', '600', '/dev/null', tmp])).exitCode !== 0) return 'again'
     const t = await statR($, tmp)
@@ -55,13 +58,15 @@ async function mint($: any, repo: string, uid: number): Promise<{ id: string } |
     if ((await run($, [TEE, '--', tmp], c.repoIdText(id))).exitCode !== 0) return 'again'
     // .git again, just before the link: a folder swapped for a link meanwhile gets nothing.
     if ((await gitDirOk($, repo, uid)) !== 'yes') return 'again'
-    await run($, [LN, '-h', '--', tmp, `${repo}/.git/${c.REPO_ID_FILE}`])
+    linked = (await run($, [LN, '-h', '--', tmp, `${repo}/.git/${c.REPO_ID_FILE}`])).exitCode === 0
   } finally {
     await rmF($, tmp)
+    if (!linked) await Promise.resolve($.store.delete(key)).catch(() => undefined)
   }
-  // Nothing at the name after the link: the write did not land, which is no answer yet.
+  // Nothing at the name after the link: the write did not land, which is no answer yet. Another lead's token met mid-write (two links until its temp name
+  // goes) reads as bad: no answer yet either.
   const after = await tokenRead($, repo, uid)
-  return after === 'absent' ? 'again' : after
+  return after === 'absent' || (!linked && after === 'bad') ? 'again' : after
 }
 
 // The token of the pin at a grant: read, or minted when there is none. { id }: a token the mod minted; { no }: none to save (logged); { again }: a check that
@@ -98,7 +103,7 @@ export async function moveCheck($: any, hint: c.LeadHint, cwd: string, home: str
   if (hint.repoId === undefined) return { no: 'wrong-folder' }
   let root: unknown
   try {
-    root = await $.session.root()
+    root = await withTimeout($, (async () => $.session.root())(), c.ENGINE_CALL_TIMEOUT_MS)
   } catch {
     return { again: 'cwd-unreadable' }
   }

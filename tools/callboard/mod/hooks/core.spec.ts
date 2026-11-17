@@ -1832,7 +1832,7 @@ test('the repo token file: the id and one newline, nothing else; a mark is an ob
 
 test('the moved-folder question and toast name both folders, say the goes end, and keep a long path to its end', () => {
   const q = c.leadMoveQuestion('/Users/x/old/app', '/Users/x/new/app')
-  assert.equal(q, 'Lead was on in /Users/x/old/app, which is gone.\nThis folder holds the same repo: /Users/x/new/app.\nTurn lead on again here? Its goes end: give them again with /callboard go.\nLead stays on after a restart until you run /callboard off.')
+  assert.equal(q, 'Lead was on in /Users/x/old/app, which is gone or moved.\nThis folder carries its repo mark (moved or copied here): /Users/x/new/app.\nLet this session lead the lanes here again?\nIt can create, start, resume, compact, park, stop and retire them. Only a force stop asks you.\nIts goes end: give them again with /callboard go.\nLead stays on after a restart until you run /callboard off.')
   assert.ok(q.length <= c.QUESTION_MAX)
   const long = `/Users/x/${'d/'.repeat(300)}app`
   const ql = c.leadMoveQuestion(long, long)

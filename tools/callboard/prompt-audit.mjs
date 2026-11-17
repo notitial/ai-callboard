@@ -34,6 +34,8 @@
 //              resume cue; written before the cue, so a row with no cue after it is a refused or failed send
 //   lead-stop  the lead-resume fields (target absent for a record no session carried) and code (park | unpark | retire | terminate | remove)   a lead tool parked,
 //              reopened, retired, force-stopped or removed a lead; written before the action
+//   lead-moved by (the lead's session id), repo (its new folder), was (its old folder, not a session id)   the person's click turned a saved lead grant on
+//              again in its repo's moved folder (ADR 0002, Lead re-grant); written before the grant
 //   go-grant   id (the go's), by (the session it was given in), tier (lead | conductor), hash (the SHA-256 of the go file's bytes), end (when it ends), repo, lane (the giver's name then)
 //              the person clicked Give go in the mod's own dialog (ADR 0009); written before the go file
 //   go-end     id, code (off | expired | grantor-off | void), by?   a go ended: the person's /callboard go off, its end time, its lead or conductor losing the grant, or a file that could not be written

@@ -27,6 +27,7 @@ import {
   attnToasted,
   laneBrief,
   leadRestorePending,
+  leadRepoId,
   mem,
 } from '../mem.ts'
 import type { LeadPending } from '../mem.ts'
@@ -61,6 +62,7 @@ import {
   watchInit,
   regEntry,
   leadRepoIdSave,
+  LEAD_RESTORE_TRIES,
 } from './grants.ts'
 import type { CondOut } from './grants.ts'
 import {
@@ -1260,6 +1262,8 @@ export async function leadMoveAsk($: any, sid: string, pend: LeadPending) {
     await log($, sid, 'lead-restore-rejected', code)
     toast($, c.notRestoredToast('lead', code, from))
   }
+  // A lead granted meanwhile (the person's own /callboard lead, or an earlier ask of a replaced entry) ends the question unasked.
+  if (grants.get(sid)?.level === 'lead') return void done()
   pend.asking = true
   try {
     const res = await grantLead($, sid, 'plugin', async () => ({ text: 'busy', code: 'busy' }), {
@@ -1286,12 +1290,21 @@ export async function leadMoveAsk($: any, sid: string, pend: LeadPending) {
         if (!(await ledgerAdd($, { kind: 'lead-moved', by: sid, repo: to, was: from }))) return { text: 'Lead stays off.', code: 'ledger-write' }
         void goGrantorOff($, sid).catch(() => undefined)
         await ownerLeave($, sid, 'off').catch(() => undefined)
+        // moveCheck proved the token for this folder: the grant is saved with it.
+        leadRepoId.set(sid, { pin: to, id: pend.hint.repoId! })
         return undefined
       },
     })
     if (res.code === 'busy') return
+    // A check before the dialog that could not be made: asked again at a later idle tick, as many times as a restore is tried.
+    if ((res.code === 'grant-failed' || res.code === 'registry-unreadable') && ++pend.tries < LEAD_RESTORE_TRIES) return
     done()
     if (res.code !== undefined && res.code !== 'move-cancelled' && res.code !== 'move-unanswered') await refused(res.code)
+  } catch (e) {
+    // No question asked again on every idle tick after a failure: the entry goes, and the person hears of it unless the grant was made.
+    done()
+    if (grants.get(sid)?.level !== 'lead') await refused('error')
+    throw e
   } finally {
     pend.asking = false
   }

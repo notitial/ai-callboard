@@ -572,7 +572,8 @@ async function leadRestoreTry($: any, me: string, hint: c.LeadHint): Promise<str
   await log($, me, 'lead-restored')
   toast($, c.leadRestoredToast(hint.pin))
   await nameGrant($, me)
-  await leadRepoIdSave($, me, hint.pin)
+  // The grant is made: a failure here is logged, not told as a restore that failed.
+  await leadRepoIdSave($, me, hint.pin).catch(logFail($, me, 'lead-repo-id'))
 }
 
 // The pin's repo token after a grant (the person's, a conductor's offer, a restore): read, or minted when there is none, and saved with the grant. A check that

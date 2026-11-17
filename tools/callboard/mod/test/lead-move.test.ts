@@ -147,9 +147,22 @@ test('an old folder that cannot be read is tried again from the tick; once it re
   await waitFor(() => h.askCount === 1)
 })
 
+test('a lead the person turns on while the moved-folder question waits: the question is never asked, and the new lead stays', async ($, on) => {
+  await mover($, on, [])
+  await $.command.run(lane('lead'))
+  expect(await statusText($)).toContain('| Lead | ON |')
+  const asked = h.askCount
+  await ticks(4)
+  expect(h.askCount).toBe(asked)
+  expect(h.lastQuestion).not.toBe(leadMoveQuestion(OLD, NEW))
+  expect(await statusText($)).toContain('| Lead | ON |')
+  expect(h.store.get(LEADKEY)).toMatchObject({ pin: NEW })
+  expect(movedRows()).toEqual([])
+})
+
 // Each of these is a definite no: no question, the saved grant goes with its goes, and the toast is today's for another folder.
 for (const [name, seed, code] of [
-  ['a saved grant with no token (saved before the field)', () => h.store.set(LEADKEY, { pin: OLD, savedAt: T0 - 60_000 }), 'wrong-folder'],
+  ['a saved grant with no token', () => h.store.set(LEADKEY, { pin: OLD, savedAt: T0 - 60_000 }), 'wrong-folder'],
   ['an old folder that is still there', () => realFails.delete(OLD), 'move-old-there'],
   ['another token in the folder', () => pfs.set(tokenAt(NEW), { text: '0000cafe-0000-4000-8000-123456789abc\n', mtimeSec: T0 / 1000 }), 'move-token'],
   ['no token in the folder (a clone)', () => pfs.delete(tokenAt(NEW)), 'move-token'],
@@ -160,6 +173,7 @@ for (const [name, seed, code] of [
     extraStat.set(`${NEW}/.git`, '501 644 1 Regular File 9 40 1700000000\n')
     gitFiles.set(`${NEW}/.git`, 'gitdir: /Users/x/old/app/.git/worktrees/app\n')
   }, 'move-no-git'],
+  ['a .git folder its group can write', () => extraStat.set(`${NEW}/.git`, '501 775 8 Directory 6 256 1700000000\n'), 'move-no-git'],
   ['a folder whose real path is another (a linked parent)', () => realMap.set(NEW, '/Users/x/elsewhere/app'), 'move-pin'],
   ['a broad folder', () => {
     h.callerCwd = '/Users/x/Documents'
@@ -257,7 +271,36 @@ test('a restore in its own folder keeps the saved token and saves it again with 
   expect(h.store.get(LEADKEY)).toEqual({ pin: PIN, savedAt: T0, repoId: ID })
 })
 
-test('a record saved before the token gains one at its next restore in its own folder', async ($, on) => {
+test('a mint whose link fails leaves no token, no temporary file and no mark, and saves the grant with none', async ($, on) => {
+  await granter($, on, [], () => (h.pfsFails = (a: string[]) => a[0] === '/bin/ln'))
+  await $.command.run(lane('lead'))
+  expect(await statusText($)).toContain('| Lead | ON |')
+  await ticks(2)
+  expect(h.store.get(LEADKEY)).toEqual({ pin: PIN, savedAt: T0 })
+  expect(pfs.has(tokenAt(PIN))).toBe(false)
+  expect([...pfs.keys()].filter((k) => k.includes('.callboard-repo-id.'))).toEqual([])
+  expect(mintedIds()).toEqual([])
+})
+
+test('a mint that loses the race to another lead\'s token still being written is no answer yet: nothing logged as bad, its own mark gone', async ($, on) => {
+  const stdins: string[] = []
+  const other = '0000cafe-0000-4000-8000-123456789abc'
+  await granter($, on, stdins, () => {
+    h.pfsFails = (a: string[]) => {
+      if (a[0] === '/bin/ln' && !pfs.has(tokenAt(PIN))) pfs.set(tokenAt(PIN), { text: `${other}\n`, mtimeSec: T0 / 1000, nlink: 2 })
+      return false
+    }
+  })
+  await $.command.run(lane('lead'))
+  expect(await statusText($)).toContain('| Lead | ON |')
+  await ticks(2)
+  expect(logged(stdins)).not.toContain('lead-repo-id:bad')
+  expect(h.store.get(LEADKEY)).toEqual({ pin: PIN, savedAt: T0 })
+  expect(pfs.get(tokenAt(PIN))?.text).toBe(`${other}\n`)
+  expect(mintedIds()).toEqual([])
+})
+
+test('a record with no token gains one at its next restore in its own folder', async ($, on) => {
   await granter($, on, [], () => h.store.set(LEADKEY, { pin: PIN, savedAt: T0 - 60_000 }))
   expect(await statusText($)).toContain('| Lead | ON |')
   await waitFor(() => (h.store.get(LEADKEY) as { repoId?: string } | undefined)?.repoId !== undefined)

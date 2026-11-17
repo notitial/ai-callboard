@@ -1030,7 +1030,7 @@ export function rebindRefusal(lanes: Lane[], sid: string, cwd: string, otherLive
 
 // The lead grant, kept in $.store as lead:<sid> so it survives a restart. A file any same-uid process can write: only a clean pin that lane_create would
 // accept and a savedAt of the last 30 days (not more than a minute ahead) are taken. repoId: the repo token of the pin (below), when the grant read one; a
-// missing or malformed repoId is dropped and the rest is taken, which can only narrow (a move is then refused, as for a record saved before the field).
+// missing or malformed repoId is dropped and the rest is taken, which can only narrow (a record with no repoId is refused a move).
 export type LeadHint = { pin: string; savedAt: number; repoId?: string }
 export function parseLeadHint(raw: unknown, now: number, home: string): LeadHint | undefined {
   if (!isObj(raw)) return undefined
@@ -1061,7 +1061,7 @@ const pathShown = (p: string): string => {
 }
 // The question a restore asks when the saved grant's folder is gone and the session's folder holds the same repo token: the person's click is the grant.
 export const leadMoveQuestion = (from: string, to: string): string =>
-  `Lead was on in ${pathShown(from)}, which is gone.\nThis folder holds the same repo: ${pathShown(to)}.\nTurn lead on again here? Its goes end: give them again with /callboard go.\nLead stays on after a restart until you run /callboard off.`
+  `Lead was on in ${pathShown(from)}, which is gone or moved.\nThis folder carries its repo mark (moved or copied here): ${pathShown(to)}.\nLet this session lead the lanes here again?\nIt can create, start, resume, compact, park, stop and retire them. Only a force stop asks you.\nIts goes end: give them again with /callboard go.\nLead stays on after a restart until you run /callboard off.`
 export const leadMovedToast = (from: string, to: string): string => `Lead is on again in ${folderName(to)}, moved from ${folderName(from)}. Its goes ended: give them again with /callboard go.`
 
 export const restoreQuestion = (name: string) => `Restore this session as lane ${name}?\nOnly if it was that lane's session.`
