@@ -91,15 +91,30 @@ test('Cancel on the moved-folder question is the person\'s no: no lead, the save
   expect(movedRows()).toEqual([])
 })
 
-test('no answer to the moved-folder question: no lead, the saved grant and its goes stay, the toast says it is asked again at the next start', async ($, on) => {
+test('no answer to the moved-folder question: no lead, the saved grant stays and its goes end, the toast says it is asked again at the next start', async ($, on) => {
   const stdins: string[] = []
   await mover($, on, stdins, { answer: 'Something else', seed: () => putGo() })
   await ticks(3)
   await waitFor(() => toasts.includes(notRestoredToast('lead', 'move-unanswered', OLD)))
   expect(await statusText($)).toContain('| Lead | OFF |')
   expect(h.store.get(LEADKEY)).toMatchObject({ pin: OLD, repoId: ID })
-  expect(goKinds()).toEqual(['go-grant'])
+  await waitFor(() => goKinds().includes('go-end grantor-off'))
   await ticks(3)
+  expect(h.askCount).toBe(1)
+})
+
+test('a failure after the click (the tools never register): the question ends with a toast and is not asked again; the saved grant stays, its goes end', async ($, on) => {
+  const stdins: string[] = []
+  await mover($, on, stdins, { seed: () => putGo() })
+  h.registerGate = new Promise<void>(() => undefined)
+  await ticks(3)
+  await waitFor(() => h.askCount === 1)
+  await h.clock!.advance(31_000)
+  await waitFor(() => toasts.includes(notRestoredToast('lead', 'grant-failed', OLD)))
+  expect(restoreLogs(stdins)).toContain('lead-restore-rejected:grant-failed')
+  expect(h.store.get(LEADKEY)).toMatchObject({ pin: OLD })
+  await waitFor(() => goKinds().includes('go-end grantor-off'))
+  await ticks(4)
   expect(h.askCount).toBe(1)
 })
 
@@ -147,8 +162,8 @@ test('an old folder that cannot be read is tried again from the tick; once it re
   await waitFor(() => h.askCount === 1)
 })
 
-test('a lead the person turns on while the moved-folder question waits: the question is never asked, and the new lead stays', async ($, on) => {
-  await mover($, on, [])
+test('a lead the person turns on while the moved-folder question waits: the question is never asked, the new lead stays, the old folder\'s goes end', async ($, on) => {
+  await mover($, on, [], { seed: () => putGo() })
   await $.command.run(lane('lead'))
   expect(await statusText($)).toContain('| Lead | ON |')
   const asked = h.askCount
@@ -158,6 +173,7 @@ test('a lead the person turns on while the moved-folder question waits: the ques
   expect(await statusText($)).toContain('| Lead | ON |')
   expect(h.store.get(LEADKEY)).toMatchObject({ pin: NEW })
   expect(movedRows()).toEqual([])
+  await waitFor(() => goKinds().includes('go-end grantor-off'))
 })
 
 // Each of these is a definite no: no question, the saved grant goes with its goes, and the toast is today's for another folder.
