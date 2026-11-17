@@ -112,6 +112,9 @@ Trust rises with the tier.
   windows, the 30 seconds, the rubric, the relay file and the apply check are unchanged: the apply side never asked
   which tier relayed, only that the relay's author is a live tier in reach that has not passed the request up and
   that the answer comes from that same session.
+  *Amended 2026-11-17 ([ADR 0008](0008-unattended-mode.md)):* while unattended mode is on no tier relays, and a relay that
+  slips in is taken back; a tier's own question is refused by its mod. The manager denies or parks what it would have
+  passed up, and a prompt that reached a tier and that none answered is held for the person's return.
 - **A call the tier cannot understand** is denied, with a message that asks the lane for a cleaner one. Any tier may
   do this; nothing is put to the person for it.
 - **The risk list may go through the relay.** The floor never reaches any tier.

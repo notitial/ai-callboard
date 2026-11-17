@@ -298,9 +298,14 @@ test('window: a deny the manager made in the window ends with the unattended tex
   expect(unclear.decision.message).toBe(`Denied by the manager MANAGER: ${prm.UNCLEAR_PREFIX}a script built at run time${prm.UNCLEAR_SUFFIX}`)
   const plain = await runRequest($, [at(4000, () => handDecision(readReq(), { decision: 'deny', why: 'no', by: byMgr }, { by: MGRT }))], { tool_use_id: 'tu3' }, { tool_use_id: 'tu3' })
   expect(plain.decision.message).toBe('Denied by the manager MANAGER: no')
-  // A lead's deny in the window carries the mark too, and ends with the same text.
-  const byLead = await runRequest($, [at(4000, () => handDecision(readReq(), { decision: 'deny', why: 'no', u }, { u }))], { tool_use_id: 'tu4' }, { tool_use_id: 'tu4' })
-  expect(byLead.decision.message.endsWith(prm.UNATTENDED_DENY_TAIL)).toBe(true)
+})
+
+test('window: a lead\'s deny in the window carries the mark and ends with the unattended text', async ($, on) => {
+  await answerer($, on, [])
+  const u = winShort(open())
+  const r = await runRequest($, [at(4000, () => handDecision(readReq(), { decision: 'deny', why: 'no', u }, { u }))])
+  expect(r).toEqual({ decision: { behavior: 'deny', message: `Denied by the lead LEAD: no${prm.UNATTENDED_DENY_TAIL}` } })
+  expect(of('returned')[0]).toMatchObject({ code: 'deny', u })
 })
 
 for (const [name, decide, drop] of [
@@ -391,9 +396,9 @@ longTest('window: a relay the person saw that was lost, then a second relay take
   const r = await runRequest($, [
     at(4000, () => putRelay(readReq())),
     at(4000, () => putFileAt(`${readReq().id}.asked`)),
-    at(8000, () => putFileAt(`${readReq().id}.relay.json`, 'not a relay')),
-    at(12_000, () => putRelay(readReq())),
-    at(16_000, () => { v = putWindow(win({ from: h.nowMs, savedAt: h.nowMs, until: h.nowMs + 8 * HOUR_MS })) }),
+    at(20_000, () => putFileAt(`${readReq().id}.relay.json`, 'not a relay')),
+    at(40_000, () => putRelay(readReq())),
+    at(60_000, () => { v = putWindow(win({ from: h.nowMs, savedAt: h.nowMs, until: h.nowMs + 8 * HOUR_MS })) }),
   ])
   expect(r).toEqual({ decision: { behavior: 'deny', message: prm.UNATTENDED_HOLD_MESSAGE } })
   expect(kinds()).toEqual(['requested', 'relay-lost bad-file', 'relay-lost unattended', 'expired-denied held'])
@@ -404,11 +409,11 @@ longTest('window: a relay taken back, then the window ends and a new relay the p
   await answerer($, on, [])
   const r = await runRequest($, [
     at(4000, () => putRelay(readReq())),
-    at(8000, () => { putWindow(win({ from: h.nowMs, savedAt: h.nowMs, until: h.nowMs + 8 * HOUR_MS })) }),
-    at(12_000, async () => { await $.command.run(lane('unattended off')) }),
-    at(16_000, () => putRelay(readReq())),
-    at(16_000, () => putFileAt(`${readReq().id}.asked`)),
-    at(20_000, () => putFileAt(`${readReq().id}.relay.json`, 'not a relay')),
+    at(20_000, () => { putWindow(win({ from: h.nowMs, savedAt: h.nowMs, until: h.nowMs + 8 * HOUR_MS })) }),
+    at(40_000, async () => { await $.command.run(lane('unattended off')) }),
+    at(60_000, () => putRelay(readReq())),
+    at(60_000, () => putFileAt(`${readReq().id}.asked`)),
+    at(80_000, () => putFileAt(`${readReq().id}.relay.json`, 'not a relay')),
   ])
   expect(r).toEqual({})
   expect(kinds()).toEqual(['requested', 'relay-lost unattended', 'relay-lost bad-file', 'abandoned expired'])
