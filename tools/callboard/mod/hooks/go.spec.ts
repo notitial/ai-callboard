@@ -302,16 +302,20 @@ test('go_status says no go, or prints each go with its text framed as data and t
 })
 
 test("a lead a conductor owns is refused go_request: the text names the live conductor, and says to wait, never to open its own, while it is gone", () => {
-  const live = g.goOwnedText({ live: true, name: 'CONDX' })
+  const live = g.goOwnedText({ state: 'live', name: 'CONDX' })
   assert.equal(
     live,
     "a conductor owns this lead, so this session opens no go dialog: ask your conductor `CONDX` by message for a go, saying in two or three lines what the work is: it opens the person's one dialog in its own session, which covers you and your lanes. Then read the go with go_status; a go told in a message is not one.",
   )
-  const gone = g.goOwnedText({ live: false })
+  const gone = g.goOwnedText({ state: 'gone' })
   assert.ok(gone.includes('ask your conductor by message for a go'))
   assert.ok(gone.endsWith(' It is not live now (compacting, restarting or stopped): wait and ask it again later. Never open a go of your own while it owns you; if it stays gone, tell the person, who can type /callboard lead leave here.'))
   // A name that is not a session name is not printed.
-  assert.ok(g.goOwnedText({ live: true, name: 'a`b' }).includes('ask your conductor by message'))
+  assert.ok(g.goOwnedText({ state: 'live', name: 'a`b' }).includes('ask your conductor by message'))
+  // A tie that no longer matches its record: no go of the conductor reaches the lead, so it is told to go to the person now, not to wait.
+  const unbound = g.goOwnedText({ state: 'unbound' })
+  assert.ok(unbound.endsWith('Tell the person now: they can type /callboard lead leave here, then /callboard lead join.'))
+  assert.ok(!unbound.includes('wait'))
 })
 
 test('the result texts: a go given, the lane tails, the list and off', () => {

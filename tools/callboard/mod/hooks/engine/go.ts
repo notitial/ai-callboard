@@ -241,12 +241,14 @@ async function goGive($: any, sid: string, text: unknown, hours: number, author:
   return { go, ends: when(ends) }
 }
 
-// The conductor that owns a lead, for the refusal's text: its name when it is live and trusted (ownOwner), else gone (compacting, stopped, or not readable now).
-async function ownerNameOf($: any, sid: string): Promise<{ live: boolean; name?: string }> {
+// The conductor that owns a lead, for the refusal's text: live (with its name) when it is live and trusted (ownOwner); unbound when the binding no longer
+// matches its record, so the conductor's go cannot reach the lead either; else gone (compacting, stopped, or not readable now).
+async function ownerNameOf($: any, sid: string): Promise<g.OwnedState> {
   const live = await registryEntries($).catch(() => undefined)
-  if (!live) return { live: false }
+  if (!live) return { state: 'gone' }
   const o = await ownOwner($, sid, live).catch(() => undefined)
-  return o !== undefined && typeof o === 'object' ? { live: true, ...(typeof o.name === 'string' && c.NAME_RE.test(o.name) ? { name: o.name } : {}) } : { live: false }
+  if (o === 'record-changed') return { state: 'unbound' }
+  return o !== undefined && typeof o === 'object' ? { state: 'live', ...(typeof o.name === 'string' && c.NAME_RE.test(o.name) ? { name: o.name } : {}) } : { state: 'gone' }
 }
 
 const refusal = (r: { no: string; why?: string }): string => `${r.no}: ${r.why ?? g.GO_REFUSE[r.no] ?? r.no}`

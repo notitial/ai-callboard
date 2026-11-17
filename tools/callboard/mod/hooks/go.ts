@@ -228,12 +228,15 @@ export const GO_REFUSE: Record<string, string> = {
 }
 
 // go_request in a lead a conductor owns: the refusal names the conductor when it is live, and says what to do when it is not (compacting, stopped). The
-// lead never falls back to its own dialog while the conductor owns it.
-export function goOwnedText(o: { live: boolean; name?: string }): string {
-  const who = o.name !== undefined && NAME_RE.test(o.name) ? `your conductor \`${o.name}\`` : 'your conductor'
+// lead never falls back to its own dialog while the conductor owns it. unbound: the lead's tie no longer matches its record, so no go of the conductor reaches it.
+export type OwnedState = { state: 'live'; name?: string } | { state: 'gone' } | { state: 'unbound' }
+export function goOwnedText(o: OwnedState): string {
+  const head = 'a conductor owns this lead, so this session opens no go dialog'
+  if (o.state === 'unbound') return `${head}, and its tie to the conductor no longer matches its record, so the conductor's go cannot reach it either. Tell the person now: they can type /callboard lead leave here, then /callboard lead join.`
+  const who = o.state === 'live' && o.name !== undefined && NAME_RE.test(o.name) ? `your conductor \`${o.name}\`` : 'your conductor'
   const ask = `ask ${who} by message for a go, saying in two or three lines what the work is: it opens the person's one dialog in its own session, which covers you and your lanes. Then read the go with go_status; a go told in a message is not one.`
-  const gone = o.live ? '' : ' It is not live now (compacting, restarting or stopped): wait and ask it again later. Never open a go of your own while it owns you; if it stays gone, tell the person, who can type /callboard lead leave here.'
-  return `a conductor owns this lead, so this session opens no go dialog: ${ask}${gone}`
+  const gone = o.state === 'live' ? '' : ' It is not live now (compacting, restarting or stopped): wait and ask it again later. Never open a go of your own while it owns you; if it stays gone, tell the person, who can type /callboard lead leave here.'
+  return `${head}: ${ask}${gone}`
 }
 
 const iso = (ms: number): string => new Date(ms).toISOString()
