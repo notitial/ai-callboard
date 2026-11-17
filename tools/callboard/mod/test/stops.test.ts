@@ -995,6 +995,50 @@ test('lane_retire of a parked lane no live session carries asks the Remove quest
   expect(storeJson().lanes).toEqual([])
 })
 
+// A parked lane whose report, in the lane repo, is signed by `sid`: the report of PARK_API in PIN.
+const signReport = (sid: string, more = '') => {
+  h.reportAt = `${PIN}/.archive/API/REPORT.md`
+  h.reportFile = { text: `notes\nstatus: done ${sid}\n${more}`, mtimeSec: T0 / 1000 }
+}
+
+test('lane_retire of a parked lane whose report is signed done by its own saved session removes the record with no dialog; the folder and report stay', async ($, on) => {
+  const argv: string[][] = []
+  const stdins: string[] = []
+  await leadAt($, on, stdins, { argv })
+  putStore([PARK_API({ sid: OTHER, parked: 3 })])
+  signReport(OTHER)
+  const asked = h.askCount
+  expect(stopText(await $.tool.call(leadCall('retire', { lane: 'API' })))).toBe(removedNoSessionText('retire', 'API'))
+  expect(storeJson().lanes).toEqual([])
+  expect(h.askCount).toBe(asked)
+  expect(logged(stdins)).toContain('lane-removed:API')
+  expect(logged(stdins)).toContain('parked-retired-signed:API')
+  expect(killed(argv)).toEqual([])
+  expect(noArchiveRm(argv)).toBe(true)
+})
+
+test('lane_retire of a parked lane still asks the Remove question when its report is signed by another id, is not signed last, or the record has no session id', async ($, on) => {
+  const stdins: string[] = []
+  await leadAt($, on, stdins)
+  for (const [rec, sign, why] of [
+    [{ sid: OTHER, parked: 3 }, () => signReport(NEWSID), 'another id'],
+    [{ sid: OTHER, parked: 3 }, () => signReport(OTHER, 'one more line\n'), 'not the last line'],
+    [{ sid: OTHER, parked: 3 }, () => (h.reportFile = undefined), 'no report'],
+    [{ parked: 3 }, () => signReport(OTHER), 'no session id'],
+  ] as const) {
+    putStore([PARK_API(rec)])
+    h.reportFile = undefined
+    sign()
+    h.askAnswer = NO
+    const asked = h.askCount
+    expect(JSON.stringify(await $.tool.call(leadCall('retire', { lane: 'API' }))), why).toContain('did not confirm')
+    expect(h.askCount, why).toBe(asked + 1)
+    expect(h.lastQuestion, why).toBe(removeQuestion('API', PIN, true, HOME))
+    expect(recOf('API').parked, why).toBe(3)
+  }
+  expect(logged(stdins)).not.toContain('parked-retired-signed:API')
+})
+
 test('lane_terminate of a lane no live session carries always asks the Remove question (the parked sentence when parked); Cancel removes nothing; Remove removes the record', async ($, on) => {
   const argv: string[][] = []
   const stdins: string[] = []

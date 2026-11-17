@@ -1252,6 +1252,10 @@ export function reportRefusal(text: string, sid: string, mtimeMs: number, starte
   return signedBy(text, sid) ? undefined : 'report-not-done'
 }
 
+// A parked lane's report is signed by the lane's own saved session: its last line is `status: done <the record's session id>`. A record with no session id
+// is never signed. Like the other report checks, a filter and not proof.
+export const parkedReportSigned = (text: string, sid: string | undefined): boolean => sid !== undefined && signedBy(text, sid)
+
 function lastLine(text: string): string {
   const lines = text.split('\n').map((l) => l.trimEnd())
   while (lines.length > 0 && lines[lines.length - 1] === '') lines.pop()

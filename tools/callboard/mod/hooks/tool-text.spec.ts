@@ -105,7 +105,7 @@ test('whose lane or lead: the lead\'s own lane, any lane or lead for the manager
 })
 
 test('retire is final and park keeps the conversation; request_compact explains focus, continuation and both modes; rest and the prompt tools', () => {
-  assert.ok(toolText('lane_retire', 'lead').includes('once it confirms it can end: idle, with its report signed done. With no live session it is removed, with no report; a parked one asks the person first. Retire is final.'))
+  assert.ok(toolText('lane_retire', 'lead').includes('once it confirms it can end: idle, with its report signed done. With no live session it is removed, with no report; a parked one may ask the person first. Retire is final.'))
   assert.ok(toolText('lane_retire', 'manager').includes('once it confirms it can end: idle, with its report signed done. With no live session it is removed, with no report. Retire is final.'))
   for (const role of ['conductor', 'manager'] as const) assert.ok(toolText('lead_retire', role).includes('once it confirms it can end: idle, report signed done, no lane record naming it. With no live session it is removed') && toolText('lead_retire', role).includes('. Retire is final. '), role)
   assert.ok(toolText('lane_park', 'lead').includes("keep the conversation and the lane's record, so lane_unpark can reopen it"))

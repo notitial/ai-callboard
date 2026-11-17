@@ -389,6 +389,17 @@ test('restoreRefusal needs the lane listed, the folder to match and the name unu
   assert.equal(c.restoreRefusal({ counters: {}, savedAt: NOW }, [], '/x', []), undefined)
 })
 
+test('parkedReportSigned: the last line is `status: done` with the record\'s own session id; an older signature, another id or no id is not', () => {
+  const sid = '1a1b2c3d-0000-4000-8000-123456789abc'
+  const other = '4a1b2c3d-0000-4000-8000-123456789abc'
+  assert.equal(c.parkedReportSigned(`notes\nstatus: done ${sid}\n`, sid), true)
+  assert.equal(c.parkedReportSigned(`notes\nstatus: done ${sid}\n\n`, sid), true)
+  assert.equal(c.parkedReportSigned(`status: done ${sid}\nmore work\n`, sid), false)
+  assert.equal(c.parkedReportSigned(`status: done ${other}\n`, sid), false)
+  assert.equal(c.parkedReportSigned(`status: done ${sid}\n`, undefined), false)
+  assert.equal(c.parkedReportSigned('', sid), false)
+})
+
 test('idleRefusal needs idle, not waiting, and idle for 30 s', () => {
   const e = (x: Partial<c.RegEntry>): c.RegEntry => ({ sessionId: OTHER, status: 'idle', statusUpdatedAt: NOW - 31_000, ...x })
   assert.equal(c.idleRefusal(e({}), NOW), undefined)

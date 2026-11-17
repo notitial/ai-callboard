@@ -347,8 +347,10 @@ async function stopNoSession($: any, e: unknown, sid: string, verb: 'retire' | '
   const refused = await laneLive($, live, l)
   if (refused) return no(refused, c.reasonWhy(refused))
   // The same question for both verbs: the repo by its path, that the lane has no live session, and the parked sentence. A retire at lead level asks only
-  // for a parked lane, whose record holds the only callboard pointer to its saved conversation.
-  if (verb === 'terminate' || level === 'manager' || l.parked !== undefined) {
+  // for a parked lane, whose record holds the only callboard pointer to its saved conversation, and not even then when the lane's report is signed done by
+  // that saved session: the lane itself said it is finished. The record is all that goes; the .archive folder and the conversation stay.
+  const signed = verb === 'retire' && level === 'lead' && l.parked !== undefined && (await parkedReportSigned($, l))
+  if (verb === 'terminate' || level === 'manager' || (l.parked !== undefined && !signed)) {
     const p = await where($)
     const r = await askOnce($, sid, c.removeQuestion(l.name, l.repo, l.parked !== undefined, p ? homeOf(p) : undefined), c.REMOVE_YES, c.REMOVE_NO, c.HEADER.stop)
     if (r === 'busy') return no('busy', c.reasonWhy('busy'))
@@ -361,7 +363,12 @@ async function stopNoSession($: any, e: unknown, sid: string, verb: 'retire' | '
   const w = await removeRecord($, e, sid, l.src, l.name, { kind: 'idle', sid: l.sid, parked: l.parked !== undefined, seen: l, held })
   if ('no' in w) return no(w.no, w.why ?? c.reasonWhy(w.no))
   await log($, sid, 'lane-removed', l.name)
+  if (signed) await log($, sid, 'parked-retired-signed', l.name)
   return { result: c.removedNoSessionText(verb, l.name) }
+}
+async function parkedReportSigned($: any, l: c.Lane): Promise<boolean> {
+  const r = await readReport($, l)
+  return !('no' in r) && c.parkedReportSigned(r.text, l.sid)
 }
 
 // lane_park's two store writes (the record names the session before the signal; the mark after it): the record of that name, changed only when `ok` holds for it.
