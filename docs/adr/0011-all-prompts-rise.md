@@ -192,7 +192,8 @@ from the rise. A click, the switch going off or failed pauses during the hold le
 no tier within the 30 minutes; each writes `abandoned no-tier`. A question with no answer form holds the same way and,
 once a tier is in reach, is ended with its message; the hold counts as the person's first 30 seconds. A switch
 scoped to one lead (an older stored value: `/callboard escalation` writes `all`) covers a lane only while that lead is
-found, so with the lead away the ask stays the person's, with no hold, as before.*
+found, so with the lead away the ask stays the person's, with no hold, as before. Inside an unattended window a
+lead's own prompt with no tier is still denied at once (ADR 0008), with no hold.*
 
 A truncated copy is a request, as before: a tier may deny it and never allow or relay it (ADR 0004, Limits), so it
 ends in the 20-minute deny.
