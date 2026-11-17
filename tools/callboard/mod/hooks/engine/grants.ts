@@ -2315,6 +2315,8 @@ export async function promptCompose($: any, e: any, next: any) {
   const leadManager = gated && grants.get(sid)?.level === 'lead' && managerSeen.get(sid)?.live === true
   // And of a trusted conductor over its repo.
   const seenConductors = gated && grants.get(sid)?.level === 'lead' ? (managerSeen.get(sid)?.conductors ?? []) : []
+  // A conductor is told who the manager is only while its own tick last saw one.
+  const conductorManager = conductorText !== undefined && managerSeen.get(sid)?.live === true
   const out = await next(e)
   if ((!gated && laneText === undefined && managerText === undefined && conductorText === undefined) || !Array.isArray(out?.sections)) return out
   let sections = out.sections
@@ -2329,6 +2331,7 @@ export async function promptCompose($: any, e: any, next: any) {
   if (gated) setSection(c.LEAD_CONDUCTOR_ID, seenConductors.length > 0 ? c.leadConductorText(seenConductors) : undefined)
   if (managerText !== undefined) setSection(c.MANAGER_BRIEFING_ID, managerText)
   if (conductorText !== undefined) setSection(c.CONDUCTOR_BRIEFING_ID, conductorText)
+  if (conductorText !== undefined) setSection(c.CONDUCTOR_MANAGER_ID, conductorManager ? c.conductorManagerText(managerSeen.get(sid)?.manager) : undefined)
   // The conductor's and the manager's prompt section (the lead's is above).
   {
     const lvl = grants.get(sid)?.level
