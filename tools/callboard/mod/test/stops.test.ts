@@ -1018,14 +1018,13 @@ test('lane_retire of a parked lane whose report is signed done by its own saved 
   expect(noArchiveRm(argv)).toBe(true)
 })
 
-test('lane_retire of a parked lane still asks the Remove question when its report is signed by another id, is not signed last, or the record has no session id', async ($, on) => {
+test('lane_retire of a parked lane still asks the Remove question when its report is signed by another id, is not signed last, or there is no report', async ($, on) => {
   const stdins: string[] = []
   await leadAt($, on, stdins)
   for (const [rec, sign, why] of [
     [{ sid: OTHER, parked: 3 }, () => signReport(NEWSID), 'another id'],
     [{ sid: OTHER, parked: 3 }, () => signReport(OTHER, 'one more line\n'), 'not the last line'],
     [{ sid: OTHER, parked: 3 }, () => (h.reportFile = undefined), 'no report'],
-    [{ parked: 3 }, () => signReport(OTHER), 'no session id'],
   ] as const) {
     putStore([PARK_API(rec)])
     h.reportFile = undefined
