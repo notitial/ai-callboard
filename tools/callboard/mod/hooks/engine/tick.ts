@@ -235,9 +235,9 @@ async function tick($: any) {
       // ADR 0008: a tier's look at the unattended window, which ends one that is over or whose escalation is surely off; not awaited, so a store that does
       // not answer never holds the tick.
       if (!unattendedBusy.has(sid) && unattendedLookDue(await Promise.resolve($.clock.now()).catch(() => NaN))) bgStep($, sid, unattendedBusy, 'unattended', () => unattendedTick($))
-      // The lead's look for a live manager, once a minute; not awaited (as the check-in), so its reads never hold the tick.
+      // A lead's or a conductor's look for a live manager, once a minute; not awaited (as the check-in), so its reads never hold the tick.
       // A due look runs under a timeout (managerSeenStep).
-      if (grants.get(sid)?.level === 'lead') void managerSeenStep($, sid as string).catch(() => undefined)
+      if (grants.get(sid)?.level === 'lead' || grants.get(sid)?.level === 'conductor') void managerSeenStep($, sid as string).catch(() => undefined)
     }
     await unlockRetry($, sid).catch(logFail($, sid, 'unlock-retry'))
     await renameTick($, sid).catch(logFail($, sid, 'rename'))

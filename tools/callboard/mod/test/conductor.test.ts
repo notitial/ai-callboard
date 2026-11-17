@@ -1,8 +1,8 @@
 import { expect, test } from 'claude-code/testing'
-import { GRANT_NAME_ON, CONDUCTOR_NAME_NOT_PERSON, grantNameText, HINT_PREFIX, usageFileText, conductorFileText, conductorAddQuestion, conductorRefusalText, conductorAddedText, CONDUCTOR_NOT_PERSON, CONDUCTOR_USAGE, conductorQuestion, conductorRestoreQuestion, conductorBriefing, conductorBriefingNote, conductorRestoredToast, conductorUnansweredToast, conductorFileBadToast, conductorNoReposToast, CONDUCTOR_ON_TEXT, CONDUCTOR_OFF_QUESTION, conductorStatus, leadBriefing, LANES_CHANGED_TEXT, reboundToast, REASON_TEXT, managerRefusalText, terminateQuestion, leadConductorText, conductorAskAgainToast, CONDUCTOR_RESTORE_ASKS, KEEPALIVE_TEXT } from '../hooks/core'
+import { GRANT_NAME_ON, CONDUCTOR_NAME_NOT_PERSON, grantNameText, HINT_PREFIX, usageFileText, conductorFileText, conductorAddQuestion, conductorRefusalText, conductorAddedText, CONDUCTOR_NOT_PERSON, CONDUCTOR_USAGE, conductorQuestion, conductorRestoreQuestion, conductorBriefing, conductorBriefingNote, conductorManagerText, conductorRestoredToast, conductorUnansweredToast, conductorFileBadToast, conductorNoReposToast, CONDUCTOR_ON_TEXT, CONDUCTOR_OFF_QUESTION, conductorStatus, leadBriefing, LANES_CHANGED_TEXT, reboundToast, REASON_TEXT, managerRefusalText, terminateQuestion, leadConductorText, conductorAskAgainToast, CONDUCTOR_RESTORE_ASKS, KEEPALIVE_TEXT } from '../hooks/core'
 import { h, GOOD, LANESDIR, NO, PS_TABLE, ROOT, SID, T0, USAGE_DIR, YES, renames, condFiles, condStat, extraStat, laneSeed, leadFiles, longTest, pdirs, pfs, psDead, realFails, realMap, seen, storeFiles, submitted, toasts, toolDefs, toolDesc } from './harness'
 import type { Trace } from './harness'
-import { APISID, APP2, keptOwner, COMPOSE, COND, CONDFILE, CSESS, FAR, LANE_HINT, LEADKEY, LEADPATH, LEADPS, LEADSID, MGR_SESS, MIN, NO_LANES, NO_LANES_COND, OTHER, OTHERLEAD, OTHERPATH, PIN, SELFPATH, STATUS_NONE, TURN, allEvents, attacher, briefings, ckLane, ckRow, condAt, condOn, condPresenceOf, condRun, condSelf, cue, dirStat, doLane, grantAt, idleFor, killed, lane, leadAt, leadFileText, leadReg, leadSelfReg, listCall, listed, logged, madeLane, mgrAt, mgrCall, mgrFile, mgrRow, newTrace, noteRows, nudges, ownReg, bindOwner, putCond, putLeadRecs, putStore, regAs, renameThroughTick, selfAs, started, statusTable, statusText, ticks, unanswered, waitFor, noNote, ownedBy, ownTurn, sleepMs } from './fixtures'
+import { APISID, APP2, keptOwner, COMPOSE, COND, CONDFILE, CSESS, FAR, LANE_HINT, LEADKEY, LEADPATH, LEADPS, LEADSID, MGR_SESS, MIN, NO_LANES, NO_LANES_COND, OTHER, OTHERLEAD, OTHERMGR, OTHERPATH, PIN, SELFPATH, STATUS_NONE, TURN, allEvents, attacher, briefings, ckLane, ckRow, condAt, condOn, condPresenceOf, condRun, condSelf, cue, dirStat, doLane, grantAt, idleFor, killed, lane, leadAt, leadFileText, leadReg, leadSelfReg, listCall, listed, logged, madeLane, mgrAt, mgrCall, mgrFile, mgrRow, newTrace, noteRows, nudges, ownReg, bindOwner, putCond, putLeadRecs, putStore, regAs, renameThroughTick, selfAs, started, statusTable, statusText, ticks, unanswered, waitFor, noNote, ownedBy, ownTurn, sleepMs } from './fixtures'
 
 const CONDSTORE = `${LANESDIR}/${'c'.repeat(64)}.json`
 const condEntries = () => JSON.parse(condFiles.get(CONDFILE) ?? '{"repos":[]}').repos as string[]
@@ -927,6 +927,31 @@ test('the conductor section is in the system prompt while the grant holds and go
   expect(briefings(r).length).toBe(0)
   await $.command.run(lane('off'))
   expect(condSections(await $.prompt.compose(COMPOSE)).length).toBe(0)
+})
+test('a conductor is told the manager\'s name only while its own tick last saw a trusted manager; it goes when the manager goes', async ($, on) => {
+  await condOn($, on, [], { clock: true, sess: { ...CSESS(), ...mgrRow() }, seed: () => mgrFile() })
+  const sect = async () => ((await $.prompt.compose(COMPOSE)).sections as { id: string; text: string; scope: string }[]).filter((x) => x.id === 'callboard:conductor-manager')
+  // The tick reads in the background: wait (bounded) for the section to show or go. idleFor keeps the presence files fresh across the minute.
+  const settle = async (n: number) => {
+    for (let i = 0; i < 400 && (await sect()).length !== n; i++) await new Promise((r) => setTimeout(r, 5))
+    return sect()
+  }
+  // No look has run yet: no section.
+  expect(await sect()).toEqual([])
+  await h.clock!.advance(2000)
+  expect(await settle(1)).toEqual([{ id: 'callboard:conductor-manager', text: conductorManagerText('MANAGER'), scope: 'session' }])
+  expect(condSections(await $.prompt.compose(COMPOSE)).length).toBe(1)
+  leadFiles.delete(OTHERMGR)
+  h.sessions = CSESS()
+  await idleFor(62_000)
+  expect(await settle(0)).toEqual([])
+  h.sessions = { ...CSESS(), ...mgrRow() }
+  mgrFile()
+  await idleFor(62_000)
+  expect((await settle(1)).length).toBe(1)
+  // Off: the conductor section goes, and the manager's with it.
+  await $.command.run(lane('off'))
+  expect(await sect()).toEqual([])
 })
 test('a silent restore appends no note and serves the section', async ($, on) => {
   await condRestarter($, on, [])

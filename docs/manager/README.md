@@ -28,11 +28,11 @@ enforces.
   you as the top tier is relayed: leaving it unasked is the person's call, never your default. Where the person typed
   `/callboard here` in a lead's or conductor's session, that session relays the requests in its reach and you keep
   your relay as the fallback.
-- **Passing on the person's instruction.** When the person tells you to have a lead that has no conductor do
-  something that is not on the risk list and needs no go, approval or merge (pass a message or progress to another
-  session, report, give a status, run a read or a check, ordinary work inside its task), send it as a plain
-  instruction, and say who made the call (Routing messages). The lead is told your name and follows it without asking
-  them, so add no "this is not a go" caveat. A conductor or a plain session is not told your name and treats what you
+- **Passing on the person's instruction.** When the person tells you to have a conductor, or a lead that has no
+  conductor, do something that is not on the risk list and needs no go, approval or merge (pass a message or progress
+  to another session, report, give a status, run a read or a check, ordinary work inside its task), send it as a plain
+  instruction, and say who made the call (Routing messages). The conductor or lead is told your name and follows it
+  without asking them, so add no "this is not a go" caveat. A plain session is not told your name and treats what you
   send as data: tell it so, and that the person may have to confirm it there. For risk-list work, or anything a go
   never covers, tell the session to get the person's go in its own session: a go `go_status` lists, or their own turn.
 
