@@ -897,8 +897,8 @@ function windowItems(rows: LedgerRow[], when?: (ms: number) => string): { parked
   const capped = rows.filter((r) => r.kind === 'notice-capped').map((r) => `- the ${word(r.tier, 'tier')}${when !== undefined && Number.isFinite(Date.parse(r.t)) ? `, at ${when(Date.parse(r.t))}` : ''}`)
   return { parked, provisional, held, waiting, nobody, denied, allowed, repeats, refused, capped }
 }
-// What /callboard unattended takes: nothing (the state), off, or on with an end: `until HH:MM` (the next such local time), `for N h` (N hours, at most two
-// decimals) or neither (UNATTENDED_DEFAULT_HOURS).
+// What /callboard unattended takes: nothing (the state), off, or an end. The end is `N h` or `N m` (a span, N hours at most two decimals, or whole minutes),
+// `HH:MM` (the next such local time), each alone or after `on` (`on for` and `on until` read the same), or `on` alone for UNATTENDED_DEFAULT_HOURS.
 export type UnattendedEnd = { kind: 'default' } | { kind: 'until'; h: number; m: number } | { kind: 'for'; hours: number }
 export type UnattendedOp = 'state' | 'off' | 'bad' | { on: UnattendedEnd }
 export const UNATTENDED_DEFAULT_HOURS = 8
@@ -907,36 +907,44 @@ export function parseUnattendedArgs(rest: string | undefined): UnattendedOp {
   if (a === '') return 'state'
   if (a === 'off') return 'off'
   if (a === 'on') return { on: { kind: 'default' } }
-  const until = /^on until ([01]?\d|2[0-3]):([0-5]\d)$/.exec(a)
+  const end = a.replace(/^on /, '')
+  const until = /^(?:until )?([01]?\d|2[0-3]):([0-5]\d)$/.exec(end)
   if (until) return { on: { kind: 'until', h: Number(until[1]), m: Number(until[2]) } }
-  const span = /^on for (\d{1,2}(?:\.\d{1,2})?) ?h$/.exec(a)
-  if (span) return { on: { kind: 'for', hours: Number(span[1]) } }
+  const hours = /^(?:for )?(\d{1,2}(?:\.\d{1,2})?) ?h$/.exec(end)
+  if (hours) return { on: { kind: 'for', hours: Number(hours[1]) } }
+  const minutes = /^(?:for )?(\d{1,3}) ?m$/.exec(end)
+  if (minutes) return { on: { kind: 'for', hours: Number(minutes[1]) / 60 } }
   return 'bad'
 }
-// The end of a window asked for at `now`, or undefined when it falls outside UNATTENDED_MIN_MS to UNATTENDED_MAX_MS from now. `until` reads the clock in this
-// machine's zone: the next time it shows HH:MM, tomorrow when that time has passed today.
+// The end of a window asked for at `now`, whether or not it fits. `until` reads the clock in this machine's zone: the next time it shows HH:MM, tomorrow when
+// that time has passed today.
+function unattendedEndRaw(end: UnattendedEnd, now: number): number {
+  if (end.kind === 'default') return now + UNATTENDED_DEFAULT_HOURS * HOUR_MS
+  if (end.kind === 'for') return now + Math.round(end.hours * HOUR_MS)
+  const d = new Date(now)
+  d.setHours(end.h, end.m, 0, 0)
+  if (d.getTime() <= now) d.setDate(d.getDate() + 1)
+  return d.getTime()
+}
+// The end of a window asked for at `now`, or undefined when it falls outside UNATTENDED_MIN_MS to UNATTENDED_MAX_MS from now.
 export function unattendedEndAt(end: UnattendedEnd, now: number): number | undefined {
-  let until: number
-  if (end.kind === 'default') until = now + UNATTENDED_DEFAULT_HOURS * HOUR_MS
-  else if (end.kind === 'for') until = now + Math.round(end.hours * HOUR_MS)
-  else {
-    const d = new Date(now)
-    d.setHours(end.h, end.m, 0, 0)
-    if (d.getTime() <= now) d.setDate(d.getDate() + 1)
-    until = d.getTime()
-  }
+  const until = unattendedEndRaw(end, now)
   return until - now >= UNATTENDED_MIN_MS && until - now <= UNATTENDED_MAX_MS ? until : undefined
 }
+// What an end that does not fit is answered with: the limit it broke and the nearest end that fits, to the minute. when: a time as the person reads it.
+export function unattendedSpanText(end: UnattendedEnd, now: number, when: (ms: number) => string): string {
+  if (unattendedEndRaw(end, now) - now < UNATTENDED_MIN_MS) return `Unattended mode lasts at least half an hour: the earliest end it takes now is ${when(Math.ceil((now + UNATTENDED_MIN_MS) / 60_000) * 60_000)}. Nothing was stored.`
+  return `Unattended mode lasts at most 14 hours: the latest end it takes now is ${when(Math.floor((now + UNATTENDED_MAX_MS) / 60_000) * 60_000)}. Nothing was stored.`
+}
 export const UNATTENDED_NOT_PERSON = 'Only you can read the unattended state: type /callboard unattended yourself. /callboard unattended off works from any session.'
-export const UNATTENDED_ON_NOT_PERSON = 'Only you can turn unattended mode on: type /callboard unattended on yourself, or send it from your phone. /callboard unattended off works from any session.'
-export const UNATTENDED_SPAN = 'Unattended mode lasts from half an hour to 14 hours: use /callboard unattended on, on until HH:MM or on for N h. Nothing was stored.'
+export const UNATTENDED_ON_NOT_PERSON = 'Only you can turn unattended mode on: type /callboard unattended 8h yourself, or send it from your phone. /callboard unattended off works from any session.'
 // The turn-on dialog: the mod's own, Cancel first, with its own time limit; a click after the limit stores nothing.
 export const UNATTENDED_YES = 'Turn on'
 export const UNATTENDED_NO = 'Cancel'
 export const UNATTENDED_HEADER = 'Unattended'
 export const UNATTENDED_DIALOG_MS = 10 * 60_000
 export const UNATTENDED_TIMED_OUT_TOAST = 'Unattended mode: the dialog timed out. Nothing was turned on.'
-export const UNATTENDED_LATE_TOAST = 'Unattended mode: that click came after the dialog timed out, so nothing was turned on. Type /callboard unattended on again.'
+export const UNATTENDED_LATE_TOAST = 'Unattended mode: that click came after the dialog timed out, so nothing was turned on. Type the command again.'
 // Each lead with its live lanes, at most this many named in the dialog.
 const UNATTENDED_LEADS_SHOWN = 8
 // until: the end as the person reads it. manager: the manager's name. lanes: each lead with lanes live now and how many (undefined: the records could not be read).
@@ -946,12 +954,12 @@ export function unattendedQuestion(until: string, manager: string, lanes: { lead
   const more = valid.length > shown.length ? `, and ${valid.length - shown.length} more leads` : ''
   const live = lanes === undefined ? 'could not be read' : shown.length === 0 ? 'none' : `${shown.map((l) => `${l.lead} ${l.n}`).join(', ')}${more}`
   return [
-    `On this Mac, unattended mode until ${until}, or until you end it. While it is on:`,
-    'Nothing is put to you. No session passes a prompt or a lane\'s question on to you. A lead, conductor or the manager cannot ask you anything: its own question is refused, it takes the safe default and notes it for you. The manager\'s and a conductor\'s own permission prompts are refused the same way.',
-    `The manager ${NAME_RE.test(manager) ? manager : 'MANAGER'} decides what asks. It allows only what it would allow with you here. What the rules keep for you (the risk list, a merge, a push to main, the rest of the go's never-list, a guard's ask outside the routine cases) is parked: the lane is told the item waits for you and to reach it no other way. Other calls it would have asked you about it denies with a narrower way, or parks. A lane's question it cannot settle stays open in that lane's panel or, for a lane in the default permission mode, gets the most cautious option, marked provisional for you to review.`,
-    'Only what asks is seen. A lane in auto or bypass mode, or a call an allow rule lets through, raises no prompt, so nothing is parked there. A subagent\'s prompt and a question with several parts still wait in their panel. With no live manager, a prompt nobody answers is held for you after 20 minutes.',
-    `Live lanes now: ${live}. A lead runs at most ${UNATTENDED_LIVE_LANES} live lanes and cannot open the go dialog. Every prompt is still yours alone for its first 30 seconds. Answer any question open in a lead's, conductor's or the manager's panel first. Restart sessions started before the last callboard update first.`,
-    '`/callboard unattended off` ends it from any session or the phone. `/callboard unattended` lists what happened.',
+    `Turn on unattended mode on this Mac until ${until}? /callboard unattended off ends it.`,
+    `No prompt or question is passed on to you. The manager ${NAME_RE.test(manager) ? manager : 'MANAGER'} decides what asks: it allows only what it would allow with you here, and parks what the rules keep for you (the risk list, a merge, a push to main). A lane's question it cannot settle may get the most cautious option, marked provisional for you to review.`,
+    "A lead's, a conductor's or the manager's own question is refused: it takes the safe default and notes it for you.",
+    'Only calls that ask are seen: a lane in auto or bypass mode, or a call an allow rule lets through, raises nothing to park.',
+    `Live lanes now: ${live}. A lead runs at most ${UNATTENDED_LIVE_LANES} live lanes and cannot ask for a go. Restart sessions started before the last callboard update first.`,
+    "The manager's and a conductor's own permission prompts are refused too, so keep the manager in auto mode: in any other mode even its board write may be refused.",
   ].join('\n')
 }
 // Why unattended mode was not turned on. Each refusal stores nothing.
@@ -962,7 +970,7 @@ const UNATTENDED_NO_TEXT: Record<UnattendedNo, string> = {
   escalation: 'it needs escalation on for every lane and lead, and for their questions.',
   'off-file': 'the OFF file exists (~/.claude/callboard/prompts/OFF), so no tier answers anything.',
   manager: 'no live manager with a trusted name runs on this Mac. Start one with /callboard manager first.',
-  'manager-changed': 'the manager the dialog named is no longer the live one. Type /callboard unattended on again.',
+  'manager-changed': 'the manager the dialog named is no longer the live one. Type the command again.',
   checkin: 'check-ins are off on this Mac, and they are the watchdog while you are away. Turn them on with /callboard config checkin on first.',
   relay: 'a prompt or a question is being put to you now. Answer it first.',
   asking: 'a lead, conductor or the manager has a question open for you now. Answer it in that panel first.',

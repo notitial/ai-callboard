@@ -130,3 +130,15 @@ Each gets a dated line pointing here when the code that makes it true lands, not
   may handle, stand.
 - **ADR 0009:** neither a lead nor a conductor can open the go dialog inside a window.
 - **ADR 0002:** its limits on lanes stand; inside a window a lead's live lanes get a lower one.
+
+## Amendments
+
+- **2026-11-17: the turn-on is short.** The dialog is six short lines (the end; what the manager decides and parks; that a
+  tier's own question is refused; that only calls that ask are seen; the live lanes and the lead's limits; the
+  manager's mode), each said once, in the pattern of ADR 0009's short dialog. A span
+  or a time alone turns it on: `/callboard unattended 1h`, `45m`, `17:30`, or `/unattended` with the same words,
+  which is the same handler with the same person-only origin gate and the same dialog. The `on`, `on for` and
+  `on until` forms stand. A span under 30 minutes, or over 14 hours, is refused with the nearest end that fits.
+  The mod sees a permission mode only on a permission event, never as a session's state, so the dialog carries a
+  fixed line that the manager must be in auto mode (in another mode its own prompts are refused unless a rule already allows
+  them, its board write too); no turn-on is refused over a mode.

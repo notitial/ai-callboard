@@ -368,6 +368,11 @@ export async function sessionStart($: any, e: any, next: any) {
     await log($, me, 'error', 'command-register')
   }
   try {
+    await $.command.register({ name: 'unattended', description: 'Same as /callboard unattended: turn unattended mode on for a span or until a time, off, or show what it did', argumentHint: '[1h|45m|17:30|off]' })
+  } catch {
+    await log($, me, 'error', 'command-register')
+  }
+  try {
     await pruneHints($, me)
     if (c.parseHint(await $.store.get(`${c.HINT_PREFIX}${me}`), now)) await log($, me, 'hint-found')
   } catch {

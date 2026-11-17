@@ -1230,7 +1230,7 @@ test('helpText is a header and a two-column table with one row per subcommand, m
   assert.deepEqual(lines.slice(0, 4), ['**Callboard commands**', '', '| Command | What it does |', '|---|---|'])
   const rows = lines.slice(4)
   const words = rows.map((l) => /^\| ([^ \\|]+)/.exec(l)![1])
-  assert.deepEqual(words, ['lanes', 'status', 'lead', 'lead', 'lead', 'lane', 'lane', 'escalation', 'go', 'go', 'here', 'here', 'unattended', 'unattended', 'unattended', 'unattended', 'unattended', 'conductor', 'conductor', 'conductor', 'manager', 'config', 'config', 'config', 'config', 'reserve', 'reserve', 'reserve', 'checkin', 'checkin', 'rest', 'off', 'help'])
+  assert.deepEqual(words, ['lanes', 'status', 'lead', 'lead', 'lead', 'lane', 'lane', 'escalation', 'go', 'go', 'here', 'here', 'unattended', 'unattended', 'unattended', 'unattended', 'unattended', 'unattended', 'unattended', 'conductor', 'conductor', 'conductor', 'manager', 'config', 'config', 'config', 'config', 'reserve', 'reserve', 'reserve', 'checkin', 'checkin', 'rest', 'off', 'help'])
   assert.ok(lines.some((l) => l.startsWith('| lead join \\[CONDUCTOR\\] |')) && lines.some((l) => l.startsWith('| lead leave |')))
   assert.ok(lines.includes('| lane \\[NAME\\] | Make this session a lane, named NAME if given. |'))
   assert.ok(lines.includes('| checkin pause \\[Nm\\|Nh\\] | Pause check-ins for N minutes or hours (1 minute to 24 hours), or for 1 hour if you give no time. |'))

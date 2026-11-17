@@ -86,12 +86,63 @@ test('unattended on: from another plugin, another session or a script it is refu
   nothingOn()
 })
 
-test('unattended on: an end under half an hour or past 14 hours is refused, with no dialog', async ($, on) => {
+test('unattended on: an end under half an hour or past 14 hours is refused with the nearest end it takes, with no dialog', async ($, on) => {
   await manager($, on)
   const asked = h.askCount
-  for (const args of ['unattended on for 0.25 h', 'unattended on for 15 h']) expect(await onCmd($, args)).toBe(prm.UNATTENDED_SPAN)
+  const early = prm.unattendedSpanText({ kind: 'for', hours: 0.25 }, T0, when)
+  const late = prm.unattendedSpanText({ kind: 'for', hours: 15 }, T0, when)
+  expect(early).toContain(`the earliest end it takes now is ${when(Math.ceil((T0 + 30 * 60_000) / 60_000) * 60_000)}`)
+  for (const args of ['unattended on for 0.25 h', 'unattended 0.25h', 'unattended 29m', 'unattended 0m', 'unattended on for 20m']) expect(await onCmd($, args)).toBe(early)
+  for (const args of ['unattended on for 15 h', 'unattended 15h', 'unattended 841m']) expect(await onCmd($, args)).toBe(late)
   expect(h.askCount).toBe(asked)
   nothingOn()
+})
+
+test('unattended: a span or a time alone turns it on like on for and on until: 1h, 45m, 90m, 17:30', async ($, on) => {
+  await manager($, on)
+  for (const [args, ms] of [['unattended 1h', HOUR_MS], ['unattended 45m', 45 * 60_000], ['unattended 90m', 90 * 60_000]] as const) {
+    const text = await onCmd($, args)
+    const v = h.store.get(UNATTENDED_KEY) as prm.Unattended
+    expect(v, `${args}: ${text}`).toMatchObject({ by: 'prompt', from: h.nowMs, until: h.nowMs + ms })
+    expect(h.lastQuestion, args).toBe(prm.unattendedQuestion(when(v.until), 'MANAGER', [{ lead: 'LEAD', n: 1 }]))
+    expect(text, args).toBe(prm.unattendedOnText(when(v.until), 'MANAGER', winShort(v)))
+    await $.command.run(lane('unattended off'))
+    h.nowMs += 2_000
+  }
+  const end = new Date(h.nowMs)
+  end.setHours(end.getHours() + 2, 0, 0, 0)
+  await onCmd($, `unattended ${String(end.getHours()).padStart(2, '0')}:00`)
+  expect((h.store.get(UNATTENDED_KEY) as prm.Unattended).until).toBe(end.getTime())
+  // The long forms still work.
+  await $.command.run(lane('unattended off'))
+  h.nowMs += 2_000
+  await onCmd($, 'unattended on for 1 h')
+  expect((h.store.get(UNATTENDED_KEY) as prm.Unattended).until).toBe(h.nowMs + HOUR_MS)
+})
+
+test('/unattended is /callboard unattended: the same dialog and window from the person, the same refusal from any other origin, and a bare one lists', async ($, on) => {
+  await manager($, on)
+  const slash = (args: unknown, origin: unknown = { kind: 'composer' }) => $.command.run({ command: 'unattended', args, origin } as any).then((r: any) => String(r.text))
+  const asked = h.askCount
+  for (const kind of ['plugin', 'peer', 'cron']) for (const args of ['1h', 'on', '17:30', '45m']) expect(await slash(args, { kind })).toBe(prm.UNATTENDED_ON_NOT_PERSON)
+  // An origin with no kind is no person's; args that are not a string read as none (the state, for the person only).
+  expect(await slash('1h', {})).toBe(prm.UNATTENDED_ON_NOT_PERSON)
+  expect(await slash(7, { kind: 'plugin' })).toBe(prm.UNATTENDED_NOT_PERSON)
+  expect(await slash({ x: 1 })).toContain('Unattended mode is off')
+  expect(h.askCount).toBe(asked)
+  nothingOn()
+  const text = await slash('1h')
+  const v = h.store.get(UNATTENDED_KEY) as prm.Unattended
+  expect(h.askCount).toBe(asked + 1)
+  expect(h.lastHeader).toBe(prm.UNATTENDED_HEADER)
+  expect(v).toMatchObject({ by: 'prompt', until: T0 + HOUR_MS })
+  expect(text).toBe(prm.unattendedOnText(when(v.until), 'MANAGER', winShort(v)))
+  expect(await slash('')).toContain('Unattended mode is on until')
+  expect(await slash('off', { kind: 'plugin' })).toBe(prm.UNATTENDED_ENDED)
+  h.nowMs += 11_000
+  expect(await slash('bogus')).toContain('Use /callboard unattended')
+  expect(await slash('10m')).toContain('lasts at least half an hour')
+  expect(h.store.has(UNATTENDED_KEY)).toBe(false)
 })
 
 test('unattended on: each missing precondition is refused with its own text, before any dialog, and stores nothing', async ($, on) => {
