@@ -208,11 +208,10 @@ function createLanes({ vscode, registry, sleep, now, workspaceFolders = () => un
     await bounded(vscode.commands.executeCommand('workbench.action.openEditorAtIndex', g.tabs.indexOf(tab)), 5 * pollMs, 'the focus command')
   }
   // The sweep judged the tab dead some time ago and this may have waited behind an open or a reopen: the registry is read again here, and the tab stays when a
-  // session that is not dead carries the lane's name now (an unpark's resumed panel), or when the registry cannot be read in full.
+  // session that is not dead carries the lane's name now (an unpark's resumed panel), or when the registry cannot be read in full after the same three tries an open makes.
   async function nameHeld(name) {
     try {
-      const all = await registry.list()
-      if (all.complete === false) return true
+      const all = await fullList()
       for (const x of all) if (x.name === name && (await procState(x.pid, x.procStart)) !== 'dead') return true
       return false
     } catch {
