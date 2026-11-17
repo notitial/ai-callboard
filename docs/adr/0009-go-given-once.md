@@ -122,6 +122,14 @@ Facts that bound the options:
   folder, the session is a lane or a lead by then, its repo in use, no approved repo left, its tools refused, or
   the tries used up), and then only the goes it gave as a conductor.*
 - **The granting session itself.**
+- *2026-11-17: a lead a conductor owns asks the conductor for its go. Its `go_request` is refused, before any dialog
+  and with none of the hour used, while its owner binding stands (ADR 0007), whether the conductor is live or not: the
+  person said that under a conductor they never open a lead. The refusal names the conductor when it is live and tells
+  the lead to ask it by message; while it is compacting, restarting or stopped, to wait and ask again, never to open a
+  go of its own, and, if it stays gone, to tell the person, who can type `/callboard lead leave`. The conductor's one
+  dialog covers the lead and its lanes as above. A binding that cannot be read counts as none, so the dialog then
+  opens in the lead as before. The person's own `/callboard go` typed in a lead's panel still opens the dialog there.
+  A lead with no conductor is unchanged.*
 - The reader is always bound by its own session id, never by its name. The reading session's own mod checks the go's
   file and row, its end and the records, fresh, on every read. A check that cannot be made is "no go".
 - The manager is not in the chain: it owns nothing, a go cannot be given in its session, and it passes none on. A

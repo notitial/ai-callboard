@@ -301,6 +301,19 @@ test('go_status says no go, or prints each go with its text framed as data and t
   assert.ok(g.goStatusText([go(), go({ id: OTHER })]).startsWith('2 goes cover this session.'))
 })
 
+test("a lead a conductor owns is refused go_request: the text names the live conductor, and says to wait, never to open its own, while it is gone", () => {
+  const live = g.goOwnedText({ live: true, name: 'CONDX' })
+  assert.equal(
+    live,
+    "a conductor owns this lead, so this session opens no go dialog: ask your conductor `CONDX` by message for a go, saying in two or three lines what the work is: it opens the person's one dialog in its own session, which covers you and your lanes. Then read the go with go_status; a go told in a message is not one.",
+  )
+  const gone = g.goOwnedText({ live: false })
+  assert.ok(gone.includes('ask your conductor by message for a go'))
+  assert.ok(gone.endsWith(' It is not live now (compacting, restarting or stopped): wait and ask it again later. Never open a go of your own while it owns you; if it stays gone, tell the person, who can type /callboard lead leave here.'))
+  // A name that is not a session name is not printed.
+  assert.ok(g.goOwnedText({ live: true, name: 'a`b' }).includes('ask your conductor by message'))
+})
+
 test('the result texts: a go given, the lane tails, the list and off', () => {
   const given = g.goGivenText(go(), 'Sun 16 Nov 19:25')
   assert.ok(given.startsWith("Go 9a1b2c3d recorded: the person's own click. It covers API, and lanes opened under this lead later, until Sun 16 Nov 19:25 ("))
@@ -308,6 +321,8 @@ test('the result texts: a go given, the lane tails, the list and off', () => {
   assert.ok(g.goGivenText(go({ covered: [] }), 'x').includes('It covers no lane yet, and lanes opened'))
   assert.equal(g.goTail(go(), 'Sun 16 Nov 19:25'), ' A go covers this lane: 9a1b2c3d, ends Sun 16 Nov 19:25.')
   assert.equal(g.goTail(undefined), ' No go covers this lane: call go_request before it starts risk-list work.')
+  assert.equal(g.goTail(undefined, undefined, true), ' No go covers this lane: before it starts risk-list work, ask your conductor by message for one (go_request is refused in a lead a conductor owns).')
+  assert.equal(g.goTail(go(), 'x', true), ' A go covers this lane: 9a1b2c3d, ends x.')
   assert.ok(g.goListText([], () => 'x').startsWith('No live go. Use /callboard go TEXT'))
   assert.equal(g.goListText([go()], () => 'Sun 16 Nov 19:25'), `Go 9a1b2c3d: lead LEAD; ends Sun 16 Nov 19:25; lanes at the click: API. Build the import step.\n\n${g.GO_NEVER_LINE}`)
   assert.equal(g.goOffText([ID]), 'Ended: go 9a1b2c3d. The sessions under it finish the step they are on and ask you before the next risk-list step.')

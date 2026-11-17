@@ -3,7 +3,7 @@ import * as g from '../hooks/go'
 import { CONDUCTOR_HINT_PREFIX, HOUR_MS } from '../hooks/core'
 import { h, GO_DIR, LANESDIR, LEADRECDIR, ROOT, SID, T0, YES, extraStat, fakeSha, longTest, pdirs, pfs, repoKey, storeFiles, targetLogs, toasts } from './harness'
 import { ledgerRows, putLedger, wireGuard } from './answer-fixtures'
-import { APISID, APP2, COND, condSelf, putCond, LEADSID, OTHER, OTHERLEAD, PERSON, PIN, SVC, bindOwner, ckLane, ckRow, callCreate, condOn, creator, cueSession, dirStat, grantAt, lane, leadAt, leadCall, leadSelfReg, mgrAt, ownedBy, putLeadRecs, putStore, started, ticks, waitFor } from './fixtures'
+import { APISID, APP2, COND, condSelf, putCond, LEADSID, OTHER, OTHERLEAD, PERSON, PIN, SVC, bindOwner, ckLane, ckRow, callCreate, condOn, condPresenceOf, creator, cueSession, dirStat, grantAt, lane, leadAt, leadCall, leadSelfReg, mgrAt, ownedBy, putLeadRecs, putStore, regAs, started, ticks, waitFor } from './fixtures'
 
 // ---- the go (ADR 0009): the dialog in a lead's session, the go file and its rows, go_request, go_status, /callboard go ----
 // The giver's side: this session (SID) is the lead LEAD of PIN, with the store lane API bound to session OTHER. The reader's side: this session is a plain one
@@ -157,6 +157,47 @@ test('the seventh go_request dialog in an hour is refused; the person\'s own com
   expect(h.askCount).toBe(asked)
   expect((await goCmd($, WORK)).text).toContain('cancelled')
   expect(h.askCount).toBe(asked + 1)
+})
+
+test('go_request in a lead a conductor owns opens no dialog and uses none of the hour: it names the live conductor, says to wait while it is gone; the person\'s command still opens it', async ($, on) => {
+  await giver($, on)
+  ownedBy(OTHERLEAD)
+  // The conductor CONDX is live and trusted for PIN.
+  extraStat.set(`${COND}/.git`, dirStat)
+  putCond(['../app'])
+  h.store.set(`conductor:${OTHERLEAD}`, { home: COND, repos: [PIN], savedAt: T0 - 60_000 })
+  condPresenceOf(OTHERLEAD, 4243, 'CONDX', [PIN])
+  h.sessions = { ...h.sessions, ...regAs(OTHERLEAD, 4243, 'CONDX') }
+  const asked = h.askCount
+  const live = String((await $.tool.call(tool('go_request', { text: WORK }))).deny)
+  expect(live).toBe(`go_request refused: conductor-owns: ${g.goOwnedText({ live: true, name: 'CONDX' })}`)
+  expect(live).toContain('ask your conductor `CONDX` by message for a go')
+  expect(live).not.toContain('wait and ask it again')
+  // The conductor gone (compacting, stopped): still refused, and the lead is told to wait, never to open its own.
+  h.sessions = { ...leadSelfReg(), ...ckRow() }
+  const gone = String((await $.tool.call(tool('go_request', { text: WORK }))).deny)
+  expect(gone).toBe(`go_request refused: conductor-owns: ${g.goOwnedText({ live: false })}`)
+  expect(gone).toContain('wait and ask it again later. Never open a go of your own while it owns you')
+  expect(h.askCount).toBe(asked)
+  expect(goKinds()).toEqual([])
+  // None of the hour was used: after the person leaves the conductor, every dialog of the hour is there.
+  h.store.delete(`owner:${SID}`)
+  h.askAnswer = g.GO_NO as any
+  for (let i = 0; i < g.GO_REQUESTS_PER_HOUR; i++) expect((await $.tool.call(tool('go_request', { text: WORK }))).result).toContain('No go was given')
+  // The person's own command in an owned lead opens the dialog: it is theirs.
+  ownedBy(OTHERLEAD)
+  const before = h.askCount
+  expect((await goCmd($, WORK)).text).toContain('cancelled')
+  expect(h.askCount).toBe(before + 1)
+})
+
+test('lane_start in a lead a conductor owns tells it to ask the conductor for a go, not to call go_request', async ($, on) => {
+  await giver($, on, [ckLane({ leadSid: SID })])
+  ownedBy(OTHERLEAD)
+  h.sessions = cueSession(OTHER, 'API', `${PIN}/api`)
+  const r = String((await $.tool.call(leadCall('start', { lane: 'API' }))).result)
+  expect(r).toContain(g.GO_TAIL_OWNED)
+  expect(r).not.toContain('call go_request')
 })
 
 test('go_request and /callboard go TEXT are refused in a plain session and in the manager; no dialog opens', async ($, on) => {
