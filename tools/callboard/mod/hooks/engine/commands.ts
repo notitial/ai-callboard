@@ -33,6 +33,7 @@ import type { Asked } from './base.ts'
 import { editStore, registryEntries, keptLanes, loadLanes } from './store.ts'
 import {
   cfgGet,
+  cfgReadStrict,
   homeOf,
   leadBusy,
   reservedGet,
@@ -837,10 +838,11 @@ async function unattendedCommand($: any, sid: string, code: c.OriginCode, op: pr
   if (op === 'bad') return { text: c.usageLine('unattended') }
   if (typeof op === 'object') return unattendedOnCommand($, sid, code, op.on)
   if (op === 'off') {
-    await unattendedOffMark($)
+    const marked = await unattendedOffMark($)
     const r = await unattendedClose($, { code: 'command', origin: code })
     if (r === 'store-failed') await logq($, sid, 'error', 'unattended-store')
-    return { text: r === 'closed' ? pr.UNATTENDED_ENDED : r === 'none' ? pr.UNATTENDED_NOT_ON : pr.UNATTENDED_OFF_FAILED }
+    if (r === 'store-failed') return { text: pr.UNATTENDED_OFF_FAILED }
+    return { text: `${r === 'closed' ? pr.UNATTENDED_ENDED : pr.UNATTENDED_NOT_ON}${marked ? '' : ` ${pr.UNATTENDED_OFF_MARK_FAILED}`}` }
   }
   if (!c.originIsPerson(code)) return notPerson($, sid, 'unattended', code, pr.UNATTENDED_NOT_PERSON)
   const w = await unattendedNow($)
@@ -862,7 +864,10 @@ async function unattendedPre($: any, sid: string): Promise<OnPre> {
   if (!live) return { ok: false, why: 'registry' }
   const manager = (await managersLive($, live, '').catch(() => [])).find((m) => m.unverified !== true && m.name !== undefined)?.name
   if (manager === undefined) return { ok: false, why: 'manager' }
-  if (!(await cfgGet($, sid, true)).checkin) return { ok: false, why: 'checkin' }
+  // A settings read that fails permits nothing: the cached or default check-in value is not taken.
+  const cfg = await cfgReadStrict($, sid)
+  if (!cfg) return { ok: false, why: 'config' }
+  if (!cfg.checkin) return { ok: false, why: 'checkin' }
   const busy = await unattendedBusy($)
   if (busy !== 'none') return { ok: false, why: busy === 'unread' ? 'prompts' : busy }
   const lanes = await loadLanes($).catch(() => 'error')
@@ -913,7 +918,7 @@ async function unattendedOnCommand($: any, sid: string, code: c.OriginCode, end:
   // An off that ran while the window was being written found nothing to end: it still wins, and the window it missed is ended here.
   const late = await unattendedOffSince($, asked, closes)
   if (late !== false) {
-    if (await unattendedVoid($, value)) return no(late === true ? 'off-typed' : 'unread')
+    if (await unattendedVoid($, value, 'off-during-open')) return no(late === true ? 'off-typed' : 'unread')
     await logq($, sid, 'error', 'unattended-open:store-void')
     return { text: pr.unattendedNoText('store-void') }
   }
@@ -935,17 +940,18 @@ export async function unattendedOffCall($: any, e: any) {
     return { deny: pr.UNATTENDED_OFF_NOT_MANAGER }
   }
   const w = await unattendedNow($, true)
-  await unattendedOffMark($)
+  const marked = await unattendedOffMark($)
   const r = await unattendedClose($, { code: 'manager' })
   if (r === 'store-failed') {
     await logq($, sid, 'error', 'unattended-store')
     return { deny: pr.UNATTENDED_OFF_FAILED }
   }
-  if (r === 'none') return { result: pr.UNATTENDED_NOT_ON }
+  const unmarked = marked ? '' : ` ${pr.UNATTENDED_OFF_MARK_FAILED}`
+  if (r === 'none') return { result: `${pr.UNATTENDED_NOT_ON}${unmarked}` }
   await logq($, sid, 'command', 'unattended-off:manager')
   const p = w.state === 'on' ? await where($) : undefined
   const rows = p && w.state === 'on' ? await ledgerRowsFor($, p, `"u":"${w.u}"`) : 'unreadable'
-  return { result: `${pr.UNATTENDED_ENDED} ${w.state === 'on' && rows !== 'unreadable' ? pr.unattendedCounts(w.u, rows) : pr.UNATTENDED_COUNTS_UNREAD}` }
+  return { result: `${pr.UNATTENDED_ENDED} ${w.state === 'on' && rows !== 'unreadable' ? pr.unattendedCounts(w.u, rows) : pr.UNATTENDED_COUNTS_UNREAD}${unmarked}` }
 }
 
 // What the live window did, or the last one on record in this month's and last month's ledgers: three bounded reads (the windows opened, the rows that carry

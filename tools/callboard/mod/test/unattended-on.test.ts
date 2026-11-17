@@ -122,8 +122,17 @@ test('unattended on: each missing precondition is refused with its own text, bef
   pfs.set(`${PROMPTS_DIR}/asking/${OTHER}`, { text: '{}', mtimeSec: T0 / 1000 })
   expect(await onCmd($)).toBe(prm.unattendedNoText('asking'))
   pfs.delete(`${PROMPTS_DIR}/asking/${OTHER}`)
+  // A settings read that fails: the check-in value is not taken from the cache or the defaults.
+  h.storeGetFails = (k: string) => k === 'config'
+  expect(await onCmd($)).toBe(prm.unattendedNoText('config'))
+  h.storeGetFails = undefined
+  // More prompt folders than are read: a relay in one past the cap could be missed.
+  const many = Array.from({ length: 513 }, (_, i) => `${PROMPTS_DIR}/${i.toString(16).padStart(8, '0')}-0000-4000-8000-000000000000`)
+  for (const d of many) pdirs.add(d)
+  expect(await onCmd($)).toBe(prm.unattendedNoText('prompts'))
+  for (const d of many) pdirs.delete(d)
   expect(h.askCount).toBe(asked)
-  expect(logged(stdins)).toEqual(expect.arrayContaining(['refused:unattended-on:escalation', 'refused:unattended-on:off-file', 'refused:unattended-on:checkin', 'refused:unattended-on:relay', 'refused:unattended-on:asking']))
+  expect(logged(stdins)).toEqual(expect.arrayContaining(['refused:unattended-on:escalation', 'refused:unattended-on:off-file', 'refused:unattended-on:checkin', 'refused:unattended-on:relay', 'refused:unattended-on:asking', 'refused:unattended-on:config', 'refused:unattended-on:prompts']))
   nothingOn()
   // With everything back, it turns on.
   expect(await onCmd($)).toContain('Unattended mode is on until')
@@ -194,8 +203,10 @@ test('unattended on: an off whose mark lands while the window is being written s
   }
   expect(await onCmd($)).toBe(prm.unattendedNoText('off-typed'))
   expect(h.store.has(UNATTENDED_KEY)).toBe(false)
-  expect(uKinds()).toEqual(['unattended-on', 'unattended-off void'])
+  expect(uKinds()).toEqual(['unattended-on', 'unattended-off off-during-open'])
   expect(logged(stdins)).toContain('refused:unattended-on:off-typed')
+  h.nowMs += 11_000
+  expect(await onCmd($, 'unattended')).toContain('an unattended off came while it was being opened, and the off won')
 })
 
 test('unattended on: a late off whose removal of the value fails still ends the window, by its void row', async ($, on) => {
@@ -205,10 +216,19 @@ test('unattended on: a late off whose removal of the value fails still ends the 
   }
   h.storeDeleteFails = true
   expect(await onCmd($)).toBe(prm.unattendedNoText('off-typed'))
-  expect(uKinds()).toEqual(['unattended-on', 'unattended-off void'])
+  expect(uKinds()).toEqual(['unattended-on', 'unattended-off off-during-open'])
   h.storeDeleteFails = false
   h.nowMs += 11_000
   expect(await statusText($)).not.toContain('| Unattended | ON')
+})
+
+test('unattended off: an off whose mark the store does not take says so, typed and from unattended_off', async ($, on) => {
+  await manager($, on)
+  h.storeSetHook = (k: string) => {
+    if (k === UNATTENDED_OFF_AT_KEY) throw new Error('disk')
+  }
+  expect(await onCmd($, 'unattended off')).toBe(`${prm.UNATTENDED_NOT_ON} ${prm.UNATTENDED_OFF_MARK_FAILED}`)
+  expect((await offTool($)).result).toBe(`${prm.UNATTENDED_NOT_ON} ${prm.UNATTENDED_OFF_MARK_FAILED}`)
 })
 
 longTest('unattended on: a dialog nobody answers times out after 10 minutes and stores nothing; a click on it afterwards turns nothing on and says so', async ($, on) => {

@@ -383,9 +383,10 @@ async function offRowsRetry($: any): Promise<void> {
 // /callboard unattended off and unattended_off leave the time they ran in the store (best effort), whether or not a window was on: a turn-on dialog open in any
 // session meanwhile reads it after the click, and the off wins.
 export const UNATTENDED_OFF_AT_KEY = 'unattended-off-at'
-export async function unattendedOffMark($: any): Promise<void> {
+// false: the store did not take the mark, and the caller says so.
+export async function unattendedOffMark($: any): Promise<boolean> {
   const now = await $.clock.now()
-  await storeDo($, () => $.store.set(UNATTENDED_OFF_AT_KEY, now))
+  return storeDo($, () => $.store.set(UNATTENDED_OFF_AT_KEY, now))
 }
 // Whether an off ran at or after `since`: the mark is read from the store, and this process's own ends count too. 'unread': the store did not answer.
 export async function unattendedOffSince($: any, since: number, closes: number): Promise<boolean | 'unread'> {
@@ -414,8 +415,11 @@ export async function unattendedBusy($: any): Promise<'relay' | 'asking' | 'none
   }
   const top = await list(base)
   if (!top) return 'unread'
-  for (const d of top.filter((x) => c.SID_RE.test(x.name)).sort((a, b) => a.name.localeCompare(b.name)).slice(0, PROMPT_DIRS_MAX)) {
-    const files = await list(`${base}/${d.name}`)
+  // Past the folders the other scans read, a relay could be missed: that is no answer.
+  const dirs = top.filter((x) => c.SID_RE.test(x.name)).map((x) => x.name).sort()
+  if (dirs.length > PROMPT_DIRS_MAX) return 'unread'
+  for (const d of dirs) {
+    const files = await list(`${base}/${d}`)
     if (!files) return 'unread'
     if (files.some((f) => /^[0-9a-f-]{36}\.relay\.json$/.test(f.name))) return 'relay'
   }
@@ -543,20 +547,21 @@ export async function unattendedOpen($: any, raw: unknown): Promise<{ ok: true; 
   const by = sid !== undefined ? { by: sid } : {}
   if (!(await ledgerAdd($, { kind: 'unattended-on', hash, u, end: new Date(value.until).toISOString(), origin: value.by, lane: value.manager, ...by }))) return { ok: false, why: 'ledger' }
   // The write may have landed all the same: unattendedVoid ends it either way.
-  if (!(await storeDo($, () => $.store.set(UNATTENDED_KEY, value)))) return { ok: false, why: (await unattendedVoid($, value)) ? 'store' : 'store-void' }
+  if (!(await storeDo($, () => $.store.set(UNATTENDED_KEY, value)))) return { ok: false, why: (await unattendedVoid($, value, 'void')) ? 'store' : 'store-void' }
   mem.unattended = undefined
   mem.unattendedOpens++
   return { ok: true, u }
 }
-// Ends a value this process stored, or tried to store, that must not stand: the value is removed if it is there (the close writes its void row); otherwise
-// its void row is written alone, and owed if the ledger refuses it (offRow), so a reader ends the value. false: neither went through, and the value may stand.
-export async function unattendedVoid($: any, value: pr.Unattended): Promise<boolean> {
+// Ends a value this process stored, or tried to store, that must not stand: the value is removed if it is there (the close writes its off row with `code`);
+// otherwise that row is written alone, and owed if the ledger refuses it (offRow), so a reader ends the value. false: neither went through, and the value may
+// stand. code: void when the value could not be stored, off-during-open when an off came while it was written.
+export async function unattendedVoid($: any, value: pr.Unattended, code: 'void' | 'off-during-open'): Promise<boolean> {
   const text = pr.canonical(value)
-  if ((await unattendedClose($, { code: 'void', only: text }).catch(() => 'store-failed' as const)) === 'closed') return true
+  if ((await unattendedClose($, { code, only: text }).catch(() => 'store-failed' as const)) === 'closed') return true
   const hash = await windowHash($, text)
   if (hash === undefined) return false
   const sid = await ownSid($)
-  return offRow($, { kind: 'unattended-off', code: 'void', hash, u: pr.windowShort(hash), ...(sid !== undefined ? { by: sid } : {}) })
+  return offRow($, { kind: 'unattended-off', code, hash, u: pr.windowShort(hash), ...(sid !== undefined ? { by: sid } : {}) })
 }
 
 // ---- here: the session the person said they are in (/callboard here, ADR 0009) ----

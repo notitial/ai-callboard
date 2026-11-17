@@ -739,6 +739,7 @@ const WINDOW_END: Record<string, string> = {
   unbound: 'it ended because its stored value had no ledger row',
   ended: 'it ended because its value was put back after its end',
   void: 'it never opened: its value could not be stored',
+  'off-during-open': 'an unattended off came while it was being opened, and the off won',
   manager: 'the manager ended it with unattended_off',
 }
 export const UNATTENDED_LIST_UNREAD = 'What the window did could not be read from the ledger (a read failed or was cut). node tools/callboard/prompt-audit.mjs reads the ledger whole.'
@@ -882,7 +883,7 @@ export function unattendedQuestion(until: string, manager: string, lanes: { lead
   ].join('\n')
 }
 // Why unattended mode was not turned on. Each refusal stores nothing.
-export type UnattendedNo = 'on' | 'unread' | 'escalation' | 'off-file' | 'manager' | 'manager-changed' | 'checkin' | 'relay' | 'asking' | 'prompts' | 'registry' | 'off-typed' | 'busy' | 'cancelled' | 'timed-out' | 'value' | 'hash' | 'ledger' | 'store' | 'store-void'
+export type UnattendedNo = 'on' | 'unread' | 'escalation' | 'off-file' | 'manager' | 'manager-changed' | 'checkin' | 'relay' | 'asking' | 'prompts' | 'registry' | 'off-typed' | 'config' | 'busy' | 'cancelled' | 'timed-out' | 'value' | 'hash' | 'ledger' | 'store' | 'store-void'
 const UNATTENDED_NO_TEXT: Record<UnattendedNo, string> = {
   on: 'it is on already.',
   unread: 'its state could not be read. Try again in a minute.',
@@ -895,6 +896,7 @@ const UNATTENDED_NO_TEXT: Record<UnattendedNo, string> = {
   asking: 'a lead, conductor or the manager has a question open for you now. Answer it in that panel first.',
   prompts: 'the prompts folder could not be read.',
   registry: 'the sessions on this Mac could not be read.',
+  config: 'the callboard settings could not be read. Try again in a minute.',
   'off-typed': 'an unattended off came while the dialog was open, and the off wins.',
   busy: 'a callboard question is already open. Answer it first.',
   cancelled: 'you cancelled.',
@@ -915,6 +917,8 @@ export const unattendedOnText = (until: string, manager: string, u: string): str
   `Unattended mode is on until ${until}, with manager ${manager} (window ${u}). /callboard unattended off ends it from any session or the phone; /callboard unattended lists what happened.`
 export const UNATTENDED_ENDED = 'Unattended mode is off on this Mac.'
 export const UNATTENDED_NOT_ON = 'Unattended mode is not on.'
+// Said after an off whose mark the store did not take: a turn-on dialog open meanwhile would not see it.
+export const UNATTENDED_OFF_MARK_FAILED = 'The off could not be recorded for a turn-on dialog open in another session: if one is, choose Cancel there.'
 export const UNATTENDED_OFF_FAILED = 'Unattended mode could not be checked or ended: the store did not answer. Try again. To stop every tier answering prompts now, create ~/.claude/callboard/prompts/OFF.'
 
 // Whether escalation is surely off, from one read of the stored switch and one stat of the OFF file. Only the person's own off counts: a stored `{ off: true }`,

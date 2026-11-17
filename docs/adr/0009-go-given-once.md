@@ -130,6 +130,9 @@ Facts that bound the options:
   dialog covers the lead and its lanes as above. A binding that cannot be read counts as none, so the dialog then
   opens in the lead as before. The person's own `/callboard go` typed in a lead's panel still opens the dialog there.
   A lead with no conductor is unchanged.*
+- *Amended 2026-11-17 ([ADR 0008](0008-unattended-mode.md)):* while unattended mode is on, a lead's or a
+  conductor's `go_request` is refused before any dialog. A go the person gives with their own `/callboard go` still
+  opens, and the mode gives or widens none.
 - The reader is always bound by its own session id, never by its name. The reading session's own mod checks the go's
   file and row, its end and the records, fresh, on every read. A check that cannot be made is "no go".
 - The manager is not in the chain: it owns nothing, a go cannot be given in its session, and it passes none on. A
