@@ -268,6 +268,184 @@ export async function answeringNow($: any): Promise<pr.Answering | undefined> {
   return (await escalationNow($)).a
 }
 
+// ---- the unattended window (ADR 0008): the one reader, what `unknown` means, the sure offs, and the steps that open and end a window ----
+// Trust rules held here: a window counts only while its stored value and its `unattended-on` row agree and no `unattended-off` row names it; a read that fails
+// ends nothing and permits nothing; only a value that was read and is over (its end, its span, its missing row, its off row), the off command and a sure off of
+// escalation end a window; the row is written before the value when a window opens, and after the value is removed when one ends.
+export const UNATTENDED_KEY = 'unattended'
+const UNATTENDED_TTL_MS = 10_000
+const UNATTENDED_LOOK_MS = 30_000
+
+const windowUnknown = (cause: pr.UnattendedCause, key: boolean): pr.Window => ({ state: 'unknown', cause, key })
+
+// One read of a store key, under the engine call limit. read false: the store threw or did not answer in time.
+async function storeRead($: any, key: string): Promise<{ read: false } | { read: true; raw: unknown }> {
+  try {
+    const raw = await withTimeout($, (async () => $.store.get(key))(), c.ENGINE_CALL_TIMEOUT_MS)
+    return raw === 'timeout' ? { read: false } : { read: true, raw }
+  } catch {
+    return { read: false }
+  }
+}
+// A store write or delete under the same limit. false: it threw or did not answer in time.
+async function storeDo($: any, op: () => unknown): Promise<boolean> {
+  try {
+    return (await withTimeout($, (async () => op())().then(() => 'done' as const), c.ENGINE_CALL_TIMEOUT_MS)) === 'done'
+  } catch {
+    return false
+  }
+}
+async function ownSid($: any): Promise<string | undefined> {
+  try {
+    const sid = await $.session.id()
+    return typeof sid === 'string' && c.SID_RE.test(sid) ? sid : undefined
+  } catch {
+    return undefined
+  }
+}
+// The hash of a window's value (its canonical text), kept for the last value hashed so a read runs no process for a value it has seen.
+async function windowHash($: any, text: string): Promise<string | undefined> {
+  if (mem.unattendedHash?.text === text) return mem.unattendedHash.hash
+  const hash = await sha($, text).catch(() => undefined)
+  if (hash !== undefined) mem.unattendedHash = { text, hash }
+  return hash
+}
+
+// Whether escalation is surely off (pr.escalationSureOf): the stored switch and the OFF file, each read once.
+export async function escalationSure($: any): Promise<pr.EscalationSure> {
+  const stored = await storeRead($, ANSWERING_KEY)
+  let offFile: 'absent' | 'file' | 'other' | 'error' = 'error'
+  try {
+    const p = await where($)
+    const st = p ? await statR($, `${p.root}/prompts/OFF`) : 'error'
+    offFile = st === 'absent' || st === 'error' ? st : st.kind === 'file' ? 'file' : 'other'
+  } catch {}
+  return pr.escalationSureOf(stored, offFile)
+}
+
+// Ends a window: the stored value is removed, then the `unattended-off` row is written with how it ended, the origin of a command that ended it and this
+// session. `only`: the canonical text a reader judged; a stored value that is another one by now is left alone. 'none': nothing was stored (or, with `only`,
+// another value was). 'store-failed': the store did not answer or would not remove the value; nothing was written. A removal that did not answer is read
+// again: a value that is gone by then was removed, and gets its row. After 'closed' this process knows the window is off.
+export type WindowClosed = 'closed' | 'none' | 'store-failed'
+export async function unattendedClose($: any, how: { code: string; origin?: c.OriginCode; only?: string }): Promise<WindowClosed> {
+  const got = await storeRead($, UNATTENDED_KEY)
+  if (!got.read) return 'store-failed'
+  if (got.raw === undefined || got.raw === null) return 'none'
+  const value = pr.parseUnattended(got.raw)
+  const text = value ? pr.canonical(value) : undefined
+  if (how.only !== undefined && text !== how.only) return 'none'
+  const hash = text === undefined ? undefined : await windowHash($, text)
+  if (!(await storeDo($, () => $.store.delete(UNATTENDED_KEY)))) {
+    const after = await storeRead($, UNATTENDED_KEY)
+    if (!after.read || (after.raw !== undefined && after.raw !== null)) return 'store-failed'
+  }
+  mem.unattended = undefined
+  mem.unattendedSure = 'off'
+  mem.unattendedUnknown = false
+  mem.unattendedCloses++
+  const sid = await ownSid($)
+  const row: Omit<pr.LedgerRow, 't'> = { kind: 'unattended-off', code: how.code, ...(hash !== undefined ? { hash, u: pr.windowShort(hash) } : {}), ...(how.origin !== undefined ? { origin: how.origin } : {}), ...(sid !== undefined ? { by: sid } : {}) }
+  if (!(await ledgerAdd($, row)) && sid !== undefined) await logq($, sid, 'error', 'unattended-ledger')
+  return 'closed'
+}
+
+// One read of the window from the store and the ledger: `on` needs both to answer in this read. A value that was read and is over is off whether or not it
+// could be removed: the next reader tries again.
+async function windowRead($: any, now: number): Promise<pr.Window> {
+  const got = await storeRead($, UNATTENDED_KEY)
+  if (!got.read) return windowUnknown('store', false)
+  if (got.raw === undefined || got.raw === null) return { state: 'off' }
+  const value = pr.parseUnattended(got.raw)
+  if (!value) return windowUnknown('value', true)
+  const text = pr.canonical(value)
+  const over = async (code: string): Promise<pr.Window> => {
+    await unattendedClose($, { code, only: text })
+    return { state: 'off' }
+  }
+  const time = pr.unattendedTime(value, now)
+  if (time === 'invalid' || time === 'expired') return over(time)
+  if (time === 'early') return windowUnknown('clock', true)
+  const hash = await windowHash($, text)
+  if (hash === undefined) return windowUnknown('hash', true)
+  const p = await where($)
+  const rows = p ? await ledgerRowsFor($, p, `"hash":"${hash}"`) : 'unreadable'
+  if (rows === 'unreadable') return windowUnknown('ledger', true)
+  const bind = pr.unattendedBind(rows, hash, value, now)
+  if (bind === 'ended' || bind === 'unbound') return over(bind)
+  if (bind === 'wait') return windowUnknown('unbound', true)
+  return { state: 'on', value, u: pr.windowShort(hash) }
+}
+
+// The one reader of the window, kept UNATTENDED_TTL_MS per process with the last sure state beside it (mem.unattendedSure). The first `unknown` of an episode
+// writes one `unattended-unknown` row, best effort, when a stored value was seen or this process last read `on`; a store that fails with no window in sight
+// writes none.
+export async function unattendedNow($: any): Promise<pr.Window> {
+  let w: pr.Window
+  try {
+    const now = await $.clock.now()
+    const kept = mem.unattended
+    // A kept `on` is not served past its window's end.
+    if (kept && now >= kept.at && now - kept.at < UNATTENDED_TTL_MS && !(kept.w.state === 'on' && now >= kept.w.value.until)) return kept.w
+    const closes = mem.unattendedCloses
+    w = await windowRead($, now)
+    // A window ended in this process while the read was under way: what the read found is older than that end, so it is not kept and the answer is off.
+    if (mem.unattendedCloses !== closes) return { state: 'off' }
+    mem.unattended = { at: now, w }
+  } catch {
+    w = windowUnknown('error', false)
+  }
+  if (w.state !== 'unknown') {
+    mem.unattendedSure = w.state
+    mem.unattendedUnknown = false
+  } else if (!mem.unattendedUnknown && (w.key || mem.unattendedSure === 'on')) {
+    mem.unattendedUnknown = true
+    const sid = await ownSid($)
+    await ledgerAdd($, { kind: 'unattended-unknown', code: w.cause, ...(sid !== undefined ? { by: sid } : {}) }).catch(() => false)
+  }
+  return w
+}
+// What `unknown` means, so no caller decides it for itself. Held: on, or unknown when this process last read on; for everything a window forbids. On: on only;
+// for what only a window permits.
+export async function unattendedHeld($: any): Promise<boolean> {
+  return pr.unattendedHeldOf(await unattendedNow($), mem.unattendedSure)
+}
+export async function unattendedOn($: any): Promise<boolean> {
+  return pr.unattendedOnOf(await unattendedNow($))
+}
+
+// A tier's look from its tick, at most every UNATTENDED_LOOK_MS: one read of the window (which ends one that is over) and, only while a stored value is there,
+// the sure offs of escalation, which end it.
+export const unattendedLookDue = (now: number): boolean => Number.isFinite(now) && c.dueEvery(mem.unattendedLookedAt, now, UNATTENDED_LOOK_MS)
+export async function unattendedTick($: any): Promise<void> {
+  const now = await $.clock.now()
+  if (!unattendedLookDue(now)) return
+  mem.unattendedLookedAt = now
+  const w = await unattendedNow($)
+  if (w.state === 'off' || (w.state === 'unknown' && !w.key)) return
+  const e = await escalationSure($)
+  if (e.state === 'off') await unattendedClose($, { code: `escalation-off:${e.which}` })
+}
+
+// Opens a window for a value whose time fits now: the `unattended-on` row first, then the stored value, so a value never stands without its row. A value that
+// could not be stored gets an `unattended-off` row (void): should the write have landed after all, that row ends it at the next read.
+export async function unattendedOpen($: any, raw: unknown): Promise<{ ok: true; u: string } | { ok: false; why: 'value' | 'hash' | 'ledger' | 'store' }> {
+  const value = pr.parseUnattended(raw)
+  if (!value || pr.unattendedTime(value, await $.clock.now()) !== 'fits') return { ok: false, why: 'value' }
+  const hash = await windowHash($, pr.canonical(value))
+  if (hash === undefined) return { ok: false, why: 'hash' }
+  const u = pr.windowShort(hash)
+  const sid = await ownSid($)
+  const by = sid !== undefined ? { by: sid } : {}
+  if (!(await ledgerAdd($, { kind: 'unattended-on', hash, u, end: new Date(value.until).toISOString(), origin: value.by, lane: value.manager, ...by }))) return { ok: false, why: 'ledger' }
+  if (!(await storeDo($, () => $.store.set(UNATTENDED_KEY, value)))) {
+    await ledgerAdd($, { kind: 'unattended-off', code: 'void', hash, u, ...by })
+    return { ok: false, why: 'store' }
+  }
+  mem.unattended = undefined
+  return { ok: true, u }
+}
+
 // ---- here: the session the person said they are in (/callboard here, ADR 0009) ----
 // The stored key while it counts (pr.parseHere), undefined when there is none, or 'error' when the store did not answer.
 export async function hereRead($: any): Promise<pr.Here | undefined | 'error'> {

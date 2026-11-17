@@ -127,7 +127,8 @@ or phone: from a plugin, another session or a script it is refused, or asks you 
 ask-first path, and so is `here`; `here off` takes any origin, since it only narrows.
 
 `/callboard config` shows the settings with their defaults: keepalive, ping and stop times, the two compaction
-levels, check-ins, whether conductors may open leads, and escalation. `config reset` restores the defaults.
+levels, check-ins, whether conductors may open leads, lanes per hour, and escalation. `config reset` restores the
+defaults. `config lanes N` (1 to 60, default 30) sets how many lanes a repo's leads may create in an hour.
 
 Reserved names: the repo reserves `MANAGER` only. Run `/callboard reserve NAME` for each other name your rules or
 manager trust (for example your manager session's own name); until you do, a lead may give a lane that name. The

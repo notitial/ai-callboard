@@ -14,7 +14,7 @@ test('every form is written once, each with a help line', () => {
 })
 
 test('the hint and the usage lines are built from the table', () => {
-  assert.equal(argumentHint(), 'lanes|status|lead|lane|escalation|go|here|conductor|manager|config|reserve|checkin|rest|off|help')
+  assert.equal(argumentHint(), 'lanes|status|lead|lane|escalation|go|here|unattended|conductor|manager|config|reserve|checkin|rest|off|help')
   assert.deepEqual(firstWords().slice(0, 3), ['lanes', 'status', 'lead'])
   assert.equal(usageLine('conductor'), 'Use /callboard conductor [NAME], conductor add NAME|PATH or conductor remove NAME|PATH.')
   assert.equal(usageLine('checkin'), 'Use /callboard checkin pause [Nm|Nh] or checkin resume.')
@@ -43,6 +43,7 @@ test('a later word completes from the forms the earlier words fit', () => {
   assert.deepEqual(words('/callboard config ', 'p'), ['ping'])
   assert.deepEqual(words('/callboard escalation ', 'o'), ['off'])
   assert.deepEqual(words('/callboard go ', 'o'), ['off'])
+  assert.deepEqual(words('/callboard unattended ', 'o'), ['off'])
 })
 
 test('a value the person supplies, a word past the end of a form and a draft that is not /callboard offer nothing', () => {
@@ -58,7 +59,7 @@ test('a value the person supplies, a word past the end of a form and a draft tha
 })
 
 // Every line a form stands for: each optional token left out and filled in, each `a|b` alternative, a value replaced by one the parser takes.
-const NUMBER: Record<string, string> = { ping: '40', stop: '2', idle: '200', working: '400' }
+const NUMBER: Record<string, string> = { ping: '40', stop: '2', idle: '200', working: '400', lanes: '30' }
 function lines(form: string): string[] {
   let out: string[][] = [[]]
   for (const t of form.split(' ')) {
@@ -79,6 +80,7 @@ test('every line a form of the table stands for is one the parser or the handler
       if (first === 'escalation') assert.notEqual(prm.parseEscalationArgs(rest.join(' ')), 'bad', line)
       else if (first === 'go') assert.notEqual(go.parseGoArgs(rest.join(' ')), 'bad', line)
       else if (first === 'here') assert.notEqual(prm.parseHereArgs(rest.join(' ')), 'bad', line)
+      else if (first === 'unattended') assert.notEqual(prm.parseUnattendedArgs(rest.join(' ')), 'bad', line)
       else {
         const arg = c.parseCommandArgs(line)
         assert.notEqual(arg, undefined, line)
@@ -90,7 +92,7 @@ test('every line a form of the table stands for is one the parser or the handler
 
 test('the sample lines cover the optional and the alternative forms', () => {
   assert.deepEqual(lines('reserve [add] NAME'), ['reserve blue', 'reserve add blue'])
-  assert.deepEqual(lines('config ping|stop|idle|working N'), ['config ping 40', 'config stop 2', 'config idle 200', 'config working 400'])
+  assert.deepEqual(lines('config ping|stop|idle|working|lanes N'), ['config ping 40', 'config stop 2', 'config idle 200', 'config working 400', 'config lanes 30'])
   assert.deepEqual(lines('checkin pause [Nm|Nh]'), ['checkin pause', 'checkin pause 3m'])
 })
 
