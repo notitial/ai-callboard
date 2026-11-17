@@ -838,7 +838,7 @@ async function reserveCommand($: any, sid: string, code: c.OriginCode, op: c.Res
 // A time for the person, in this machine's zone.
 const whenLocal = (ms: number): string => go.goWhen(ms, -new Date(ms).getTimezoneOffset())
 
-// /callboard unattended (the person's own command: the state of the window), /callboard unattended on (the person's own, behind its dialog) and /callboard
+// /callboard unattended (the person's own command: the state of the window), /callboard unattended on or with an end alone (the person's own, behind its dialog) and /callboard
 // unattended off (any origin, no dialog: it only narrows, bringing the questions back to the person). Anything else is the usage line.
 async function unattendedCommand($: any, sid: string, code: c.OriginCode, op: pr.UnattendedOp): Promise<{ text: string }> {
   if (op === 'bad') return { text: c.usageLine('unattended') }
@@ -893,7 +893,7 @@ async function unattendedOnCommand($: any, sid: string, code: c.OriginCode, end:
   if (!c.originIsPerson(code)) return notPerson($, sid, 'unattended', code, pr.UNATTENDED_ON_NOT_PERSON)
   const asked = await $.clock.now()
   const until = pr.unattendedEndAt(end, asked)
-  if (until === undefined) return { text: pr.UNATTENDED_SPAN }
+  if (until === undefined) return { text: pr.unattendedSpanText(end, asked, whenLocal) }
   const no = async (why: pr.UnattendedNo, extra?: string) => {
     await logq($, sid, 'refused', `unattended-on:${why}`)
     return { text: pr.unattendedNoText(why, extra) }

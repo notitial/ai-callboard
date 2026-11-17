@@ -107,9 +107,13 @@ caller.
    conductor grant is refused for good at a restart; taking a repo off the conductor's list does not end
    it, and a lead or lane it held at the click keeps it until then, also if that lead leaves the conductor. The
    manager gives no go.
-8. Before you leave the Mac for hours, type `/callboard unattended on` (8 hours; or `on until HH:MM`, or `on for N h`,
-   from 30 minutes to 14 hours), with a manager live, escalation on for everything and check-ins on. A dialog says
-   what changes; nothing is on until you click Turn on. While it is on nothing is put to you: no relay, a lead's,
+8. Before you leave the Mac for hours, type `/callboard unattended 8h` (or `/unattended 8h`; a span such as `1h`,
+   `45m` or `90m`, or a time such as `17:30`; from 30 minutes to 14 hours; `on`, `on for N h` and `on until HH:MM`
+   work too, and a bare `on` is 8 hours), with a manager live, escalation on for everything and check-ins on. A short dialog says
+   what changes; nothing is on until you click Turn on. A span under 30 minutes is refused with the earliest end it
+   takes. Keep the manager in auto mode: in any other mode its own permission prompts, its board write included, are
+   refused while the window is on. Restart sessions started before the last callboard update first, so an old lane and
+   an old tier do not relay. While it is on nothing is put to you: no relay, a lead's,
    conductor's or the manager's own question is refused, and so are the manager's and a conductor's own permission
    prompts. The manager decides what asks, allows only what
    it would allow with you there, and parks what the rules keep for you (the lane is told it waits for you). A lead
@@ -136,12 +140,12 @@ that fit, each with its help line. The families:
   `conductor add|remove NAME|PATH`, `manager [NAME]`, and `off` to drop whatever the session holds.
 - **Settings:** `config SETTING VALUE`, `config reset`, `reserve [add] NAME`, `reserve remove NAME`,
   `checkin pause [Nm|Nh]`, `checkin resume`, `escalation [off]`, `rest` (or `/rest`), `go [TEXT]`, `go off [SHORT]`,
-  `here`, `here off`, `unattended [on [until HH:MM | for N h] | off]`.
+  `here`, `here off`, `unattended [Nm|Nh | HH:MM | on [until HH:MM | for N h] | off]` (or `/unattended`, the same).
 
 Anything that widens what a session may do (a role, a name, a setting, a reserved name, a go) needs your own prompt
 or phone: from a plugin, another session or a script it is refused, or asks you first. `off`, `rest`,
 `escalation off` and the prints take any origin; `off` from another origin asks you first; `go` and `go off` are your own prompt or phone only, with no
-ask-first path, and so are `here` and `unattended on`; `here off` and `unattended off` take any origin, since they only
+ask-first path, and so are `here` and turning `unattended` on; `here off` and `unattended off` take any origin, since they only
 narrow.
 
 `/callboard config` shows the settings with their defaults: keepalive, ping and stop times, the two compaction

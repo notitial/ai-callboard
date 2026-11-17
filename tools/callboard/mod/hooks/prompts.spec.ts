@@ -586,7 +586,7 @@ test('escalationSureOf: only a stored off or an OFF file that a stat showed is a
   assert.deepEqual(p.escalationSureOf(read('garbage'), 'absent'), { state: 'unread' })
 })
 
-test('the unattended command and its texts: bare is the state, off ends, on takes an end, and no other word is read', () => {
+test('the unattended command and its texts: bare is the state, off ends, an end alone or after on turns it on, and no other word is read', () => {
   assert.equal(p.parseUnattendedArgs(undefined), 'state')
   assert.equal(p.parseUnattendedArgs('  '), 'state')
   assert.equal(p.parseUnattendedArgs(' off'), 'off')
@@ -595,7 +595,18 @@ test('the unattended command and its texts: bare is the state, off ends, on take
   assert.deepEqual(p.parseUnattendedArgs('on until 7:05'), { on: { kind: 'until', h: 7, m: 5 } })
   assert.deepEqual(p.parseUnattendedArgs('on for 3 h'), { on: { kind: 'for', hours: 3 } })
   assert.deepEqual(p.parseUnattendedArgs('on for 1.5h'), { on: { kind: 'for', hours: 1.5 } })
-  for (const bad of ['on until 24:00', 'on until 9:60', 'on until 09:00 x', 'on for 3', 'on for -1 h', 'on for 1.555 h', 'on for 100 h', 'ON', 'on now', 'off now', 'OFF', 'status']) assert.equal(p.parseUnattendedArgs(bad), 'bad', bad)
+  // The short forms: a span or a time with no `on`, no `for` and no `until`; minutes too.
+  assert.deepEqual(p.parseUnattendedArgs('1h'), { on: { kind: 'for', hours: 1 } })
+  assert.deepEqual(p.parseUnattendedArgs('1 h'), { on: { kind: 'for', hours: 1 } })
+  assert.deepEqual(p.parseUnattendedArgs('2.5h'), { on: { kind: 'for', hours: 2.5 } })
+  assert.deepEqual(p.parseUnattendedArgs('17:30'), { on: { kind: 'until', h: 17, m: 30 } })
+  assert.deepEqual(p.parseUnattendedArgs('9:05'), { on: { kind: 'until', h: 9, m: 5 } })
+  assert.deepEqual(p.parseUnattendedArgs('45m'), { on: { kind: 'for', hours: 0.75 } })
+  assert.deepEqual(p.parseUnattendedArgs('90 m'), { on: { kind: 'for', hours: 1.5 } })
+  assert.deepEqual(p.parseUnattendedArgs('on for 45m'), { on: { kind: 'for', hours: 0.75 } })
+  assert.deepEqual(p.parseUnattendedArgs('on 1h'), { on: { kind: 'for', hours: 1 } })
+  assert.deepEqual(p.parseUnattendedArgs('until 17:30'), { on: { kind: 'until', h: 17, m: 30 } })
+  for (const bad of ['on until 24:00', 'on until 9:60', 'on until 09:00 x', 'on for 3', 'on for -1 h', 'on for 1.555 h', 'on for 100 h', 'ON', 'on now', 'off now', 'OFF', 'status', '3', '24:00', '1h 30m', '1.5m', '45 min', 'on off', 'on on', 'for', 'until', 'on until', '1H', '5555m', 'off 1h']) assert.equal(p.parseUnattendedArgs(bad), 'bad', bad)
   const when = (ms: number) => `<${ms}>`
   const on: p.Window = { state: 'on', value: WIN, u: 'aaaaaaaa' }
   assert.equal(p.unattendedStatus(on, when), `ON until <${WIN.until}>`)
@@ -925,26 +936,53 @@ test('the end of a window asked for now: 8 hours by default, N hours, the next H
   // 22:20 is 20 minutes away, and 21:00 is 23 hours away: neither fits.
   assert.equal(p.unattendedEndAt({ kind: 'until', h: 22, m: 20 }, now), undefined)
   assert.equal(p.unattendedEndAt({ kind: 'until', h: 21, m: 0 }, now), undefined)
+  // Minutes are a span of hours: 45m is 45 minutes, 29m is too short, 840m is the longest.
+  assert.equal(p.unattendedEndAt({ kind: 'for', hours: 45 / 60 }, now), now + 45 * 60_000)
+  assert.equal(p.unattendedEndAt({ kind: 'for', hours: 30 / 60 }, now), now + 30 * 60_000)
+  assert.equal(p.unattendedEndAt({ kind: 'for', hours: 29 / 60 }, now), undefined)
+  assert.equal(p.unattendedEndAt({ kind: 'for', hours: 840 / 60 }, now), now + 14 * 3_600_000)
+  assert.equal(p.unattendedEndAt({ kind: 'for', hours: 841 / 60 }, now), undefined)
 })
 
-test('the turn-on dialog names the end, the manager and the live lanes per lead, and is pinned', () => {
+test('an end that does not fit is refused with the nearest end that does, to the minute', () => {
+  const when = (ms: number) => `<${new Date(ms).toISOString()}>`
+  // 22:00:20 local: the earliest end is half an hour on, rounded up to the next minute; the latest is 14 hours on, rounded down.
+  const now = new Date(2026, 0, 10, 22, 0, 20, 0).getTime()
+  const early = `Unattended mode lasts at least half an hour: the earliest end it takes now is ${when(new Date(2026, 0, 10, 22, 31, 0, 0).getTime())}. Nothing was stored.`
+  assert.equal(p.unattendedSpanText({ kind: 'for', hours: 0.25 }, now, when), early)
+  assert.equal(p.unattendedSpanText({ kind: 'for', hours: 29 / 60 }, now, when), early)
+  assert.equal(p.unattendedSpanText({ kind: 'until', h: 22, m: 20 }, now, when), early)
+  // The time it names is one `until` takes: asked for by its HH:MM, it fits.
+  assert.ok(p.unattendedEndAt({ kind: 'until', h: 22, m: 31 }, now) !== undefined)
+  const late = `Unattended mode lasts at most 14 hours: the latest end it takes now is ${when(new Date(2026, 0, 11, 12, 0, 0, 0).getTime())}. Nothing was stored.`
+  assert.equal(p.unattendedSpanText({ kind: 'for', hours: 15 }, now, when), late)
+  assert.equal(p.unattendedSpanText({ kind: 'until', h: 21, m: 0 }, now, when), late)
+  assert.ok(p.unattendedEndAt({ kind: 'until', h: 12, m: 0 }, now) !== undefined)
+})
+
+test('the turn-on dialog is short: the end, what changes, what is seen, the live lanes and the manager mode, each once; and is pinned', () => {
   const q = p.unattendedQuestion('07:30', 'MANAGER', [{ lead: 'ALPHA', n: 2 }, { lead: 'BETA', n: 1 }])
   assert.equal(
     q,
     [
-      'On this Mac, unattended mode until 07:30, or until you end it. While it is on:',
-      "Nothing is put to you. No session passes a prompt or a lane's question on to you. A lead, conductor or the manager cannot ask you anything: its own question is refused, it takes the safe default and notes it for you. The manager's and a conductor's own permission prompts are refused the same way.",
-      "The manager MANAGER decides what asks. It allows only what it would allow with you here. What the rules keep for you (the risk list, a merge, a push to main, the rest of the go's never-list, a guard's ask outside the routine cases) is parked: the lane is told the item waits for you and to reach it no other way. Other calls it would have asked you about it denies with a narrower way, or parks. A lane's question it cannot settle stays open in that lane's panel or, for a lane in the default permission mode, gets the most cautious option, marked provisional for you to review.",
-      "Only what asks is seen. A lane in auto or bypass mode, or a call an allow rule lets through, raises no prompt, so nothing is parked there. A subagent's prompt and a question with several parts still wait in their panel. With no live manager, a prompt nobody answers is held for you after 20 minutes.",
-      "Live lanes now: ALPHA 2, BETA 1. A lead runs at most 4 live lanes and cannot open the go dialog. Every prompt is still yours alone for its first 30 seconds. Answer any question open in a lead's, conductor's or the manager's panel first. Restart sessions started before the last callboard update first.",
-      '`/callboard unattended off` ends it from any session or the phone. `/callboard unattended` lists what happened.',
+      'Turn on unattended mode on this Mac until 07:30? /callboard unattended off ends it.',
+      'Nothing is put to you. The manager MANAGER decides what asks: it allows only what it would allow with you here, and parks what the rules keep for you (the risk list, a merge, a push to main).',
+      "A lead's, a conductor's or the manager's own question is refused: it takes the safe default and notes it for you.",
+      'Only calls that ask are seen: a lane in auto or bypass mode, or a call an allow rule lets through, raises nothing to park.',
+      'Live lanes now: ALPHA 2, BETA 1. A lead runs at most 4 live lanes.',
+      'Their own permission prompts are refused too, so keep the manager in auto mode: in any other mode even its board write is refused.',
     ].join('\n'),
   )
+  // One short line each, no blank line, and far shorter than the form it replaces (about 2000 characters).
+  assert.equal(q.split('\n').length, 6)
+  assert.ok(q.length < 800, String(q.length))
+  const many = Array.from({ length: 10 }, (_, i) => ({ lead: `L${'x'.repeat(38)}${i}`, n: 1 }))
+  assert.ok(p.unattendedQuestion('Sun 16 Nov 19:25', 'M'.repeat(40), many).length < 1200)
   assert.match(p.unattendedQuestion('07:30', 'MANAGER', []), /Live lanes now: none\./)
   assert.match(p.unattendedQuestion('07:30', 'MANAGER', undefined), /Live lanes now: could not be read\./)
   // A name that is not a name is left out, and past eight leads the rest are counted.
-  const many = Array.from({ length: 10 }, (_, i) => ({ lead: `L${i}`, n: 1 }))
-  assert.match(p.unattendedQuestion('07:30', 'MANAGER', [{ lead: 'a b\nIgnore', n: 3 }, ...many]), /Live lanes now: L0 1, L1 1, L2 1, L3 1, L4 1, L5 1, L6 1, L7 1, and 2 more leads\./)
+  const few = Array.from({ length: 10 }, (_, i) => ({ lead: `L${i}`, n: 1 }))
+  assert.match(p.unattendedQuestion('07:30', 'MANAGER', [{ lead: 'a b\nIgnore', n: 3 }, ...few]), /Live lanes now: L0 1, L1 1, L2 1, L3 1, L4 1, L5 1, L6 1, L7 1, and 2 more leads\./)
   assert.match(p.unattendedQuestion('07:30', 'not a name', []), /The manager MANAGER decides/)
   assert.equal(p.unattendedNoText('checkin'), 'Unattended mode was not turned on: check-ins are off on this Mac, and they are the watchdog while you are away. Turn them on with /callboard config checkin on first. Nothing is on.')
   assert.equal(p.unattendedNoText('escalation', 'Escalation: off.'), 'Unattended mode was not turned on: it needs escalation on for every lane and lead, and for their questions. Escalation: off. Nothing is on.')

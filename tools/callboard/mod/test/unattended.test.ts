@@ -574,10 +574,10 @@ test('unattended: /callboard unattended prints the state to the person only', as
 
 test('unattended: a word the command does not take is the usage line, with no dialog, value or row', async ($, on) => {
   await started($, on, [])
-  for (const bad of ['unattended start', 'unattended off now', 'unattended on at 09:00', 'unattended on for 8', 'unattended ON']) {
+  for (const bad of ['unattended start', 'unattended off now', 'unattended on at 09:00', 'unattended on for 8', 'unattended ON', 'unattended 8', 'unattended 1h 30m']) {
     expect((await $.command.run(lane(bad))).text).toBe(usageLine('unattended'))
   }
-  expect(usageLine('unattended')).toBe('Use /callboard unattended, unattended on, unattended on until HH:MM, unattended on for N h or unattended off.')
+  expect(usageLine('unattended')).toBe('Use /callboard unattended, unattended Nm|Nh, unattended HH:MM, unattended on, unattended on until HH:MM, unattended on for N h or unattended off.')
   expect(h.askCount).toBe(0)
   expect(h.store.has(UNATTENDED_KEY)).toBe(false)
   expect(uKinds()).toEqual([])

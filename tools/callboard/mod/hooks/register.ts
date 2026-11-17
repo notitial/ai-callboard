@@ -26,6 +26,9 @@ export const register: Register = (on) => {
   // /rest is /callboard rest: the same handler, with its arguments dropped.
   on('command.run', { command: 'rest' }, ($, e) => commandRun($, { ...e, args: 'rest' })).catch(() => ({ text: 'Callboard hit an error. Run /callboard status.' }))
 
+  // /unattended is /callboard unattended: the same handler with the same origin, so the same person-only gate and the same dialog.
+  on('command.run', { command: 'unattended' }, ($, e) => commandRun($, { ...e, args: `unattended ${typeof (e as { args?: unknown }).args === 'string' ? (e as { args: string }).args : ''}` })).catch(() => ({ text: 'Callboard hit an error. Run /callboard status.' }))
+
   on('tool.call', { tool: `mcp__callboard__${TOOL}` }, requestCompactCall).catch(() => ({ deny: 'callboard: request_compact failed closed.' }))
 
   for (const verb of c.LEAD_VERBS) {
