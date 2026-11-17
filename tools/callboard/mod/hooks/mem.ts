@@ -160,8 +160,8 @@ export const ownGen = new Map<string, number>()
 // One registration at a time per session: a /callboard lead after a timed-out one waits for the same registration instead of starting a second.
 export const leadToolsInFlight = new Map<string, Promise<void>>()
 
-// Whether a trusted manager (managerTrusted) runs on the Mac, as a lead's tick last saw it, for the lead's on-cue
-// section: read at most once a minute, so prompt.compose reads no file. A read that fails or throws counts as none.
+// Whether a trusted manager (managerTrusted) runs on the Mac, as a lead's or a conductor's tick last saw it, for the lead's on-cue
+// section and the conductor's manager section: read at most once a minute, so prompt.compose reads no file. A read that fails or throws counts as none.
 // A due look runs under ACTION_TIMEOUT_MS (managerSeenStep); one that times out or throws serves no section (live false) and frees the busy
 // mark, so the next minute reads again. managerSeenBusy holds the running look's own token, and an answer is kept only while its stamp is still the one
 // stored: a look that timed out, or a drop meanwhile (leadDrop, session.end), leaves nothing behind.

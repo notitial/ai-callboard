@@ -50,6 +50,7 @@ single tool.
   *Amended 2026-11-17 (#119):* what the person tells the manager to have a session do, when it is not on the risk
   list and needs no go, approval or merge, the manager passes on as a plain instruction to a lead that has no conductor, and that lead follows it
   without asking the person (ADR 0002, the residual on briefs and messages). A go is still never relayed.
+  *Amended 2026-11-17 (a conductor is told the manager's name):* the same holds for a conductor, which is now told the manager's name.
 - **Writes** only its own state under `.archive/manager/` and its memory. No code, docs, settings, hooks or lock state.
 
 **The grant.** `/callboard manager [NAME]` asks the person in a dialog. NAME must be one of callboard's reserved

@@ -39,7 +39,7 @@ const LEAD_TEXT: Record<string, string> = {
   lane_compact: `Ask ${LANE.lead} ${COMPACT} at the end of its turn. ${LANE_ARG}`,
   lane_terminate: `Stop ${LANE.lead} with SIGTERM, whatever it is doing; with no live session it is removed directly. ${LANE_ARG} Refused while your conductor is live: ask it instead.`,
   lane_park: `Park ${LANE.lead}: stop its session and close its tab, but keep the conversation and the lane's record, so lane_unpark can reopen it. The lane must confirm it is idle. ${LANE_ARG}`,
-  lane_retire: `Stop ${LANE.lead} once it confirms it can end: idle, with its report signed done. ${NO_SESSION.slice(0, -1)}; a parked one asks the person first. Retire is final. ${LANE_ARG}`,
+  lane_retire: `Stop ${LANE.lead} once it confirms it can end: idle, with its report signed done. ${NO_SESSION.slice(0, -1)}; a parked one may ask the person first. Retire is final. ${LANE_ARG}`,
   lane_create:
     'Create a lane in your repo: name and task (plain text), which the mod writes to the brief the lane reads first. Optional: folder (absolute, inside the repo) and model (opus, sonnet, haiku or fable; sonnet by default). Then lane_open.',
   lane_open: `Open a new panel in the lane folder (VS Code only) and return its session id, for lane_rename and then lane_start. A parked lane needs lane_unpark. ${LANE_ARG}`,
