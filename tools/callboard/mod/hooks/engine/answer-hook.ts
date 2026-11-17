@@ -992,7 +992,8 @@ async function promptHook($: any, e: any, nextOnce: (x: any) => Promise<any>, si
       leadRead = true
       return promptReach($, cov, sid, cwd, tool, lead)
     }
-    // The same, with the lead read again: a hold waits for a lead that was away (compacting, restarting) as much as for a tier above it.
+    // The same, with the lead read again: a hold waits for a lead that was away (compacting, restarting) as much as for a tier above it, unless the switch is
+    // scoped to that lead (the gate above then left the ask the person's).
     const reachAgain = async () => {
       const cv = (await promptCoverage($, sid)) ?? cov
       lead = await promptLeadOf($, cv.level, sid, cwd, cv.lead)
@@ -1042,7 +1043,8 @@ async function promptHook($: any, e: any, nextOnce: (x: any) => Promise<any>, si
         return { ...(beneath && typeof beneath === 'object' ? beneath : {}), decision: { behavior: 'deny' as const, message: pr.FORM_DENY_MESSAGE } }
       }
     }
-    // 7. A live tier: the lead of a lane, or a conductor or the manager (a lead's own prompt starts at the conductor). Nobody in reach: the ask holds beside the
+    // 7. A live tier: the lead of a lane, or a conductor or the manager (a lead's own prompt starts at the conductor). Nobody in reach (an ask the switch covers:
+    // one scoped to a lead covers its lanes only while that lead is live, the gate above): the ask holds beside the
     // dialog until a tier is (promptRiseHold) and rises from that moment; with none in time the dialog stays the person's. An asker that the session list does
     // not show: no row for a judge, the dialog stays the person's.
     let { own, reach, leadName, leadSid } = await reachOf()

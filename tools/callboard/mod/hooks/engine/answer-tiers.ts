@@ -151,8 +151,8 @@ export async function promptStand($: any, p: { uid: number; root: string }, live
   for (const t of active) windows[t.sid] = seen[t.sid] = Math.min(seen[t.sid] ?? Infinity, opens[reps.find((r) => r.level === t.level)!.sid])
   // A row waiting on a dialog, as the other readers judge it (status waiting with waitingFor set). A stale mark beside some other dialog of that tier holds the
   // top only until that tier's turn ends, which clears its mark.
-  const dialogOpen = (sid: string) => live.some((r) => r.j.sessionId === sid && r.j.status === 'waiting' && (r.j.waitingFor ?? null) !== null)
-  const topOf = tiers.filter((t) => passed[t.level] === undefined && (!asking.has(t.sid) || dialogOpen(t.sid)))
+  const rowWaiting = (sid: string) => live.some((r) => r.j.sessionId === sid && r.j.status === 'waiting' && (r.j.waitingFor ?? null) !== null)
+  const topOf = tiers.filter((t) => passed[t.level] === undefined && (!asking.has(t.sid) || rowWaiting(t.sid)))
   return { tiers, active, top: pr.topOf(topOf), passed, relay, windows }
 }
 const WINDOWS_SEEN_MAX = 512
