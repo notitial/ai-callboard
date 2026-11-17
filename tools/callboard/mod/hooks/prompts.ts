@@ -378,7 +378,7 @@ export function parseDecision(text: string): Decision | undefined {
 }
 
 export type ApplyIn = {
-  req: Pick<Request, 'id' | 'nonce' | 'inputHash' | 'sid'> & { level?: Request['level'] }
+  req: Pick<Request, 'id' | 'nonce' | 'inputHash' | 'sid' | 'level'>
   decision: Decision
   // The hash of the live input, taken again at apply.
   liveHash: string

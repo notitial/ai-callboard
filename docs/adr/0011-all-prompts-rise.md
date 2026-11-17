@@ -195,8 +195,8 @@ scoped to one lead (an older stored value: `/callboard escalation` writes `all`)
 found, so with the lead away the ask stays the person's, with no hold, as before. Inside an unattended window a
 lead's own prompt with no tier is still denied at once (ADR 0008), with no hold.*
 
-*2026-11-17: a lead's own question.* It was the person's in the lead's panel (ADR 0004). The person's words: "If there
-is a conductor, I should never open any lead." While the lead's conductor is live and in reach, a lead's own
+*2026-11-17: a lead's own question.* It was the person's in the lead's panel (ADR 0004). The person wants never to have
+to open a lead while a conductor is live. While the lead's conductor is live and in reach, a lead's own
 single-choice question with two to four options becomes a request that no tier answers or denies: `prompt_answer`
 refuses it (`relay-only`), and the lead's hook drops any decision on it that is not the person's through a relay, a
 check made on the hook's own copy of the request, not the file. A tier passes it up; the top tier, or the session where

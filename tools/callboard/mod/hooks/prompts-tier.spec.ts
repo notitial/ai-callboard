@@ -63,7 +63,7 @@ test('parseRows: rows only, garbage lines skipped', () => {
   assert.deepEqual(rows.map((r) => r.kind), ['returned', 'answered'])
 })
 test('apply: a cap that is over, or could not be read, drops the decision (the prompt stays the person\'s); no cap leaves it alone', () => {
-  const base = { req: { id: ID, nonce: 'n1', inputHash: H, sid: SID_A }, decision: { id: ID, inputHash: H, decision: 'allow' as const, why: 'ok', by: { level: 'lead', sid: SID_B, name: 'L' }, at: 1, nonce: 'n1' }, liveHash: H, awakeMs: 60_000, expiresAt: p.EXPIRES_MS, byOk: true, ledger: 'found' as const, graceMs: 0 }
+  const base = { req: { id: ID, nonce: 'n1', inputHash: H, sid: SID_A, level: 'lane' as const }, decision: { id: ID, inputHash: H, decision: 'allow' as const, why: 'ok', by: { level: 'lead', sid: SID_B, name: 'L' }, at: 1, nonce: 'n1' }, liveHash: H, awakeMs: 60_000, expiresAt: p.EXPIRES_MS, byOk: true, ledger: 'found' as const, graceMs: 0 }
   assert.deepEqual(p.applyCheck({ ...base, cap: 'over' }), { drop: 'cap' })
   assert.deepEqual(p.applyCheck({ ...base, cap: 'unreadable' }), { drop: 'cap' })
   assert.deepEqual(p.applyCheck({ ...base, cap: 'ok' }), { ok: true })
@@ -341,7 +341,7 @@ test('relayLostStep: two clear nos in a row lose the relay; a yes resets; a fail
   assert.deepEqual(p.relayLostStep(s.noCount, 'no'), { noCount: 2, lost: true })
 })
 test('apply with a relay: only the person\'s answer through it stands; any other decision, and a forged via, is dropped', () => {
-  const base = { req: { id: ID, nonce: 'n-1', inputHash: H, sid: SID_A }, liveHash: H, awakeMs: 40_000, expiresAt: p.EXPIRES_MS, byOk: true, ledger: 'found' as const, graceMs: 0 }
+  const base = { req: { id: ID, nonce: 'n-1', inputHash: H, sid: SID_A, level: 'lane' as const }, liveHash: H, awakeMs: 40_000, expiresAt: p.EXPIRES_MS, byOk: true, ledger: 'found' as const, graceMs: 0 }
   const dec = (over: Record<string, unknown> = {}) => ({ id: ID, inputHash: H, decision: 'allow' as const, why: 'ok', by: { level: 'manager', sid: SID_C, name: 'M' }, at: 1, nonce: 'n-1', ...over }) as p.Decision
   const relay = { sid: SID_C, nonce: 'n-1' }
   // No relay: a normal decision applies, a decision that claims to be the person's does not.
