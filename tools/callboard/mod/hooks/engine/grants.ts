@@ -524,7 +524,12 @@ async function leadRestoreTry($: any, me: string, hint: c.LeadHint): Promise<str
     const p = await where($)
     const m = p ? await moveCheck($, hint, cwd, homeOf(p), p.uid) : { again: 'cwd-unreadable' }
     if (dropped()) return
-    if (m === 'match') return { move: cwd }
+    // The question waits for an idle turn: the old folder's goes and conductor tie end now, as at any restore in another folder (`here` stays for the move).
+    if (m === 'match') {
+      void goGrantorOff($, me).catch(() => undefined)
+      await ownerLeave($, me, 'off').catch(() => undefined)
+      return { move: cwd }
+    }
     if ('again' in m) return m.again
     void goGrantorOff($, me).catch(() => undefined)
     await $.store.delete(`${c.LEAD_HINT_PREFIX}${me}`)

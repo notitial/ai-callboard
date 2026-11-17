@@ -2,7 +2,7 @@
 // person when the saved folder is gone and the session's folder holds the same token.
 import { expect, test } from 'claude-code/testing'
 import * as g from '../hooks/go'
-import { HOUR_MS, REPO_ID_FILE, REPO_ID_PREFIX, leadMoveQuestion, leadMovedToast, notRestoredToast } from '../hooks/core'
+import { HOUR_MS, REPO_ID_FILE, REPO_ID_KEEP, REPO_ID_PREFIX, leadMoveQuestion, leadMovedToast, notRestoredToast } from '../hooks/core'
 import { h, NO, SID, T0, YES, GO_DIR, extraStat, fakeSha, gitFiles, longTest, pdirs, pfs, realFails, realMap, toasts } from './harness'
 import { ledgerRows, putLedger } from './answer-fixtures'
 import { LEADKEY, PIN, dirStat, lane, leadSelfReg, logged, pause, started, statusText, ticks, waitFor } from './fixtures'
@@ -74,6 +74,29 @@ longTest('a moved folder with the saved token: the person is asked in the lead d
   await ticks(3)
   expect(h.askCount).toBe(1)
   expect(movedRows().length).toBe(1)
+})
+
+test('while the moved-folder question waits, the old folder\'s goes and conductor tie are already gone; Cancel then removes the saved grant', async ($, on) => {
+  const stdins: string[] = []
+  let release: (a: string) => void = () => undefined
+  await mover($, on, stdins, { seed: () => (putGo(), putTie(), (h.askHang = new Promise<string>((r) => (release = r)))) })
+  await ticks(3)
+  await waitFor(() => h.askCount === 1)
+  await waitFor(() => goKinds().includes('go-end grantor-off'))
+  expect(h.store.has(TIEKEY)).toBe(false)
+  expect(h.store.has(LEADKEY)).toBe(true)
+  release(NO)
+  await waitFor(() => restoreLogs(stdins).includes('lead-restore-rejected:move-cancelled'))
+  expect(h.store.has(LEADKEY)).toBe(false)
+  expect(await statusText($)).toContain('| Lead | OFF |')
+})
+
+test('an unanswered moved-folder question ends the session\'s /callboard here, as a refused saved grant does', async ($, on) => {
+  const here = { v: 1, sid: SID, at: T0 - 1000, until: T0 + 3_600_000 }
+  await mover($, on, [], { answer: 'Something else', seed: () => h.store.set('relay-here', here) })
+  await ticks(3)
+  await waitFor(() => toasts.includes(notRestoredToast('lead', 'move-unanswered', OLD)))
+  await waitFor(() => !h.store.has('relay-here'))
 })
 
 test('a moved folder keeps the session\'s /callboard here', async ($, on) => {
@@ -338,6 +361,20 @@ test('a mint that loses the race to another lead\'s token still being written is
   expect(h.store.get(LEADKEY)).toEqual({ pin: PIN, savedAt: T0 })
   expect(pfs.get(tokenAt(PIN))?.text).toBe(`${other}\n`)
   expect(mintedIds()).toEqual([])
+})
+
+test('the minted marks are capped: a mint past the cap removes the oldest mark and keeps the new one', async ($, on) => {
+  const markKey = (i: number) => `${REPO_ID_PREFIX}0000${i.toString(16).padStart(4, '0')}-0000-4000-8000-0000000000ff`
+  await granter($, on, [], () => {
+    for (let i = 0; i < REPO_ID_KEEP; i++) h.store.set(markKey(i), { at: T0 - HOUR_MS + i })
+  })
+  await $.command.run(lane('lead'))
+  await waitFor(() => (h.store.get(LEADKEY) as { repoId?: string } | undefined)?.repoId !== undefined)
+  const id = (h.store.get(LEADKEY) as { repoId: string }).repoId
+  expect(mintedIds().length).toBe(REPO_ID_KEEP)
+  expect(h.store.has(`${REPO_ID_PREFIX}${id}`)).toBe(true)
+  expect(Array.from({ length: REPO_ID_KEEP }, (_, i) => i).filter((i) => !h.store.has(markKey(i)))).toEqual([0])
+  expect(h.store.has(markKey(1))).toBe(true)
 })
 
 test('a record with no token gains one at its next restore in its own folder', async ($, on) => {

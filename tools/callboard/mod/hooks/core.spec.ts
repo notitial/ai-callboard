@@ -1830,6 +1830,15 @@ test('the repo token file: the id and one newline, nothing else; a mark is an ob
   for (const m of [undefined, null, {}, { at: '1' }, 1, [1]]) assert.equal(c.repoIdMarkOk(m), false, JSON.stringify(m))
 })
 
+test('repoIdPrune keeps the newest marks up to the cap with the one just minted, oldest first out, a bad mark first of all', () => {
+  const k = (i: number) => `${c.REPO_ID_PREFIX}${i}`
+  const marks = Array.from({ length: c.REPO_ID_KEEP }, (_, i) => ({ key: k(i), raw: { at: 1000 + i } }))
+  assert.deepEqual(c.repoIdPrune(marks, k(0)), [])
+  assert.deepEqual(c.repoIdPrune([...marks, { key: 'new', raw: { at: 5 } }], 'new'), [k(0)])
+  assert.deepEqual(c.repoIdPrune([...marks, { key: 'bad', raw: 'x' }, { key: 'new', raw: { at: 1 } }], 'new'), [k(0), 'bad'])
+  assert.deepEqual(c.repoIdPrune(marks.slice(0, 3), k(0)), [])
+})
+
 test('the moved-folder question and toast name both folders, say the goes end, and keep a long path to its end', () => {
   const q = c.leadMoveQuestion('/Users/x/old/app', '/Users/x/new/app')
   assert.equal(q, 'Lead was on in /Users/x/old/app, which is gone or moved.\nThis folder carries its repo mark (moved or copied here): /Users/x/new/app.\nLet this session lead the lanes here again?\nIt can create, start, resume, compact, park, stop and retire them. Only a force stop asks you.\nIts goes end: give them again with /callboard go.\nLead stays on after a restart until you run /callboard off.')

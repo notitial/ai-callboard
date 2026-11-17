@@ -84,7 +84,7 @@ import { ensureTimer } from './tick.ts'
 import { grantNameNo } from './lead-open.ts'
 import { epochOf, heldNo, holdsOf, levelSave } from './levels.ts'
 import type { LevelDesc } from './levels.ts'
-import { ANSWERING_KEY, ledgerAdd, promptsOff, escalationNow, defaultForget, hereRead, hereDrop, unattendedNow, unattendedClose, ledgerRowsFor, unattendedOpen, unattendedVoid, unattendedOffMark, unattendedOffSince, unattendedClosesNow, unattendedBusy, unattendedUnread, unattendedUnreadDrop } from './answer-hook.ts'
+import { ANSWERING_KEY, ledgerAdd, promptsOff, escalationNow, defaultForget, hereRead, hereDrop, hereGrantOff, unattendedNow, unattendedClose, ledgerRowsFor, unattendedOpen, unattendedVoid, unattendedOffMark, unattendedOffSince, unattendedClosesNow, unattendedBusy, unattendedUnread, unattendedUnreadDrop } from './answer-hook.ts'
 import { ledgerRestore } from './answer-tiers.ts'
 import * as go from '../go.ts'
 import { goCommand, goGrantorOff } from './go.ts'
@@ -1262,9 +1262,10 @@ export async function grantLead($: any, sid: string, code: c.OriginCode, busy: (
 }
 
 // A restore whose saved folder is gone, in a folder with the same repo token (moveCheck): the person is asked in the lead's own dialog, and their click is the
-// grant, through grantLead's steps with every check again after it (the move checks too). Before the grant is set: the `lead-moved` row (no row, no grant),
-// the goes the lead gave end (a new folder is a new reach, as at a re-grant) and its conductor tie goes (the record names the old repo). Cancel is the person's
-// no: the saved grant goes, as at any lead question. No answer, or a check that fails after the click, keeps the saved grant (its goes and conductor tie end): the next start asks again.
+// grant, through grantLead's steps with every check again after it (the move checks too). The old folder's goes and conductor tie ended when the restore
+// matched (leadRestoreTry); before the grant is set, the `lead-moved` row (no row, no grant), and any goes or tie given since end too. Cancel is the person's
+// no: the saved grant goes, as at any lead question. No answer, or a check that fails after the click, keeps the saved grant and ends `here`: the next start
+// asks again.
 // A dialog already open in the session leaves the entry for the next idle tick.
 export async function leadMoveAsk($: any, sid: string, pend: LeadPending, seq = offSeq.get(sid) ?? 0) {
   const from = pend.hint.pin
@@ -1278,6 +1279,8 @@ export async function leadMoveAsk($: any, sid: string, pend: LeadPending, seq = 
   const refused = async (code: string) => {
     void goGrantorOff($, sid).catch(() => undefined)
     await ownerLeave($, sid, 'off').catch(() => undefined)
+    // A saved grant that was not restored ends `here`, as a refused one does (ADR 0009).
+    void hereGrantOff($, sid).catch(() => undefined)
     await log($, sid, 'lead-restore-rejected', code)
     toast($, c.notRestoredToast('lead', code, from))
   }

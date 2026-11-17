@@ -1053,6 +1053,14 @@ export const parseRepoIdText = (text: string): string | undefined => {
 }
 // A mark of the mod's own: an object with the time it was minted.
 export const repoIdMarkOk = (raw: unknown): boolean => isObj(raw) && isNum(raw.at)
+// The marks kept: the newest REPO_ID_KEEP. repoIdPrune names the keys to delete so that `keep` (the mark just minted) and the newest others fill the cap; a mark
+// that does not parse counts as the oldest.
+export const REPO_ID_KEEP = 200
+export function repoIdPrune(marks: readonly { key: string; raw: unknown }[], keep: string): string[] {
+  const at = (raw: unknown) => (repoIdMarkOk(raw) ? (raw as { at: number }).at : -Infinity)
+  const others = marks.filter((m) => m.key !== keep).sort((a, b) => at(b.raw) - at(a.raw) || (a.key < b.key ? -1 : 1))
+  return others.slice(REPO_ID_KEEP - 1).map((m) => m.key)
+}
 
 // A path as a dialog shows it: control characters out, at most 160 characters (the end kept, which names the folder).
 const pathShown = (p: string): string => {

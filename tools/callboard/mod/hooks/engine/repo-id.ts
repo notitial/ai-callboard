@@ -42,6 +42,15 @@ async function minted($: any, id: string): Promise<boolean | 'error'> {
   }
 }
 
+// The marks beyond the cap (core's repoIdPrune), oldest first, after a mint that landed. A mark pruned away makes its repo's token foreign: a lead grant there
+// then saves none, and that repo's lead does not follow a move. A mark that cannot be read is kept.
+async function pruneMarks($: any, keep: string) {
+  const keys = ((await $.store.keys()) as string[]).filter((k) => k.startsWith(c.REPO_ID_PREFIX))
+  if (keys.length <= c.REPO_ID_KEEP) return
+  const marks = await Promise.all(keys.map(async (key) => ({ key, raw: await Promise.resolve($.store.get(key)).catch(() => ({ at: Infinity })) })))
+  for (const k of c.repoIdPrune(marks, keep)) await Promise.resolve($.store.delete(k)).catch(() => undefined)
+}
+
 // A new token: its mark goes in the store first (a file never names an id the mod did not keep), then the file is linked into place with `ln -h`, which does
 // not follow a link at the name and fails when the name exists. The file is read again after, so the loser of a race between two leads takes the winner's id.
 // A mint whose link did not land takes its mark away again.
@@ -63,6 +72,7 @@ async function mint($: any, repo: string, uid: number): Promise<{ id: string } |
     await rmF($, tmp)
     if (!linked) await Promise.resolve($.store.delete(key)).catch(() => undefined)
   }
+  if (linked) await pruneMarks($, key).catch(() => undefined)
   // Nothing at the name after the link: the write did not land, which is no answer yet. Another lead's token met mid-write (two links until its temp name
   // goes) reads as bad: no answer yet either.
   const after = await tokenRead($, repo, uid)
