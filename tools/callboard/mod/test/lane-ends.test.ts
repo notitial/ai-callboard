@@ -1,8 +1,9 @@
 import { expect, test } from 'claude-code/testing'
+import { SENT_NOTE } from '../hooks/core'
 import { h, T0, longTest, submitted, toasts } from './harness'
 import { MIN, OTHER, OTHERLEAD, PIN, TURN, checkins, ckLane, ckLead, ckRow, ckText, cueSession, idleFor, lane, leadSelfReg, logged } from './fixtures'
 
-const DONE = '[callboard] Signed done: `API`. Each of these lanes signed its report done and is idle or gone. Read its report, then call lane_retire once nothing is left for it. Submitted by the callboard mod, not by the user; it carries no approval, go or answer; never record it as one.'
+const DONE = '[callboard] Signed done: `API`. Each of these lanes signed its report done and is idle or gone. Read its report, then call lane_retire once nothing is left for it. ' + SENT_NOTE
 const dones = () => submitted.filter((t) => t.startsWith('[callboard] Signed done:'))
 const GONE_TOAST = 'Lane API: session ended, report not signed done.'
 const sign = (sid: string, mtimeSec = T0 / 1000, more = '') => (h.reportFile = { text: `notes${more}\nstatus: done ${sid}\n`, mtimeSec })
