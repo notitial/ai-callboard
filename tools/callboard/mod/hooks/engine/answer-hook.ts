@@ -1007,6 +1007,11 @@ async function promptHook($: any, e: any, nextOnce: (x: any) => Promise<any>, si
       rose = up.at
       seen = up.seen
     }
+    // A lead's own question rises only while its conductor is in reach (5b); one gone by now leaves it the person's, in the lead's panel.
+    if (tool === pr.QUESTION_TOOL && cov.level === 'lead' && !reach.some((t) => t.level === 'conductor')) {
+      await ledgerAdd($, { ...base, kind: 'not-judgeable', code: 'question-scope' })
+      return beneath
+    }
     // After a hold the switch was read again at the rise (promptRiseHold); the request's wait reads it on every poll.
     if (rose === undefined && !pr.requestCovered(cov.a, { tool }, { lane: cov.lane, lead: leadName, self: cov.self })) return beneath
     // 8. The request, then the wait.
