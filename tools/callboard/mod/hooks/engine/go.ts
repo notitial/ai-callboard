@@ -16,7 +16,7 @@ import { leadCore } from './lanes.ts'
 import { loadLeadRecords, boundState, bindingOf, ownOwner } from './lead-records.ts'
 import type { LeadRecs } from './lead-records.ts'
 import { ensureTimer } from './tick.ts'
-import { ledgerAdd, ledgerRowsFor, promptNewId, guardCheck } from './answer-hook.ts'
+import { ledgerAdd, ledgerRowsFor, promptNewId, guardCheck, unattendedHeld } from './answer-hook.ts'
 import { promptLinkOnce } from './answer-tiers.ts'
 
 type Found = { go: g.Go; rows: pr.LedgerRow[] }
@@ -262,6 +262,8 @@ export async function goRequestCall($: any, e: any) {
     return { deny: `go_request refused: ${refusal(r)}` }
   }
   if ((e as { agentId?: string }).agentId !== undefined) return no({ no: 'subagent' })
+  // Inside an unattended window the person is away: the dialog would only wait in this session's panel, so none is opened.
+  if (await unattendedHeld($)) return no({ no: 'unattended' })
   const r = await goGive($, sid, (e as { text?: unknown }).text, g.GO_DEFAULT_HOURS, 'tier', true)
   if ('go' in r) return { result: g.goGivenText(r.go, r.ends) }
   // The person's own answer, or none: a result, not a refusal of the call.
