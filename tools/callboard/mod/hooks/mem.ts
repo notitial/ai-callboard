@@ -51,6 +51,8 @@ export const mem = {
   unattendedHash: undefined as { text: string; hash: string } | undefined,
   unattendedLookedAt: undefined as number | undefined,
   unattendedCloses: 0,
+  // The windows whose end this process has toasted (by short id): one toast per window per process.
+  unattendedToasted: new Set<string>(),
   // When the usage files were last swept (usage.ts).
   usageSweptAt: undefined as number | undefined,
   // When this session's tick last swept the presence folder (grants.ts presencePrune).

@@ -58,7 +58,11 @@
 //   unattended-off  code (command | escalation-off | escalation-off:stored | escalation-off:file | expired | invalid | unbound | ended | void), hash?, u?,
 //              origin? (the origin code of a command that ended it), by (the session that ended it)   a window ended; written after the stored value was removed
 //   unattended-unknown   code (the cause), by   the first read of a run of reads that could not tell whether a window is open; it ended nothing
-//              The unattended rows are counted by kind only: no rule reads them.
+//   notice-capped   code (prompts), tier, by, u   a tier's notice of waiting prompts was held back by its hourly cap while a window was held (once per capped stretch)
+//              Rule u reads the unattended rows (ADR 0008), by time and by the window's short id: a `relayed` row inside a window; a `park` answered by a tier other than
+//              the manager, a `park` with no window mark, or an answered row whose mark names a window it was not written in (a minute of slack at each end); a window
+//              whose declared end is over 14 hours from its opening (the end row is not judged: a Mac asleep past the end ends the window late); and a window with no end
+//              row once its declared end passed (or with no declared end). A window ended as invalid has an end row with no mark, so it reads as having none.
 //
 // It reads the ledger and the files beside it (questions, request files, lead records, go files), never a session's transcript. So two things are outside what it
 // sees: a hook decision that reached a session with no ledger row, and an answered row written by hand together with its decision file.
@@ -69,11 +73,11 @@ import { homedir } from 'node:os'
 import { pathToFileURL } from 'node:url'
 
 // The mod's own definitions. A load that fails (an older node, the script copied out of its checkout, a renamed export) ends the run with exit 2, never 1.
-let ID_RE, OPENS_PER_CONDUCTOR_HOUR, ROW_KINDS, DROP_FORGED, RAISED_BY
+let ID_RE, OPENS_PER_CONDUCTOR_HOUR, ROW_KINDS, DROP_FORGED, RAISED_BY, WINDOW_MAX_MS
 try {
   ;({ SID_RE: ID_RE, OPENS_PER_CONDUCTOR_HOUR } = await import('./mod/hooks/core.ts'))
-  ;({ ROW_KINDS, DROP_FORGED, RAISED: RAISED_BY } = await import('./mod/hooks/prompts.ts'))
-  if (!(ID_RE instanceof RegExp) || !Number.isInteger(OPENS_PER_CONDUCTOR_HOUR) || !Array.isArray(ROW_KINDS) || !Array.isArray(DROP_FORGED) || !Array.isArray(RAISED_BY)) throw new Error('an export is missing')
+  ;({ ROW_KINDS, DROP_FORGED, RAISED: RAISED_BY, UNATTENDED_MAX_MS: WINDOW_MAX_MS } = await import('./mod/hooks/prompts.ts'))
+  if (!Number.isFinite(WINDOW_MAX_MS) || !(ID_RE instanceof RegExp) || !Number.isInteger(OPENS_PER_CONDUCTOR_HOUR) || !Array.isArray(ROW_KINDS) || !Array.isArray(DROP_FORGED) || !Array.isArray(RAISED_BY)) throw new Error('an export is missing')
 } catch (e) {
   console.error(`prompt audit: cannot load the mod's definitions from mod/hooks beside this script (node 22.18 or later is needed): ${String(e?.message ?? e).slice(0, 300)}`)
   process.exit(2)
@@ -100,7 +104,7 @@ export const KIND_CLASS = {
   'go-grant': 'go', 'go-end': 'go', 'go-read': 'go',
   'answering-on': 'other', 'answering-off': 'other', 'lead-offer': 'other', 'lead-offer-void': 'other', 'lead-grant': 'other', 'lead-owner': 'other', 'lead-resume': 'other', 'lead-stop': 'other', 'lead-moved': 'other',
   'pr-watch': 'other', 'pr-notice': 'other', 'here-on': 'other', 'here-off': 'other',
-  'unattended-on': 'other', 'unattended-off': 'other', 'unattended-unknown': 'other',
+  'unattended-on': 'other', 'unattended-off': 'other', 'unattended-unknown': 'other', 'notice-capped': 'other',
 }
 const UNPLACED = ROW_KINDS.filter((k) => !Object.hasOwn(KIND_CLASS, k))
 const ofClass = (c) => new Set(ROW_KINDS.filter((k) => KIND_CLASS[k] === c))
@@ -465,6 +469,46 @@ function ruleLeadOwners({ rows, flag, inRange }) {
     const mine = all.filter((x) => x.hash === o.hash && x.target === o.target && x.ms < o.ms)
     const last = mine.reverse().find((x) => x.code === 'made' || x.code === 'joined' || x.code === 'left' || x.code === 'off')
     if (last && (last.code === 'made' || last.code === 'joined')) flag('h', 'lead-owner-twice', `lead ${o.lane ?? '?'} (${o.t}) was given a conductor again with no leave since ${last.t}`, { t: o.t })
+  }
+}
+
+// u. unattended windows (ADR 0008). A window runs from its `unattended-on` row to its first `unattended-off` row, else to its declared end. The audit is a check the
+// person runs, not a control: each flag is a place to look.
+const WINDOW_SLACK_MS = 60_000
+function ruleUnattended({ rows, flag, inRange, now }) {
+  const ons = new Map()
+  const offs = new Map()
+  for (const r of rows) {
+    if (typeof r.u !== 'string') continue
+    if (r.kind === 'unattended-on' && !ons.has(r.u)) ons.set(r.u, r)
+    else if (r.kind === 'unattended-off' && !offs.has(r.u)) offs.set(r.u, r)
+  }
+  const endOf = (u) => {
+    const declared = Date.parse(ons.get(u)?.end ?? '')
+    return Math.min(offs.get(u)?.ms ?? Infinity, Number.isFinite(declared) ? declared : Infinity)
+  }
+  for (const r of rows.filter((x) => x.kind === 'relayed' && inRange(x.ms))) {
+    for (const [u, on] of ons) {
+      if (r.ms >= on.ms && r.ms <= endOf(u)) flag('u', 'relayed-in-window', `a relayed row (${r.t}, request ${r.id ?? '?'}) was written inside unattended window ${u}, in which nothing is put to the person`, { id: r.id, t: r.t })
+    }
+  }
+  for (const a of rows.filter((x) => x.kind === 'answered' && inRange(x.ms) && (x.u !== undefined || x.code === 'park'))) {
+    if (a.code === 'park' && a.tier !== 'manager') flag('u', 'park-by-other-tier', `request ${a.id ?? '?'}: a park (${a.t}) was answered by tier ${String(a.tier ?? '?').slice(0, 40)}, not the manager`, { id: a.id, t: a.t })
+    if (a.u === undefined) {
+      if (a.code === 'park') flag('u', 'park-outside-window', `request ${a.id ?? '?'}: a park (${a.t}) carries no window mark`, { id: a.id, t: a.t })
+      continue
+    }
+    const on = ons.get(a.u)
+    if (!on) flag('u', 'decision-unknown-window', `request ${a.id ?? '?'}: the answered row (${a.t}) names window ${a.u}, which has no unattended-on row`, { id: a.id, t: a.t })
+    else if (a.ms < on.ms - WINDOW_SLACK_MS || a.ms > endOf(a.u) + WINDOW_SLACK_MS) flag('u', 'decision-outside-window', `request ${a.id ?? '?'}: the answered row (${a.t}) names window ${a.u}, but was written outside it`, { id: a.id, t: a.t })
+  }
+  for (const [u, on] of ons) {
+    if (!inRange(on.ms)) continue
+    const declared = Date.parse(on.end ?? '')
+    const off = offs.get(u)
+    if (!off && (!Number.isFinite(declared) || now - declared > CLOSE_GRACE_MS)) flag('u', 'window-no-end-row', `unattended window ${u} (opened ${on.t}) has no unattended-off row${Number.isFinite(declared) ? ` after its end time (${on.end})` : ' and no end time'}`, { t: on.t })
+    const long = Number.isFinite(declared) && declared - on.ms > WINDOW_MAX_MS + WINDOW_SLACK_MS
+    if (long) flag('u', 'window-over-14h', `unattended window ${u} (opened ${on.t}) was declared for over ${WINDOW_MAX_MS / 3_600_000} hours`, { t: on.t })
   }
 }
 
@@ -841,6 +885,7 @@ export function audit({ root, since, now = Date.now(), records, recordsExplicit 
   const files = ruleStaleRequestFiles(ctx, rootReal, entries)
   ruleClosedWithoutRow(ctx, files)
   ruleLeadStops(ctx)
+  ruleUnattended(ctx)
   const recs = readLeadRecords(records ?? join(rootReal, '..', 'lead-records'), recordsExplicit, problems)
   ruleLeadOwnerLogged(ctx, recs)
   const goFiles = readGoFiles(goes ?? join(rootReal, '..', 'go'), goesExplicit, problems)
