@@ -829,3 +829,109 @@ test('after a reopen, focus returns to the tab that was active', async () => {
   assert.equal(await w.lanes.reopen(closed), closed)
   assert.deepEqual(w.focusCalls, [0])
 })
+
+// A window with real-shaped tab groups for the show-before-close tests: each group has a viewColumn and its tabs, one of them active; `active` is the
+// focused group. Records every focus command and close, in order, and moves the active tab as VS Code does.
+function shownWorld(groupsOf, { failAt, hang } = {}) {
+  const w = world({ alive: () => false })
+  const calls = []
+  const groups = groupsOf.map((labels, i) => ({ viewColumn: i + 1, tabs: labels.map((l) => claudeTab(l)) }))
+  for (const g of groups) for (const t of g.tabs) Object.assign(t, { group: g, isActive: t === g.tabs[0] })
+  const tg = w.vscode.window.tabGroups
+  tg.all = groups
+  tg.activeTabGroup = { viewColumn: 1, get activeTab() { return groups[this.viewColumn - 1].tabs.find((t) => t.isActive) } }
+  const activate = (g, t) => { for (const x of g.tabs) x.isActive = x === t }
+  tg.close = async (t) => {
+    calls.push(`close ${t.label}`)
+    const g = t.group
+    g.tabs.splice(g.tabs.indexOf(t), 1)
+    if (t.isActive && g.tabs[0]) activate(g, g.tabs[0])
+  }
+  w.vscode.commands.executeCommand = (cmd, i) => {
+    if (hang === cmd) return new Promise(() => {})
+    if (failAt === cmd) throw new Error('no such command')
+    const m = /^workbench\.action\.focus(First|Second)EditorGroup$/.exec(cmd)
+    if (m) {
+      tg.activeTabGroup.viewColumn = m[1] === 'First' ? 1 : 2
+      calls.push(`group ${tg.activeTabGroup.viewColumn}`)
+      return
+    }
+    assert.equal(cmd, 'workbench.action.openEditorAtIndex')
+    const g = groups[tg.activeTabGroup.viewColumn - 1]
+    activate(g, g.tabs[i])
+    calls.push(`show ${g.tabs[i].label}`)
+  }
+  const tab = (label) => groups.flatMap((g) => g.tabs).find((t) => t.label === label)
+  return { w, calls, tab, active: () => tg.activeTabGroup.activeTab.label }
+}
+
+test('sweep shows a dead tab that is hidden, closes it, and gives focus back to the tab that had it', async () => {
+  const x = shownWorld([['lead', 'OTHER', 'ATT']])
+  assert.equal(x.w.lanes.adopt(VALID_SID, { name: 'ATT', pid: 4242 }), true)
+  await x.w.lanes.sweep()
+  assert.deepEqual(x.calls, ['show ATT', 'close ATT', 'show lead'])
+  assert.equal(x.active(), 'lead')
+})
+
+test('sweep finds the focused tab again when the dead tab sat before it, and leaves a tab that is gone by then alone', async () => {
+  const x = shownWorld([['ATT', 'lead', 'OTHER']])
+  x.tab('ATT').isActive = false
+  x.tab('lead').isActive = true
+  x.w.lanes.adopt(VALID_SID, { name: 'ATT', pid: 4242 })
+  await x.w.lanes.sweep()
+  assert.deepEqual(x.calls, ['show ATT', 'close ATT', 'show lead'])
+  assert.equal(x.active(), 'lead')
+  // Closed by hand while the close waits behind another call of the chain: no focus change and no close.
+  const y = shownWorld([['lead', 'ATT']])
+  const att = y.tab('ATT')
+  y.w.lanes.adopt(VALID_SID, { name: 'ATT', pid: 4242 })
+  const exec = y.w.vscode.commands.executeCommand
+  y.w.vscode.commands.executeCommand = (cmd, ...rest) => {
+    if (cmd !== 'claude-vscode.editor.open') return exec(cmd, ...rest)
+    att.group.tabs.splice(att.group.tabs.indexOf(att), 1)
+  }
+  const open = y.w.lanes.open(A).catch(() => undefined)
+  await y.w.lanes.sweep()
+  await open
+  assert.deepEqual(y.calls.filter((c) => /ATT/.test(c)), [])
+})
+
+test('sweep shows a dead tab hidden in another group, and goes back to the first group and its tab', async () => {
+  const x = shownWorld([['OTHER', 'lead'], ['side', 'ATT']])
+  x.tab('OTHER').isActive = false
+  x.tab('lead').isActive = true
+  x.w.lanes.adopt(VALID_SID, { name: 'ATT', pid: 4242 })
+  await x.w.lanes.sweep()
+  assert.deepEqual(x.calls, ['group 2', 'show ATT', 'close ATT', 'group 1', 'show lead'])
+  assert.equal(x.active(), 'lead')
+})
+
+test('sweep closes a dead tab that is showing already without moving focus: the focused tab, or the active tab of another group', async () => {
+  const mine = shownWorld([['ATT', 'lead']])
+  mine.w.lanes.adopt(VALID_SID, { name: 'ATT', pid: 4242 })
+  await mine.w.lanes.sweep()
+  assert.deepEqual(mine.calls, ['close ATT'])
+  const side = shownWorld([['lead'], ['ATT', 'side']])
+  side.w.lanes.adopt(VALID_SID, { name: 'ATT', pid: 4242 })
+  await side.w.lanes.sweep()
+  assert.deepEqual(side.calls, ['close ATT'])
+})
+
+test('sweep still closes the tab when a focus command fails or never returns, and puts the focused tab back in front', async () => {
+  const one = [['lead', 'ATT']]
+  const two = [['lead'], ['side', 'ATT']]
+  for (const [groups, opts, want] of [
+    [one, { failAt: 'workbench.action.openEditorAtIndex' }, ['close ATT']],
+    [one, { hang: 'workbench.action.openEditorAtIndex' }, ['close ATT']],
+    [two, { failAt: 'workbench.action.focusSecondEditorGroup' }, ['close ATT', 'show lead']],
+    [two, { hang: 'workbench.action.focusSecondEditorGroup' }, ['close ATT', 'show lead']],
+  ]) {
+    const x = shownWorld(groups, opts)
+    x.w.lanes.adopt(VALID_SID, { name: 'ATT', pid: 4242 })
+    await x.w.lanes.sweep()
+    assert.deepEqual(x.calls, want, JSON.stringify(opts))
+    assert.equal(x.active(), 'lead')
+    await x.w.lanes.sweep()
+    assert.deepEqual(x.calls, want, 'closed once')
+  }
+})

@@ -650,7 +650,11 @@ export async function managersLive($: any, live: RegRow[], except: string): Prom
 // A live manager whose cue a session may take: its file passed every check and the registry gives it a reserved
 // name no other live row carries.
 export async function managerTrusted($: any, live: RegRow[], except: string): Promise<boolean> {
-  return (await managersLive($, live, except)).some((m) => m.unverified !== true && m.name !== undefined)
+  return (await managerTrustedName($, live, except)) !== undefined
+}
+// That manager's name, for the section that tells a lead who its manager is; undefined when none is trusted.
+export async function managerTrustedName($: any, live: RegRow[], except: string): Promise<string | undefined> {
+  return (await managersLive($, live, except)).find((m) => m.unverified !== true && m.name !== undefined)?.name
 }
 // Whether the one conductor `sid` is trusted for the pin: its fresh conductor file passes presenceCheck and lists the pin, its home is its own real path, not too
 // broad and a git root, its saved grant (conductor:<sid>) parses, names the same home and approves the pin, and the list file at that home, resolved, lists the
@@ -917,26 +921,26 @@ export async function watchTick($: any, sid: string) {
 }
 
 const MANAGER_SEEN_EVERY_MS = 60_000
-async function managerSeenTick($: any, sid: string, stamp: { at: number; live: boolean; conductors?: string[] }) {
-  let live = false
+async function managerSeenTick($: any, sid: string, stamp: { at: number; live: boolean; manager?: string; conductors?: string[] }) {
+  let manager: string | undefined
   let conductors: string[] = []
   try {
     const rows = await registryEntries($)
-    live = rows !== undefined && (await managerTrusted($, rows, sid))
+    manager = rows === undefined ? undefined : await managerTrustedName($, rows, sid)
     const o = rows === undefined ? undefined : await ownOwner($, sid, rows)
     conductors = typeof o === 'object' ? [o.name ?? ''] : []
   } catch {
     await logq($, sid, 'error', 'manager-seen')
   }
-  if (managerSeen.get(sid) === stamp) managerSeen.set(sid, { at: stamp.at, live, conductors })
+  if (managerSeen.get(sid) === stamp) managerSeen.set(sid, { at: stamp.at, live: manager !== undefined, manager, conductors })
 }
 export async function managerSeenStep($: any, sid: string) {
   if (managerSeenBusy.has(sid)) return
   const now = await $.clock.now()
   const last = managerSeen.get(sid)
   if (managerSeenBusy.has(sid) || (last !== undefined && !c.dueEvery(last.at, now, MANAGER_SEEN_EVERY_MS))) return
-  // The conductors last seen stay served while the new look runs, as live does.
-  const stamp = { at: now, live: last?.live ?? false, conductors: last?.conductors }
+  // The conductors and the manager's name last seen stay served while the new look runs, as live does.
+  const stamp = { at: now, live: last?.live ?? false, manager: last?.manager, conductors: last?.conductors }
   managerSeen.set(sid, stamp)
   const token = {}
   managerSeenBusy.set(sid, token)
@@ -2319,7 +2323,7 @@ export async function promptCompose($: any, e: any, next: any) {
     sections = [...sections.filter((x) => x.id !== id), ...(text !== undefined ? [{ id, text, scope: 'session' as const }] : [])]
   }
   if (gated) setSection(c.LEAD_BRIEFING_ID, c.leadBriefing(pin, sid))
-  if (gated) setSection(c.LEAD_MANAGER_ID, leadManager ? c.LEAD_MANAGER_TEXT : undefined)
+  if (gated) setSection(c.LEAD_MANAGER_ID, leadManager ? c.leadManagerText(managerSeen.get(sid)?.manager) : undefined)
   // ADR 0004: the lead's prompt section, beside the briefing.
   if (gated) setSection(pr.LEAD_PROMPTS_ID, grants.get(sid)?.level === 'lead' ? pr.tierPromptSection('lead') : undefined)
   if (gated) setSection(c.LEAD_CONDUCTOR_ID, seenConductors.length > 0 ? c.leadConductorText(seenConductors) : undefined)

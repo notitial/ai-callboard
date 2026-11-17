@@ -1,6 +1,7 @@
 // Checks that rules/callboard.md quotes the callboard mod's fixed texts exactly: the keepalive text, the opener and the closing
 // line of the PR notice, the opener of the signed-done notice, and the opener of each of the four compaction nudges. A session
 // matches those turns against the rule, so a drifted word would make it treat a real turn as an ordinary message.
+// It also checks that the rule carries the briefings' sentence on instructions from the layer above a session (CHAIN_TRUST) word for word.
 //   node tools/check-rule-text.mjs
 // Exit 0 when every quote matches, 1 with one line per mismatch, 2 when a file cannot be read. Needs node 22.18 or later,
 // which runs the mod's TypeScript as it is.
@@ -48,8 +49,11 @@ for (const [i, text] of texts.entries()) {
   if (!openers.some((o) => text.startsWith(o))) problems.push(`the ${core.NUDGE_KINDS[i] ?? 'lead (to a lead)'} nudge has no quoted opener in rules/callboard.md`)
 }
 
+// The sentence on the layer above: the rule carries the briefings' sentence word for word, wrapped over its own lines.
+if (typeof core.CHAIN_TRUST !== 'string' || !rule.replace(/\s+/g, ' ').includes(`- ${core.CHAIN_TRUST} `)) problems.push('rules/callboard.md does not carry CHAIN_TRUST exactly')
+
 if (problems.length) {
   for (const p of problems) console.error(p)
   process.exit(1)
 }
-console.log(`rules/callboard.md matches the mod: keepalive, PR notice, signed-done notice, ${openers.length} nudge openers`)
+console.log(`rules/callboard.md matches the mod: keepalive, PR notice, signed-done notice, ${openers.length} nudge openers, CHAIN_TRUST`)
