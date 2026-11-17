@@ -210,17 +210,19 @@ export function capReason(r: unknown): { text: string; cut: boolean } | undefine
 // ---- the switch: stored under `answering`; nothing stored means the default, on while the guard holds ----
 // asks is kept `false` in every value this mod writes, so that an older mod after a rollback (which requires a boolean) still reads the value; it is read for nothing.
 // asksScope is the questions scope: a question is covered only by it (and by the permission scope). Only /callboard escalation writes it now, and always `all`; a narrower value an earlier version stored still reads.
-export type Answering = { scope: string; asks: boolean; savedAt: number; asksScope?: string }
+// leadAsks: a lead's own single-choice question rises, relay-only, while its conductor is live. Written only by the dialog whose text says so (and set in the
+// default); a value stored under the earlier text lacks it, so a lead's questions stay the person's there until they turn escalation on again.
+export type Answering = { scope: string; asks: boolean; savedAt: number; asksScope?: string; leadAsks?: true }
 const SCOPE_RE = /^(all|[A-Za-z0-9_-]{1,40})$/
 export function parseAnswering(raw: unknown): Answering | undefined {
   const o = obj(raw)
   if (typeof o.scope !== 'string' || !SCOPE_RE.test(o.scope) || typeof o.asks !== 'boolean' || typeof o.savedAt !== 'number') return undefined
-  return { scope: o.scope, asks: o.asks, savedAt: o.savedAt, ...(typeof o.asksScope === 'string' && SCOPE_RE.test(o.asksScope) ? { asksScope: o.asksScope } : {}) }
+  return { scope: o.scope, asks: o.asks, savedAt: o.savedAt, ...(typeof o.asksScope === 'string' && SCOPE_RE.test(o.asksScope) ? { asksScope: o.asksScope } : {}), ...(o.leadAsks === true ? { leadAsks: true as const } : {}) }
 }
 // An explicit off is stored as `{ off: true, savedAt }` (`/callboard escalation off`): any stored value that is not a valid switch reads as off, so nothing stored is the one
 // state that means the default.
 // With no stored value escalation is on for all lanes and leads, permission prompts and questions alike, while the guard holds (engine/answer-hook.ts).
-export const DEFAULT_ANSWERING: Answering = { scope: 'all', asks: false, asksScope: 'all', savedAt: 0 }
+export const DEFAULT_ANSWERING: Answering = { scope: 'all', asks: false, asksScope: 'all', leadAsks: true, savedAt: 0 }
 // What the default stands on: ai-toolkit's protected-paths hook wired in the person's settings, and the three `.protected-checkout` markers (docs/setup.md).
 export const GUARD_HOOK_NAME = 'protected-paths-guard.sh'
 export const GUARD_SETTINGS_MAX = 262_144
@@ -376,7 +378,7 @@ export function parseDecision(text: string): Decision | undefined {
 }
 
 export type ApplyIn = {
-  req: Pick<Request, 'id' | 'nonce' | 'inputHash' | 'sid'>
+  req: Pick<Request, 'id' | 'nonce' | 'inputHash' | 'sid' | 'level'>
   decision: Decision
   // The hash of the live input, taken again at apply.
   liveHash: string
@@ -412,6 +414,8 @@ export function applyCheck(a: ApplyIn): ApplyOut {
   if (!a.byOk || d.by.sid === req.sid || !SID_RE.test(d.by.sid) || !TIER_LEVELS.includes(d.by.level as TierLevel)) return { drop: 'by-sid' }
   // A relay is in place: only the person's answer through it stands. No relay: a decision claiming to be the person's is a forgery.
   if (a.relay !== undefined ? d.via !== 'person' || d.by.sid !== a.relay.sid || a.relay.nonce !== req.nonce : d.via === 'person') return { drop: 'relay' }
+  // A lead's own question is the person's: only their answer through a relay lands, never a tier's. `req` is the asker's own, so a file cannot change its level.
+  if (req.level === 'lead' && a.question !== undefined && d.via !== 'person') return { drop: 'relay' }
   // The decision's kind must fit the request's: a question takes only `answer`, nothing else does. The answer's index must name an option of the live input, whose label (the
   // way the tier read it) is the one the decision carries: this binds the index to what the tier saw, as the hash binds the rest.
   if ((a.question !== undefined) !== (d.decision === 'answer')) return { drop: 'kind' }
@@ -654,7 +658,7 @@ export const ESCALATION_YES = 'Allow'
 export const ESCALATION_NO = 'Cancel'
 export const ESCALATION_HEADER = 'Escalation'
 // The fixed text of the one dialog: it names everything that turns on and takes no input.
-export const ESCALATION_QUESTION = `On this Mac, let a lead, conductor or manager answer the permission prompts of EVERY lane and lead, and the single-choice questions of EVERY lane (a lead's own questions stay yours) when the answer is settled or harmless. The dialog stays open and your click always wins; an answer lands no earlier than 30 seconds after a prompt or question opens. A plan-mode exit is theirs to answer too: they are told to allow it only when the plan is the work the lane was given. Not passed to them: a subagent's permission ask, which is denied with a message that tells the main session to run the call itself while one of them is in reach, and stays yours otherwise; its questions stay yours; and the sessions are told to pass anything on the risk list up to you. Edits to the live checkouts, the settings files and callboard's folder are stopped by ai-toolkit's protected-paths hook, not by callboard, and only where that hook and its markers are installed. Merges, force pushes, pushes to main, master or production, and destructive deletes are on the risk list: the sessions are told to pass them up to you. Questions headed Person always stay yours; a question that is not one single-choice question with two to four options stays yours for 30 seconds and, while one of the sessions is in reach, is then ended with a message that tells the lane to ask again as one; the sessions are told to leave anything on the risk list to you too. A question no session can settle is put to you in the top session, or in the one where you typed /callboard here, in that session's words, with the lane's own choices, and your pick lands in the lane; typing your own answer there leaves the question in the lane. Answers are kept, redacted, for 90 days. /callboard escalation off turns it off; /callboard off in a lane's session takes that lane out.`
+export const ESCALATION_QUESTION = `On this Mac, let a lead, conductor or manager answer the permission prompts of EVERY lane and lead, and the single-choice questions of EVERY lane when the answer is settled or harmless. A lead's own questions are never answered by them: while its conductor is live, one is put to you in the top session, or in the one where you typed /callboard here, in that session's words, with the lead's own choices, and otherwise stays in the lead. The dialog stays open and your click always wins; an answer lands no earlier than 30 seconds after a prompt or question opens. A plan-mode exit is theirs to answer too: they are told to allow it only when the plan is the work the lane was given. Not passed to them: a subagent's permission ask, which is denied with a message that tells the main session to run the call itself while one of them is in reach, and stays yours otherwise; its questions stay yours; and the sessions are told to pass anything on the risk list up to you. Edits to the live checkouts, the settings files and callboard's folder are stopped by ai-toolkit's protected-paths hook, not by callboard, and only where that hook and its markers are installed. Merges, force pushes, pushes to main, master or production, and destructive deletes are on the risk list: the sessions are told to pass them up to you. Questions headed Person always stay yours; a question that is not one single-choice question with two to four options stays yours for 30 seconds and, while one of the sessions is in reach, is then ended with a message that tells the lane to ask again as one; the sessions are told to leave anything on the risk list to you too. A question no session can settle is put to you in the top session, or in the one where you typed /callboard here, in that session's words, with the lane's own choices, and your pick lands in the lane; typing your own answer there leaves the question in the lane. Answers are kept, redacted, for 90 days. /callboard escalation off turns it off; /callboard off in a lane's session takes that lane out.`
 const OFF_FILE_NOTE = 'The OFF file exists, so it is off whatever is stored; delete the file and the stored switch applies again.'
 // The switch and, when it is on, what the questions get.
 const escalationParts = (a: Answering | undefined): { on: string; questions?: string } =>
@@ -1140,11 +1144,11 @@ export const relaySteps = (short: string, lane: string, here = false): string =>
 
 // The steps for a QUESTION, returned by prompt_escalate for the relaying tier (the only place a tier reads them). Like relaySteps they hold only the short id and the
 // SAFE_WORD-checked lane name, never a label: the labels are lane text and reach the tier only inside prompt_list's untrusted frame.
-export const relayQuestionSteps = (short: string, lane: string, here = false): string =>
+export const relayQuestionSteps = (short: string, lane: string, here = false, lead = false): string =>
   [
     `${here ? HERE_STEPS_LEAD : 'You are the top tier here'}, so the person decides this question; the callboard mod reads their pick, not you. Steps:`,
     `1. No summary subagent: a question is already written for a person, so you write the plain words yourself.`,
-    `2. Call AskUserQuestion: one question, header exactly "Relay ${short}", text "[${short}] Lane ${word(lane, 'The lane')} asks: <the question in plain words, with any context the person needs>" (the short id in the text keeps two questions of one call apart).`,
+    `2. Call AskUserQuestion: one question, header exactly "Relay ${short}", text "[${short}] ${lead ? 'Lead' : 'Lane'} ${word(lane, lead ? 'The lead' : 'The lane')} asks: <the question in plain words, with any context the person needs>" (the short id in the text keeps two questions of one call apart).`,
     `3. Options: exactly the numbered option labels of the request whose id starts ${short}, as prompt_list showed them, character for character, in the lane's order. You may write your own short description for each. Not multi-select. You may put up to 4 relays in one call, mixed with permission relays, one question each.`,
     `4. Do not answer it yourself, and add no option.`,
     `If the result says nothing landed, tell the person. If the result says the question was withdrawn, say nothing to the person and ask again only for the relays it names as still open. If they type their own answer or dismiss the question, it stays in the lane's panel for them. You have no "leave it" of your own: if you do not relay, nothing answers, and the question stays open in the lane's panel (a question is never denied).`,
@@ -1363,8 +1367,8 @@ export function promptListText(items: ListItem[], o: { on: boolean; hint?: strin
 }
 // The line prompt_list puts under each request: where it stands for this tier.
 // away: the unattended window is held (ADR 0008), so no line offers the person: `manager` for the manager, `lower` for a lead or conductor. `here` then
-// counts for nothing, and a tier with one above it passes up as always.
-export function turnLine(o: { relay?: { level: string; name: string }; top: boolean; above?: { level: string; name: string }; opensInSec?: number; question?: boolean; here?: boolean; away?: 'manager' | 'lower' }): string {
+// counts for nothing, and a tier with one above it passes up as always. relayOnly: a lead's own question, which no tier answers.
+export function turnLine(o: { relay?: { level: string; name: string }; top: boolean; above?: { level: string; name: string }; opensInSec?: number; question?: boolean; here?: boolean; away?: 'manager' | 'lower'; relayOnly?: boolean }): string {
   const who = (t: { level: string; name: string }): string => `the ${word(t.level, 'tier')}${t.name === '' ? '' : ` ${word(t.name, '(odd name)')}`}`
   if (o.relay) return `With the person: ${who(o.relay)} is asking them. Nothing for you to do; no tier answers it now.`
   // here: the person typed /callboard here in this tier's session, so it relays whatever tier is above it.
@@ -1379,7 +1383,16 @@ export function turnLine(o: { relay?: { level: string; name: string }; top: bool
         ? "Unattended mode: you are the top tier for this question and the person is not asked. Answer it with an offered option by the rubric if you can; otherwise leave it, and it stays open in the lane's panel."
         : 'Unattended mode: you are the top tier for this prompt and the person is not asked. Answer it by the rubric if you can; otherwise leave it, and it is held for the person at 20 minutes.'
   const top = o.top || !o.above
-  const base = o.away !== undefined && top ? awayLine : o.here && o.away === undefined ? hereLine : top ? topLine : `${who(o.above!)[0].toUpperCase()}${who(o.above!).slice(1)} is above you. Answer it by the rubric, or pass it up with prompt_escalate.`
+  const aboveYou = o.above ? `${who(o.above)[0].toUpperCase()}${who(o.above).slice(1)} is above you.` : ''
+  // A lead's own question: no tier answers it (prompt_answer refuses it); the top tier, or the one the person is with, puts it to them. In an unattended window
+  // nothing is put to them, so the top leaves it open in the lead's panel.
+  const leadLine =
+    o.away !== undefined && top
+      ? "Unattended mode: a lead's own question is never answered by a tier, and nothing is put to the person: leave it, and it stays open in the lead's panel."
+      : (o.here && o.away === undefined) || top
+        ? "A lead's own question: never answer it. Put it to the person with prompt_escalate, which shows them the lead's own options."
+        : `${aboveYou} A lead's own question: never answer it; pass it up with prompt_escalate.`
+  const base = o.relayOnly ? leadLine : o.away !== undefined && top ? awayLine : o.here && o.away === undefined ? hereLine : top ? topLine : `${aboveYou} Answer it by the rubric, or pass it up with prompt_escalate.`
   return o.opensInSec !== undefined && o.opensInSec > 0 ? `${base} Your window opens in ${Math.ceil(o.opensInSec)} s; an answer, a relay or a pass-up before then is refused.` : base
 }
 // The manager's rules while an unattended window is held, after the rubric in prompt_list. never: the go's list of what always waits for the person, ending in
@@ -1406,6 +1419,7 @@ export const PROMPT_REFUSE: Record<string, string> = {
   'unattended-unread': 'the unattended window cannot be read right now, so a park cannot be recorded. Try again in a minute.',
   'question-answer-only': 'a question takes only decision `answer` (with `option`, the number shown in prompt_list); you may not allow or deny it. Pass it up with prompt_escalate if you cannot settle it.',
   'bad-answer': 'the option is not one the question offers, or the answer text does not match that option\'s label as prompt_list showed it. Use the number shown.',
+  'relay-only': 'that question is a lead\'s own: no tier answers it. If you are the top tier, call prompt_escalate to put it to the person; otherwise prompt_escalate passes it up.',
   'truncated-question': 'you have not seen all of that question, so it cannot be answered or put to the person here: tell the person, in your own words, that the lane asks a question in its panel.',
   off: 'escalation is off on this Mac.',
   'unknown-request': 'no open request has that id in your reach.',

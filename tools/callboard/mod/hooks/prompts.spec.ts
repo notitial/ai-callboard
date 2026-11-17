@@ -393,7 +393,7 @@ test('parseDecision: answer needs its object; an index of 0 to 3 and a label of 
   assert.ok(p.parseDecision(JSON.stringify({ ...base, decision: 'answer', answer: { index: 0, label: 'a'.repeat(200) } })))
 })
 test('applyCheck: a question takes only `answer`, bound to the live label; the order is kept', () => {
-  const base = { req: { id: ID, nonce: 'n-1', inputHash: H, sid: SID_A }, liveHash: H, awakeMs: 40_000, expiresAt: p.EXPIRES_MS, byOk: true, ledger: 'found' as const, graceMs: 0 }
+  const base = { req: { id: ID, nonce: 'n-1', inputHash: H, sid: SID_A, level: 'lane' as const }, liveHash: H, awakeMs: 40_000, expiresAt: p.EXPIRES_MS, byOk: true, ledger: 'found' as const, graceMs: 0 }
   const dec = (over: Record<string, unknown> = {}) => ({ id: ID, inputHash: H, decision: 'answer' as const, why: 'ok', by: { level: 'lead', sid: SID_B, name: 'L' }, at: 1, nonce: 'n-1', answer: { index: 1, label: 'Green' }, ...over }) as p.Decision
   const question = { labels: ['Red', 'Green'] }
   assert.deepEqual(p.applyCheck({ ...base, decision: dec(), question }), { ok: true })

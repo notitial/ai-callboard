@@ -1,8 +1,8 @@
 import { expect, test } from 'claude-code/testing'
 import * as prm from '../hooks/prompts'
 import { h, PROMPTS_DIR, SID, T0, longTest, pdirs, pfs } from './harness'
-import { APISID, LEADSID, MGR_SESS, PIN, TURN, lane, leadReg, mgrAt, ownReg } from './fixtures'
-import { LDIR, OFF_FILE, PDIR, QASK, QIN, QTEXT, SHORT, THASH, TID, TID2, addCondT, answerCall, answered, answerer, askCheck, askPost, askRelay, at, beneathHooks, byCond, callOf, decFile, decOf, driveClock, handDecision, hookKinds, ledgerRows, noFiles, pcall, putFile, putFileAt, putQ, putRelay, putRelayT, readReq, refusal, relayQ, reqFiles, rowKinds, runRequest, said, startReq, stop, tier, waitingRow } from './answer-fixtures'
+import { APISID, LEADSID, MGR_SESS, PIN, TURN, lane, leadReg, mgrAt, ownReg, ownedBy, putCond } from './fixtures'
+import { CNDT, LDIR, OFF_FILE, PDIR, QASK, QIN, QTEXT, SHORT, THASH, TID, TID2, addCondT, answerCall, answered, answerer, askCheck, askPost, askRelay, at, beneathHooks, byCond, callOf, decFile, decOf, driveClock, handDecision, hookKinds, ledgerRows, noFiles, pcall, putFile, putFileAt, putQ, putRelay, putRelayT, readReq, refusal, relayQ, reqFiles, rowKinds, runRequest, said, startReq, stop, tier, waitingRow } from './answer-fixtures'
 
 const QCALL = callOf('AskUserQuestion', QIN)
 const answerBy = (index: number, label: string, over: Record<string, unknown> = {}) => ({ decision: 'answer', answer: { index, label }, why: 'settled by the lane brief', ...over })
@@ -530,3 +530,48 @@ for (const [name, row] of [['option', { opt: '0', lh: 'a'.repeat(16) }], ['label
     expect(hookKinds()).toEqual(['requested', 'dropped no-answered-row', 'off'])
   })
 }
+
+// ---- a lead's own question (leadAsks): relay-only while its conductor is live ----
+const leadQ = async ($: any, on: any, o: { cond?: boolean; leadAsks?: boolean } = {}) => {
+  await answerer($, on, [], { verdict: QASK, asksScope: 'all', asLead: true, leadAsks: o.leadAsks !== false })
+  if (o.cond !== false) {
+    addCondT('CONDX', ['/data/x/work'], { own: false })
+    putCond(['/data/x/work'])
+    ownedBy(CNDT, { repo: '/data/x/work', leadSid: SID })
+  }
+}
+
+test('prompts: a lead\'s own question under its live conductor is a request no tier answers: the conductor\'s answer is dropped relay, the person\'s pick through the relay lands', async ($, on) => {
+  await leadQ($, on)
+  let req: any
+  const r = await runRequest($, [
+    at(32_000, () => { req = readReq(); handDecision(req, answerBy(0, '3000', { by: byCond }), { by: CNDT }) }),
+    at(40_000, () => { putRelay(readReq(), { by: byCond }); pfs.set(`${PDIR}/${readReq().id}.asked`, { text: '{}', mtimeSec: h.nowMs / 1000 }) }),
+    at(50_000, () => handDecision(readReq(), answerBy(1, '8080', { by: byCond, via: 'person', why: 'the person answered via the conductor CONDX' }), { by: CNDT, via: 'person' })),
+  ], QCALL.over, QCALL.check)
+  expect(req).toMatchObject({ level: 'lead', tool: 'AskUserQuestion' })
+  expect(r).toEqual({ decision: { behavior: 'allow', updatedInput: { ...QIN, answers: { [QTEXT]: '8080' } } } })
+  expect(rowKinds()).toEqual(['requested', 'answered answer', 'dropped relay', 'answered answer', 'returned answer'])
+})
+
+test('prompts: a lead\'s own question with no conductor stays the person\'s', async ($, on) => {
+  await leadQ($, on, { cond: false })
+  expect(await runRequest($, [], QCALL.over, QCALL.check)).toEqual({})
+  expect(rowKinds()).toEqual(['not-judgeable question-scope'])
+  expect(reqFiles().length).toBe(0)
+})
+
+test('prompts: a lead\'s own question stays the person\'s under a switch stored before leadAsks', async ($, on) => {
+  await leadQ($, on, { leadAsks: false })
+  expect(await runRequest($, [], QCALL.over, QCALL.check)).toEqual({})
+  expect(rowKinds()).toEqual(['not-judgeable question-scope'])
+  expect(reqFiles().length).toBe(0)
+})
+
+test('prompts: a lead\'s own question headed Person stays the person\'s, with its conductor live', async ($, on) => {
+  await leadQ($, on)
+  const c = callOf('AskUserQuestion', PERSON_Q)
+  expect(await runRequest($, [], c.over, c.check)).toEqual({})
+  expect(rowKinds()).toEqual(['not-judgeable question-person'])
+  expect(reqFiles().length).toBe(0)
+})

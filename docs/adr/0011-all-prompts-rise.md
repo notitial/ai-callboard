@@ -195,6 +195,17 @@ scoped to one lead (an older stored value: `/callboard escalation` writes `all`)
 found, so with the lead away the ask stays the person's, with no hold, as before. Inside an unattended window a
 lead's own prompt with no tier is still denied at once (ADR 0008), with no hold.*
 
+*2026-11-17: a lead's own question.* It was the person's in the lead's panel (ADR 0004). The person wants never to have
+to open a lead while a conductor is live. While the lead's conductor is live and in reach, a lead's own
+single-choice question with two to four options becomes a request that no tier answers or denies: `prompt_answer`
+refuses it (`relay-only`), and the lead's hook drops any decision on it that is not the person's through a relay, a
+check made on the hook's own copy of the request, not the file. A tier passes it up; the top tier, or the session where
+the person typed `/callboard here`, puts it to them, and their pick lands in the lead. It is never denied for
+lateness: unrelayed, its wait ends at 21 minutes and the card stays in the lead's panel. With no live conductor, a
+question headed `Person` or of another shape, it stays the person's in the lead, with no hold. It needs `leadAsks` in
+the switch, set by the escalation dialog whose text says so (and in the default): a switch turned on under the
+earlier text keeps a lead's questions the person's until they turn it on again.
+
 A truncated copy is a request, as before: a tier may deny it and never allow or relay it (ADR 0004, Limits), so it
 ends in the 20-minute deny.
 

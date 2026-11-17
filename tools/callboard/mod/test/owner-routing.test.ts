@@ -1,8 +1,10 @@
 import { expect, test } from 'claude-code/testing'
 import { toolNames } from '../hooks/tool-text'
-import { h, LEADRECDIR, ROOT, SID, T0, extraStat, leadFiles, longTest, pfs, toolDefs, toolDesc } from './harness'
-import { APISID, COND, LEADPATH, LEADSID, OTHERLEAD, PIN, condOn, condPresenceOf, leadRecsJson, listCall, mgrCall, ownedBy, putCond, putLeadRecs, regAs } from './fixtures'
-import { APIQ, CNDT, LDIR, LEAD2, PDIR, TID, TID2, addCondT, answerCall, answerer, asConductor, at, byCond, decideBy, pcall, putQ, readReq, refusal, rowKinds, runRequest, said, stop } from './answer-fixtures'
+import { h, LANESDIR, LEADRECDIR, ROOT, SID, T0, extraStat, leadFiles, longTest, pfs, repoKey, storeFiles, toolDefs, toolDesc } from './harness'
+import { APISID, COND, LEADPATH, LEADSID, OTHERLEAD, PIN, condOn, condPresenceOf, killed, lead, leadCall, leadRecsJson, listCall, mgrCall, ownedBy, putCond, putLeadRecs, regAs } from './fixtures'
+import { APIQ, CNDT, LDIR, LEAD2, PDIR, QIN, TID, TID2, addCondT, answerCall, answerer, asConductor, at, byCond, decideBy, pcall, putQ, readReq, refusal, rowKinds, runRequest, said, stop } from './answer-fixtures'
+// The repo the lead fixture pins.
+const WORK = '/data/x/work'
 
 // ---- ADR 0007: who is told of a lead's prompts, and what a conductor reaches, follows the lead's record ----
 // A conductor of PIN that is trusted (presence file, saved grant, list file) and listed in the registry, as the conductors above lead LEAD are.
@@ -36,6 +38,20 @@ test('a conductor that lists the repo but does not own the lead does not see its
   expect(said(await $.tool.call(pcall('prompt_list')))).toContain('No prompt is waiting in your reach.')
   expect(said(await $.tool.call(answerCall()))).toContain(refusal('unknown-request'))
   expect(pfs.has(`${LDIR(APISID)}/${TID}.decision.json`)).toBe(false)
+})
+
+test('a conductor never answers a lead\'s own question: prompt_list says to put it to the person, prompt_answer refuses it relay-only, and the relay is open to it', async ($, on) => {
+  await asConductor($, on, { lead: true })
+  h.store.set('answering', { scope: 'all', asks: false, asksScope: 'all', leadAsks: true, savedAt: T0 })
+  putQ({ sid: LEADSID, pid: 4242, level: 'lead', lane: 'LEAD', leadName: undefined, repo: PIN, tool: 'AskUserQuestion', input: QIN })
+  const list = said(await $.tool.call(pcall('prompt_list')))
+  expect(list).toContain(`### ${TID}`)
+  expect(list).toContain("A lead's own question: never answer it. Put it to the person with prompt_escalate")
+  expect(said(await $.tool.call(answerCall({ decision: 'answer', option: 1 })))).toContain(refusal('relay-only'))
+  expect(pfs.has(`${LDIR(LEADSID)}/${TID}.decision.json`)).toBe(false)
+  const relayed = said(await $.tool.call(pcall('prompt_escalate', { id: TID, why: 'a lead\'s own question' })))
+  expect(relayed).toContain('Lead LEAD asks:')
+  expect(pfs.has(`${LDIR(LEADSID)}/${TID}.relay.json`)).toBe(true)
 })
 
 test('the owner sees the request of a lane working in a subfolder of the repo, and answers it', async ($, on) => {
@@ -142,4 +158,47 @@ test('the conductor\'s tools are declared with the conductor\'s descriptions, wh
   await condOn($, on)
   const d = toolDefs.join('\n')
   for (const name of toolNames('conductor')) expect(d).toContain(toolDesc(name, 'conductor'))
+})
+
+test('lane_terminate in a lead whose conductor owns it and is live is refused before any dialog, naming the conductor; with the conductor gone the dialog opens in the lead as before', async ($, on) => {
+  const argv: string[][] = []
+  await lead($, on, [], { argv })
+  addCondT('CONDX', [WORK], { own: false })
+  putCond([WORK])
+  ownedBy(CNDT, { repo: WORK, leadSid: SID })
+  const before = h.sessions
+  h.sessions = { ...h.sessions, ...h.extraRows }
+  h.lastQuestion = undefined
+  h.askAnswer = 'Force stop'
+  const out = said(await $.tool.call(leadCall('terminate')))
+  expect(out).toContain('lane_terminate refused: conductor-owns:')
+  expect(out).toContain('ask your conductor `CONDX` by message to force stop lane `LABLANE`')
+  expect(h.lastQuestion).toBeUndefined()
+  expect(killed(argv).length).toBe(0)
+  // The conductor's registry row is gone: it is not live, so the lead's own dialog asks the person.
+  h.sessions = before
+  h.askAnswer = 'Cancel'
+  expect(said(await $.tool.call(leadCall('terminate')))).toContain('did not confirm')
+  expect(h.lastQuestion).toContain('Force stop lane LABLANE')
+  expect(killed(argv).length).toBe(0)
+})
+
+test('lane_terminate in a lead whose live conductor does not reach the lane (it names the lead only by session id) opens the dialog in the lead', async ($, on) => {
+  const argv: string[][] = []
+  await lead($, on, [], { argv })
+  // The lane names this lead only by its session id, as one made while the lead had no name.
+  const f = `${LANESDIR}/${repoKey(WORK)}.json`
+  const st = JSON.parse(storeFiles.get(f)!)
+  storeFiles.set(f, JSON.stringify({ ...st, lanes: st.lanes.map((l: object) => ({ ...l, leadSid: SID })) }))
+  addCondT('CONDX', [WORK], { own: false })
+  putCond([WORK])
+  ownedBy(CNDT, { repo: WORK, leadSid: SID })
+  h.sessions = { ...h.sessions, ...h.extraRows }
+  h.lastQuestion = undefined
+  h.askAnswer = 'Cancel'
+  const out = said(await $.tool.call(leadCall('terminate')))
+  expect(out).not.toContain('conductor-owns')
+  expect(out).toContain('did not confirm')
+  expect(h.lastQuestion).toContain('Force stop lane LABLANE')
+  expect(killed(argv).length).toBe(0)
 })

@@ -968,14 +968,26 @@ async function ownedLeads($: any, sid: string, pins: string[]): Promise<c.Owned[
     await logq($, sid, 'error', 'lead-records-unreadable')
     return undefined
   }
+  return ownedIn($, stores, sid, pins)
+}
+type LeadStores = Exclude<Awaited<ReturnType<typeof loadLeadRecords>>, string>
+async function ownedIn($: any, stores: LeadStores, sid: string, pins?: string[]): Promise<c.Owned[]> {
   const out: c.Owned[] = []
   for (const s of stores) {
-    if (!pins.includes(s.store.repo)) continue
+    if (pins !== undefined && !pins.includes(s.store.repo)) continue
     for (const rec of s.store.leads) {
       if (rec.conductorSid === sid && (await boundTo($, { key: s.key, repo: s.store.repo, rec }))) out.push({ repo: s.store.repo, name: rec.name, sole: s.store.leads.length === 1, ...(rec.sid !== undefined ? { sid: rec.sid } : {}) })
     }
   }
   return out
+}
+// Whether conductor `owner` reaches the lane as its own lane_terminate judges it (c.inReach over the leads it owns; the repos of those leads are the pins that
+// count). A lane that names its lead only by session id, or a legacy lane with other leads in its repo, is in no conductor's reach. false: records unreadable.
+async function conductorReaches($: any, owner: string, lane: c.Lane): Promise<boolean> {
+  const stores = await loadLeadRecords($)
+  if (typeof stores === 'string') return false
+  const owns = await ownedIn($, stores, owner)
+  return c.inReach({ level: 'conductor', pins: [...new Set(owns.map((o) => o.repo))], name: '', owns }, lane)
 }
 
 export async function leadCore($: any, sid: string) {
@@ -1542,6 +1554,14 @@ export async function stopVerbCall($: any, e: any, next: any, verb: (typeof c.ST
       const cut = () => ({ deny: leadReason(verb, c.reasonWhy('abandoned')) })
       let prep = await leadPrep($, e, sid)
       if ('err' in prep) return no(...prep.err)
+      // A force stop in a lead whose conductor owns it and is live, of a lane that conductor reaches, opens no dialog here: the person confirms it in the
+      // conductor's session, through the conductor's own lane_terminate. A conductor not live, a stale tie, records that cannot be read or a lane the conductor
+      // does not reach: the dialog opens here, as with no conductor.
+      if (verb === 'terminate' && level === 'lead') {
+        const reg = await registryEntries($).catch(() => undefined)
+        const o = reg ? await ownOwner($, sid, reg).catch(() => undefined) : undefined
+        if (o !== undefined && typeof o === 'object' && (await conductorReaches($, o.sid, prep.lane).catch(() => false))) return no('conductor-owns', c.terminateOwnedText(prep.lane.name, typeof o.name === 'string' && c.NAME_RE.test(o.name) ? o.name : undefined))
+      }
       let one = c.laneSession(prep.entries, prep.lane, sid)
       // A retire or a force stop of a lane no live session carries removes its record directly (stopNoSession); a park has nothing to stop.
       if (!one.ok && one.reason === 'no-live-session' && verb !== 'park') return stopNoSession($, e, sid, verb, level, prep, no, abandoned)

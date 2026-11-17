@@ -15,7 +15,7 @@ export const ledgerRows = (): any[] => [...pfs.entries()].filter(([k]) => /\/led
 export const rowKinds = () => ledgerRows().map((r) => `${r.kind}${r.code ? ` ${r.code}` : ''}`)
 export const LEDGER_FILE = `${PROMPTS_DIR}/ledger-2023-11.jsonl`
 export const waitingRow = (at = T0) => ({ ...leadReg(), ...h.extraRows, ...ownReg({ status: 'waiting', waitingFor: 'permission prompt', statusUpdatedAt: at }) })
-export type Ans = { switchOn?: boolean; verdict?: any; beneath?: ($: any) => any; argv?: string[][]; clock?: boolean; asLead?: boolean; scope?: string; asksScope?: string; asksOld?: boolean }
+export type Ans = { switchOn?: boolean; verdict?: any; beneath?: ($: any) => any; argv?: string[][]; clock?: boolean; asLead?: boolean; scope?: string; asksScope?: string; asksOld?: boolean; leadAsks?: boolean }
 export async function answerer($: any, on: any, stdins: string[], opts: Ans = {}) {
   h.extraRows = {}
   h.prVerdict = opts.verdict ?? { decision: 'ask', rule: 'Bash(ssh:*)' }
@@ -34,7 +34,7 @@ export async function answerer($: any, on: any, stdins: string[], opts: Ans = {}
     await doLane($, 'lane svc-api')
   }
   h.prSetup = false
-  if (opts.switchOn !== false) h.store.set('answering', { scope: opts.scope ?? 'all', asks: opts.asksOld === true, ...(opts.asksScope !== undefined ? { asksScope: opts.asksScope } : {}), savedAt: T0 })
+  if (opts.switchOn !== false) h.store.set('answering', { scope: opts.scope ?? 'all', asks: opts.asksOld === true, ...(opts.asksScope !== undefined ? { asksScope: opts.asksScope } : {}), ...(opts.leadAsks ? { leadAsks: true } : {}), savedAt: T0 })
 }
 // A question's own ask is judged like any other once the lane is set up; the setup dialogs above must still pass.
 export const askCheck = ($: any, over: Record<string, unknown> = {}) => $.tool.check({ tool: 'Bash', input: PRQ, tool_use_id: 'tu1', approver: 'person', ...over } as any)

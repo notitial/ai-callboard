@@ -196,6 +196,14 @@ done, append `status: done <session id>` to `.archive/<NAME>/REPORT.md`.
   lead does for its lanes. `quiet` fires only when the lead has no live lane, since an idle lead with live lanes is
   usually waiting for them.
 
+*2026-11-17: a lead's force stop of a lane goes through its owner.* While the owner is live and reaches the lane (a
+lane that names the lead only by session id, or a legacy lane beside other leads, it does not), `lane_terminate` in the
+lead is refused before any dialog (`conductor-owns`): the lead asks the conductor by message, and the conductor's own
+`lane_terminate` on that lane asks the person in the conductor's session. An owner that is not live, a tie that no
+longer matches its record, or records that cannot be read leave the dialog in the lead, as with no owner. `lane_retire`
+of a parked lane, or of a lane no session carries, still asks in the lead: the conductor has no `lane_retire`. A lead's
+own question rises to the top session the same way (ADR 0011).
+
 One conductor check replaces up to four in a tier lookup or a cue check, so the once-a-minute look no longer grows with
 the number of conductors.
 
