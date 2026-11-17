@@ -12,8 +12,9 @@ test('the lead is resolved record first: a record that names a lead is reached b
   await askCheck($)
   h.sessions = { ...leadReg({ name: 'LEADX' }), ...ownReg({ status: 'waiting', waitingFor: 'permission prompt', statusUpdatedAt: T0 + 500 }) }
   driveClock()
+  h.clockHooks.push(stop(5000))
   expect(await startReq($)).toEqual({})
-  expect(rowKinds()).toEqual(['abandoned no-tier'])
+  expect(rowKinds()).toEqual(['no-tier', 'abandoned no-tier'])
   expect(reqFiles().length).toBe(0)
 })
 longTest('a bound lane whose record cannot be found reaches no lead, though one lead is live: no request, abandoned no-tier', async ($, on) => {
@@ -23,8 +24,9 @@ longTest('a bound lane whose record cannot be found reaches no lead, though one 
   await askCheck($)
   h.sessions = waitingRow(T0 + 500)
   driveClock()
+  h.clockHooks.push(stop(5000))
   expect(await startReq($)).toEqual({})
-  expect(rowKinds()).toEqual(['abandoned no-tier'])
+  expect(rowKinds()).toEqual(['no-tier', 'abandoned no-tier'])
   expect(reqFiles().length).toBe(0)
 })
 test('a record that names its lead finds it by the registry name, so the request carries that name', async ($, on) => {
@@ -34,8 +36,8 @@ test('a record that names its lead finds it by the registry name, so the request
 })
 test('prompts: a lead\'s own prompt starts at the conductor, which does not exist yet: no request', async ($, on) => {
   await answerer($, on, [], { asLead: true })
-  expect(await runRequest($, [])).toEqual({})
-  expect(rowKinds()).toEqual(['abandoned no-tier'])
+  expect(await runRequest($, [stop(5000)])).toEqual({})
+  expect(rowKinds()).toEqual(['no-tier', 'abandoned no-tier'])
   expect(reqFiles().length).toBe(0)
 })
 const PREV_LEDGER = `${PROMPTS_DIR}/ledger-2023-10.jsonl`
@@ -634,8 +636,8 @@ test('prompts hook: a conductor whose list does not hold the lane\'s repo is not
   await answerer($, on, [])
   leadFiles.delete(LEADPATH)
   addCondT('CONDX', [APP2])
-  expect(await runRequest($, [])).toEqual({})
-  expect(rowKinds()).toEqual(['abandoned no-tier'])
+  expect(await runRequest($, [stop(5000)])).toEqual({})
+  expect(rowKinds()).toEqual(['no-tier', 'abandoned no-tier'])
 })
 
 test('prompts hook: a lead that has passed the request up can no longer answer it; the conductor above still can', async ($, on) => {
@@ -702,13 +704,28 @@ test('prompts tools: a conductor whose pins do not hold the lane\'s repo is not 
   expect(pfs.has(`${LDIR()}/${TID}.relay.json`)).toBe(true)
 })
 
-test('prompts tools: a tier that is asking (its relay question is open) is skipped: the lead becomes the top tier, and the asking file is not the lead\'s own request\'s relay', async ($, on) => {
+const mgrRow = (status: string) => { h.sessions = { ...h.sessions, '4243.json': { ...h.sessions['4243.json'], status, waitingFor: status === 'waiting' ? 'question' : null, statusUpdatedAt: T0 } } }
+
+test('prompts tools: an asking mark with no open dialog behind it (the row is not waiting) does not keep the top: the lead relays, as with no mark', async ($, on) => {
   await tier($, on)
   tierFixtures('mgr')
+  mgrRow('busy')
   putQ()
   pfs.set(`${PROMPTS_DIR}/asking/${MGRT}`, { text: '{}', mtimeSec: T0 / 1000 })
-  expect(turnOf(said(await $.tool.call(pcall('prompt_list'))))).toContain('You are the top tier')
   expect(said(await $.tool.call(pcall('prompt_escalate', { id: TID, why: 'x' })))).toContain('You are the top tier here')
+  expect(pfs.has(`${LDIR()}/${TID}.relay.json`)).toBe(true)
+})
+
+test('prompts tools: a tier that is asking (its relay question is open) stays the top tier: the lead passes the request up and never relays it in its own session', async ($, on) => {
+  await tier($, on)
+  tierFixtures('mgr')
+  mgrRow('waiting')
+  putQ()
+  pfs.set(`${PROMPTS_DIR}/asking/${MGRT}`, { text: '{}', mtimeSec: T0 / 1000 })
+  expect(turnOf(said(await $.tool.call(pcall('prompt_list'))))).not.toContain('You are the top tier')
+  expect(said(await $.tool.call(pcall('prompt_escalate', { id: TID, why: 'x' })))).toContain('Passed up:')
+  expect(pfs.has(`${LDIR()}/${TID}.relay.json`)).toBe(false)
+  expect(pfs.has(`${LDIR()}/${TID}.escalate-lead.json`)).toBe(true)
 })
 
 test('prompts tools: the manager is still excluded for new requests while it relays another, but it relays its own: asking is no bar to the request it relayed', async ($, on) => {

@@ -766,10 +766,11 @@ async function promptReach($: any, cov: Cov, sid: string, cwd: string, tool: str
 
 // The person's head start on a question that is about to be ended for its form: MIN_AGE_MS of awake time with the card open. true: the time passed with no click,
 // the switch still on and the lane still covered. false: the card is the person's (a click, an abort, the switch, a pause that failed).
-async function promptFormWait($: any, signal: AbortSignal, w: { sid: string; tid: string; tool: string; p: WaitCtx['p']; started: number; leadName?: string; req: { pid: number; procStart: string } }): Promise<boolean> {
+async function promptFormWait($: any, signal: AbortSignal, w: { sid: string; tid: string; tool: string; p: WaitCtx['p']; started: number; awake?: number; seen?: boolean; leadName?: string; req: { pid: number; procStart: string } }): Promise<boolean> {
   let last = await $.clock.now()
-  let awake = pr.awakeAdd(0, last - w.started)
-  let seenWaiting = false
+  // A question that held for a tier (promptRiseHold) counts the awake time of the hold: the card was open all along.
+  let awake = w.awake ?? pr.awakeAdd(0, last - w.started)
+  let seenWaiting = w.seen === true
   for (;;) {
     if (signal.aborted || doneIds.has(w.tid) || (await promptsOff($))) return false
     const cv = await promptCoverage($, w.sid)
@@ -789,8 +790,57 @@ async function promptFormWait($: any, signal: AbortSignal, w: { sid: string; tid
   }
 }
 
+// An ask no live tier could take (ADR 0011, "What cannot rise"): its `no-tier` row, then a hold beside the dialog. Each poll looks at a click, the switch, the
+// switch's scope and the dialog's own row, as promptFormWait does; every pr.RISE_REACH_MS of awake time the reach is read again, the lane's lead included. It
+// returns the reach once a tier is in it and the switch, read again then, still covers the ask, with the time it was read, the awake time held and whether the
+// dialog's row was seen waiting; the ask then rises as a request from that moment. undefined: the dialog stays the person's (a click, the switch or its scope,
+// the pauses failing, or no tier within pr.RISE_HOLD_MS), with an `abandoned no-tier` row.
+type Reach = Awaited<ReturnType<typeof promptReach>>
+async function promptRiseHold($: any, signal: AbortSignal, w: { sid: string; tid: string; tool: string; p: WaitCtx['p']; started: number; leadName?: string; req: { pid: number; procStart: string }; base: Omit<pr.LedgerRow, 't' | 'kind'>; reach: () => Promise<Reach> }): Promise<{ r: Reach; at: number; awake: number; seen: boolean } | undefined> {
+  await ledgerAdd($, { ...w.base, kind: 'no-tier' })
+  const gave = async () => void (await ledgerAdd($, { ...w.base, kind: 'abandoned', code: 'no-tier' }))
+  let last = await $.clock.now()
+  let awake = pr.awakeAdd(0, last - w.started)
+  let reachAt = awake
+  let seenWaiting = false
+  let pauseFails = 0
+  let leadName = w.leadName
+  const covered = async (lead: string | undefined): Promise<boolean> => {
+    const cv = await promptCoverage($, w.sid)
+    return cv !== undefined && pr.requestCovered(cv.a, { tool: w.tool }, { lane: cv.lane, lead, self: cv.self })
+  }
+  for (;;) {
+    if (signal.aborted || doneIds.has(w.tid) || (await promptsOff($)) || !(await covered(leadName))) return gave()
+    // The dialog counts as closed only once the own row has been seen waiting for this call and is then not (as in promptWait).
+    const rowNow = await promptOwnRow($, w).catch(() => undefined)
+    if (rowNow) {
+      const waiting = rowNow.status === 'waiting' && (rowNow.waitingFor ?? null) !== null
+      if (waiting && typeof rowNow.statusUpdatedAt === 'number' && rowNow.statusUpdatedAt >= w.started) seenWaiting = true
+      else if (seenWaiting && !waiting) return gave()
+    }
+    const step = pr.riseStep(awake, reachAt)
+    if (step === 'end') return gave()
+    if (step === 'reach') {
+      reachAt = awake
+      const r = await w.reach().catch(() => undefined)
+      if (r !== undefined) leadName = r.leadName ?? leadName
+      if (r !== undefined && r.reach.length > 0 && r.own !== undefined) {
+        // A click that landed while the reach was read wins, and the switch must still cover the ask with the lead now found.
+        if (signal.aborted || doneIds.has(w.tid) || (await promptsOff($)) || !(await covered(r.leadName))) return gave()
+        return { r, at: await $.clock.now(), awake, seen: seenWaiting }
+      }
+    }
+    const ran = await pause($, pr.pollFor(false))
+    if (ran) pauseFails = 0
+    else if (signal.aborted || ++pauseFails >= pr.PAUSE_FAILS_MAX) return gave()
+    const now = await $.clock.now()
+    if (ran) awake = pr.awakeAdd(awake, now - last)
+    last = now
+  }
+}
+
 // A subagent's ask that would be denied: the row of the denial, or undefined when nothing changes for it (the switch is off or does not cover this session, or
-// no live tier is in reach, so the main session's own call could not rise either; or the ask is a question).
+// no live tier is in reach, so the main session's own call would only hold for one; or the ask is a question).
 async function promptSubagentRow($: any, e: any): Promise<Omit<pr.LedgerRow, 't' | 'kind'> | undefined> {
   const sid = await $.session.id()
   if (!c.SID_RE.test(sid)) return undefined
@@ -882,6 +932,13 @@ async function promptHook($: any, e: any, nextOnce: (x: any) => Promise<any>, si
       leadRead = true
       return promptReach($, cov, sid, cwd, tool, lead)
     }
+    // The same, with the lead read again: a hold waits for a lead that was away (compacting, restarting) as much as for a tier above it.
+    const reachAgain = async () => {
+      const cv = (await promptCoverage($, sid)) ?? cov
+      lead = await promptLeadOf($, cv.level, sid, cwd, cv.lead)
+      leadRead = true
+      return promptReach($, cv, sid, cwd, tool, lead)
+    }
     if (!usable || entry === undefined) {
       await ledgerAdd($, { ...base, kind: 'not-judgeable', code: 'no-check' })
       return beneath
@@ -906,9 +963,17 @@ async function promptHook($: any, e: any, nextOnce: (x: any) => Promise<any>, si
         // A question with no answer form cannot rise: its row first, whatever follows. With a tier in reach it is then ended with a fixed message that says how
         // to ask again, once the person has had their first 30 seconds with the card; a click, the switch going off or a failed pause leaves it theirs.
         await ledgerAdd($, { ...base, kind: 'not-judgeable', code: shape.code })
-        const r = pr.questionDeniable(shape.code, input) ? await reachOf() : undefined
-        const asker = r !== undefined && r.reach.length > 0 && pr.requestCovered(cov.a, { tool }, { lane: cov.lane, lead: r.leadName, self: cov.self }) ? r.own : undefined
-        if (asker === undefined || !(await promptFormWait($, signal, { sid, tid: tid as string, tool, p, started, leadName: r?.leadName, req: asker }))) return beneath
+        let r = pr.questionDeniable(shape.code, input) ? await reachOf() : undefined
+        let held: { awake: number; seen: boolean } | undefined
+        // No tier in reach: the question holds for one, as any ask does (step 7), and is ended once one is. The hold checked the switch's scope itself.
+        if (r !== undefined && r.reach.length === 0 && r.own !== undefined) {
+          const up = await promptRiseHold($, signal, { sid, tid: tid as string, tool, p, started, leadName: r.leadName, req: r.own, base, reach: reachAgain })
+          if (up === undefined) return beneath
+          r = up.r
+          held = { awake: up.awake, seen: up.seen }
+        }
+        const asker = r !== undefined && r.reach.length > 0 && (held !== undefined || pr.requestCovered(cov.a, { tool }, { lane: cov.lane, lead: r.leadName, self: cov.self })) ? r.own : undefined
+        if (asker === undefined || !(await promptFormWait($, signal, { sid, tid: tid as string, tool, p, started, awake: held?.awake, seen: held?.seen, leadName: r?.leadName, req: asker }))) return beneath
         // The tier may have gone during the wait: with none in reach now, the question asked again could not rise, so it stays the person's.
         if ((await reachOf()).reach.length === 0) return beneath
         // A click that landed while the reach was read wins.
@@ -917,14 +982,21 @@ async function promptHook($: any, e: any, nextOnce: (x: any) => Promise<any>, si
         return { ...(beneath && typeof beneath === 'object' ? beneath : {}), decision: { behavior: 'deny' as const, message: pr.FORM_DENY_MESSAGE } }
       }
     }
-    // 7. A live tier: the lead of a lane, or a conductor or the manager (a lead's own prompt starts at the conductor). Nobody in reach, or an asker that the
-    // session list does not show: no row for a judge, the dialog stays the person's.
-    const { own, reach, leadName, leadSid } = await reachOf()
+    // 7. A live tier: the lead of a lane, or a conductor or the manager (a lead's own prompt starts at the conductor). Nobody in reach: the ask holds beside the
+    // dialog until a tier is (promptRiseHold) and rises from that moment; with none in time the dialog stays the person's. An asker that the session list does
+    // not show: no row for a judge, the dialog stays the person's.
+    let { own, reach, leadName, leadSid } = await reachOf()
+    let rose: number | undefined
+    let seen = false
     if (reach.length === 0 && own && typeof own.pid === 'number' && typeof own.procStart === 'string') {
-      await ledgerAdd($, { ...base, kind: 'abandoned', code: 'no-tier' })
-      return beneath
+      const up = await promptRiseHold($, signal, { sid, tid: tid as string, tool, p, started, leadName, req: own, base, reach: reachAgain })
+      if (up === undefined) return beneath
+      ;({ own, reach, leadName, leadSid } = up.r)
+      rose = up.at
+      seen = up.seen
     }
-    if (!pr.requestCovered(cov.a, { tool }, { lane: cov.lane, lead: leadName, self: cov.self })) return beneath
+    // After a hold the switch was read again at the rise (promptRiseHold); the request's wait reads it on every poll.
+    if (rose === undefined && !pr.requestCovered(cov.a, { tool }, { lane: cov.lane, lead: leadName, self: cov.self })) return beneath
     // 8. The request, then the wait.
     const dir = await promptDir($, p, sid)
     if (!own || typeof own.pid !== 'number' || typeof own.procStart !== 'string' || !dir) {
@@ -936,7 +1008,7 @@ async function promptHook($: any, e: any, nextOnce: (x: any) => Promise<any>, si
     const capped = pr.capInput(input)
     // The reason comes from the live tool.check facts.
     const reason = pr.capReason(entry.facts.reason)
-    const req: pr.Request = { id, sid, pid: own.pid, procStart: own.procStart, level: cov.level, lane: cov.lane ?? cov.self, ...(leadName ? { leadName } : {}), ...(leadSid ? { leadSid } : {}), ...(cov.level === 'lane' && lead === undefined ? { noLead: true } : {}), repo: cwd, tool, inputHash: hash, raisedBy: judged.raisedBy, ...(reason !== undefined ? { reason: reason.text, ...(reason.cut ? { reasonCut: true } : {}) } : {}), at: started, expiresAt: started + pr.EXPIRES_MS, nonce, input: capped.input, truncated: capped.truncated }
+    const req: pr.Request = { id, sid, pid: own.pid, procStart: own.procStart, level: cov.level, lane: cov.lane ?? cov.self, ...(leadName ? { leadName } : {}), ...(leadSid ? { leadSid } : {}), ...(cov.level === 'lane' && lead === undefined ? { noLead: true } : {}), repo: cwd, tool, inputHash: hash, raisedBy: judged.raisedBy, ...(reason !== undefined ? { reason: reason.text, ...(reason.cut ? { reasonCut: true } : {}) } : {}), at: rose ?? started, expiresAt: (rose ?? started) + pr.EXPIRES_MS, nonce, input: capped.input, truncated: capped.truncated }
     const text = pr.requestText(req)
     if (new TextEncoder().encode(text).length > pr.REQUEST_MAX || !(await promptPut($, `${dir}/${id}.request.json`, text))) {
       await ledgerAdd($, { ...base, kind: 'abandoned', code: 'hook-failed' })
@@ -950,7 +1022,7 @@ async function promptHook($: any, e: any, nextOnce: (x: any) => Promise<any>, si
     // Without a `requested` row no decision could ever pass the ledger check: the dialog is left to the person.
     if (!(await ledgerAdd($, { ...row, kind: 'requested', nonce, raised: judged.raisedBy }))) throw new Error('ledger-unwritable')
     st.requested = true
-    return await promptWait($, beneath, signal, { sid, tid: tid as string, id, nonce, dir, input, tool, cwd, home: homeOf(p), p, started, row, req, leadName, cap: pr.claudeCap(tool, input), st })
+    return await promptWait($, beneath, signal, { sid, tid: tid as string, id, nonce, dir, input, tool, cwd, home: homeOf(p), p, started, ...(rose !== undefined ? { rose, seen } : {}), row, req, leadName, cap: pr.claudeCap(tool, input), st })
   } catch (err) {
     // A failing hook answers nothing: the dialog stays (the caller returns what the chain beneath gives).
     if (!st.closed) {
@@ -971,7 +1043,8 @@ async function promptHook($: any, e: any, nextOnce: (x: any) => Promise<any>, si
   }
 }
 
-type WaitCtx = { sid: string; tid: string; id: string; nonce: string; dir: string; input: unknown; tool: string; cwd: string; home: string; p: { uid: number; root: string; own?: string }; started: number; row: Omit<pr.LedgerRow, 't' | 'kind'>; req: pr.Request; leadName?: string; cap?: { kind: pr.CapKind; target: string }; st: CloseState }
+// started: when the hook began (the dialog's own row is read against it). rose: when an ask that held for a tier rose; its request's clocks run from then.
+type WaitCtx = { sid: string; tid: string; id: string; nonce: string; dir: string; input: unknown; tool: string; cwd: string; home: string; p: { uid: number; root: string; own?: string }; started: number; rose?: number; seen?: boolean; row: Omit<pr.LedgerRow, 't' | 'kind'>; req: pr.Request; leadName?: string; cap?: { kind: pr.CapKind; target: string }; st: CloseState }
 
 // The wait. Each poll: a click, the switch, the dialog's own row, the relay, expiry, then a decision file. The awake clock adds each gap,
 // capped. A relay (a tier put the prompt to the person) makes the wait `withPerson`: expiry at 2 hours, a 10 s poll, and no 20-minute deny.
@@ -1021,8 +1094,9 @@ async function promptWait($: any, beneath: any, signal: AbortSignal, w: WaitCtx)
     return x && x.id === w.id && x.nonce === w.nonce ? x : 'bad'
   }
   let last = await $.clock.now()
-  let awake = pr.awakeAdd(0, last - w.started)
-  let seenWaiting = false
+  let awake = pr.awakeAdd(0, last - (w.rose ?? w.started))
+  // A hold before the request (promptRiseHold) may have seen the dialog's row waiting already.
+  let seenWaiting = w.seen === true
   let lagSince: number | undefined
   let lastDrop = ''
   let relay: pr.Relay | undefined

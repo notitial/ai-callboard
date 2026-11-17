@@ -151,7 +151,7 @@ person; this decision does not depend on it and adds no notice of its own.
 | No usable `tool.check` entry: none, two calls in flight on one hash, or too old. A prompt that is not an ask in `tool.check` has none either. | `not-judgeable no-check` | Without it there is no tool-use id: the hook could not see the person's click, and a late answer could land on another call. The classifier refuses a non-ask too (`not-ask`), as a second check. | The check-in and the toast |
 | A subagent's ask | `subagent-denied`, or none | The engine shows its dialog only after the hooks return; a wait would hide it. | With a tier in reach it is denied with a message; else the check-in and the toast |
 | The request file or its ledger row cannot be written | `abandoned hook-failed` | Without the file no tier can read the request, and without the row no decision could pass the ledger check. | The check-in and the toast |
-| No live tier in reach | `abandoned no-tier` | There is nobody to ask. | The toast |
+| No live tier in reach (since 2026-11-17: for 30 minutes, see the note below) | `abandoned no-tier` | There is nobody to ask. | The toast |
 | Nobody can be asked, or a host answers (the approver is not the person) | none | The prompt is not one a person clicks in the lane's panel. | Nothing is waiting on the person |
 | A question of a shape with no answer form: several questions, multi-select, a `Person` header | `not-judgeable question-…`, then `question-denied question-…` when it is ended | The relay carries one single-choice question with the lane's own labels; `Person` is the lane's own mark. | With a tier in reach it is ended with a message, a `Person` header excepted; else the check-in and the toast |
 
@@ -183,6 +183,14 @@ of its own kind before it lands (no row, no denial).*
 - *A subagent's question (`AskUserQuestion`) is never denied.*
 - *The escalation dialog's two sentences on these cases are reworded to say so (ADR 0004, "A subagent's ask is the
   person's", now holds only with no tier in reach).*
+
+*2026-11-17: no live tier in reach now holds rather than ends at once. The person's words: an ask that found no tier
+(a tier compacting) rises once one is back. The hook writes `no-tier` and keeps the dialog open for up to 30 minutes
+of awake time, reading the reach again every 30 seconds (the lane's lead included). Once a tier is in reach, the ask
+rises as a request from that moment: its windows, its 30-second head start, its 20-minute deny and its expiry run
+from the rise. A click, the switch going off or failed pauses during the hold leave the dialog the person's, as does
+no tier within the 30 minutes; each writes `abandoned no-tier`. A question with no answer form holds the same way and,
+once a tier is in reach, is ended with its message; the hold counts as the person's first 30 seconds.*
 
 A truncated copy is a request, as before: a tier may deny it and never allow or relay it (ADR 0004, Limits), so it
 ends in the 20-minute deny.
