@@ -652,7 +652,7 @@ export async function managersLive($: any, live: RegRow[], except: string): Prom
 export async function managerTrusted($: any, live: RegRow[], except: string): Promise<boolean> {
   return (await managerTrustedName($, live, except)) !== undefined
 }
-// That manager's name, for the section that tells a lead who its manager is; undefined when none is trusted.
+// That manager's name, for the section that tells a lead or a conductor who its manager is; undefined when none is trusted.
 export async function managerTrustedName($: any, live: RegRow[], except: string): Promise<string | undefined> {
   return (await managersLive($, live, except)).find((m) => m.unverified !== true && m.name !== undefined)?.name
 }
@@ -927,7 +927,8 @@ async function managerSeenTick($: any, sid: string, stamp: { at: number; live: b
   try {
     const rows = await registryEntries($)
     manager = rows === undefined ? undefined : await managerTrustedName($, rows, sid)
-    const o = rows === undefined ? undefined : await ownOwner($, sid, rows)
+    // Only a lead has an owner to look at.
+    const o = rows === undefined || grants.get(sid)?.level !== 'lead' ? undefined : await ownOwner($, sid, rows)
     conductors = typeof o === 'object' ? [o.name ?? ''] : []
   } catch {
     await logq($, sid, 'error', 'manager-seen')
@@ -2274,7 +2275,7 @@ export async function sessionEnd($: any, e: any, next: any) {
   midDelivered.delete(sid)
   promptMidSent.delete(sid)
   promptMidRetold.delete(sid)
-  // What a lead last saw of a manager goes with the session.
+  // What a lead or a conductor last saw of a manager goes with the session.
   managerSeen.delete(sid)
   managerSeenBusy.delete(sid)
   await presenceDrop($, sid).catch(() => undefined)
