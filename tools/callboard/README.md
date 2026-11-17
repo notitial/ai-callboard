@@ -115,8 +115,10 @@ caller.
    it would allow with you there, and parks what the rules keep for you (the lane is told it waits for you). A lead
    runs at most 4 live lanes and cannot ask for a go. With no live manager a prompt nobody answers is held for you
    at 20 minutes. When you are back, tell the manager in its session (it ends the window and gives you the counts),
-   or type `/callboard unattended off` anywhere; `/callboard unattended` lists what was parked, held or decided
-   ([ADR 0008](../../docs/adr/0008-unattended-mode.md)).
+   or type `/callboard unattended off` anywhere; `/callboard unattended` lists what was parked, held or decided.
+   When a window ends, the process that ended it shows a toast with the counts, and `/callboard status` and the
+   manager's prompt list say that its list is unread until you run `/callboard unattended`, which then lists every
+   window since you last read it ([ADR 0008](../../docs/adr/0008-unattended-mode.md)).
 
 A lead that you leave idle is told when a lane needs it (its session is gone, it waits on a prompt, it went
 quiet without signing), unless you pause that with `/callboard checkin pause` (an hour, or the time you give;

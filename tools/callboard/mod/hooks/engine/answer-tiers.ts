@@ -36,6 +36,7 @@ import {
   unattendedNow,
   unattendedHeld,
   unattendedHold,
+  unattendedUnread,
 } from './answer-hook.ts'
 import { goWhen, GO_NEVER_TEXT } from '../go.ts'
 import { getNudgeDue, getRequest } from '../state.ts'
@@ -276,7 +277,11 @@ async function promptListTool($: any, e: unknown): Promise<{ result: string } | 
     await log($, sid, 'refused', `prompt-${t.err[0]}`)
     return { deny: promptReason('prompt_list', t.err[1]) }
   }
-  if (!t.answering || t.off) return { result: pr.promptListText([], { on: false }) }
+  // The manager is told once, until the person reads it, of the windows that ended since the list was last read: also when answering is off, which ends a window.
+  const manager = grantOf(sid)?.level === 'manager'
+  const unread = manager ? await unattendedUnread($) : []
+  const unreadOpt = unread !== 'unreadable' && unread.length > 0 ? { unread: unread.length } : {}
+  if (!t.answering || t.off) return { result: pr.promptListText([], { on: false, ...unreadOpt }) }
   const now = await $.clock.now()
   const items: pr.ListItem[] = []
   const stands = new Map<string, { stand: Stand; self: pr.Tier }>()
@@ -285,7 +290,6 @@ async function promptListTool($: any, e: unknown): Promise<{ result: string } | 
   let young = 0
   // While an unattended window is held nothing is put to the person: `here` counts for nothing, the turn lines say so, and the mode's rules follow the rubric.
   const hold = await unattendedHold($)
-  const manager = grantOf(sid)?.level === 'manager'
   const here = !hold.held && (await hereNow($, sid))
   const open = (
     await promptRequests($, t.p, async (q, names, dir) => {
@@ -315,7 +319,7 @@ async function promptListTool($: any, e: unknown): Promise<{ result: string } | 
     items.push({ id: q.id, lane: q.lane, tool: q.tool, repo: q.repo, raisedBy: q.raisedBy, ageSec: (now - q.at) / 1000, truncated: q.truncated, agentType: q.agentType, input: q.input, turn, ...(q.reason !== undefined ? { reason: q.reason, ...(q.reasonCut ? { reasonCut: true } : {}) } : {}), ...(repeat ? { repeat: true } : {}) })
   }
   const unattended = !hold.held ? undefined : manager ? { tier: 'manager' as const, never: GO_NEVER_TEXT, ...(hold.until !== undefined ? { until: goWhen(hold.until, -new Date(hold.until).getTimezoneOffset()) } : {}) } : { tier: 'lower' as const }
-  return { result: pr.promptListText(items, { on: true, young, hint: await promptAnomalyHint($, t.p).catch(() => undefined), ...(unattended ? { unattended } : {}) }) }
+  return { result: pr.promptListText(items, { on: true, young, hint: await promptAnomalyHint($, t.p).catch(() => undefined), ...(unattended ? { unattended } : {}), ...unreadOpt }) }
 }
 
 // prompt_answer and prompt_escalate share their checks; `answer` false is the escalation: a tier that is not the top one passes the request up; the top one, and
@@ -469,6 +473,18 @@ async function promptAnswerTool($: any, e: any, answer: boolean): Promise<{ resu
   return { result: isQ ? pr.relayQuestionSteps(short, q.lane ?? '', !top, q.level === 'lead') : pr.relaySteps(short, q.lane ?? '', !top) }
 }
 
+// A tier held back by its hourly notice cap inside an unattended window leaves a `notice-capped` row with the window's short id: one for each window the tier is
+// capped in, however long the stretch (a stretch that began before the window, or runs into the next one, still leaves its row there). The person's list then
+// shows that a waiting prompt went untold for a while. Outside a window nothing is written. Best effort.
+const capRowU = new Map<string, string>()
+async function noticeCappedRow($: any, sid: string): Promise<void> {
+  try {
+    const hold = await unattendedHold($)
+    if (!hold.held || hold.u === undefined || capRowU.get(sid) === hold.u) return
+    if (await ledgerAdd($, { kind: 'notice-capped', code: 'prompts', tier: grantOf(sid)?.level, by: sid, u: hold.u })) capRowU.set(sid, hold.u)
+  } catch {}
+}
+
 // The tick's notice: one fixed turn to an idle lead (a busy one gets the text mid-turn, promptMidTurnNotice), covering every open request in reach. A request is told once; a notice over the hourly cap stays owed
 // (the next tick tries again). Nothing is read while answering is off, but one store read.
 // Per lead: request id to 0 (told) or to the time it was found not to be in reach (looked at again after PROMPT_RECHECK_MS: a check that failed once must not
@@ -551,6 +567,7 @@ export async function promptNoticeTick($: any, sid: string, submitsAtStart: numb
   const now = await $.clock.now()
   const times = promptNotices.get(sid) ?? []
   if (!c.noticeAllowed(times, now, pr.PROMPT_NOTICES_PER_HOUR)) {
+    await noticeCappedRow($, sid)
     if (promptCapLogged.has(sid)) return
     promptCapLogged.add(sid)
     return log($, sid, 'notice-capped', 'prompts')
@@ -565,6 +582,7 @@ export async function promptNoticeTick($: any, sid: string, submitsAtStart: numb
   if (owed.length === 0) return
   for (const id of owed) told.set(id, 0)
   promptCapLogged.delete(sid)
+  capRowU.delete(sid)
   promptNotices.set(sid, c.pushRecent(promptNotices.get(sid) ?? times, now))
   await submitOwn($, pr.PROMPT_NOTICE_TEXT, false).catch(async () => {
     for (const id of owed) told.set(id, -1)
@@ -616,6 +634,7 @@ export async function promptMidTurnNotice($: any, e: any): Promise<string | unde
     const now = await $.clock.now()
     const times = promptNotices.get(sid) ?? []
     if (!c.noticeAllowed(times, now, pr.PROMPT_NOTICES_PER_HOUR)) {
+      await noticeCappedRow($, sid)
       if (!promptCapLogged.has(sid)) {
         promptCapLogged.add(sid)
         await log($, sid, 'notice-capped', 'prompts')
@@ -632,6 +651,7 @@ export async function promptMidTurnNotice($: any, e: any): Promise<string | unde
     for (const id of owed) sent.add(id)
     promptMidSent.set(sid, sent)
     promptCapLogged.delete(sid)
+    capRowU.delete(sid)
     promptNotices.set(sid, c.pushRecent(promptNotices.get(sid) ?? [], now))
     await logq($, sid, 'notice', 'prompts mid-turn')
     return pr.PROMPT_NOTICE_TEXT
