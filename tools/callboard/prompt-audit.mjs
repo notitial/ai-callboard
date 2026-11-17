@@ -96,7 +96,7 @@ export const KIND_CLASS = {
   'relay-closed': 'request', 'relay-refused': 'request', 'deny-unclear': 'request', dialog: 'request', 'not-judgeable': 'request', 'subagent-denied': 'request', 'question-denied': 'request', 'no-tier': 'request',
   returned: 'end', superseded: 'end', 'expired-denied': 'end', off: 'end', abandoned: 'end',
   'go-grant': 'go', 'go-end': 'go', 'go-read': 'go',
-  'answering-on': 'other', 'answering-off': 'other', 'lead-offer': 'other', 'lead-offer-void': 'other', 'lead-grant': 'other', 'lead-owner': 'other', 'lead-resume': 'other', 'lead-stop': 'other',
+  'answering-on': 'other', 'answering-off': 'other', 'lead-offer': 'other', 'lead-offer-void': 'other', 'lead-grant': 'other', 'lead-owner': 'other', 'lead-resume': 'other', 'lead-stop': 'other', 'lead-moved': 'other',
   'pr-watch': 'other', 'pr-notice': 'other', 'here-on': 'other', 'here-off': 'other',
   'unattended-on': 'other', 'unattended-off': 'other', 'unattended-unknown': 'other',
 }

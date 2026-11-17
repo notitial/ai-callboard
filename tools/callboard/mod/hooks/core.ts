@@ -1029,15 +1029,40 @@ export function rebindRefusal(lanes: Lane[], sid: string, cwd: string, otherLive
 }
 
 // The lead grant, kept in $.store as lead:<sid> so it survives a restart. A file any same-uid process can write: only a clean pin that lane_create would
-// accept and a savedAt of the last 30 days (not more than a minute ahead) are taken.
-export type LeadHint = { pin: string; savedAt: number }
+// accept and a savedAt of the last 30 days (not more than a minute ahead) are taken. repoId: the repo token of the pin (below), when the grant read one; a
+// missing or malformed repoId is dropped and the rest is taken, which can only narrow (a move is then refused, as for a record saved before the field).
+export type LeadHint = { pin: string; savedAt: number; repoId?: string }
 export function parseLeadHint(raw: unknown, now: number, home: string): LeadHint | undefined {
   if (!isObj(raw)) return undefined
-  const { pin, savedAt } = raw
+  const { pin, savedAt, repoId } = raw
   if (typeof pin !== 'string' || !isCleanAbs(pin) || pinRefusal(pin, home) !== undefined) return undefined
   if (!hintAgeOk(savedAt, now)) return undefined
-  return { pin, savedAt }
+  return { pin, savedAt, ...(typeof repoId === 'string' && SID_RE.test(repoId) ? { repoId } : {}) }
 }
+
+// The repo token: a random id the mod mints into a lead repo's own .git and saves with the lead grant, so a restore in another folder can tell the person's
+// moved repo from any other folder (ADR 0002, Lead re-grant). The file holds the id and a newline; each id the mod minted is kept as repoid:<id> in $.store,
+// and only those count, so a token that came with a copied archive is never taken.
+export const REPO_ID_FILE = 'callboard-repo-id'
+export const REPO_ID_PREFIX = 'repoid:'
+export const REPO_ID_MAX = 64
+export const repoIdText = (id: string): string => `${id}\n`
+export const parseRepoIdText = (text: string): string | undefined => {
+  const id = text.endsWith('\n') ? text.slice(0, -1) : undefined
+  return id !== undefined && SID_RE.test(id) ? id : undefined
+}
+// A mark of the mod's own: an object with the time it was minted.
+export const repoIdMarkOk = (raw: unknown): boolean => isObj(raw) && isNum(raw.at)
+
+// A path as a dialog shows it: control characters out, at most 160 characters (the end kept, which names the folder).
+const pathShown = (p: string): string => {
+  const clean = stripCtrl(p)
+  return clean.length <= 160 ? clean : `…${clean.slice(-159)}`
+}
+// The question a restore asks when the saved grant's folder is gone and the session's folder holds the same repo token: the person's click is the grant.
+export const leadMoveQuestion = (from: string, to: string): string =>
+  `Lead was on in ${pathShown(from)}, which is gone.\nThis folder holds the same repo: ${pathShown(to)}.\nTurn lead on again here? Its goes end: give them again with /callboard go.\nLead stays on after a restart until you run /callboard off.`
+export const leadMovedToast = (from: string, to: string): string => `Lead is on again in ${folderName(to)}, moved from ${folderName(from)}. Its goes ended: give them again with /callboard go.`
 
 export const restoreQuestion = (name: string) => `Restore this session as lane ${name}?\nOnly if it was that lane's session.`
 export const RESTORE_YES = 'Restore'
@@ -3022,6 +3047,8 @@ export function managerRestoreStep(code: string | undefined, fails: number, unan
 // word for the code, else the level's refusal text; a code with neither gets no reason. `repo` is the conductor repo, for the texts that name it.
 const RESTORE_END_TEXT: Record<string, string> = {
   'wrong-folder': 'the session started in another folder than the one its saved grant names (FOLDER), so the saved grant was removed.',
+  'move-unanswered': 'the question for its moved folder (from FOLDER) got no answer. It is asked again when this session starts next.',
+  'move-changed': 'its moved folder (from FOLDER) no longer passed the checks after the click. It is asked again when this session starts next.',
   invalid: 'its saved grant was too old or could not be read, so it was removed.',
   'cwd-unreadable': 'the session folder could not be read.',
   tools: 'its tools could not be registered.',

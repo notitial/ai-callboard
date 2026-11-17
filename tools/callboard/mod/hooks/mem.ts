@@ -125,11 +125,16 @@ export const conductorPresenceKey = new Map<string, string>()
 // off or a Cancel is never undone by work that started before it.
 export const leadEpoch = new Map<string, number>()
 
-// The lead grant is kept in $.store as lead:<sid> = { pin, savedAt }, written at the grant, at a restore and once a day while lead is on; leadSavedAt
+// The lead grant is kept in $.store as lead:<sid> = { pin, savedAt, repoId? }, written at the grant, at a restore and once a day while lead is on; leadSavedAt
 // holds the time of the last write (or try) so the daily check reads no store. A failed write is logged and tried again a day later; the grant stays on.
 export const leadSavedAt = new Map<string, number>()
+// The repo token read for the lead's pin (engine/repo-id.ts): saved with the grant only while its pin is the grant's pin.
+export const leadRepoId = new Map<string, { pin: string; id: string }>()
 
-export const leadRestorePending = new Map<string, { hint: c.LeadHint; tries: number }>()
+// move: the session's folder, when the saved grant's folder is gone and this one holds the same repo token; the tick then asks the person (leadMoveAsk).
+// asking: that question is on screen.
+export type LeadPending = { hint: c.LeadHint; tries: number; move?: string; asking?: boolean }
+export const leadRestorePending = new Map<string, LeadPending>()
 
 // The cut-compaction mark (c.CMP_PREFIX). cmpMarked: this load wrote the mark, so the tick clears it once the request has left `compacting`.
 // cmpCutPending: a fresh mark found at start with no request left in $.state; the tick gives the note once the session counts as a person's.

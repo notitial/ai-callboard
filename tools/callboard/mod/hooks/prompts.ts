@@ -436,10 +436,12 @@ export function applyCheck(a: ApplyIn): ApplyOut {
 
 // ---- the ledger: machine-wide, one JSON row per line, no input text ----
 // Every kind of row the mod writes. The prompt audit reads its kinds from this list.
-export const ROW_KINDS = ['requested', 'answered', 'escalated', 'dropped', 'returned', 'superseded', 'expired-denied', 'off', 'abandoned', 'dialog', 'not-judgeable', 'subagent-denied', 'question-denied', 'no-tier', 'answering-on', 'answering-off', 'relayed', 'relay-lost', 'relay-left', 'relay-late', 'relay-closed', 'deny-unclear', 'lead-offer', 'lead-offer-void', 'lead-grant', 'lead-owner', 'lead-resume', 'lead-stop', 'go-grant', 'go-end', 'go-read', 'pr-watch', 'pr-notice', 'here-on', 'here-off', 'unattended-on', 'unattended-off', 'unattended-unknown', 'relay-refused'] as const
+export const ROW_KINDS = ['requested', 'answered', 'escalated', 'dropped', 'returned', 'superseded', 'expired-denied', 'off', 'abandoned', 'dialog', 'not-judgeable', 'subagent-denied', 'question-denied', 'no-tier', 'answering-on', 'answering-off', 'relayed', 'relay-lost', 'relay-left', 'relay-late', 'relay-closed', 'deny-unclear', 'lead-offer', 'lead-offer-void', 'lead-grant', 'lead-owner', 'lead-resume', 'lead-stop', 'lead-moved', 'go-grant', 'go-end', 'go-read', 'pr-watch', 'pr-notice', 'here-on', 'here-off', 'unattended-on', 'unattended-off', 'unattended-unknown', 'relay-refused'] as const
 export type RowKind = (typeof ROW_KINDS)[number]
 // A `lead-owner` row (ADR 0007), written before the lead record changes: code made | joined | left | off, hash the repo's key, repo, lane the lead's name at the
 // time (for reading only), target the lead's session id, by the conductor's session id (made, joined), was the conductor the lead left (left, off), nonce (made).
+// A `lead-moved` row: a lead's saved grant made again, on the person's click, in the folder its repo moved to (ADR 0002, Lead re-grant), written before the grant
+// is set; by the lead's session id, repo the new folder, was the old one (on this kind a folder, not a session id).
 // A `pr-watch` row (ADR 0010): code new | renew | expired | lost | merged | closed, lane the lane's name, target owner/repo#number. A `pr-notice` row: one note
 // delivered; code the note's kind, tier the level of the session told, lane the lane's name when the note names one, target owner/repo#number.
 // cap and target: set on an `answered` and a `returned` row of a comment that starts the review command (claudeCap), so the standing comment cap can be counted.
