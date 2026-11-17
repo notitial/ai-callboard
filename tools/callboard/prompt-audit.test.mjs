@@ -872,6 +872,23 @@ test('the unattended rows are read with their window mark and origin, belong to 
   assert.match(run(bad).notes.join('\n'), /2 ledger line\(s\) were not valid rows/)
 })
 
+test('what a window does is read without a flag: a park (answered and returned, code park), a refused relay, and a prompt held at 20 minutes, each with its window mark', () => {
+  const fx = fixture()
+  const u = 'ffffffff'
+  const park = clean(uid(2), BASE + 1000, uid(102), { u, tier: 'manager' }).map((r) => (r.kind === 'requested' ? r : { ...r, code: 'park', by: uid(7), why: 'a merge waits' }))
+  const held = [R('requested', BASE + 2000, { ...T, id: uid(3), nonce: uid(103), tier: 'lead', u }), R('relay-refused', BASE + 40_000, { ...T, id: uid(3), code: 'refused', tier: 'lead', by: uid(8), u }), R('expired-denied', BASE + 1_300_000, { ...T, id: uid(3), code: 'held', u })]
+  ledger(fx, [ON(), ...clean(), ...park, ...held])
+  const rep = run(fx)
+  assert.deepEqual(rep.anomalies, [])
+  assert.deepEqual(rep.problems, [])
+  assert.equal(rep.counts.rowsByKind['relay-refused'], 1)
+  assert.ok(!rep.notes.some((n) => /not valid rows/.test(n)))
+  // A park the hook returned as something else is still the mismatch it always was.
+  const bad = fixture()
+  ledger(bad, [ON(), ...park.map((r) => (r.kind === 'returned' ? { ...r, code: 'allow' } : r))])
+  assert.ok(rules(run(bad)).includes('returned-differs-from-answered'))
+})
+
 test('a row of a kind the mod does not write is a problem that names the kind (exit 2), not a quiet note; --since keeps an older one out', () => {
   const fx = fixture()
   ledger(fx, [ON(), ...clean(), R('go-extend', BASE, { id: uid(5) }), R('go-extend', BASE + 1), R('no-such-kind', BASE - 7200_000), { kind: 'no-time' }])
