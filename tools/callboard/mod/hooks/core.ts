@@ -204,6 +204,9 @@ export const LEAD_STORE_MAX = 16
 // Per conductor: the leads it owns at once (live and parked, as its lead records name it), and the backstop on a conductor that loops, successful opens an hour.
 export const LEADS_PER_CONDUCTOR = 4
 export const OPENS_PER_CONDUCTOR_HOUR = 8
+// Per lead, inside an unattended window (ADR 0008): the lanes it may have live at once. A lane tool that opens a lane's session refuses past it; lanes already
+// live are not stopped.
+export const UNATTENDED_LIVE_LANES = 4
 // how: `made` for a lead a conductor opened (nonce: the offer's), `joined` for one the person assigned. conductorName is the conductor's name when the record was
 // written, for display only. sid is the lead's session id, written with the record; a record keeps none only when its lead was force stopped while lanes still
 // name it. parked: when the lead was parked (ms).
@@ -836,7 +839,7 @@ export function completions(draft: string, word: string): Completion[] {
 }
 
 // What escalation does not hold back: the one wording of it, appended to the answer of /callboard escalation.
-export const DIALOG_LINE = 'Nothing is held back from the tiers by the mod: an ask that tool.check reports from a lane or a lead rises, the plan-mode exit included, and the rubric says what they surface to you. An ask that finds no live tier waits up to 30 minutes for one and rises when one is back. What cannot rise (a call with no usable tool.check entry, no tier within those 30 minutes) stays in the lane\'s panel, and the waiting-prompt toast tells you. While a tier is in reach, a subagent\'s ask is denied with a message to run the call in the main session, and a question with no answer form is ended after your first 30 seconds with a message to ask again as one single-choice question. A prompt that a host answers is not yours to click: nothing waits on you there. Writes to the checkouts, the settings and callboard\'s state are stopped by a hook before any prompt exists, not here. Merges, force pushes, pushes to main, master or production and destructive deletes rise too: the rubric passes them up.'
+export const DIALOG_LINE = 'Nothing is held back from the tiers by the mod: an ask that tool.check reports from a lane or a lead rises, the plan-mode exit included, and the rubric says what they surface to you. An ask that finds no live tier waits up to 30 minutes for one and rises when one is back (a switch scoped to one lead covers its lanes only while that lead is live). What cannot rise (a call with no usable tool.check entry, no tier within those 30 minutes) stays in the lane\'s panel, and the waiting-prompt toast tells you. While a tier is in reach, a subagent\'s ask is denied with a message to run the call in the main session, and a question with no answer form is ended after your first 30 seconds with a message to ask again as one single-choice question. A prompt that a host answers is not yours to click: nothing waits on you there. Writes to the checkouts, the settings and callboard\'s state are stopped by a hook before any prompt exists, not here. Merges, force pushes, pushes to main, master or production and destructive deletes rise too: the rubric passes them up.'
 // /callboard with no argument and /callboard help: one row per form in COMMAND_TABLE, in the shared table style (mdPage).
 export const helpText = (): string => mdPage('**Callboard commands**', ['Command', 'What it does'], COMMAND_TABLE.map((r) => [r.form, r.help].map(mdEscape)))
 // A word the handler does not know: the short list, then the way to the full one.
@@ -1054,7 +1057,7 @@ export function originCode(origin: unknown): OriginCode {
   return 'other'
 }
 export const originIsPerson = (code: OriginCode): boolean => code === 'prompt' || code === 'phone'
-const ORIGIN_WORDS: Record<OriginCode, string> = { prompt: 'your prompt', phone: 'your phone', plugin: 'another plugin', session: 'another session', other: 'a script' }
+export const ORIGIN_WORDS: Record<OriginCode, string> = { prompt: 'your prompt', phone: 'your phone', plugin: 'another plugin', session: 'another session', other: 'a script' }
 // A question from the person's own prompt or phone stays as written; any other origin is named in front.
 export const askedFrom = (question: string, code: OriginCode): string => (originIsPerson(code) ? question : `Asked from ${ORIGIN_WORDS[code]}. ${question}`)
 // There is no callboard on or off, only a lead and a lane.
@@ -1647,6 +1650,7 @@ export const REASON_TEXT: Record<string, string> = {
   'offer-open': 'an open for that repo is still waiting, or was never cleared. Retry in a few minutes.',
   'open-in-flight': 'you already have an open running. Wait for it.',
   'lead-cap': `you hold ${LEADS_PER_CONDUCTOR} lead slots, the most a conductor holds at once. A parked lead keeps its slot. Retire one with lead_retire, then open again.`,
+  'unattended-lanes': `unattended mode is on and ${UNATTENDED_LIVE_LANES} of your lanes are live, the most a lead runs at once while the person is away. Wait until one has finished, or park one, then open this one.`,
   'open-backstop': `you have opened, or are opening, ${OPENS_PER_CONDUCTOR_HOUR} leads in the last hour, the most a conductor opens an hour. Retry when the oldest of them is an hour old.`,
   'ledger-unreadable': 'the ledger could not be read, so the open limits cannot be checked. Retry in a moment.',
   'offer-write': 'the open offer could not be written.',

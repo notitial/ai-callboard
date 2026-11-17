@@ -32,10 +32,10 @@ Facts that bound the options (Claude Code 2.1.319 unless noted):
 - Any process running as the person can write every file here (ADR 0002, Consequences). That includes the asking
   lane's own shell.
 
-Prior art: agent-dispatch's conductor answered its workers' prompts. Its decisions are in the archived ai-tooling
-repository (https://github.com/notitial/ai-tooling/tree/main/docs/adr): ADR 0016 (the conductor), 0017 (the tool-call
-recorder and audit log, the source of "a decision with no log row"), 0022 (work classes read, propose and land, and the
-land floor), 0025 (the read class) and 0028 (STEWARD, a proposed blocker broker that judged pushes).
+Prior art: agent-dispatch's conductor answered its workers' prompts. Its decisions are in an earlier private
+repository: ADR 0016 (the conductor), 0017 (the tool-call recorder and audit log, the source of "a decision with no log
+row"), 0022 (work classes read, propose and land, and the land floor), 0025 (the read class) and 0028 (STEWARD, a
+proposed blocker broker that judged pushes).
 
 ## Options Considered
 
@@ -117,7 +117,10 @@ Trust rises with the tier.
   putting it to the person in its own session; the top relays it once its question is over. The cost: while the
   person leaves that question open, a permission prompt passed up behind it is not relayed and ends in the 20-minute
   deny (the lane may ask again); a question is never denied and stays in the lane's panel. A mark with no open
-  dialog behind it does not keep the top.
+  dialog behind it does not keep the top. The mark is set a few seconds before the row shows waiting: in that gap the
+  tier is not the top yet, and a lower tier may still put a request to the person in its own session. The row shows
+  any dialog of the tier's own, not only its relay question, so a mark with another of its dialogs open keeps it the
+  top too, at the same cost.
 - **A call the tier cannot understand** is denied, with a message that asks the lane for a cleaner one. Any tier may
   do this; nothing is put to the person for it.
 - **The risk list may go through the relay.** The floor never reaches any tier.

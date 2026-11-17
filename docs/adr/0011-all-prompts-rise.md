@@ -190,7 +190,10 @@ of awake time, reading the reach again every 30 seconds (the lane's lead include
 rises as a request from that moment: its windows, its 30-second head start, its 20-minute deny and its expiry run
 from the rise. A click, the switch going off or failed pauses during the hold leave the dialog the person's, as does
 no tier within the 30 minutes; each writes `abandoned no-tier`. A question with no answer form holds the same way and,
-once a tier is in reach, is ended with its message; the hold counts as the person's first 30 seconds.*
+once a tier is in reach, is ended with its message; the hold counts as the person's first 30 seconds. A switch
+scoped to one lead (an older stored value: `/callboard escalation` writes `all`) covers a lane only while that lead is
+found, so with the lead away the ask stays the person's, with no hold, as before. Inside an unattended window a
+lead's own prompt with no tier is still denied at once (ADR 0008), with no hold.*
 
 *2026-11-17: a lead's own question.* It was the person's in the lead's panel (ADR 0004). The person's words: "If there
 is a conductor, I should never open any lead." While the lead's conductor is live and in reach, a lead's own

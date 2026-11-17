@@ -22,6 +22,10 @@
 //   relay-lost id?, code (not-asked | gone | ...), short, by, tier   the relay did not reach the person; the request is open to the tiers again
 //   relay-left id, short, by, tier   the person dismissed or answered something else; relay-late short, by, code (closed | decided)   an answer after the request ended
 //   relay-closed id, short, by, tier   the mod withdrew the tier's relay question: its request had closed elsewhere while the question was open
+//   relay-refused id, code (refused | taken-back), tier, by, u?   a top tier was refused the relay inside an unattended window (ADR 0008); taken-back: its relay
+//              file was written and removed again. The request stays open to the tiers
+//   u          the short id of an unattended window, on the rows of a request raised while the window was held and of a decision the manager made inside it.
+//              A park is an answered and a returned row with code park; expired-denied has code held when the prompt was held for the person, timeout otherwise
 //   deny-unclear   a deny whose reason the cleaner-command rule found too vague to judge
 //   lead-offer hash, repo, lane, nonce, by   a conductor's lead_open wrote an offer (hash: the repo's sha-256); lead-offer-void hash, nonce, code   it ended with no grant
 //   lead-grant hash, repo, lane, nonce, by, target   the new panel (target) made itself a lead from that offer; written before the grant, so a failure after it is followed by a lead-offer-void of the nonce
@@ -89,7 +93,7 @@ const FIELDS = ['code', 'id', 'lane', 'repo', 'tool', 'pattern', 'hash', 'tier',
 // every run incomplete (UNPLACED), so a new kind cannot be read as something it is not.
 export const KIND_CLASS = {
   requested: 'request', answered: 'request', escalated: 'request', dropped: 'request', relayed: 'request', 'relay-lost': 'request', 'relay-left': 'request', 'relay-late': 'request',
-  'relay-closed': 'request', 'deny-unclear': 'request', dialog: 'request', 'not-judgeable': 'request', 'subagent-denied': 'request', 'question-denied': 'request', 'no-tier': 'request',
+  'relay-closed': 'request', 'relay-refused': 'request', 'deny-unclear': 'request', dialog: 'request', 'not-judgeable': 'request', 'subagent-denied': 'request', 'question-denied': 'request', 'no-tier': 'request',
   returned: 'end', superseded: 'end', 'expired-denied': 'end', off: 'end', abandoned: 'end',
   'go-grant': 'go', 'go-end': 'go', 'go-read': 'go',
   'answering-on': 'other', 'answering-off': 'other', 'lead-offer': 'other', 'lead-offer-void': 'other', 'lead-grant': 'other', 'lead-owner': 'other', 'lead-resume': 'other', 'lead-stop': 'other',

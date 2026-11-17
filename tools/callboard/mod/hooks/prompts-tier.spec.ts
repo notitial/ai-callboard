@@ -588,3 +588,34 @@ test('parseAnswering: leadAsks is kept only as true; the default and the dialog\
   assert.ok(p.relayQuestionSteps('7a1b2c3d', 'LEADX', false, true).includes('[7a1b2c3d] Lead LEADX asks:'))
   assert.ok(p.relayQuestionSteps('7a1b2c3d', 'svc-api').includes('[7a1b2c3d] Lane svc-api asks:'))
 })
+test('an unattended window in the tier texts: no turn line offers the person, here counts for nothing, and each refusal has its text', () => {
+  const lines = [
+    p.turnLine({ top: true, away: 'manager' }),
+    p.turnLine({ top: true, away: 'manager', question: true }),
+    p.turnLine({ top: true, away: 'lower' }),
+    p.turnLine({ top: true, away: 'lower', question: true }),
+    p.turnLine({ top: false, away: 'lower', here: true }),
+    p.turnLine({ top: true, away: 'manager', here: true }),
+    p.turnLine({ top: false, above: { level: 'manager', name: 'MANAGER' }, away: 'lower', here: true }),
+  ]
+  for (const l of lines) assert.ok(!/put it to (the person|them)|The person said they are here/.test(l), l)
+  assert.equal(lines[0], 'Unattended mode: allow, deny or park it by the rubric and the unattended rules below. Nothing is put to the person.')
+  assert.equal(lines[1], 'Unattended mode: answer it with an offered option by the question rubric, or leave it open for the person. Nothing is put to them.')
+  assert.equal(lines[2], 'Unattended mode: you are the top tier for this prompt and the person is not asked. Answer it by the rubric if you can; otherwise leave it, and it is held for the person at 20 minutes.')
+  assert.equal(lines[3], "Unattended mode: you are the top tier for this question and the person is not asked. Answer it with an offered option by the rubric if you can; otherwise leave it, and it stays open in the lane's panel.")
+  assert.equal(lines[4], lines[2])
+  assert.equal(lines[5], lines[0])
+  // A tier with one above it passes up as by day, here or not.
+  assert.equal(lines[6], 'The manager MANAGER is above you. Answer it by the rubric, or pass it up with prompt_escalate.')
+  assert.ok(p.turnLine({ top: true, away: 'manager', opensInSec: 12 }).endsWith('Your window opens in 12 s; an answer, a relay or a pass-up before then is refused.'))
+  // A relay that is still there reads as it always did.
+  assert.ok(p.turnLine({ relay: { level: 'lead', name: 'LEAD' }, top: true, away: 'manager' }).startsWith('With the person: the lead LEAD is asking them.'))
+  for (const code of ['unattended', 'unattended-no-manager', 'park-not-allowed', 'unattended-unread']) assert.ok((p.PROMPT_REFUSE[code] ?? '').length > 10, code)
+  assert.ok(p.PROMPT_REFUSE.unattended.includes('allow, deny or park it'))
+  assert.ok(p.PROMPT_REFUSE['unattended-no-manager'].includes('held for the person at 20 minutes') && !p.PROMPT_REFUSE['unattended-no-manager'].includes('park'))
+  assert.ok(p.PROMPT_REFUSE['bad-input'].includes('or park in unattended mode'))
+  assert.ok(p.ROW_KINDS.includes('relay-refused'))
+  // A lead's own question in a window: never answered, and the top does not put it to the person; a lower tier still passes it up.
+  assert.equal(p.turnLine({ top: true, away: 'lower', question: true, relayOnly: true, here: true }), "Unattended mode: a lead's own question is never answered by a tier, and nothing is put to the person: leave it, and it stays open in the lead's panel.")
+  assert.equal(p.turnLine({ top: false, above: { level: 'manager', name: 'MANAGER' }, away: 'lower', question: true, relayOnly: true, here: true }), "The manager MANAGER is above you. A lead's own question: never answer it; pass it up with prompt_escalate.")
+})

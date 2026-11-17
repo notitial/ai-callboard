@@ -135,7 +135,7 @@ that agents never edit, and `install.sh`, `SHA256SUMS`, `/usr/local/libexec/call
 
 ## Design additions
 
-Each addition is part of the decision above; these sections hold what it decided beyond the summary and its residuals. The earlier design record, the callboard amendment to ADR-0029 in the archived ai-tooling repository, is covered by this ADR: its decisions, residuals and open questions are all here.
+Each addition is part of the decision above; these sections hold what it decided beyond the summary and its residuals. The earlier design record, the callboard amendment to ADR-0029 in an earlier private repository, is covered by this ADR: its decisions, residuals and open questions are all here.
 
 ### Design addition v10: lanes a lead makes
 

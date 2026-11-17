@@ -2,10 +2,9 @@ import { expect, test } from 'claude-code/testing'
 import * as prm from '../hooks/prompts'
 import { HOUR_MS, usageLine } from '../hooks/core'
 import { goWhen } from '../hooks/go'
-import { mem } from '../hooks/mem'
-import { UNATTENDED_KEY, unattendedClose, unattendedHeld, unattendedNow, unattendedOn, unattendedOpen, unattendedTick } from '../hooks/engine/answer-hook'
-import { h, SETTINGS_FILE, SID, T0, fakeSha, longTest, pfs } from './harness'
-import { OFF_FILE, ledgerRows, putLedger, wireGuard } from './answer-fixtures'
+import { UNATTENDED_KEY, unattendedClose, unattendedHeld, unattendedHold, unattendedNow, unattendedOn, unattendedOpen, unattendedTick } from '../hooks/engine/answer-hook'
+import { h, SETTINGS_FILE, SID, T0, longTest, pfs } from './harness'
+import { OFF_FILE, ledgerRows, newProcess, putLedger, putWindow, win, winHash as hashOf, winOnRow as onRow, winShort as shortOf, wireGuard } from './answer-fixtures'
 import { MIN, advanceQuiet, lane, leadAt, logged, started, statusText, waitFor } from './fixtures'
 
 // ---- the unattended window (ADR 0008): its stored value and rows, the readers, the sure offs, the tick's look, the off command and the status row ----
@@ -13,15 +12,6 @@ import { MIN, advanceQuiet, lane, leadAt, logged, started, statusText, waitFor }
 // calls the open step itself.
 const iso = (ms: number) => new Date(ms).toISOString()
 const when = (ms: number) => goWhen(ms, -new Date(ms).getTimezoneOffset())
-const win = (over: Partial<prm.Unattended> = {}): prm.Unattended => ({ v: 1, from: T0, until: T0 + 8 * HOUR_MS, by: 'prompt', manager: 'MANAGER', savedAt: T0, ...over })
-const hashOf = (v: prm.Unattended) => fakeSha(prm.canonical(v))
-const shortOf = (v: prm.Unattended) => hashOf(v).slice(0, 8)
-const onRow = (v: prm.Unattended) => ({ t: iso(v.savedAt), kind: 'unattended-on', hash: hashOf(v), u: shortOf(v), end: iso(v.until), origin: v.by, lane: v.manager })
-function putWindow(v: prm.Unattended = win(), row = true): prm.Unattended {
-  h.store.set(UNATTENDED_KEY, v)
-  if (row) putLedger([onRow(v)])
-  return v
-}
 const uRows = () => ledgerRows().filter((r) => String(r.kind).startsWith('unattended-'))
 const uKinds = () => uRows().map((r) => `${r.kind}${r.code ? ` ${r.code}` : ''}`)
 const ESC_ON = { scope: 'all', asks: false, asksScope: 'all', savedAt: T0 }
@@ -76,7 +66,6 @@ async function proc($: any, on0: any) {
   newProcess()
   return { $$, knob }
 }
-const newProcess = () => Object.assign(mem, { unattended: undefined, unattendedSure: undefined, unattendedUnknown: false, unattendedHash: undefined, unattendedLookedAt: undefined })
 // Past the reader's 10 s and the tick's 30 s.
 const later = (ms = 31_000) => (h.nowMs += ms)
 
@@ -143,7 +132,8 @@ test('unattended: a stored value with no row opens nothing, is left alone for 60
   const v = putWindow(win(), false)
   expect(await unattendedNow($$)).toEqual({ state: 'unknown', cause: 'unbound', key: true })
   expect(await unattendedOn($$)).toBe(false)
-  expect(await unattendedHeld($$)).toBe(false)
+  // A stored value this process cannot judge holds what a window forbids, and permits nothing.
+  expect(await unattendedHeld($$)).toBe(true)
   later(50_000)
   expect((await unattendedNow($$)).state).toBe('unknown')
   expect(h.store.get(UNATTENDED_KEY)).toEqual(v)
@@ -225,11 +215,12 @@ test('unattended: a ledger that does not answer ends nothing and permits nothing
   expect(await unattendedOn($$)).toBe(false)
   expect(await unattendedHeld($$)).toBe(true)
   expect(uKinds()).toEqual(['unattended-on', 'unattended-unknown ledger'])
-  // A process that never read the window on holds nothing.
+  // A process that never read the window on saw the stored value: it holds what a window forbids, and permits nothing a window permits.
   newProcess()
   expect(await unattendedNow($$)).toEqual({ state: 'unknown', cause: 'ledger', key: true })
   expect(await unattendedOn($$)).toBe(false)
-  expect(await unattendedHeld($$)).toBe(false)
+  expect(await unattendedHeld($$)).toBe(true)
+  expect(await unattendedHold($$)).toEqual({ held: true })
   later()
   await unattendedTick($$)
   expect(h.store.get(UNATTENDED_KEY)).toEqual(v)
@@ -239,12 +230,32 @@ test('unattended: a ledger that does not answer ends nothing and permits nothing
   expect(uRows().filter((r) => r.kind === 'unattended-off')).toEqual([])
 })
 
-test('unattended: a value that does not parse is unknown and stays stored; the off command is what removes it', async ($, on) => {
+test('unattended: a value that does not parse is unknown and held through the grace, then ended as invalid', async ($, on) => {
   const { $$ } = await proc($, on)
   h.store.set(UNATTENDED_KEY, { ...win(), by: 'plugin' })
   expect(await unattendedNow($$)).toEqual({ state: 'unknown', cause: 'value', key: true })
+  expect(await unattendedHeld($$)).toBe(true)
   later()
   await unattendedTick($$)
+  expect(h.store.has(UNATTENDED_KEY)).toBe(true)
+  expect(await unattendedNow($$, true)).toEqual({ state: 'unknown', cause: 'value', key: true })
+  later(prm.UNATTENDED_GRACE_MS)
+  expect(await unattendedNow($$, true)).toEqual({ state: 'off' })
+  expect(await unattendedHeld($$)).toBe(false)
+  expect(h.store.has(UNATTENDED_KEY)).toBe(false)
+  const { t: _t, ...row } = uRows().at(-1)
+  expect(row).toEqual({ kind: 'unattended-off', code: 'invalid', by: SID })
+})
+
+test('unattended: another value that does not parse starts its own grace; the off command removes one at once', async ($, on) => {
+  const { $$ } = await proc($, on)
+  h.store.set(UNATTENDED_KEY, { ...win(), by: 'plugin' })
+  expect((await unattendedNow($$)).state).toBe('unknown')
+  later(prm.UNATTENDED_GRACE_MS - 10_000)
+  h.store.set(UNATTENDED_KEY, { ...win(), by: 'other' })
+  expect((await unattendedNow($$, true)).state).toBe('unknown')
+  later(20_000)
+  expect((await unattendedNow($$, true)).state).toBe('unknown')
   expect(h.store.has(UNATTENDED_KEY)).toBe(true)
   expect(await unattendedClose($$, { code: 'command', origin: 'prompt' })).toBe('closed')
   expect(h.store.has(UNATTENDED_KEY)).toBe(false)
@@ -263,6 +274,16 @@ test('unattended: a clock 6 minutes before the start reads unknown and deletes n
   h.nowMs = T0 + MIN
   newProcess()
   expect((await unattendedNow($$)).state).toBe('on')
+})
+
+test('unattended: a value with no row ends as unbound after the grace even while the clock reads before its start', async ($, on) => {
+  const { $$ } = await proc($, on)
+  h.store.set(UNATTENDED_KEY, win({ from: T0 + 10 * MIN, until: T0 + 10 * MIN + HOUR_MS, savedAt: T0 }))
+  expect(await unattendedNow($$)).toEqual({ state: 'unknown', cause: 'clock', key: true })
+  later(prm.UNATTENDED_GRACE_MS + 1)
+  expect(await unattendedNow($$, true)).toEqual({ state: 'off' })
+  expect(h.store.has(UNATTENDED_KEY)).toBe(false)
+  expect(uKinds().at(-1)).toBe('unattended-off unbound')
 })
 
 test('unattended: a span outside the bounds is ended as invalid at the first read', async ($, on) => {
@@ -475,7 +496,7 @@ test('unattended: a session that is no tier does not look from its tick; its own
   putWindow(win({ from: T0 - HOUR_MS, until: T0 - 1, savedAt: T0 - HOUR_MS }))
   await h.clock!.advance(2 * MIN)
   expect(h.store.has(UNATTENDED_KEY)).toBe(true)
-  expect((await $.command.run(lane('unattended'))).text).toBe('Unattended mode is off.')
+  expect((await $.command.run(lane('unattended'))).text.split('\n')[0]).toBe('Unattended mode is off.')
   expect(h.store.has(UNATTENDED_KEY)).toBe(false)
   expect(uKinds()).toEqual(['unattended-on', 'unattended-off expired'])
 })
@@ -489,7 +510,7 @@ test('unattended: /callboard unattended prints the state to the person only', as
   expect(logged(stdins)).toContain('refused:unattended-not-person:session')
   const v = putWindow()
   h.nowMs += 11_000
-  expect((await $.command.run(lane('unattended', { kind: 'bridge' }))).text).toBe(`Unattended mode is on until ${when(v.until)}, with manager MANAGER (window ${shortOf(v)}). /callboard unattended off ends it.`)
+  expect((await $.command.run(lane('unattended', { kind: 'bridge' }))).text.split('\n')[0]).toBe(`Unattended mode is on until ${when(v.until)}, with manager MANAGER (window ${shortOf(v)}). /callboard unattended off ends it.`)
   expect(await statusText($)).toContain(ON_ROW(v))
 })
 
@@ -522,7 +543,7 @@ test('unattended: /callboard unattended off from any origin ends the window with
   // The same value put back does not come back.
   h.store.set(UNATTENDED_KEY, v)
   h.nowMs += 11_000
-  expect((await $.command.run(lane('unattended'))).text).toBe('Unattended mode is off.')
+  expect((await $.command.run(lane('unattended'))).text.split('\n')[0]).toBe('Unattended mode is off.')
   expect(h.store.has(UNATTENDED_KEY)).toBe(false)
 })
 
