@@ -1097,11 +1097,13 @@ async function promptWait($: any, beneath: any, signal: AbortSignal, w: WaitCtx)
   let presenceAt = 0
   let pauseFails = 0
   // A relay whose question the person had on screen (asked) never ends in the 20-minute deny, even if it is lost later: the prompt stays in the dialog (expired at 21 minutes).
-  // A relay taken back for an unattended window is the exception: the person is away, so the wait ends in the hold.
+  // A relay taken back for an unattended window is the exception: the person is away, so the wait ends in the hold, also past the 21-minute expiry (takenBack).
   let personSaw = false
+  let takenBack = false
   const relayLost = async (code: string): Promise<void> => {
     const r = relay
     if (askedSeen && code !== 'unattended') personSaw = true
+    if (code === 'unattended') takenBack = true
     if (!(await ledgerAdd($, { ...w.row, kind: 'relay-lost', code, ...(r ? { short: r.short, by: r.by.sid, tier: r.by.level } : {}) }))) return
     await rmF($, [relayPath, askedPath, leftPath])
     relay = undefined
@@ -1148,7 +1150,7 @@ async function promptWait($: any, beneath: any, signal: AbortSignal, w: WaitCtx)
       }
     }
     const withPerson = relay !== undefined
-    if (awake >= pr.expiresAfter(withPerson)) return end('abandoned', 'expired')
+    if (awake >= pr.expiresAfter(withPerson) && !(takenBack && !withPerson && w.tool !== pr.QUESTION_TOOL)) return end('abandoned', 'expired')
     const df = await readSmallR($, `${w.dir}/${w.id}.decision.json`, w.p.uid, pr.DECISION_MAX)
     // A decision that is dropped (its row is written) is taken away: a file left in place would make every tier's answer and pass-up 'decided', and hide the request
     // from prompt_list and the notice, so no tier could act on it again and the wait would end in the 20-minute deny.

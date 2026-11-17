@@ -369,6 +369,19 @@ longTest('window: a relay the person had on screen before the window opened is t
   expect(of('expired-denied')[0].u).toBe(winShort(v!))
 })
 
+longTest('window: a relay 25 minutes old taken back for a window ends in the hold, not in the 21-minute expiry', async ($, on) => {
+  await answerer($, on, [])
+  let v: prm.Unattended | undefined
+  const r = await runRequest($, [
+    at(4000, () => putRelay(readReq())),
+    at(4000, () => putFileAt(`${readReq().id}.asked`)),
+    at(25 * 60_000, () => { v = putWindow(win({ from: h.nowMs, savedAt: h.nowMs, until: h.nowMs + 8 * HOUR_MS })) }),
+  ])
+  expect(r).toEqual({ decision: { behavior: 'deny', message: prm.UNATTENDED_HOLD_MESSAGE } })
+  expect(kinds()).toEqual(['requested', 'relay-lost unattended', 'expired-denied held'])
+  expect(of('expired-denied')[0].u).toBe(winShort(v!))
+})
+
 longTest('window: a prompt raised before the window and still unanswered at 20 minutes inside it is held too; one whose window ended meanwhile gets the usual text', async ($, on) => {
   await answerer($, on, [])
   let v: prm.Unattended | undefined
