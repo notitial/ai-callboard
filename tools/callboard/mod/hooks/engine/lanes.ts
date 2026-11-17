@@ -363,7 +363,10 @@ async function stopNoSession($: any, e: unknown, sid: string, verb: 'retire' | '
   const w = await removeRecord($, e, sid, l.src, l.name, { kind: 'idle', sid: l.sid, parked: l.parked !== undefined, seen: l, held })
   if ('no' in w) return no(w.no, w.why ?? c.reasonWhy(w.no))
   await log($, sid, 'lane-removed', l.name)
-  if (signed) await log($, sid, 'parked-retired-signed', l.name)
+  if (signed) {
+    await log($, sid, 'parked-retired-signed', l.name)
+    toast($, `Lane ${l.name} retired (parked, report signed); its conversation is kept`)
+  }
   return { result: c.removedNoSessionText(verb, l.name) }
 }
 async function parkedReportSigned($: any, l: c.Lane): Promise<boolean> {

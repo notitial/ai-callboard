@@ -1013,6 +1013,7 @@ test('lane_retire of a parked lane whose report is signed done by its own saved 
   expect(h.askCount).toBe(asked)
   expect(logged(stdins)).toContain('lane-removed:API')
   expect(logged(stdins)).toContain('parked-retired-signed:API')
+  expect(toasts).toContain('Lane API retired (parked, report signed); its conversation is kept')
   expect(killed(argv)).toEqual([])
   expect(noArchiveRm(argv)).toBe(true)
 })
