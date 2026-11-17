@@ -3014,7 +3014,7 @@ export function managerRestoreStep(code: string | undefined, fails: number, unan
 // The toast at a final end of a restore that no other toast tells: the level, why, and the command that grants it by hand. The reason is the restore's own
 // word for the code, else the level's refusal text; a code with neither gets no reason. `repo` is the conductor repo, for the texts that name it.
 const RESTORE_END_TEXT: Record<string, string> = {
-  'wrong-folder': 'the session started in another folder than its saved grant names, so the saved grant was removed.',
+  'wrong-folder': 'the session started in another folder than the one its saved grant names (FOLDER), so the saved grant was removed.',
   invalid: 'its saved grant was too old or could not be read, so it was removed.',
   'cwd-unreadable': 'the session folder could not be read.',
   tools: 'its tools could not be registered.',
@@ -3029,7 +3029,7 @@ const RESTORE_END_TEXT: Record<string, string> = {
 export function notRestoredToast(level: Level, code: string, repo?: string): string {
   const label = level.charAt(0).toUpperCase() + level.slice(1)
   const table = level === 'lead' ? REASON_TEXT : level === 'conductor' ? CONDUCTOR_REFUSAL : MANAGER_REFUSAL
-  const run = `Run /callboard ${level}.`
+  const run = code === 'wrong-folder' ? `Run /callboard ${level} in this folder.` : `Run /callboard ${level}.`
   const reason = (hasCode(RESTORE_END_TEXT, code) ? RESTORE_END_TEXT[code] : hasCode(table, code) ? table[code] : undefined)?.replace(/FOLDER/g, () => (repo === undefined ? 'this folder' : folderName(repo))).replace(/ Try again\.$/, '')
   if (reason === undefined) return `${label} not restored. ${run}`
   return `${label} not restored: ${reason}${/Run \/callboard|\/rename/.test(reason) ? '' : ` ${run}`}`

@@ -823,6 +823,42 @@ test('sweeps do not overlap: a call while one runs returns that sweep, and the t
   assert.notEqual(w.lanes.sweep(), a, 'a later call starts a new sweep')
 })
 
+// A world whose registry answers the sweep's own read without a session for ATT and every later read with `after`: what the registry holds when a close that
+// waited in the serial chain finally runs (an unpark opened ATT's panel in between).
+function laterRegistry(after) {
+  const w = world({ alive: (pid) => pid !== 4242 })
+  const tab = claudeTab('ATT')
+  const closed = trackTabs(w, tab)
+  w.lanes.adopt(VALID_SID, { name: 'ATT', pid: 4242 })
+  const list = w.registry.list
+  let reads = 0
+  w.registry.list = async () => {
+    const r = await list()
+    return reads++ === 0 ? r : after(r)
+  }
+  return { w, tab, closed, reads: () => reads }
+}
+const ATT_LIVE = { sessionId: 'b0000000-0000-4000-8000-0000000000c5', cwd: A, entrypoint: 'claude-vscode', name: 'ATT', pid: 4300, procStart: 'start-4300' }
+
+test('sweep: a close that waited behind another call is skipped when a live session now carries the lane name', async () => {
+  const x = laterRegistry((r) => [...r, ATT_LIVE])
+  await x.w.lanes.sweep()
+  assert.deepEqual(x.closed, [], 'the resumed panel keeps its tab')
+  assert.equal(x.reads(), 2, 'the registry was read again before the close')
+})
+
+test('sweep: the close goes ahead when the registry read again shows the name held only by a dead process, and is skipped when that read is incomplete or fails', async () => {
+  const dead = laterRegistry((r) => [...r, { ...ATT_LIVE, pid: 4242 }])
+  await dead.w.lanes.sweep()
+  assert.deepEqual(dead.closed, [dead.tab])
+  const partial = laterRegistry((r) => Object.assign([...r], { complete: false }))
+  await partial.w.lanes.sweep()
+  assert.deepEqual(partial.closed, [])
+  const broken = laterRegistry(() => { throw new Error('unreadable') })
+  await broken.w.lanes.sweep()
+  assert.deepEqual(broken.closed, [])
+})
+
 test('after a reopen, focus returns to the tab that was active', async () => {
   const w = world({ tabs: { column: 1 }, pids: true, alive: () => true })
   const closed = sid()

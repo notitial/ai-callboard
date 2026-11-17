@@ -389,6 +389,12 @@ test('restoreRefusal needs the lane listed, the folder to match and the name unu
   assert.equal(c.restoreRefusal({ counters: {}, savedAt: NOW }, [], '/x', []), undefined)
 })
 
+test('the restore toast for a wrong folder names the saved folder and says where to run the command; other reasons keep the plain command', () => {
+  assert.equal(c.notRestoredToast('lead', 'wrong-folder', '/Users/x/old/app'), 'Lead not restored: the session started in another folder than the one its saved grant names (app), so the saved grant was removed. Run /callboard lead in this folder.')
+  assert.equal(c.notRestoredToast('conductor', 'wrong-folder', '/Users/x/old/hub'), 'Conductor not restored: the session started in another folder than the one its saved grant names (hub), so the saved grant was removed. Run /callboard conductor in this folder.')
+  assert.equal(c.notRestoredToast('lead', 'cwd-unreadable'), 'Lead not restored: the session folder could not be read. Run /callboard lead.')
+})
+
 test('idleRefusal needs idle, not waiting, and idle for 30 s', () => {
   const e = (x: Partial<c.RegEntry>): c.RegEntry => ({ sessionId: OTHER, status: 'idle', statusUpdatedAt: NOW - 31_000, ...x })
   assert.equal(c.idleRefusal(e({}), NOW), undefined)
