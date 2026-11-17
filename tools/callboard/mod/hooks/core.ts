@@ -1054,7 +1054,7 @@ export function originCode(origin: unknown): OriginCode {
   return 'other'
 }
 export const originIsPerson = (code: OriginCode): boolean => code === 'prompt' || code === 'phone'
-const ORIGIN_WORDS: Record<OriginCode, string> = { prompt: 'your prompt', phone: 'your phone', plugin: 'another plugin', session: 'another session', other: 'a script' }
+export const ORIGIN_WORDS: Record<OriginCode, string> = { prompt: 'your prompt', phone: 'your phone', plugin: 'another plugin', session: 'another session', other: 'a script' }
 // A question from the person's own prompt or phone stays as written; any other origin is named in front.
 export const askedFrom = (question: string, code: OriginCode): string => (originIsPerson(code) ? question : `Asked from ${ORIGIN_WORDS[code]}. ${question}`)
 // There is no callboard on or off, only a lead and a lane.

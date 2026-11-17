@@ -2,7 +2,9 @@
 // The hooks that use it are in engine/answer-hook.ts and engine/answer-tiers.ts. Nothing in this file lets an agent decide anything: it recognises what
 // raised an ask (the classifier), what a request file may hold (redaction, caps), and when a decision file is valid (the apply checks).
 
-import { NAME_RE, SID_RE, HOUR_MS, SUBMITTED_NOTE_NEVER_RECORD } from './core.ts'
+import { NAME_RE, SID_RE, HOUR_MS, SUBMITTED_NOTE_NEVER_RECORD, ORIGIN_WORDS } from './core.ts'
+import type { OriginCode } from './core.ts'
+import { GO_NEVER_TEXT } from './go.ts'
 
 const HASH_RE = /^[0-9a-f]{64}$/
 
@@ -337,9 +339,14 @@ export const requestText = (r: Request): string => JSON.stringify(r)
 export const tierLead = (q: Pick<Request, 'level' | 'lane' | 'leadName' | 'leadSid'>): string | undefined => (q.level === 'lead' ? (q.lane ?? '') : q.leadSid !== undefined ? '' : q.leadName)
 
 // `answer` is a question's decision: the zero-based index of the chosen option and its label as the tier read it (redacted, trimmed). It goes with decision 'answer' only.
-export type Decision = { id: string; inputHash: string; decision: 'allow' | 'deny' | 'answer'; why: string; by: { level: string; sid: string; name: string }; via?: 'person'; at: number; nonce: string; answer?: { index: number; label: string } }
+// `park` (ADR 0008) closes a permission prompt for the person's return: the manager's alone, inside an unattended window. `u` is the short id of the window the
+// manager decided in; a park always carries one.
+export type Decision = { id: string; inputHash: string; decision: 'allow' | 'deny' | 'answer' | 'park'; why: string; by: { level: string; sid: string; name: string }; via?: 'person'; at: number; nonce: string; answer?: { index: number; label: string }; u?: string }
 const ANSWER_LABEL_MAX = 200
-// A decision file as text, or undefined for anything that is not one: one object, the exact keys' types, an `answer` object only with decision 'answer', at most DECISION_MAX bytes.
+// A window's short id: the first 8 hex of its row's hash.
+export const U_RE = /^[0-9a-f]{8}$/
+// A decision file as text, or undefined for anything that is not one: one object, the exact keys' types, an `answer` object only with decision 'answer', a `u` that is
+// a window's short id, at most DECISION_MAX bytes. A decision of a kind this code does not know is not one.
 export function parseDecision(text: string): Decision | undefined {
   if (enc.encode(text).length > DECISION_MAX) return undefined
   let j: any
@@ -351,7 +358,8 @@ export function parseDecision(text: string): Decision | undefined {
   const o = obj(j)
   const by = obj(o.by)
   if (typeof o.id !== 'string' || typeof o.inputHash !== 'string' || typeof o.nonce !== 'string' || typeof o.why !== 'string' || typeof o.at !== 'number') return undefined
-  if (o.decision !== 'allow' && o.decision !== 'deny' && o.decision !== 'answer') return undefined
+  if (o.decision !== 'allow' && o.decision !== 'deny' && o.decision !== 'answer' && o.decision !== 'park') return undefined
+  if (o.u !== undefined && (typeof o.u !== 'string' || !U_RE.test(o.u))) return undefined
   let answer: Decision['answer']
   if (o.decision === 'answer') {
     const an = obj(o.answer)
@@ -360,7 +368,7 @@ export function parseDecision(text: string): Decision | undefined {
   } else if (o.answer !== undefined) return undefined
   if (typeof by.level !== 'string' || typeof by.sid !== 'string' || typeof by.name !== 'string') return undefined
   if (o.via !== undefined && o.via !== 'person') return undefined
-  return { id: o.id, inputHash: o.inputHash, decision: o.decision, why: o.why, by: { level: by.level, sid: by.sid, name: by.name }, via: o.via as 'person' | undefined, at: o.at, nonce: o.nonce, ...(answer ? { answer } : {}) }
+  return { id: o.id, inputHash: o.inputHash, decision: o.decision, why: o.why, by: { level: by.level, sid: by.sid, name: by.name }, via: o.via as 'person' | undefined, at: o.at, nonce: o.nonce, ...(answer ? { answer } : {}), ...(o.u !== undefined ? { u: o.u as string } : {}) }
 }
 
 export type ApplyIn = {
@@ -383,9 +391,11 @@ export type ApplyIn = {
   // The standing comment cap for a comment that starts the review command: 'over' or 'unreadable' (a failed read counts as over) drops the decision, so the
   // prompt stays the person's. Absent: the call carries no such body.
   cap?: 'ok' | 'over' | 'unreadable'
+  // The unattended window as it reads at apply (ADR 0008), for a park: only a park needs it, so the caller reads it for nothing else. Absent reads as unknown.
+  window?: { state: 'on'; u: string } | { state: 'off' } | { state: 'unknown' }
 }
-export type ApplyOut = { ok: true } | { hold: 'early' | 'ledger' | 'lookup' } | { drop: DropCode }
-type DropCode = 'id' | 'hash' | 'nonce' | 'expired' | 'by-sid' | 'no-answered-row' | 'ledger-unreadable' | 'cap' | 'relay' | 'kind' | 'answer'
+export type ApplyOut = { ok: true } | { hold: 'early' | 'ledger' | 'lookup' | 'unattended' } | { drop: DropCode }
+type DropCode = 'id' | 'hash' | 'nonce' | 'expired' | 'by-sid' | 'no-answered-row' | 'ledger-unreadable' | 'cap' | 'relay' | 'kind' | 'answer' | 'unattended-closed'
 // The drop codes that can mean a forged or stale decision file: prompt_list counts them and the prompt audit flags them. The others are ordinary.
 export const DROP_FORGED: readonly DropCode[] = ['no-answered-row', 'id', 'hash', 'nonce', 'by-sid', 'kind', 'answer']
 // Every check, in this order; a failure is a dropped row and the wait goes on. A decision that is early is held, not dropped, so no retry costs a model turn.
@@ -402,16 +412,23 @@ export function applyCheck(a: ApplyIn): ApplyOut {
   // way the tier read it) is the one the decision carries: this binds the index to what the tier saw, as the hash binds the rest.
   if ((a.question !== undefined) !== (d.decision === 'answer')) return { drop: 'kind' }
   if (a.question !== undefined && (d.answer === undefined || a.question.labels[d.answer.index] !== d.answer.label)) return { drop: 'answer' }
+  // A park is the manager's own, never the person's, and names the window it was made in: any other is not a park.
+  if (d.decision === 'park' && (d.by.level !== 'manager' || d.via !== undefined || d.u === undefined)) return { drop: 'kind' }
   if (a.ledger === 'unreadable') return { drop: 'ledger-unreadable' }
   if (a.ledger === 'missing') return a.graceMs < LEDGER_GRACE_MS ? { hold: 'ledger' } : { drop: 'no-answered-row' }
   if (d.decision === 'allow' && d.via !== 'person' && (a.cap === 'over' || a.cap === 'unreadable')) return { drop: 'cap' }
+  // A park lands only inside the window it was made in: a window that has ended, or another one, drops it; a window that cannot be read holds it for the next poll.
+  if (d.decision === 'park') {
+    if (a.window === undefined || a.window.state === 'unknown') return { hold: 'unattended' }
+    if (a.window.state !== 'on' || a.window.u !== d.u) return { drop: 'unattended-closed' }
+  }
   if (a.awakeMs < MIN_AGE_MS) return { hold: 'early' }
   return { ok: true }
 }
 
 // ---- the ledger: machine-wide, one JSON row per line, no input text ----
 // Every kind of row the mod writes. The prompt audit reads its kinds from this list.
-export const ROW_KINDS = ['requested', 'answered', 'escalated', 'dropped', 'returned', 'superseded', 'expired-denied', 'off', 'abandoned', 'dialog', 'not-judgeable', 'subagent-denied', 'question-denied', 'no-tier', 'answering-on', 'answering-off', 'relayed', 'relay-lost', 'relay-left', 'relay-late', 'relay-closed', 'deny-unclear', 'lead-offer', 'lead-offer-void', 'lead-grant', 'lead-owner', 'lead-resume', 'lead-stop', 'go-grant', 'go-end', 'go-read', 'pr-watch', 'pr-notice', 'here-on', 'here-off', 'unattended-on', 'unattended-off', 'unattended-unknown'] as const
+export const ROW_KINDS = ['requested', 'answered', 'escalated', 'dropped', 'returned', 'superseded', 'expired-denied', 'off', 'abandoned', 'dialog', 'not-judgeable', 'subagent-denied', 'question-denied', 'no-tier', 'answering-on', 'answering-off', 'relayed', 'relay-lost', 'relay-left', 'relay-late', 'relay-closed', 'deny-unclear', 'lead-offer', 'lead-offer-void', 'lead-grant', 'lead-owner', 'lead-resume', 'lead-stop', 'go-grant', 'go-end', 'go-read', 'pr-watch', 'pr-notice', 'here-on', 'here-off', 'unattended-on', 'unattended-off', 'unattended-unknown', 'relay-refused'] as const
 export type RowKind = (typeof ROW_KINDS)[number]
 // A `lead-owner` row (ADR 0007), written before the lead record changes: code made | joined | left | off, hash the repo's key, repo, lane the lead's name at the
 // time (for reading only), target the lead's session id, by the conductor's session id (made, joined), was the conductor the lead left (left, off), nonce (made).
@@ -432,6 +449,10 @@ export type RowKind = (typeof ROW_KINDS)[number]
 // `unattended-off`, written after the stored value is removed: code how it ended (command | escalation-off | escalation-off:stored | escalation-off:file |
 // expired | invalid | unbound | ended | void), hash and u the window's when its value was read, origin the origin code of a command that ended it, by the session
 // that ended it. `unattended-unknown`: the first read of an episode that did not answer, code the cause, by the reading session.
+// What a window does: u (the window's short id) is on every row the asking hook writes for a request raised while the window is held, and on the `answered` row of
+// a decision the manager made inside it. A park is an `answered` and a `returned` row with code park. `expired-denied` has code held when the prompt was held
+// for the person (nobody answered inside a window) and timeout otherwise. `relay-refused`: a top tier was refused the relay inside a window (id and the request's
+// fields, tier its level, by its session, code refused, or taken-back when its relay file was written and removed again).
 export type LedgerRow = { t: string; kind: RowKind; code?: string; id?: string; lane?: string; repo?: string; tool?: string; pattern?: string; hash?: string; tier?: string; why?: string; nonce?: string; cap?: CapKind; target?: string; by?: string; tuid?: string; via?: 'person'; short?: string; opt?: string; lh?: string; was?: string; dialog?: 'yes' | 'none'; end?: string; raised?: string; u?: string; origin?: string }
 export function ledgerLine(row: LedgerRow): string {
   const r: LedgerRow = { ...row }
@@ -665,8 +686,9 @@ export function unattendedBind(rows: LedgerRow[], hash: string, v: Unattended, n
 export type UnattendedCause = 'store' | 'value' | 'clock' | 'hash' | 'ledger' | 'unbound' | 'error'
 export type Window = { state: 'on'; value: Unattended; u: string } | { state: 'off' } | { state: 'unknown'; cause: UnattendedCause; key: boolean }
 export const windowShort = (hash: string): string => hash.slice(0, 8)
-// What `unknown` means to a caller, given the last sure state this process read. Held: what a window forbids stays forbidden. On: what only a window permits.
-export const unattendedHeldOf = (w: Window, sure: 'on' | 'off' | undefined): boolean => w.state === 'on' || (w.state === 'unknown' && sure === 'on')
+// What `unknown` means to a caller, given the last sure state this process read. Held: what a window forbids stays forbidden, when this process last read on or
+// the read saw a stored value it could not judge (a process that has never read on cannot tell that value from a live window). On: what only a window permits.
+export const unattendedHeldOf = (w: Window, sure: 'on' | 'off' | undefined): boolean => w.state === 'on' || (w.state === 'unknown' && (sure === 'on' || w.key))
 export const unattendedOnOf = (w: Window): boolean => w.state === 'on'
 const UNATTENDED_CAUSE: Record<UnattendedCause, string> = {
   store: 'the store did not answer',
