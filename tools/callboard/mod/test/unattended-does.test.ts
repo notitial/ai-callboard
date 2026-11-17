@@ -66,7 +66,7 @@ test('window: the manager is refused the relay and reads its rules after the rub
   const v = open()
   const text = await list($)
   expect(text).toContain('Unattended mode: allow, deny or park it by the rubric and the unattended rules below. Nothing is put to the person.')
-  expect(text.endsWith(prm.unattendedBlock(when(v.until)))).toBe(true)
+  expect(text.endsWith(prm.unattendedBlock(g.GO_NEVER_TEXT, when(v.until)))).toBe(true)
   expect(text).not.toContain('put it to the person with prompt_escalate')
   expect(await escalate($)).toBe(`prompt_escalate refused: ${refusal('unattended')}`)
   expect(pfs.has(`${LDIR(APISID)}/${TID}.relay.json`)).toBe(false)

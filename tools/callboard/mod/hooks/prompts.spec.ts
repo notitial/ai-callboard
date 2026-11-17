@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import * as p from './prompts.ts'
+import { GO_NEVER_TEXT } from './go.ts'
 
 const H = 'a'.repeat(64)
 const SID_A = '0a1b2c3d-0000-4000-8000-123456789abc'
@@ -662,9 +663,9 @@ test('the lane texts of a window: each keeps its whole tail after a 200-characte
 })
 
 test('prompt_list in a window: the manager\'s block follows the rubric and fits the budget with 20 requests of the longest texts; a lower tier gets one line', () => {
-  const block = p.unattendedBlock('Tue 18 Nov 07:00')
+  const block = p.unattendedBlock(GO_NEVER_TEXT, 'Tue 18 Nov 07:00')
   assert.ok(block.startsWith('**Unattended mode is on until Tue 18 Nov 07:00.** The person is away and nothing reaches them;'))
-  assert.ok(p.unattendedBlock().startsWith('**Unattended mode is on.** '))
+  assert.ok(p.unattendedBlock(GO_NEVER_TEXT).startsWith('**Unattended mode is on.** '))
   for (const part of ['1. Allow only what the rubric above lets you allow or handle.', '**Park** it: `prompt_answer`, decision `park`', 'If unsure which, park.', "4. A call you can't see whole or understand: the cleaner-command deny, as always.", '5. A question: answer it only by the question rubric.', 'Do not call a stop tool, and do not ask the person anything']) assert.ok(block.includes(part), part)
   // The go's own list, whole: one list for what always waits for the person.
   assert.ok(block.includes('a merge; a force push; a push to main, master or production;') && block.includes("work the go's text does not name."))
@@ -672,7 +673,7 @@ test('prompt_list in a window: the manager\'s block follows the rubric and fits 
   assert.ok(!block.includes('unattended_off'))
   const big = { command: 'x'.repeat(p.STRING_CAP) }
   const items: p.ListItem[] = Array.from({ length: 20 }, (_, n) => ({ id: `${String(n).padStart(8, '0')}-0000-4000-8000-123456789abc`, lane: 'L'.repeat(120), tool: n === 0 ? p.QUESTION_TOOL : 'Bash', repo: '/Users/x/repo', raisedBy: 'hook', ageSec: 60, truncated: false, input: n === 0 ? qIn() : big, turn: p.turnLine({ top: true, away: 'manager' }), reason: 'r'.repeat(p.REASON_CAP) }))
-  const text = p.promptListText(items, { on: true, unattended: { tier: 'manager', until: 'Tue 18 Nov 07:00' } })
+  const text = p.promptListText(items, { on: true, unattended: { tier: 'manager', never: GO_NEVER_TEXT, until: 'Tue 18 Nov 07:00' } })
   assert.ok(new TextEncoder().encode(text).length <= p.LIST_TEXT_MAX)
   assert.ok(text.endsWith(block) && text.includes(`${p.QUESTION_RUBRIC}\n\n${block}`))
   assert.ok(/\d+ more are open; answer these and call prompt_list again\./.test(text))
@@ -681,7 +682,7 @@ test('prompt_list in a window: the manager\'s block follows the rubric and fits 
   assert.ok(p.UNATTENDED_TIER_LINE.includes('is held for them at 20 minutes'))
   // Outside a window, and with nothing listed, nothing of the mode is shown.
   assert.ok(!p.promptListText(items.slice(1, 2), { on: true }).includes('**Unattended mode is on'))
-  assert.ok(!p.promptListText([], { on: true, unattended: { tier: 'manager' } }).includes('Unattended'))
+  assert.ok(!p.promptListText([], { on: true, unattended: { tier: 'manager', never: GO_NEVER_TEXT } }).includes('Unattended'))
 })
 
 test('the list of a window: each section from its rows, the lane\'s text escaped inside one frame, and a read that failed says so', () => {
