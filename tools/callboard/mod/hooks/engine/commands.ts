@@ -79,7 +79,7 @@ import { ensureTimer } from './tick.ts'
 import { grantNameNo } from './lead-open.ts'
 import { epochOf, heldNo, holdsOf, levelSave } from './levels.ts'
 import type { LevelDesc } from './levels.ts'
-import { ANSWERING_KEY, ledgerAdd, promptsOff, escalationNow, defaultForget, hereRead, hereDrop, unattendedNow, unattendedClose, ledgerRowsFor, unattendedOpen, unattendedVoid, unattendedOffMark, unattendedOffSince, unattendedClosesNow, unattendedBusy } from './answer-hook.ts'
+import { ANSWERING_KEY, ledgerAdd, promptsOff, escalationNow, defaultForget, hereRead, hereDrop, unattendedNow, unattendedClose, ledgerRowsFor, unattendedOpen, unattendedVoid, unattendedOffMark, unattendedOffSince, unattendedClosesNow, unattendedBusy, unattendedUnread, unattendedUnreadDrop } from './answer-hook.ts'
 import { ledgerRestore } from './answer-tiers.ts'
 import * as go from '../go.ts'
 import { goCommand, goGrantorOff } from './go.ts'
@@ -846,8 +846,11 @@ async function unattendedCommand($: any, sid: string, code: c.OriginCode, op: pr
   }
   if (!c.originIsPerson(code)) return notPerson($, sid, 'unattended', code, pr.UNATTENDED_NOT_PERSON)
   const w = await unattendedNow($)
-  const list = await unattendedList($, w).catch(() => pr.UNATTENDED_LIST_UNREAD)
-  return { text: `${pr.unattendedState(w, whenLocal)}${list === undefined ? '' : `\n\n${list}`}` }
+  const unread = await unattendedUnread($)
+  const list = await unattendedList($, w, unread === 'unreadable' ? [] : unread).catch(() => ({ text: pr.UNATTENDED_LIST_UNREAD, shown: [] as string[] }))
+  // The list the person has just been given clears its windows from the unread mark; a window that ended while it was read stays marked.
+  if (list.shown.length > 0 && !(await unattendedUnreadDrop($, list.shown))) await logq($, sid, 'error', 'unattended-unread')
+  return { text: `${pr.unattendedState(w, whenLocal)}${list.text === undefined ? '' : `\n\n${list.text}`}` }
 }
 // What unattended mode needs, read before its dialog and again after the click: off now; escalation on for every lane, lead and question, with no OFF file; a
 // live manager with a trusted name (the ladder's own filter); check-ins on, as the watchdog; no relay open and no tier asking the person. manager: the name
@@ -954,22 +957,30 @@ export async function unattendedOffCall($: any, e: any) {
   return { result: `${pr.UNATTENDED_ENDED} ${w.state === 'on' && rows !== 'unreadable' ? pr.unattendedCounts(w.u, rows) : pr.UNATTENDED_COUNTS_UNREAD}${unmarked}` }
 }
 
-// What the live window did, or the last one on record in this month's and last month's ledgers: three bounded reads (the windows opened, the rows that carry
-// this window's short id, the reads that gave no answer). undefined: no window is on record.
-async function unattendedList($: any, w: pr.Window): Promise<string | undefined> {
+// What the windows did that ended since the person last read the list and the live one, or the last window on record when there is neither: bounded reads
+// (the windows opened, one read of the rows that carry each window's short id, the reads that gave no answer). undefined: no window is on record. `shown`: the
+// unread windows whose rows were read, which the person has now seen.
+async function unattendedList($: any, w: pr.Window, unread: string[]): Promise<{ text: string | undefined; shown: string[] }> {
   const p = await where($)
-  if (!p) return pr.UNATTENDED_LIST_UNREAD
-  let u = w.state === 'on' ? w.u : undefined
-  if (u === undefined) {
+  if (!p) return { text: pr.UNATTENDED_LIST_UNREAD, shown: [] }
+  const live = w.state === 'on' ? w.u : undefined
+  let us = [...unread.filter((u) => u !== live), ...(live !== undefined ? [live] : [])]
+  if (us.length === 0) {
     const opened = await ledgerRowsFor($, p, '"kind":"unattended-on"')
-    if (opened === 'unreadable') return pr.UNATTENDED_LIST_UNREAD
+    if (opened === 'unreadable') return { text: pr.UNATTENDED_LIST_UNREAD, shown: [] }
     const last = opened.filter((r) => r.kind === 'unattended-on' && typeof r.u === 'string' && pr.U_RE.test(r.u)).sort((a, b) => (Date.parse(a.t) || 0) - (Date.parse(b.t) || 0)).pop()
-    if (!last) return undefined
-    u = last.u as string
+    if (!last) return { text: undefined, shown: [] }
+    us = [last.u as string]
   }
-  const rows = await ledgerRowsFor($, p, `"u":"${u}"`)
   const unknown = await ledgerRowsFor($, p, '"kind":"unattended-unknown"')
-  return pr.unattendedListText({ u, live: w.state === 'on', rows: rows === 'unreadable' ? undefined : rows, unknown: unknown === 'unreadable' ? undefined : unknown, when: whenLocal })
+  const parts: string[] = []
+  const shown: string[] = []
+  for (const u of us) {
+    const rows = await ledgerRowsFor($, p, `"u":"${u}"`)
+    parts.push(pr.unattendedListText({ u, live: u === live, rows: rows === 'unreadable' ? undefined : rows, unknown: unknown === 'unreadable' ? undefined : unknown, when: whenLocal }))
+    if (rows !== 'unreadable' && unknown !== 'unreadable' && u !== live) shown.push(u)
+  }
+  return { text: us.length === 1 ? parts[0] : `${pr.unattendedListsHead(us.length)}\n\n${parts.join('\n\n')}`, shown }
 }
 
 // /callboard escalation (the person's own command, one dialog) and /callboard escalation off (any origin, no dialog). One Allow stores scope `all` for permission prompts and questions alike;
@@ -1353,6 +1364,8 @@ export async function commandRun($: any, e: any) {
   const laneLead: [string, string][] = bound ? [["This lane's lead", c.laneStatusLead(laneBrief.get(sid), bound.name)]] : []
   if (arg === 'status') {
     const esc: [string, string][] = [['Escalation', pr.escalationStatus(await escalationNow($), await promptsOff($))], ['Unattended', pr.unattendedStatus(await unattendedNow($), whenLocal)]]
+    const unread = await unattendedUnread($)
+    if (unread !== 'unreadable' && unread.length > 0) esc.push(['Unattended list', pr.unattendedUnreadStatus(unread.length)])
     const ownerRow: [string, string][] = gs?.level === 'lead' ? [['Conductor', await ownerStatusNow($, sid)]] : []
     return { text: c.statusTableText([['Lane', bound ? bound.name : 'NONE'], grantPart, ...ownerRow, ...ckStatus, ...laneLead, ...esc]) }
   }

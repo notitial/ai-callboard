@@ -436,7 +436,7 @@ export function applyCheck(a: ApplyIn): ApplyOut {
 
 // ---- the ledger: machine-wide, one JSON row per line, no input text ----
 // Every kind of row the mod writes. The prompt audit reads its kinds from this list.
-export const ROW_KINDS = ['requested', 'answered', 'escalated', 'dropped', 'returned', 'superseded', 'expired-denied', 'off', 'abandoned', 'dialog', 'not-judgeable', 'subagent-denied', 'question-denied', 'no-tier', 'answering-on', 'answering-off', 'relayed', 'relay-lost', 'relay-left', 'relay-late', 'relay-closed', 'deny-unclear', 'lead-offer', 'lead-offer-void', 'lead-grant', 'lead-owner', 'lead-resume', 'lead-stop', 'go-grant', 'go-end', 'go-read', 'pr-watch', 'pr-notice', 'here-on', 'here-off', 'unattended-on', 'unattended-off', 'unattended-unknown', 'relay-refused'] as const
+export const ROW_KINDS = ['requested', 'answered', 'escalated', 'dropped', 'returned', 'superseded', 'expired-denied', 'off', 'abandoned', 'dialog', 'not-judgeable', 'subagent-denied', 'question-denied', 'no-tier', 'answering-on', 'answering-off', 'relayed', 'relay-lost', 'relay-left', 'relay-late', 'relay-closed', 'deny-unclear', 'lead-offer', 'lead-offer-void', 'lead-grant', 'lead-owner', 'lead-resume', 'lead-stop', 'go-grant', 'go-end', 'go-read', 'pr-watch', 'pr-notice', 'here-on', 'here-off', 'unattended-on', 'unattended-off', 'unattended-unknown', 'relay-refused', 'notice-capped'] as const
 export type RowKind = (typeof ROW_KINDS)[number]
 // A `lead-owner` row (ADR 0007), written before the lead record changes: code made | joined | left | off, hash the repo's key, repo, lane the lead's name at the
 // time (for reading only), target the lead's session id, by the conductor's session id (made, joined), was the conductor the lead left (left, off), nonce (made).
@@ -747,7 +747,7 @@ export const UNATTENDED_LIST_HEAD = "The ledger keeps a pattern for each call, n
 // rows: every row that carries the window's short id, in any order (undefined: the read failed or was cut). unknown: the `unattended-unknown` rows of the
 // two months read (the caller cannot tell which fall inside the window; this does, by time). live: the window is on now. when: a time as the person reads it.
 // Sections, in this order: how it ended when that was neither the person's own command nor its end time, parked, held, still waiting, nobody could be asked,
-// denied, allowed, relays refused, reads that gave no answer. Every item is one line of escaped text inside one untrusted frame.
+// denied, allowed, relays refused, notice caps reached, reads that gave no answer. Every item is one line of escaped text inside one untrusted frame.
 export function unattendedListText(i: { u: string; live: boolean; rows: LedgerRow[] | undefined; unknown: LedgerRow[] | undefined; when: (ms: number) => string }): string {
   if (i.rows === undefined) return UNATTENDED_LIST_UNREAD
   const time = (r: LedgerRow | undefined): number => (r === undefined ? NaN : Date.parse(r.t))
@@ -760,7 +760,7 @@ export function unattendedListText(i: { u: string; live: boolean; rows: LedgerRo
   const early = off !== undefined && off.code !== 'expired' && !personOff
   const how = off === undefined ? '' : off.code === 'command' ? `it was ended with /callboard unattended off from ${origin(off) ?? 'an unknown origin'}` : typeof off.code === 'string' && Object.prototype.hasOwnProperty.call(WINDOW_END, off.code) ? WINDOW_END[off.code] : 'it ended for a reason this version does not know'
   const head = `Window ${i.u}: ${on ? `opened ${at(on)}` : 'its opening row was not found'}; ${off ? `${how}, ${at(off)}` : i.live ? 'it is on now' : 'no end row was found'}.`
-  const { parked, held, waiting, nobody, denied, allowed, refused } = windowItems(rows)
+  const { parked, held, waiting, nobody, denied, allowed, refused, capped } = windowItems(rows, i.when)
   const from = time(on)
   const to = off ? time(off) : Infinity
   const episodes = (i.unknown ?? []).filter((r) => r.kind === 'unattended-unknown' && Number.isFinite(from) && time(r) >= from && time(r) <= to)
@@ -779,21 +779,44 @@ export function unattendedListText(i: { u: string; live: boolean; rows: LedgerRo
     ...section('Denied', denied),
     ...section('Allowed', allowed),
     ...section('Relays to you that were refused', refused),
+    ...section('A tier was not told of waiting prompts for a while (its hourly notice cap was reached)', capped),
     ...(episodes.length === 0 ? [] : [`Reads of the window that gave no answer (${episodes.length}):`, ...[...causes].map(([cause, n]) => `- ${cause}: ${n}`)]),
     ...(i.unknown === undefined ? ['The reads of the window that gave no answer could not be listed: that read failed or was cut.'] : []),
   ]
   if (body.length === 0) return `${head}\nNothing was raised in this window.`
   return `${head}\n${UNATTENDED_LIST_HEAD}\n<untrusted-ledger>\n${body.join('\n')}\n</untrusted-ledger>`
 }
-// The counts of the list, for the manager when its unattended_off ends a window: numbers only, no text a lane wrote. rows: as for unattendedListText.
-export function unattendedCounts(u: string, rows: LedgerRow[]): string {
+// The counts of one window's list, as words: "2 parked, 1 denied", or "nothing was raised". rows: as for unattendedListText.
+export function unattendedCountWords(rows: LedgerRow[], u: string): string {
   const s = windowItems(rows.filter((r) => r.u === u))
-  const parts: [string[], string][] = [[s.parked, 'parked'], [s.held, 'held at 20 minutes'], [s.waiting, 'still waiting in their panel'], [s.nobody, 'with nobody to ask'], [s.denied, 'denied'], [s.allowed, 'allowed'], [s.refused, 'relays refused']]
+  const parts: [string[], string][] = [[s.parked, 'parked'], [s.held, 'held at 20 minutes'], [s.waiting, 'still waiting in their panel'], [s.nobody, 'with nobody to ask'], [s.denied, 'denied'], [s.allowed, 'allowed'], [s.refused, 'relays refused'], [s.capped, 'tier notices held back by the cap']]
   const said = parts.filter(([l]) => l.length > 0).map(([l, w]) => `${l.length} ${w}`)
-  return `Window ${u}: ${said.length === 0 ? 'nothing was raised' : said.join(', ')}. The person reads the list with /callboard unattended.`
+  return said.length === 0 ? 'nothing was raised' : said.join(', ')
 }
+// The counts of the list, for the manager when its unattended_off ends a window: numbers only, no text a lane wrote.
+export function unattendedCounts(u: string, rows: LedgerRow[]): string {
+  return `Window ${u}: ${unattendedCountWords(rows, u)}. The person reads the list with /callboard unattended.`
+}
+// The toast of the process that ended a window. rows: every row that carries the window's short id, undefined when the ledger could not be read.
+export const unattendedEndToast = (u: string, rows: LedgerRow[] | undefined): string =>
+  `Unattended mode ended: ${rows === undefined ? 'what it did could not be counted' : unattendedCountWords(rows, u)}. /callboard unattended lists it.`
+// ---- the unread mark: the windows that ended since the person last read the list, kept in the store (newest last, at most UNREAD_MAX) ----
+export const UNREAD_MAX = 8
+export function parseUnread(raw: unknown): string[] {
+  const us = raw !== null && typeof raw === 'object' && !Array.isArray(raw) && (raw as { v?: unknown }).v === 1 ? (raw as { us?: unknown }).us : undefined
+  return Array.isArray(us) ? us.filter((u): u is string => typeof u === 'string' && U_RE.test(u)).filter((u, i, a) => a.indexOf(u) === i).slice(-UNREAD_MAX) : []
+}
+export const unreadValue = (us: string[]): { v: 1; us: string[] } => ({ v: 1, us: us.slice(-UNREAD_MAX) })
+const windowsWord = (n: number): string => `${n} window${n === 1 ? '' : 's'}`
+// The status row's value.
+export const unattendedUnreadStatus = (n: number): string => `${windowsWord(n)} not read yet: run /callboard unattended`
+// The line the manager's prompt_list carries until the person reads the list.
+export const unattendedUnreadLine = (n: number): string =>
+  `Unattended mode ended ${n === 1 ? 'once' : `${n} times`} since the person last read what it did. Nothing for you to do: they read it with /callboard unattended. Mention it when they are back.`
+// The head of a list of several windows.
+export const unattendedListsHead = (n: number): string => `${windowsWord(n)} since you last read the list, oldest first:`
 // Each section's items, one escaped line each, from the rows of one window.
-function windowItems(rows: LedgerRow[]): { parked: string[]; held: string[]; waiting: string[]; nobody: string[]; denied: string[]; allowed: string[]; refused: string[] } {
+function windowItems(rows: LedgerRow[], when?: (ms: number) => string): { parked: string[]; held: string[]; waiting: string[]; nobody: string[]; denied: string[]; allowed: string[]; refused: string[]; capped: string[] } {
   const text = (v: unknown, max = 200): string => escListText(capBytes(typeof v === 'string' ? v : '', max).text)
   const item = (r: LedgerRow, ...more: string[]): string => `- ${[`lane ${word(r.lane, '(unnamed)')}`, text(r.pattern) || '(no pattern)', ...more.filter((m) => m !== '')].join(' · ')}`
   // One request's rows, by its id; the rows with no id stand alone.
@@ -823,7 +846,8 @@ function windowItems(rows: LedgerRow[]): { parked: string[]; held: string[]; wai
   const NOBODY: readonly RowKind[] = ['not-judgeable', 'abandoned', 'subagent-denied', 'question-denied']
   const nobody = rows.filter((r) => r.id === undefined && NOBODY.includes(r.kind)).map((r) => item(r, `${r.kind}${r.code ? ` ${word(r.code, '(odd code)')}` : ''}`))
   const refused = rows.filter((r) => r.kind === 'relay-refused').map((r) => item(r, `asked by the ${word(r.tier, 'tier')}`, r.code === 'taken-back' ? 'written and taken back' : ''))
-  return { parked, held, waiting, nobody, denied, allowed, refused }
+  const capped = rows.filter((r) => r.kind === 'notice-capped').map((r) => `- the ${word(r.tier, 'tier')}${when !== undefined && Number.isFinite(Date.parse(r.t)) ? `, at ${when(Date.parse(r.t))}` : ''}`)
+  return { parked, held, waiting, nobody, denied, allowed, refused, capped }
 }
 // What /callboard unattended takes: nothing (the state), off, or on with an end: `until HH:MM` (the next such local time), `for N h` (N hours, at most two
 // decimals) or neither (UNATTENDED_DEFAULT_HOURS).
@@ -1343,7 +1367,12 @@ function listPart(i: ListItem, force: boolean, max = Infinity): string {
 // unattended: the window is held, so the rules of the mode follow the rubric: the block for the manager, one line for a lead or conductor. never: the go's own
 // list of what always waits for the person (go.ts), handed in so there is one list. until: the window's end as the manager reads it, absent when the window's
 // value could not be read.
-export function promptListText(items: ListItem[], o: { on: boolean; hint?: string; young?: number; unattended?: { tier: 'manager'; never: string; until?: string } | { tier: 'lower' } }): string {
+// unread: how many ended unattended windows the person has not read the list of; the manager's line says so after the rest.
+export function promptListText(items: ListItem[], o: { on: boolean; hint?: string; young?: number; unattended?: { tier: 'manager'; never: string; until?: string } | { tier: 'lower' }; unread?: number }): string {
+  const text = promptListBody(items, o)
+  return o.unread !== undefined && o.unread > 0 ? `${text}\n\n${unattendedUnreadLine(o.unread)}` : text
+}
+function promptListBody(items: ListItem[], o: { on: boolean; hint?: string; young?: number; unattended?: { tier: 'manager'; never: string; until?: string } | { tier: 'lower' } }): string {
   if (!o.on) return `Escalation is off on this Mac. Nothing is waiting for you.${o.hint ? ` ${o.hint}` : ''}`
   const young = o.young !== undefined && o.young > 0 ? ` ${o.young} prompt${o.young === 1 ? ' is' : 's are'} still the person's for their first ${MIN_AGE_MS / 1000} s; nothing for you to do with them yet.` : ''
   if (items.length === 0) return `No prompt is waiting in your reach.${young}${o.hint ? ` ${o.hint}` : ''}`

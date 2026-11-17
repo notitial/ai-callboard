@@ -782,6 +782,44 @@ test('the list of a window: each section from its rows, the lane\'s text escaped
   assert.ok(p.unattendedListText({ u: U, live: true, rows: [rows[0]], unknown: undefined, when }).includes('could not be listed'))
 })
 
+test('the end of a window: the toast carries the counts or says they could not be had; the notice-cap rows are a section and a count', () => {
+  const U = 'aaaaaaaa'
+  const rows: p.LedgerRow[] = [
+    { t: '2026-01-10T22:00:00.000Z', kind: 'unattended-on', hash: 'a'.repeat(64), u: U },
+    { t: '2026-01-10T23:00:00.000Z', kind: 'notice-capped', code: 'prompts', tier: 'lead', by: SID_B, u: U },
+    { t: '2026-01-10T23:30:00.000Z', kind: 'notice-capped', code: 'prompts', tier: 'manager', by: SID_B, u: 'bbbbbbbb' },
+  ]
+  assert.equal(p.unattendedEndToast(U, rows), 'Unattended mode ended: 1 tier notices held back by the cap. /callboard unattended lists it.')
+  assert.equal(p.unattendedEndToast('cccccccc', rows), 'Unattended mode ended: nothing was raised. /callboard unattended lists it.')
+  assert.equal(p.unattendedEndToast(U, undefined), 'Unattended mode ended: what it did could not be counted. /callboard unattended lists it.')
+  const text = p.unattendedListText({ u: U, live: false, rows, unknown: [], when: (ms) => `<${new Date(ms).toISOString().slice(11, 16)}>` })
+  assert.match(text, /A tier was not told of waiting prompts for a while \(its hourly notice cap was reached\) \(1\):\n- the lead, at <23:00>\n/)
+  assert.doesNotMatch(text, /manager/)
+})
+
+test('the unread mark: a stored value reads as the valid, distinct window marks, newest eight; anything else reads as none', () => {
+  assert.deepEqual(p.parseUnread({ v: 1, us: ['aaaaaaaa', 'bbbbbbbb', 'aaaaaaaa', 'nope', 7, 'AAAAAAAA'] }), ['aaaaaaaa', 'bbbbbbbb'])
+  const many = Array.from({ length: 12 }, (_, i) => i.toString(16).padStart(8, '0'))
+  assert.deepEqual(p.parseUnread({ v: 1, us: many }), many.slice(-p.UNREAD_MAX))
+  for (const raw of [undefined, null, 'junk', 5, [], { us: ['aaaaaaaa'] }, { v: 2, us: ['aaaaaaaa'] }, { v: 1, us: 'aaaaaaaa' }]) assert.deepEqual(p.parseUnread(raw), [])
+  assert.deepEqual(p.unreadValue(many), { v: 1, us: many.slice(-p.UNREAD_MAX) })
+})
+
+test('the unread texts: one line for the manager, a status value, and the head of a list of windows', () => {
+  assert.equal(p.unattendedUnreadStatus(1), '1 window not read yet: run /callboard unattended')
+  assert.equal(p.unattendedUnreadStatus(3), '3 windows not read yet: run /callboard unattended')
+  assert.match(p.unattendedUnreadLine(1), /^Unattended mode ended once since the person last read what it did\./)
+  assert.match(p.unattendedUnreadLine(2), /^Unattended mode ended 2 times since/)
+  assert.equal(p.unattendedListsHead(2), '2 windows since you last read the list, oldest first:')
+  // The line follows the list whatever the list says, and only when there is something unread.
+  const one = { id: SID_B, lane: 'LANE', tool: 'Bash', repo: '/r', raisedBy: 'mode', ageSec: 40, truncated: false, input: { command: 'ls' } } as p.ListItem
+  for (const items of [[], [one]]) {
+    assert.ok(p.promptListText(items, { on: true, unread: 2 }).endsWith(`\n\n${p.unattendedUnreadLine(2)}`))
+    assert.equal(p.promptListText(items, { on: true, unread: 0 }), p.promptListText(items, { on: true }))
+  }
+  assert.ok(p.promptListText([], { on: false, unread: 1 }).endsWith(p.unattendedUnreadLine(1)))
+})
+
 test('the end of a window asked for now: 8 hours by default, N hours, the next HH:MM; half an hour to 14 hours, else none', () => {
   const now = new Date(2026, 0, 10, 22, 0, 0, 0).getTime()
   assert.equal(p.unattendedEndAt({ kind: 'default' }, now), now + 8 * 3_600_000)

@@ -877,7 +877,8 @@ test('what a window does is read without a flag: a park (answered and returned, 
   const u = 'ffffffff'
   const park = clean(uid(2), BASE + 1000, uid(102), { u, tier: 'manager' }).map((r) => (r.kind === 'requested' ? r : { ...r, code: 'park', by: uid(7), why: 'a merge waits' }))
   const held = [R('requested', BASE + 2000, { ...T, id: uid(3), nonce: uid(103), tier: 'lead', u }), R('relay-refused', BASE + 40_000, { ...T, id: uid(3), code: 'refused', tier: 'lead', by: uid(8), u }), R('expired-denied', BASE + 1_300_000, { ...T, id: uid(3), code: 'held', u })]
-  ledger(fx, [ON(), ...clean(), ...park, ...held])
+  const win = [R('unattended-on', BASE, { hash: u.repeat(8), u, end: iso(BASE + 3_600_000), origin: 'prompt', by: uid(7), lane: 'MANAGER' }), R('unattended-off', BASE + 1_400_000, { code: 'command', hash: u.repeat(8), u, origin: 'prompt', by: uid(7) })]
+  ledger(fx, [ON(), ...clean(), ...win, ...park, ...held])
   const rep = run(fx)
   assert.deepEqual(rep.anomalies, [])
   assert.deepEqual(rep.problems, [])
@@ -887,6 +888,85 @@ test('what a window does is read without a flag: a park (answered and returned, 
   const bad = fixture()
   ledger(bad, [ON(), ...park.map((r) => (r.kind === 'returned' ? { ...r, code: 'allow' } : r))])
   assert.ok(rules(run(bad)).includes('returned-differs-from-answered'))
+})
+
+// Rule u: the unattended windows read by time and by the window's mark. A window opens at BASE, ends at BASE + 1 h by its row and its declared end.
+const W = 'abcdef01'
+const WIN_ON = (extra = {}) => R('unattended-on', BASE, { hash: H('d'), u: W, end: iso(BASE + 3_600_000), origin: 'prompt', by: uid(7), lane: 'MANAGER', ...extra })
+const WIN_OFF = (at = BASE + 3_600_000, extra = {}) => R('unattended-off', at, { code: 'expired', hash: H('d'), u: W, by: uid(7), ...extra })
+const parkOf = (id, at, extra = {}) => clean(id, at, uid(Number(id.slice(-3)) + 100), { u: W, tier: 'manager', ...extra }).filter((r) => r.kind !== 'returned').map((r) => (r.kind === 'answered' ? { ...r, code: 'park', by: uid(7), why: 'a merge waits' } : r))
+
+test('rule u: a window with its rows, a manager park inside it and no relay raises nothing', () => {
+  const fx = fixture()
+  ledger(fx, [ON(), WIN_ON(), ...parkOf(uid(2), BASE + 1000), WIN_OFF()])
+  assert.deepEqual(run(fx).anomalies, [])
+})
+
+test('rule u: a relayed row inside a window is flagged, one before or after it is not', () => {
+  const fx = fixture()
+  const relayed = (id, at) => R('relayed', at, { ...T, id, code: 'manager', short: id.slice(0, 8), by: uid(8) })
+  ledger(fx, [ON(), WIN_ON(), WIN_OFF(), relayed(uid(2), BASE + 600_000), relayed(uid(3), BASE - 600_000), relayed(uid(4), BASE + 3_700_000)])
+  const rep = run(fx)
+  assert.deepEqual(rules(rep), ['relayed-in-window'])
+  assert.equal(rep.anomalies[0].id, uid(2))
+  assert.equal(rep.anomalies[0].rule, 'u')
+})
+
+test('rule u: a window with no end row is flagged only once its end time has passed, and one that declares none is flagged', () => {
+  const live = fixture()
+  ledger(live, [ON(), WIN_ON({ end: iso(NOW + 3_600_000) })])
+  assert.deepEqual(rules(run(live)), [])
+  const gone = fixture()
+  ledger(gone, [ON(), WIN_ON({ end: iso(NOW - 3_600_000) })])
+  assert.deepEqual(rules(run(gone)), ['window-no-end-row'])
+  const none = fixture()
+  ledger(none, [ON(), WIN_ON({ end: undefined })])
+  assert.deepEqual(rules(run(none)), ['window-no-end-row'])
+})
+
+test('rule u: a window declared for over 14 hours is flagged; one ended late by a sleeping Mac, by expiry or by a command, is not', () => {
+  const longEnd = fixture()
+  ledger(longEnd, [ON(), WIN_ON({ end: iso(BASE + 15 * 3_600_000) }), WIN_OFF(BASE + 600_000, { code: 'command', origin: 'prompt' })])
+  assert.deepEqual(rules(run(longEnd)), ['window-over-14h'])
+  for (const off of [WIN_OFF(BASE + 15 * 3_600_000), WIN_OFF(BASE + 15 * 3_600_000, { code: 'command', origin: 'prompt' })]) {
+    const slept = fixture()
+    ledger(slept, [ON(), WIN_ON(), off])
+    assert.deepEqual(rules(run(slept)), [])
+  }
+  const exact = fixture()
+  ledger(exact, [ON(), WIN_ON({ end: iso(BASE + 14 * 3_600_000) }), WIN_OFF(BASE + 14 * 3_600_000)])
+  assert.deepEqual(rules(run(exact)), [])
+})
+
+test('rule u: a park by another tier, a park with no window, and a decision outside its window or in an unknown one are flagged', () => {
+  const lead = fixture()
+  ledger(lead, [ON(), WIN_ON(), ...parkOf(uid(2), BASE + 1000, { tier: 'lead' }), WIN_OFF()])
+  assert.deepEqual(rules(run(lead)), ['park-by-other-tier'])
+  const bare = fixture()
+  ledger(bare, [ON(), WIN_ON(), ...parkOf(uid(2), BASE + 1000, { u: undefined }), WIN_OFF()])
+  assert.deepEqual(rules(run(bare)), ['park-outside-window'])
+  const late = fixture()
+  ledger(late, [ON(), WIN_ON(), WIN_OFF(), ...parkOf(uid(2), BASE + 3_600_000 + 120_000)])
+  assert.deepEqual(rules(run(late)), ['decision-outside-window'])
+  const early = fixture()
+  ledger(early, [ON(BASE - 300_000), WIN_ON(), WIN_OFF(), ...parkOf(uid(2), BASE - 120_000)])
+  assert.deepEqual(rules(run(early)), ['decision-outside-window'])
+  const unknown = fixture()
+  ledger(unknown, [ON(), ...parkOf(uid(2), BASE + 1000)])
+  assert.deepEqual(rules(run(unknown)), ['decision-unknown-window'])
+  // A lower tier's allow or deny inside the window carries the mark and is ordinary; a minute of slack covers a read kept just past the end.
+  const fine = fixture()
+  ledger(fine, [ON(), WIN_ON(), ...clean(uid(2), BASE + 1000, uid(102), { u: W }), ...clean(uid(3), BASE + 3_600_000 + 10_000, uid(103), { u: W }), WIN_OFF()])
+  assert.deepEqual(rules(run(fine)), [])
+})
+
+test('rule u: a window before --since is judged by its own rows, and the flags of rows before it are not reported', () => {
+  const fx = fixture()
+  ledger(fx, [ON(), WIN_ON(), ...parkOf(uid(2), BASE + 1000), WIN_OFF()])
+  assert.deepEqual(rules(run(fx, { since: BASE + 2_000_000 })), [])
+  const old = fixture()
+  ledger(old, [ON(), WIN_ON({ end: iso(BASE + 600_000) })])
+  assert.deepEqual(rules(run(old, { since: BASE + 2_000_000 })), [])
 })
 
 test('a row of a kind the mod does not write is a problem that names the kind (exit 2), not a quiet note; --since keeps an older one out', () => {
