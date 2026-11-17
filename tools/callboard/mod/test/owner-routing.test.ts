@@ -1,8 +1,10 @@
 import { expect, test } from 'claude-code/testing'
 import { toolNames } from '../hooks/tool-text'
-import { h, LEADRECDIR, ROOT, SID, T0, extraStat, leadFiles, longTest, pfs, toolDefs, toolDesc } from './harness'
+import { h, LANESDIR, LEADRECDIR, ROOT, SID, T0, extraStat, leadFiles, longTest, pfs, repoKey, storeFiles, toolDefs, toolDesc } from './harness'
 import { APISID, COND, LEADPATH, LEADSID, OTHERLEAD, PIN, condOn, condPresenceOf, killed, lead, leadCall, leadRecsJson, listCall, mgrCall, ownedBy, putCond, putLeadRecs, regAs } from './fixtures'
 import { APIQ, CNDT, LDIR, LEAD2, PDIR, QIN, TID, TID2, addCondT, answerCall, answerer, asConductor, at, byCond, decideBy, pcall, putQ, readReq, refusal, rowKinds, runRequest, said, stop } from './answer-fixtures'
+// The repo the lead fixture pins.
+const WORK = '/data/x/work'
 
 // ---- ADR 0007: who is told of a lead's prompts, and what a conductor reaches, follows the lead's record ----
 // A conductor of PIN that is trusted (presence file, saved grant, list file) and listed in the registry, as the conductors above lead LEAD are.
@@ -161,9 +163,9 @@ test('the conductor\'s tools are declared with the conductor\'s descriptions, wh
 test('lane_terminate in a lead whose conductor owns it and is live is refused before any dialog, naming the conductor; with the conductor gone the dialog opens in the lead as before', async ($, on) => {
   const argv: string[][] = []
   await lead($, on, [], { argv })
-  addCondT('CONDX', [PIN], { own: false })
-  putCond([PIN])
-  ownedBy(CNDT, { repo: PIN, leadSid: SID })
+  addCondT('CONDX', [WORK], { own: false })
+  putCond([WORK])
+  ownedBy(CNDT, { repo: WORK, leadSid: SID })
   const before = h.sessions
   h.sessions = { ...h.sessions, ...h.extraRows }
   h.lastQuestion = undefined
@@ -177,6 +179,26 @@ test('lane_terminate in a lead whose conductor owns it and is live is refused be
   h.sessions = before
   h.askAnswer = 'Cancel'
   expect(said(await $.tool.call(leadCall('terminate')))).toContain('did not confirm')
+  expect(h.lastQuestion).toContain('Force stop lane LABLANE')
+  expect(killed(argv).length).toBe(0)
+})
+
+test('lane_terminate in a lead whose live conductor does not reach the lane (it names the lead only by session id) opens the dialog in the lead', async ($, on) => {
+  const argv: string[][] = []
+  await lead($, on, [], { argv })
+  // The lane names this lead only by its session id, as one made while the lead had no name.
+  const f = `${LANESDIR}/${repoKey(WORK)}.json`
+  const st = JSON.parse(storeFiles.get(f)!)
+  storeFiles.set(f, JSON.stringify({ ...st, lanes: st.lanes.map((l: object) => ({ ...l, leadSid: SID })) }))
+  addCondT('CONDX', [WORK], { own: false })
+  putCond([WORK])
+  ownedBy(CNDT, { repo: WORK, leadSid: SID })
+  h.sessions = { ...h.sessions, ...h.extraRows }
+  h.lastQuestion = undefined
+  h.askAnswer = 'Cancel'
+  const out = said(await $.tool.call(leadCall('terminate')))
+  expect(out).not.toContain('conductor-owns')
+  expect(out).toContain('did not confirm')
   expect(h.lastQuestion).toContain('Force stop lane LABLANE')
   expect(killed(argv).length).toBe(0)
 })
