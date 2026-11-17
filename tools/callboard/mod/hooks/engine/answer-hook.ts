@@ -341,7 +341,7 @@ function windowText(raw: unknown, value: pr.Unattended | undefined): string | un
 // another value was). 'store-failed': the store did not answer or would not remove the value; nothing was written. A removal that did not answer is read
 // again: a value that is gone by then was removed, and gets its row. After 'closed' this process knows the window is off.
 export type WindowClosed = 'closed' | 'none' | 'store-failed'
-export async function unattendedClose($: any, how: { code: string; origin?: c.OriginCode; only?: string }): Promise<WindowClosed> {
+export async function unattendedClose($: any, how: { code: string; origin?: c.OriginCode; only?: string; quiet?: boolean }): Promise<WindowClosed> {
   const got = await storeRead($, UNATTENDED_KEY)
   if (!got.read) return 'store-failed'
   if (got.raw === undefined || got.raw === null) return 'none'
@@ -362,7 +362,45 @@ export async function unattendedClose($: any, how: { code: string; origin?: c.Or
   const sid = await ownSid($)
   const row: Omit<pr.LedgerRow, 't'> = { kind: 'unattended-off', code: how.code, ...(hash !== undefined ? { hash, u: pr.windowShort(hash) } : {}), ...(how.origin !== undefined ? { origin: how.origin } : {}), ...(sid !== undefined ? { by: sid } : {}) }
   await offRow($, row)
+  // A window that opened and ended is marked unread and toasted; one that never opened, or whose value was put back after its end, says nothing.
+  if (hash !== undefined && how.quiet !== true && !SILENT_ENDS.has(how.code)) await windowEnded($, pr.windowShort(hash))
   return 'closed'
+}
+
+// ---- what the person sees when a window ends: the unread mark (the windows that ended since they last read the list) and one toast from the process that ended it ----
+export const UNATTENDED_UNREAD_KEY = 'unattended-unread'
+const SILENT_ENDS = new Set(['void', 'off-during-open', 'ended', 'unbound'])
+// The ended windows not read yet, oldest first. 'unreadable': the store did not answer.
+export async function unattendedUnread($: any): Promise<string[] | 'unreadable'> {
+  const got = await storeRead($, UNATTENDED_UNREAD_KEY)
+  return got.read ? pr.parseUnread(got.raw) : 'unreadable'
+}
+// Takes `drop` out of the unread mark (the windows the person has just read; none: just adds `add`), best effort. A key left empty is removed.
+async function unreadChange($: any, add: string | undefined, drop: string[]): Promise<boolean> {
+  const got = await storeRead($, UNATTENDED_UNREAD_KEY)
+  if (!got.read) return false
+  const us = [...pr.parseUnread(got.raw).filter((u) => !drop.includes(u)), ...(add !== undefined ? [add] : [])]
+  return us.length === 0 ? storeDo($, () => $.store.delete(UNATTENDED_UNREAD_KEY)) : storeDo($, () => $.store.set(UNATTENDED_UNREAD_KEY, pr.unreadValue(us)))
+}
+export async function unattendedUnreadDrop($: any, us: string[]): Promise<boolean> {
+  return unreadChange($, undefined, us)
+}
+// Marks the window unread, then toasts its counts once per process. Neither can change what ended the window.
+async function windowEnded($: any, u: string): Promise<void> {
+  try {
+    // The store has no compare-and-set: a second process changing the mark between this read and write could drop the add, so it is read back once and added again.
+    let marked = await unreadChange($, u, [u])
+    if (marked) {
+      const back = await unattendedUnread($)
+      if (back !== 'unreadable' && !back.includes(u)) marked = await unreadChange($, u, [u])
+    }
+    if (!marked) await logq($, (await ownSid($)) ?? '', 'error', 'unattended-unread')
+    if (mem.unattendedToasted.has(u)) return
+    mem.unattendedToasted.add(u)
+    const p = await where($)
+    const rows = p ? await ledgerRowsFor($, p, `"u":"${u}"`) : 'unreadable'
+    toast($, pr.unattendedEndToast(u, rows === 'unreadable' ? undefined : rows))
+  } catch {}
 }
 
 // An `unattended-off` row the ledger refused is kept (at most UNATTENDED_OFF_DUE_MAX, the newest) and written again before this process's next read of the window,
@@ -442,8 +480,9 @@ async function windowRead($: any, now: number): Promise<pr.Window> {
   }
   const value = pr.parseUnattended(got.raw)
   const text = windowText(got.raw, value)
-  const over = async (code: string): Promise<pr.Window> => {
-    if (text !== undefined) await unattendedClose($, { code, only: text })
+  // quiet: the end repeats one that was already shown (an owed `unattended-off` row), so it marks and toasts nothing.
+  const over = async (code: string, quiet = false): Promise<pr.Window> => {
+    if (text !== undefined) await unattendedClose($, { code, only: text, ...(quiet ? { quiet } : {}) })
     return { state: 'off' }
   }
   // A value that does not parse holds for UNATTENDED_GRACE_MS from when this process first saw it, then ends as invalid.
@@ -459,7 +498,7 @@ async function windowRead($: any, now: number): Promise<pr.Window> {
   if (hash === undefined) return windowUnknown('hash', true)
   // An off row of this value that the ledger refused (offRow) still ends it here.
   const due = mem.unattendedOffDue.find((r) => r.hash === hash)
-  if (due) return over(typeof due.code === 'string' ? due.code : 'void')
+  if (due) return over(typeof due.code === 'string' ? due.code : 'void', true)
   const p = await where($)
   const rows = p ? await ledgerRowsFor($, p, `"hash":"${hash}"`) : 'unreadable'
   if (rows === 'unreadable') return windowUnknown('ledger', true)
