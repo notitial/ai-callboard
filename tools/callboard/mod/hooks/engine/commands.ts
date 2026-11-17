@@ -888,7 +888,7 @@ async function escalationCommand($: any, sid: string, code: c.OriginCode, op: pr
   if (r === 'busy') return { text: 'A callboard question is already open. Answer it first.' }
   if (r !== 'yes') return { text: r === 'timed-out' ? 'Nothing changed: the question timed out.' : 'Cancelled. Nothing changed.' }
   // `asks: false` stays in the value so that an older mod after a rollback still reads it.
-  const value: pr.Answering = { scope: 'all', asks: false, asksScope: 'all', savedAt: await $.clock.now() }
+  const value: pr.Answering = { scope: 'all', asks: false, asksScope: 'all', leadAsks: true, savedAt: await $.clock.now() }
   // What was stored before (an earlier value, narrower or not) is kept to put back if the rows cannot be written.
   let before: unknown
   try {

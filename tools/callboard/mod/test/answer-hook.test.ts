@@ -735,7 +735,7 @@ test('prompts: sweep: with no prompts folder the tick makes no process call for 
 
 // ---- /callboard escalation ----
 const EXPECT_Q = prm.ESCALATION_QUESTION
-const ESC_VALUE = { scope: 'all', asks: false, asksScope: 'all', savedAt: T0 }
+const ESC_VALUE = { scope: 'all', asks: false, asksScope: 'all', leadAsks: true, savedAt: T0 }
 test('prompts: /callboard config shows escalation OFF (the default is blocked on this machine), and the prompts word is the usage line', async ($, on) => {
   await started($, on, [])
   expect((await $.command.run(lane('config'))).text).toContain('| Escalation | OFF |')

@@ -361,6 +361,8 @@ the risk list.
   and stored in the answering value (replaced 2026-11-12 by `/callboard escalation`; see the note under Rollout). With no scope, or with the old `asks: true` of the first version, a lane's question is
   the person's and its shape is not read. A lead's own question is the person's. The scope needs answering to be on, and
   `off asks` or a narrowed scope ends a waiting question, while permission prompts keep waiting.
+  *Amended 2026-11-17 (ADR 0011, a lead's own question):* while a lead's conductor is live, a lead's own single-choice
+  question rises, relay-only: no tier answers it, and the person answers it in the top session.
 - **The answer.** A tier answers with `prompt_answer` decision `answer` and the number of an offered option; `allow` and
   `deny` are refused for a question, and a truncated question cannot be answered. The decision carries the index and the
   label the tier saw. The hook checks both against the live input and returns the live label, trimmed, followed by
