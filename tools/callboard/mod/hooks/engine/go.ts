@@ -92,8 +92,9 @@ async function goPrune($: any, p: Paths, now: number): Promise<number | undefine
 }
 
 // The go dialog: the mod's own, with its own time limit, Cancel first. Only the person's click on Give go is a yes; a click after the limit records nothing.
-const goAsk = ($: any, sid: string, question: string) =>
-  askLimited($, sid, question, { yes: g.GO_YES, no: g.GO_NO, header: g.GO_HEADER, ms: g.GO_DIALOG_MS, timedOut: g.GO_TIMED_OUT_TOAST, late: g.GO_LATE_TOAST })
+async function goAsk($: any, sid: string, question: string) {
+  return askLimited($, sid, question, { yes: g.GO_YES, no: g.GO_NO, header: g.GO_HEADER, ms: g.GO_DIALOG_MS, timedOut: g.GO_TIMED_OUT_TOAST, late: g.GO_LATE_TOAST })
+}
 
 // The lead records a conductor's go reaches beyond the leads it holds from the click: among the sessions asked about (`cands`), the ones whose record names the
 // granting conductor and whose lead is bound to that record now. The records are loaded once per call (`box`), and only when a conductor's go is live. unread:

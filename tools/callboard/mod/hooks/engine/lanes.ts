@@ -1057,7 +1057,9 @@ async function leadPrep($: any, e: unknown, sid: string) {
   return { lane: pick.lane, entries, liveLanes: count(reach, [...opened]), but }
 }
 // Inside an unattended window a lead has at most c.UNATTENDED_LIVE_LANES lanes live: the tools that open a lane's session, and a rename that binds one, refuse past it.
-const lanesFull = async ($: any, liveLanes: number): Promise<boolean> => liveLanes >= c.UNATTENDED_LIVE_LANES && (await unattendedHeld($))
+async function lanesFull($: any, liveLanes: number): Promise<boolean> {
+  return liveLanes >= c.UNATTENDED_LIVE_LANES && (await unattendedHeld($))
+}
 
 // ---- /callboard lane: an existing session becomes a lane of the lead that runs in its repo ----
 // leadName: the lead's registry name now (c.leadNameOf), stamped on the record so only that lead reaches the lane; none leaves the record legacy.

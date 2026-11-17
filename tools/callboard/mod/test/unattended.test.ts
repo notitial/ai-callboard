@@ -19,7 +19,7 @@ const ON_ROW = (v: prm.Unattended) => `| Unattended | ON until ${when(v.until)} 
 
 // The direct calls: a handle over the harness's own mocks, as a call from the mod's hooks makes them, with knobs on the store and on the engine call limit.
 // The engine files a test imports are one module for the whole file, so each such test starts from the memory of a new process.
-type Knob = { get?: 'throw' | 'hang'; set?: 'throw'; del?: 'throw' | 'lands'; timesOut: boolean; rowsAtSet: string[][]; afterGrep?: () => Promise<unknown> }
+type Knob = { get?: 'throw' | 'hang'; set?: 'throw' | 'lands'; del?: 'throw' | 'lands'; timesOut: boolean; rowsAtSet: string[][]; afterGrep?: () => Promise<unknown>; afterGet?: () => Promise<unknown> }
 async function proc($: any, on0: any) {
   const handlers = new Map<string, any>()
   const on = (name: string, handler: any) => {
@@ -43,12 +43,20 @@ async function proc($: any, on0: any) {
       get: async (key: string) => {
         if (knob.get === 'throw') throw new Error('store')
         if (knob.get === 'hang') return new Promise(() => undefined)
-        return call('store.get', { key })
+        const r = await call('store.get', { key })
+        if (knob.afterGet && key === UNATTENDED_KEY) {
+          const after = knob.afterGet
+          knob.afterGet = undefined
+          await after()
+        }
+        return r
       },
       set: async (key: string, value: unknown) => {
         knob.rowsAtSet.push(uKinds())
         if (knob.set === 'throw') throw new Error('store')
-        return call('store.set', { key, value })
+        const r = await call('store.set', { key, value })
+        if (knob.set === 'lands' && key === UNATTENDED_KEY) throw new Error('store')
+        return r
       },
       delete: async (key: string) => {
         if (knob.del === 'throw') throw new Error('store')
@@ -352,6 +360,54 @@ test('unattended: a read under way while the window is ended in the same process
   expect(uKinds()).toEqual(['unattended-on', 'unattended-off command'])
 })
 
+test('unattended: a read under way while this process opens a window is not kept, so the next read sees it', async ($, on) => {
+  const { $$, knob } = await proc($, on)
+  const v = win()
+  // The read has found nothing stored when the open lands.
+  knob.afterGet = async () => expect(await unattendedOpen($$, v)).toEqual({ ok: true, u: shortOf(v) })
+  expect(await unattendedNow($$)).toEqual({ state: 'off' })
+  expect(await unattendedNow($$)).toEqual({ state: 'on', value: v, u: shortOf(v) })
+})
+
+test('unattended: an off row the ledger refused is written again before the next read, and the value put back stays off', async ($, on) => {
+  const { $$ } = await proc($, on)
+  const v = putWindow()
+  h.pfsFails = (a: string[]) => a[0] === '/usr/bin/tee'
+  expect(await unattendedClose($$, { code: 'command', origin: 'prompt' })).toBe('closed')
+  expect(uKinds()).toEqual(['unattended-on'])
+  // The same value put back while the ledger still refuses: the row this process owes ends it.
+  h.store.set(UNATTENDED_KEY, v)
+  later()
+  expect(await unattendedNow($$)).toEqual({ state: 'off' })
+  expect(h.store.has(UNATTENDED_KEY)).toBe(false)
+  h.pfsFails = undefined
+  later()
+  expect(await unattendedNow($$)).toEqual({ state: 'off' })
+  expect(uKinds()).toEqual(['unattended-on', 'unattended-off command'])
+  expect(uRows()[1]).toMatchObject({ hash: hashOf(v), origin: 'prompt', by: SID })
+})
+
+test('unattended: a value whose write did not answer but landed is removed with its void row; a void row the ledger refused is owed and said', async ($, on) => {
+  const { $$, knob } = await proc($, on)
+  const v = win()
+  knob.set = 'lands'
+  expect(await unattendedOpen($$, v)).toEqual({ ok: false, why: 'store' })
+  expect(h.store.has(UNATTENDED_KEY)).toBe(false)
+  expect(uKinds()).toEqual(['unattended-on', 'unattended-off void'])
+  // The write fails, and the ledger refuses the void row after the on row: the answer says so, and the row is written at the next read.
+  newProcess()
+  const w = win({ savedAt: T0 + 1 })
+  knob.set = 'throw'
+  let tees = 0
+  h.pfsFails = (a: string[]) => a[0] === '/usr/bin/tee' && ++tees === 2
+  expect(await unattendedOpen($$, w)).toEqual({ ok: false, why: 'store-void' })
+  expect(uKinds()).toEqual(['unattended-on', 'unattended-off void', 'unattended-on'])
+  h.pfsFails = undefined
+  expect(await unattendedNow($$)).toEqual({ state: 'off' })
+  expect(uKinds()).toEqual(['unattended-on', 'unattended-off void', 'unattended-on', 'unattended-off void'])
+  expect(uRows()[3]).toMatchObject({ hash: hashOf(w) })
+})
+
 test('unattended: a removal that failed to answer but landed still gets its off row', async ($, on) => {
   const { $$, knob } = await proc($, on)
   const v = putWindow()
@@ -512,14 +568,16 @@ test('unattended: /callboard unattended prints the state to the person only', as
   h.nowMs += 11_000
   expect((await $.command.run(lane('unattended', { kind: 'bridge' }))).text.split('\n')[0]).toBe(`Unattended mode is on until ${when(v.until)}, with manager MANAGER (window ${shortOf(v)}). /callboard unattended off ends it.`)
   expect(await statusText($)).toContain(ON_ROW(v))
+  // The status row shows to every origin, as the Escalation row does.
+  for (const kind of ['plugin', 'peer', 'cron']) expect((await $.command.run(lane('status', { kind }))).text).toContain(ON_ROW(v))
 })
 
-test('unattended: no form of the command opens a window: on, with or without a time, is the usage line, with no dialog, value or row', async ($, on) => {
+test('unattended: a word the command does not take is the usage line, with no dialog, value or row', async ($, on) => {
   await started($, on, [])
-  for (const bad of ['unattended on', 'unattended on for 3 h', 'unattended on until 09:00', 'unattended on for 8h', 'unattended start', 'unattended off now']) {
+  for (const bad of ['unattended start', 'unattended off now', 'unattended on at 09:00', 'unattended on for 8', 'unattended ON']) {
     expect((await $.command.run(lane(bad))).text).toBe(usageLine('unattended'))
   }
-  expect(usageLine('unattended')).toBe('Use /callboard unattended or unattended off.')
+  expect(usageLine('unattended')).toBe('Use /callboard unattended, unattended on, unattended on until HH:MM, unattended on for N h or unattended off.')
   expect(h.askCount).toBe(0)
   expect(h.store.has(UNATTENDED_KEY)).toBe(false)
   expect(uKinds()).toEqual([])
