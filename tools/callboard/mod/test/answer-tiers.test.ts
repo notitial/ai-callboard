@@ -704,7 +704,7 @@ test('prompts tools: a conductor whose pins do not hold the lane\'s repo is not 
   expect(pfs.has(`${LDIR()}/${TID}.relay.json`)).toBe(true)
 })
 
-const mgrRow = (status: string) => { h.sessions = { ...h.sessions, '4243.json': { ...h.sessions['4243.json'], status, waitingFor: status === 'waiting' ? 'question' : null, statusUpdatedAt: T0 } } }
+const mgrRow = (status: string) => { h.sessions = { ...h.sessions, '4243.json': JSON.stringify({ ...JSON.parse(h.sessions['4243.json']), status, waitingFor: status === 'waiting' ? 'question' : null, statusUpdatedAt: T0 }) } }
 
 test('prompts tools: an asking mark with no open dialog behind it (the row is not waiting) does not keep the top: the lead relays, as with no mark', async ($, on) => {
   await tier($, on)
