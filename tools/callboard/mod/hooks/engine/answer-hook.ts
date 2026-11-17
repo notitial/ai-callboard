@@ -324,8 +324,20 @@ export async function escalationSure($: any): Promise<pr.EscalationSure> {
   return pr.escalationSureOf(stored, offFile)
 }
 
+// The text a reader judged a stored value by: its canonical text, or for a value that does not parse its JSON, marked so it never equals a canonical text.
+// undefined: a value with no JSON form.
+function windowText(raw: unknown, value: pr.Unattended | undefined): string | undefined {
+  if (value) return pr.canonical(value)
+  try {
+    const j = JSON.stringify(raw)
+    return typeof j === 'string' ? `bad:${j}` : undefined
+  } catch {
+    return undefined
+  }
+}
+
 // Ends a window: the stored value is removed, then the `unattended-off` row is written with how it ended, the origin of a command that ended it and this
-// session. `only`: the canonical text a reader judged; a stored value that is another one by now is left alone. 'none': nothing was stored (or, with `only`,
+// session. `only`: the text a reader judged (windowText); a stored value that is another one by now is left alone. 'none': nothing was stored (or, with `only`,
 // another value was). 'store-failed': the store did not answer or would not remove the value; nothing was written. A removal that did not answer is read
 // again: a value that is gone by then was removed, and gets its row. After 'closed' this process knows the window is off.
 export type WindowClosed = 'closed' | 'none' | 'store-failed'
@@ -335,7 +347,7 @@ export async function unattendedClose($: any, how: { code: string; origin?: c.Or
   if (got.raw === undefined || got.raw === null) return 'none'
   const value = pr.parseUnattended(got.raw)
   const text = value ? pr.canonical(value) : undefined
-  if (how.only !== undefined && text !== how.only) return 'none'
+  if (how.only !== undefined && windowText(got.raw, value) !== how.only) return 'none'
   const hash = text === undefined ? undefined : await windowHash($, text)
   if (!(await storeDo($, () => $.store.delete(UNATTENDED_KEY)))) {
     const after = await storeRead($, UNATTENDED_KEY)
@@ -345,6 +357,7 @@ export async function unattendedClose($: any, how: { code: string; origin?: c.Or
   mem.unattendedSure = 'off'
   mem.unattendedU = undefined
   mem.unattendedUnknown = false
+  mem.unattendedBadSeen = undefined
   mem.unattendedCloses++
   const sid = await ownSid($)
   const row: Omit<pr.LedgerRow, 't'> = { kind: 'unattended-off', code: how.code, ...(hash !== undefined ? { hash, u: pr.windowShort(hash) } : {}), ...(how.origin !== undefined ? { origin: how.origin } : {}), ...(sid !== undefined ? { by: sid } : {}) }
@@ -357,24 +370,33 @@ export async function unattendedClose($: any, how: { code: string; origin?: c.Or
 async function windowRead($: any, now: number): Promise<pr.Window> {
   const got = await storeRead($, UNATTENDED_KEY)
   if (!got.read) return windowUnknown('store', false)
-  if (got.raw === undefined || got.raw === null) return { state: 'off' }
-  const value = pr.parseUnattended(got.raw)
-  if (!value) return windowUnknown('value', true)
-  const text = pr.canonical(value)
-  const over = async (code: string): Promise<pr.Window> => {
-    await unattendedClose($, { code, only: text })
+  if (got.raw === undefined || got.raw === null) {
+    mem.unattendedBadSeen = undefined
     return { state: 'off' }
   }
+  const value = pr.parseUnattended(got.raw)
+  const text = windowText(got.raw, value)
+  const over = async (code: string): Promise<pr.Window> => {
+    if (text !== undefined) await unattendedClose($, { code, only: text })
+    return { state: 'off' }
+  }
+  // A value that does not parse holds for UNATTENDED_GRACE_MS from when this process first saw it, then ends as invalid.
+  if (!value) {
+    if (text === undefined || mem.unattendedBadSeen?.text !== text) mem.unattendedBadSeen = text === undefined ? undefined : { text, at: now }
+    return mem.unattendedBadSeen && now - mem.unattendedBadSeen.at > pr.UNATTENDED_GRACE_MS ? over('invalid') : windowUnknown('value', true)
+  }
+  mem.unattendedBadSeen = undefined
   const time = pr.unattendedTime(value, now)
   if (time === 'invalid' || time === 'expired') return over(time)
-  if (time === 'early') return windowUnknown('clock', true)
-  const hash = await windowHash($, text)
+  // The ledger is read before the clock is judged, so a value with no row ends after the grace even while the clock reads before its start.
+  const hash = await windowHash($, text!)
   if (hash === undefined) return windowUnknown('hash', true)
   const p = await where($)
   const rows = p ? await ledgerRowsFor($, p, `"hash":"${hash}"`) : 'unreadable'
   if (rows === 'unreadable') return windowUnknown('ledger', true)
   const bind = pr.unattendedBind(rows, hash, value, now)
   if (bind === 'ended' || bind === 'unbound') return over(bind)
+  if (time === 'early') return windowUnknown('clock', true)
   if (bind === 'wait') return windowUnknown('unbound', true)
   return { state: 'on', value, u: pr.windowShort(hash) }
 }
@@ -859,9 +881,11 @@ async function promptHook($: any, e: any, nextOnce: (x: any) => Promise<any>, si
   const cov = await promptCoverage($, sid)
   if (!cov || (await promptsOff($))) {
     // A manager's or a conductor's own permission prompt is covered by no tier, so inside an unattended window it would wait for the person with no limit: what
-    // the chain beneath answers stands, a click that got there first stands, and anything else is denied at once.
+    // the chain beneath answers stands, a click that got there first stands, and anything else is denied at once. Escalation surely off ends the window, so the
+    // prompt then waits for the person as by day.
     const level = grants.get(sid)?.level
     if ((level !== 'manager' && level !== 'conductor') || !(await unattendedHeld($).catch(() => mem.unattendedSure === 'on'))) return nextOnce(e)
+    if ((await escalationSure($).catch(() => ({ state: 'unread' as const }))).state === 'off') return nextOnce(e)
     const beneath = await nextOnce(e)
     if ((beneath && typeof beneath === 'object' && Object.keys(beneath).length > 0) || signal.aborted) return beneath
     await logq($, sid, 'refused', 'unattended-own-prompt')
@@ -1073,10 +1097,11 @@ async function promptWait($: any, beneath: any, signal: AbortSignal, w: WaitCtx)
   let presenceAt = 0
   let pauseFails = 0
   // A relay whose question the person had on screen (asked) never ends in the 20-minute deny, even if it is lost later: the prompt stays in the dialog (expired at 21 minutes).
+  // A relay taken back for an unattended window is the exception: the person is away, so the wait ends in the hold.
   let personSaw = false
   const relayLost = async (code: string): Promise<void> => {
     const r = relay
-    if (askedSeen) personSaw = true
+    if (askedSeen && code !== 'unattended') personSaw = true
     if (!(await ledgerAdd($, { ...w.row, kind: 'relay-lost', code, ...(r ? { short: r.short, by: r.by.sid, tier: r.by.level } : {}) }))) return
     await rmF($, [relayPath, askedPath, leftPath])
     relay = undefined
@@ -1255,7 +1280,7 @@ async function promptApply($: any, w: WaitCtx, d: pr.Decision, awake: number, gr
   const lh = d.decision === 'answer' && d.answer ? await labelHash($, w.id, d.answer.label).catch(() => undefined) : undefined
   const ledger = d.decision === 'answer' && d.answer && lh === undefined ? 'unreadable' : await ledgerHas($, w.p, w.id, w.nonce, { code: d.decision, by: d.by.sid, ...(d.via ? { via: d.via } : {}), ...(d.answer && lh !== undefined ? { opt: String(d.answer.index), lh } : {}), ...(d.u !== undefined ? { u: d.u } : {}) })
   // A park lands only inside the window it was made in, so the window is read for a park and for nothing else.
-  const win = d.decision === 'park' ? await unattendedNow($) : undefined
+  const win = d.decision === 'park' ? await unattendedNow($, true) : undefined
   const window = win === undefined ? undefined : win.state === 'on' ? ({ state: 'on', u: win.u } as const) : ({ state: win.state } as const)
   // Only a call that carries an `@claude` body, and only once the other checks would let the decision through, reads the cap.
   const cap = w.cap && ledger === 'found' && d.decision === 'allow' && d.via !== 'person' ? await capOf($, w.p, w.cap) : undefined

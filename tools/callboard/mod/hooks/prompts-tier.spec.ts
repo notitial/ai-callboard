@@ -571,11 +571,11 @@ test('an unattended window in the tier texts: no turn line offers the person, he
   const lines = [
     p.turnLine({ top: true, away: 'manager' }),
     p.turnLine({ top: true, away: 'manager', question: true }),
-    p.turnLine({ top: true, away: 'no-manager' }),
-    p.turnLine({ top: true, away: 'no-manager', question: true }),
-    p.turnLine({ top: false, away: 'no-manager', here: true }),
+    p.turnLine({ top: true, away: 'lower' }),
+    p.turnLine({ top: true, away: 'lower', question: true }),
+    p.turnLine({ top: false, away: 'lower', here: true }),
     p.turnLine({ top: true, away: 'manager', here: true }),
-    p.turnLine({ top: false, above: { level: 'manager', name: 'MANAGER' }, away: 'no-manager', here: true }),
+    p.turnLine({ top: false, above: { level: 'manager', name: 'MANAGER' }, away: 'lower', here: true }),
   ]
   for (const l of lines) assert.ok(!/put it to (the person|them)|The person said they are here/.test(l), l)
   assert.equal(lines[0], 'Unattended mode: allow, deny or park it by the rubric and the unattended rules below. Nothing is put to the person.')

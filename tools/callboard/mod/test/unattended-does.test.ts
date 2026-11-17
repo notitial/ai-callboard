@@ -5,7 +5,7 @@ import { HOUR_MS, REASON_TEXT, UNATTENDED_LIVE_LANES } from '../hooks/core'
 import { UNATTENDED_KEY } from '../hooks/engine/answer-hook'
 import { h, GO_DIR, ROOT, SID, T0, leadFiles, longTest, pfs, submitted } from './harness'
 import { APISID, LEADPATH, LEADSID, MGR_SESS, NEWSID, PIN, ckLane, ckRow, cueSession, drive, lane, leadAt, leadCall, leadSelfReg, logged, mgrAt, putStore, started, tickTwice, waitFor } from './fixtures'
-import { APIQ, LDIR, MGRT, PDIR, PRQ, QIN, TID, TID2, addMgrT, answerCall, answerer, asConductor, at, beneathHooks, byMgr, handDecision, ledgerRows, pcall, putFileAt, putLedger, putQ, putRelay, putWindow, readReq, refusal, relayQ, reqFiles, runRequest, said, stop, tier, win, winShort, wireGuard } from './answer-fixtures'
+import { APIQ, LDIR, MGRT, OFF_FILE, PDIR, PRQ, QIN, TID, TID2, addMgrT, answerCall, answerer, asConductor, at, beneathHooks, byMgr, handDecision, ledgerRows, pcall, putFileAt, putLedger, putQ, putRelay, putWindow, readReq, refusal, relayQ, reqFiles, runRequest, said, stop, tier, win, winShort, wireGuard } from './answer-fixtures'
 
 // ---- what an unattended window does (ADR 0008): nothing is put to the person, no tier waits on its own question or prompt, the manager's park, the window's
 // mark on the rows, what the lane is told, the lane ceiling, go_request, and the list ----
@@ -207,6 +207,17 @@ for (const [level, setup] of [
   })
 }
 
+test('window: the manager\'s own prompt waits for the person once the OFF file is there, before any tick has ended the window', async ($, on) => {
+  for (const ev of ['classic.PostToolUse', 'classic.PostToolUseFailure', 'classic.PermissionDenied'] as const) on(ev, () => ({}))
+  on('classic.PermissionRequest', () => ({}))
+  await asManager($, on)
+  open()
+  const prompt = () => $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: PRQ } as any)
+  expect(await prompt()).toEqual(PROMPT_DENIED)
+  pfs.set(OFF_FILE, { text: '', mtimeSec: h.nowMs / 1000 })
+  expect((await prompt()) ?? {}).toEqual({})
+})
+
 test('window: a lead\'s own prompt with no tier above it is denied at once; a lane\'s with no tier in reach stays in its panel', async ($, on) => {
   const stdins: string[] = []
   await answerer($, on, stdins, { asLead: true })
@@ -305,7 +316,7 @@ for (const [name, decide, drop] of [
   })
 }
 
-test('window: a decision of a kind the hook does not know is dropped as a bad shape (what an older hook does with a park)', async ($, on) => {
+test('window: a decision of a kind the hook does not know is dropped as a bad shape', async ($, on) => {
   await laneUnderManager($, on)
   const u = winShort(open())
   const r = await runRequest($, [at(4000, () => handDecision(readReq(), { decision: 'provisional', why: 'x', by: byMgr, u }, { by: MGRT, u })), stop(40_000)])
@@ -343,6 +354,19 @@ longTest('window: a prompt nobody answers is held for the person at 20 minutes: 
   expect(r).toEqual({ decision: { behavior: 'deny', message: prm.UNATTENDED_HOLD_MESSAGE } })
   expect(kinds()).toEqual(['requested', 'expired-denied held'])
   expect(of('expired-denied')[0].u).toBe(winShort(v))
+})
+
+longTest('window: a relay the person had on screen before the window opened is taken back, and the prompt is still held at 20 minutes', async ($, on) => {
+  await answerer($, on, [])
+  let v: prm.Unattended | undefined
+  const r = await runRequest($, [
+    at(4000, () => putRelay(readReq())),
+    at(4000, () => putFileAt(`${readReq().id}.asked`)),
+    at(12_000, () => { v = putWindow(win({ from: h.nowMs, savedAt: h.nowMs, until: h.nowMs + 8 * HOUR_MS })) }),
+  ])
+  expect(r).toEqual({ decision: { behavior: 'deny', message: prm.UNATTENDED_HOLD_MESSAGE } })
+  expect(kinds()).toEqual(['requested', 'relay-lost unattended', 'expired-denied held'])
+  expect(of('expired-denied')[0].u).toBe(winShort(v!))
 })
 
 longTest('window: a prompt raised before the window and still unanswered at 20 minutes inside it is held too; one whose window ended meanwhile gets the usual text', async ($, on) => {

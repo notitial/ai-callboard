@@ -653,13 +653,14 @@ test('the lane texts of a window: each keeps its whole tail after a 200-characte
   assert.equal(p.parkText({ level: 'manager', name: 'MANAGER' }, 'a merge waits'), 'Parked by the manager MANAGER for the person: a merge waits')
   assert.equal(p.parkText({ level: 'manager', name: 'x y' }, 'w'), 'Parked by the manager for the person: w')
   assert.equal(p.parkText(undefined, 'w'), 'Parked by the tier for the person: w')
-  // No lane text tells the lane not to ask again, and none reads as the person's decision.
-  for (const t of [p.UNATTENDED_DENY_TAIL, p.UNATTENDED_PARK_TAIL, p.UNATTENDED_HOLD_MESSAGE]) assert.ok(!/ask again/i.test(t) && /Do not reach the same effect another way\./.test(t), t)
+  // No text that denies or holds a call tells the lane to ask again or leaves out that it must not reach the same effect another way, and none reads as the
+  // person's decision.
+  for (const t of [p.UNATTENDED_DENY_TAIL, p.UNATTENDED_PARK_TAIL, p.UNATTENDED_HOLD_MESSAGE, p.TIER_PROMPT_DENY]) assert.ok(!/ask again/i.test(t) && /Do not reach the same effect another way[.:]/.test(t), t)
   const unclear = message(p.denyText(tier, false, `${p.UNCLEAR_PREFIX}${'w'.repeat(170)}`), p.UNCLEAR_SUFFIX)
   assert.ok(unclear.endsWith(p.UNCLEAR_SUFFIX) && !unclear.includes('Unattended mode'))
   // A tier's own question and its own prompt: fixed texts with nothing of the session's in them, and neither claims a decision.
   assert.ok(p.TIER_QUESTION_DENY.includes('Take the safe default, note the open decision where the person will see it') && p.TIER_QUESTION_DENY.includes('nothing was decided'))
-  assert.ok(p.TIER_PROMPT_DENY.includes('It is not a decision on the call itself.') && p.TIER_PROMPT_DENY.includes('note it for the person and go on'))
+  assert.ok(p.TIER_PROMPT_DENY.includes('It is not a decision on the call itself.') && p.TIER_PROMPT_DENY.includes('note it for the person where they will see it'))
 })
 
 test('prompt_list in a window: the manager\'s block follows the rubric and fits the budget with 20 requests of the longest texts; a lower tier gets one line', () => {
@@ -669,7 +670,7 @@ test('prompt_list in a window: the manager\'s block follows the rubric and fits 
   for (const part of ['1. Allow only what the rubric above lets you allow or handle.', '**Park** it: `prompt_answer`, decision `park`', 'If unsure which, park.', "4. A call you can't see whole or understand: the cleaner-command deny, as always.", '5. A question: answer it only by the question rubric.', 'Do not call a stop tool, and do not ask the person anything']) assert.ok(block.includes(part), part)
   // The go's own list, whole: one list for what always waits for the person.
   assert.ok(block.includes('a merge; a force push; a push to main, master or production;') && block.includes("work the go's text does not name."))
-  // Nothing in the block names a tool that does not exist yet.
+  // The block names no stop tool of the window.
   assert.ok(!block.includes('unattended_off'))
   const big = { command: 'x'.repeat(p.STRING_CAP) }
   const items: p.ListItem[] = Array.from({ length: 20 }, (_, n) => ({ id: `${String(n).padStart(8, '0')}-0000-4000-8000-123456789abc`, lane: 'L'.repeat(120), tool: n === 0 ? p.QUESTION_TOOL : 'Bash', repo: '/Users/x/repo', raisedBy: 'hook', ageSec: 60, truncated: false, input: n === 0 ? qIn() : big, turn: p.turnLine({ top: true, away: 'manager' }), reason: 'r'.repeat(p.REASON_CAP) }))

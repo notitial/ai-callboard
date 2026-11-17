@@ -38,8 +38,10 @@ export const mem = {
   // The unattended window (engine/answer-hook.ts). unattended: the last read, kept for its TTL. unattendedSure: the last state a read was sure of. unattendedUnknown:
   // the run of unknown reads now under way has its ledger row. unattendedHash: the last value
   // hashed, by its canonical text. unattendedLookedAt: when the tick last looked. unattendedCloses: how many windows this process has ended, so a read under way
-  // across an end is not kept. unattendedU: the short id of the window last read on, until a read is sure it is off.
+  // across an end is not kept. unattendedU: the short id of the window last read on, until a read is sure it is off. unattendedBadSeen: a stored value that
+  // does not parse (its windowText) and when this process first read it.
   unattended: undefined as { at: number; w: pr.Window } | undefined,
+  unattendedBadSeen: undefined as { text: string; at: number } | undefined,
   unattendedSure: undefined as 'on' | 'off' | undefined,
   unattendedU: undefined as string | undefined,
   unattendedUnknown: false,

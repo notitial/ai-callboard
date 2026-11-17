@@ -230,12 +230,32 @@ test('unattended: a ledger that does not answer ends nothing and permits nothing
   expect(uRows().filter((r) => r.kind === 'unattended-off')).toEqual([])
 })
 
-test('unattended: a value that does not parse is unknown and stays stored; the off command is what removes it', async ($, on) => {
+test('unattended: a value that does not parse is unknown and held through the grace, then ended as invalid', async ($, on) => {
   const { $$ } = await proc($, on)
   h.store.set(UNATTENDED_KEY, { ...win(), by: 'plugin' })
   expect(await unattendedNow($$)).toEqual({ state: 'unknown', cause: 'value', key: true })
+  expect(await unattendedHeld($$)).toBe(true)
   later()
   await unattendedTick($$)
+  expect(h.store.has(UNATTENDED_KEY)).toBe(true)
+  expect(await unattendedNow($$, true)).toEqual({ state: 'unknown', cause: 'value', key: true })
+  later(prm.UNATTENDED_GRACE_MS)
+  expect(await unattendedNow($$, true)).toEqual({ state: 'off' })
+  expect(await unattendedHeld($$)).toBe(false)
+  expect(h.store.has(UNATTENDED_KEY)).toBe(false)
+  const { t: _t, ...row } = uRows().at(-1)
+  expect(row).toEqual({ kind: 'unattended-off', code: 'invalid', by: SID })
+})
+
+test('unattended: another value that does not parse starts its own grace; the off command removes one at once', async ($, on) => {
+  const { $$ } = await proc($, on)
+  h.store.set(UNATTENDED_KEY, { ...win(), by: 'plugin' })
+  expect((await unattendedNow($$)).state).toBe('unknown')
+  later(prm.UNATTENDED_GRACE_MS - 10_000)
+  h.store.set(UNATTENDED_KEY, { ...win(), by: 'other' })
+  expect((await unattendedNow($$, true)).state).toBe('unknown')
+  later(20_000)
+  expect((await unattendedNow($$, true)).state).toBe('unknown')
   expect(h.store.has(UNATTENDED_KEY)).toBe(true)
   expect(await unattendedClose($$, { code: 'command', origin: 'prompt' })).toBe('closed')
   expect(h.store.has(UNATTENDED_KEY)).toBe(false)
@@ -254,6 +274,16 @@ test('unattended: a clock 6 minutes before the start reads unknown and deletes n
   h.nowMs = T0 + MIN
   newProcess()
   expect((await unattendedNow($$)).state).toBe('on')
+})
+
+test('unattended: a value with no row ends as unbound after the grace even while the clock reads before its start', async ($, on) => {
+  const { $$ } = await proc($, on)
+  h.store.set(UNATTENDED_KEY, win({ from: T0 + 10 * MIN, until: T0 + 10 * MIN + HOUR_MS, savedAt: T0 }))
+  expect(await unattendedNow($$)).toEqual({ state: 'unknown', cause: 'clock', key: true })
+  later(prm.UNATTENDED_GRACE_MS + 1)
+  expect(await unattendedNow($$, true)).toEqual({ state: 'off' })
+  expect(h.store.has(UNATTENDED_KEY)).toBe(false)
+  expect(uKinds().at(-1)).toBe('unattended-off unbound')
 })
 
 test('unattended: a span outside the bounds is ended as invalid at the first read', async ($, on) => {

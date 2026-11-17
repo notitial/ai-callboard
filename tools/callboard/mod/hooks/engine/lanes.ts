@@ -1046,8 +1046,8 @@ async function leadPrep($: any, e: unknown, sid: string) {
   const pick = c.leadLane(base.lanes, base.g, (e as { lane?: unknown }).lane)
   if (!pick.ok) return { err: [pick.reason, c.reasonWhy(pick.reason)] as const }
   const entries = base.live.flatMap((r) => (typeof r.j.sessionId === 'string' ? [regEntry(r)] : []))
-  // liveLanes: the lanes in this lead's reach whose session is live now, for the ceiling an unattended window puts on them.
-  return { lane: pick.lane, entries, liveLanes: base.lanes.filter((l) => c.inReach(base.g, l) && c.laneSession(entries, l, sid).ok).length }
+  // liveLanes: the lanes in this lead's reach whose session is live now, read wide (liveLaneNames), for the ceiling an unattended window puts on them.
+  return { lane: pick.lane, entries, liveLanes: c.liveLaneNames(base.lanes.filter((l) => c.inReach(base.g, l)), entries).length }
 }
 // Inside an unattended window a lead has at most c.UNATTENDED_LIVE_LANES lanes live: the tools that open a lane's session refuse past it.
 const lanesFull = async ($: any, liveLanes: number): Promise<boolean> => liveLanes >= c.UNATTENDED_LIVE_LANES && (await unattendedHeld($))

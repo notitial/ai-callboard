@@ -89,7 +89,7 @@ export function putWindow(v: prm.Unattended = win(), row = true): prm.Unattended
 }
 // The engine files a test imports are one module for the whole file, so a test that reads the window starts from the memory of a new process.
 export const newProcess = () => {
-  Object.assign(mem, { unattended: undefined, unattendedSure: undefined, unattendedU: undefined, unattendedUnknown: false, unattendedHash: undefined, unattendedLookedAt: undefined })
+  Object.assign(mem, { unattended: undefined, unattendedSure: undefined, unattendedU: undefined, unattendedUnknown: false, unattendedHash: undefined, unattendedLookedAt: undefined, unattendedBadSeen: undefined })
   windowHeldSeen.clear()
 }
 

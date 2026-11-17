@@ -299,7 +299,7 @@ async function promptListTool($: any, e: unknown): Promise<{ result: string } | 
     const q = f.req
     const s = stands.get(q.id)!
     const top = s.stand.top
-    const turn = pr.turnLine({ relay: s.stand.relay?.by, top: top?.sid === s.self.sid || top?.level === s.self.level, above: top, opensInSec: promptWindowShut(s.stand, sid, now) ? (s.stand.windows[sid] - now) / 1000 : undefined, question: q.tool === pr.QUESTION_TOOL, here, ...(hold.held ? { away: manager ? ('manager' as const) : ('no-manager' as const) } : {}) })
+    const turn = pr.turnLine({ relay: s.stand.relay?.by, top: top?.sid === s.self.sid || top?.level === s.self.level, above: top, opensInSec: promptWindowShut(s.stand, sid, now) ? (s.stand.windows[sid] - now) / 1000 : undefined, question: q.tool === pr.QUESTION_TOOL, here, ...(hold.held ? { away: manager ? ('manager' as const) : ('lower' as const) } : {}) })
     items.push({ id: q.id, lane: q.lane, tool: q.tool, repo: q.repo, raisedBy: q.raisedBy, ageSec: (now - q.at) / 1000, truncated: q.truncated, agentType: q.agentType, input: q.input, turn, ...(q.reason !== undefined ? { reason: q.reason, ...(q.reasonCut ? { reasonCut: true } : {}) } : {}) })
   }
   const unattended = !hold.held ? undefined : manager ? { tier: 'manager' as const, never: GO_NEVER_TEXT, ...(hold.until !== undefined ? { until: goWhen(hold.until, -new Date(hold.until).getTimezoneOffset()) } : {}) } : { tier: 'lower' as const }
@@ -340,18 +340,16 @@ async function promptAnswerTool($: any, e: any, answer: boolean): Promise<{ resu
     if (e.answer !== undefined && (typeof e.answer !== 'string' || pr.matchLabel(labels, e.answer) !== opt - 1)) return refuse('bad-answer')
     pick = { index: opt - 1, label: labels[opt - 1] }
   } else if (answer && decision === 'answer') return refuse('bad-input')
-  // The unattended window (ADR 0008). A park is the manager's alone and only while a window reads on: a window that cannot be read permits none. Every decision
-  // the manager makes while a window reads on carries the window's short id, in its file and on its row.
+  // The unattended window (ADR 0008). A park is the manager's alone and only while a fresh read of the window says on: a window that cannot be read permits none.
+  // Every decision the manager makes while a window is held carries the window's short id, in its file and on its row.
   let u: string | undefined
-  if (answer && (decision === 'park' || self.level === 'manager')) {
-    const win = await unattendedNow($)
-    if (decision === 'park') {
-      if (self.level !== 'manager') return refuse('park-not-allowed')
-      if (win.state === 'unknown') return refuse('unattended-unread')
-      if (win.state !== 'on') return refuse('park-not-allowed')
-    }
-    if (self.level === 'manager' && win.state === 'on') u = win.u
-  }
+  if (answer && decision === 'park') {
+    if (self.level !== 'manager') return refuse('park-not-allowed')
+    const win = await unattendedNow($, true)
+    if (win.state === 'unknown') return refuse('unattended-unread')
+    if (win.state !== 'on') return refuse('park-not-allowed')
+    u = win.u
+  } else if (answer && self.level === 'manager') u = (await unattendedHold($)).u
   // The decision is judged on the copy the tier read. A truncated copy cannot be allowed (the rubric: seen whole), and cannot be put to the person either: it is
   // denied, asking the lane for a cleaner call.
   if (answer) {
