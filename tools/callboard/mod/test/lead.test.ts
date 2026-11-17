@@ -825,12 +825,13 @@ test('a lead granted with no registry name takes its name once the registry give
   expect(notices()).toBe(1)
 })
 
-test('a saved grant for another folder: no lead, and the key is deleted', async ($, on) => {
+test('a saved grant for another folder: no lead, the key is deleted, and the toast names the saved folder and says to run /callboard lead in this one', async ($, on) => {
   const stdins: string[] = []
   await leadRestarter($, on, stdins, { cwd: `${PIN}/svc` })
   expect(await statusText($)).toContain('| Lead | OFF |')
   expect(h.store.has(LEADKEY)).toBe(false)
   expect(leadLogs(stdins)).toEqual(['lead-restore-rejected:wrong-folder'])
+  expect(toasts).toContain('Lead not restored: the session started in another folder than the one its saved grant names (app), so the saved grant was removed. Run /callboard lead in this folder.')
 })
 
 const HERE_SELF = { v: 1, sid: SID, at: T0 - 1000, until: T0 + 3_600_000 }
