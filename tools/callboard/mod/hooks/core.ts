@@ -3410,10 +3410,19 @@ export function leadLanes(lanes: Lane[], lead: { sid?: string; names: (string | 
 export function liveLaneNames(lanes: Lane[], entries: RegEntry[]): string[] {
   return lanes.filter((l) => entries.some((e) => SID_RE.test(e.sessionId) && (e.name === l.name || (l.sid !== undefined && e.sessionId === l.sid)))).map((l) => l.name)
 }
-// The sessions a lead opened with lane_open that are live and not yet any lane's (no record names their id, and their name is no lane's): liveLaneNames does not
-// count them, so the ceiling an unattended window puts on live lanes adds them.
-export function openedUnbound(opened: Iterable<string>, lanes: Lane[], entries: RegEntry[]): string[] {
-  return [...opened].filter((sid) => entries.some((e) => e.sessionId === sid && !lanes.some((l) => l.sid === sid || e.name === l.name)))
+// The sessions a lead holds for the ceiling an unattended window puts on live lanes, which liveLaneNames does not count: each key with the time it was taken.
+// A key that is no session id is an open still under way and counts. A session counts while it is live and not yet any lane's (no record names its id, and
+// its name is no lane's), and also for OPENED_GRACE_MS after it was taken while it has no registry row yet (a panel registers a moment after it opens).
+export const OPENED_GRACE_MS = 2 * 60_000
+export function openedUnbound(opened: Iterable<[string, number]>, lanes: Lane[], entries: RegEntry[], now: number): string[] {
+  return [...opened]
+    .filter(([sid, at]) => {
+      if (!SID_RE.test(sid)) return true
+      const rows = entries.filter((e) => e.sessionId === sid)
+      if (rows.length === 0) return now - at < OPENED_GRACE_MS
+      return rows.some((e) => !lanes.some((l) => l.sid === sid || e.name === l.name))
+    })
+    .map(([sid]) => sid)
 }
 
 export type LeadStopTool = (typeof LEAD_STOP_TOOLS)[number]

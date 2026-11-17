@@ -2,10 +2,10 @@ import { expect, test } from 'claude-code/testing'
 import * as prm from '../hooks/prompts'
 import * as g from '../hooks/go'
 import { CONFIG_DEFAULTS, HOUR_MS } from '../hooks/core'
-import { UNATTENDED_KEY } from '../hooks/engine/answer-hook'
+import { UNATTENDED_KEY, UNATTENDED_OFF_AT_KEY } from '../hooks/engine/answer-hook'
 import { h, PROMPTS_DIR, SID, T0, longTest, pdirs, pfs, toasts } from './harness'
 import { APISID, MGR_SESS, OTHER, ckLane, lane, leadAt, logged, mgrAt, putStore, statusText, waitFor } from './fixtures'
-import { LDIR, OFF_FILE, TID, ledgerRows, putLedger, putWindow, win, winShort } from './answer-fixtures'
+import { LDIR, LEDGER_FILE, OFF_FILE, TID, ledgerRows, putLedger, putWindow, win, winShort } from './answer-fixtures'
 
 // ---- turning unattended mode on (ADR 0008): /callboard unattended on, its preconditions, its dialog and the recheck after the click; the manager's
 // unattended_off ----
@@ -169,6 +169,35 @@ test('unattended on: an off typed in any session while the dialog is open wins o
   nothingOn()
 })
 
+test('unattended on: for half an hour opens after the dialog was open a while: its span is measured from when the person asked', async ($, on) => {
+  await manager($, on)
+  const answer = holdDialog()
+  const n = h.askCount
+  const p = onCmd($, 'unattended on for 0.5 h')
+  await waitFor(() => h.askCount !== n)
+  h.nowMs += 20_000
+  answer(prm.UNATTENDED_YES)
+  const text = await p
+  const v = h.store.get(UNATTENDED_KEY) as prm.Unattended
+  expect(v).toEqual({ v: 1, from: T0, until: T0 + 30 * 60_000, by: 'prompt', manager: 'MANAGER', savedAt: T0 + 20_000 })
+  expect(text).toBe(prm.unattendedOnText(when(v.until), 'MANAGER', winShort(v)))
+  expect(uKinds()).toEqual(['unattended-on'])
+})
+
+test('unattended on: an off whose mark lands while the window is being written still wins, and the window is ended with a void row', async ($, on) => {
+  const stdins: string[] = []
+  await manager($, on, stdins)
+  // Another session's off finds nothing yet and leaves its mark while the window's row is written.
+  h.pfsFails = (a: string[]) => {
+    if (a[0] === '/usr/bin/tee' && a.at(-1) === LEDGER_FILE && !h.store.has(UNATTENDED_OFF_AT_KEY)) h.store.set(UNATTENDED_OFF_AT_KEY, h.nowMs)
+    return false
+  }
+  expect(await onCmd($)).toBe(prm.unattendedNoText('off-typed'))
+  expect(h.store.has(UNATTENDED_KEY)).toBe(false)
+  expect(uKinds()).toEqual(['unattended-on', 'unattended-off void'])
+  expect(logged(stdins)).toContain('refused:unattended-on:off-typed')
+})
+
 longTest('unattended on: a dialog nobody answers times out after 10 minutes and stores nothing; a click on it afterwards turns nothing on and says so', async ($, on) => {
   await manager($, on, [], { clock: true })
   const answer = holdDialog()
@@ -203,7 +232,7 @@ test('unattended_off: the manager\'s main agent ends the window and gets its cou
   expect(h.store.has(UNATTENDED_KEY)).toBe(false)
   expect(uKinds()).toEqual(['unattended-on', 'unattended-off manager'])
   // The list names how it ended.
-  expect(await onCmd($, 'unattended')).toContain('Ended early: the manager ended it when you said you were back')
+  expect(await onCmd($, 'unattended')).toContain('Ended early: the manager ended it with unattended_off')
 })
 
 test('unattended_off: a subagent of the manager is refused, and the window stays', async ($, on) => {

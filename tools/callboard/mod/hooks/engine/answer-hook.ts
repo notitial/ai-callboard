@@ -375,13 +375,9 @@ async function offRow($: any, row: Omit<pr.LedgerRow, 't'>): Promise<boolean> {
   if (sid !== undefined) await logq($, sid, 'error', 'unattended-ledger')
   return false
 }
+// Each owed row stays in the list until it is written, so a read while the retry runs still ends its value.
 async function offRowsRetry($: any): Promise<void> {
-  const due = mem.unattendedOffDue
-  if (due.length === 0) return
-  mem.unattendedOffDue = []
-  const left: Omit<pr.LedgerRow, 't'>[] = []
-  for (const row of due) if (!(await ledgerAdd($, row).catch(() => false))) left.push(row)
-  mem.unattendedOffDue = [...left, ...mem.unattendedOffDue].slice(-UNATTENDED_OFF_DUE_MAX)
+  for (const row of [...mem.unattendedOffDue]) if (await ledgerAdd($, row).catch(() => false)) mem.unattendedOffDue = mem.unattendedOffDue.filter((r) => r !== row)
 }
 
 // /callboard unattended off and unattended_off leave the time they ran in the store (best effort), whether or not a window was on: a turn-on dialog open in any
@@ -418,7 +414,7 @@ export async function unattendedBusy($: any): Promise<'relay' | 'asking' | 'none
   }
   const top = await list(base)
   if (!top) return 'unread'
-  for (const d of top.filter((x) => c.SID_RE.test(x.name)).slice(0, PROMPT_DIRS_MAX)) {
+  for (const d of top.filter((x) => c.SID_RE.test(x.name)).sort((a, b) => a.name.localeCompare(b.name)).slice(0, PROMPT_DIRS_MAX)) {
     const files = await list(`${base}/${d.name}`)
     if (!files) return 'unread'
     if (files.some((f) => /^[0-9a-f-]{36}\.relay\.json$/.test(f.name))) return 'relay'
@@ -487,8 +483,9 @@ export async function unattendedNow($: any, fresh = false): Promise<pr.Window> {
     w = await windowRead($, now)
     // A window ended in this process while the read was under way: what the read found is older than that end, so it is not kept and the answer is off.
     if (mem.unattendedCloses !== closes) return { state: 'off' }
-    // A window opened in this process meanwhile: the read may predate it, so it is neither kept nor taken as sure; the next read looks again.
-    if (mem.unattendedOpens !== opens) return w
+    // A window opened in this process meanwhile: the read may predate it, so it is neither kept nor taken as sure, and an off it found is no answer; the next
+    // read looks again.
+    if (mem.unattendedOpens !== opens) return w.state === 'off' ? windowUnknown('store', false) : w
     mem.unattended = { at: now, w }
   } catch {
     w = windowUnknown('error', false)

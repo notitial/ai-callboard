@@ -509,6 +509,24 @@ longTest('window: with three lanes live, a session opened and not yet renamed co
   expect(JSON.stringify(await drive($.tool.call(leadCall('open', { lane: 'L4' }))))).toContain(`lane_open refused: unattended-lanes: ${REASON_TEXT['unattended-lanes']}`)
 })
 
+longTest('window: with three lanes live, a panel just opened counts before its session is in the registry, so a second open is refused', async ($, on) => {
+  await ceilingLead($, on, LIVE.slice(0, 3))
+  open()
+  expect(await opening($)).toContain(`session ${NEWSID}`)
+  expect(JSON.stringify(await drive($.tool.call(leadCall('open', { lane: 'L4' }))))).toContain(`lane_open refused: unattended-lanes: ${REASON_TEXT['unattended-lanes']}`)
+})
+
+longTest('window: with three lanes live, an open still under way counts, so an open beside it is refused', async ($, on) => {
+  await ceilingLead($, on, LIVE.slice(0, 3))
+  open()
+  h.openResultPath = `${ROOT}/open/L5.result`
+  const first = $.tool.call(leadCall('open', { lane: 'L5' }))
+  await h.clock!.advance(500)
+  expect(JSON.stringify(await drive($.tool.call(leadCall('open', { lane: 'L4' }))))).toContain(`lane_open refused: unattended-lanes: ${REASON_TEXT['unattended-lanes']}`)
+  h.openResult = `ok ${NEWSID}\n`
+  expect(JSON.stringify(await drive(first))).toContain(`session ${NEWSID}`)
+})
+
 longTest('window: with four lanes live, lane_rename that would bind a fifth is refused; it is not refused with three', async ($, on) => {
   await ceilingLead($, on)
   open()

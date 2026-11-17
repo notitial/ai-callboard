@@ -84,8 +84,9 @@ export const restoredOnce = new Set<string>()
 
 // One callboard question per session at a time: a second request while one is open is refused, not queued.
 export const dialogOpen = new Set<string>()
-// Per lead, the sessions its lane_open opened in this process: until one is a lane's, the ceiling an unattended window puts on live lanes counts it.
-export const laneOpened = new Map<string, Set<string>>()
+// Per lead, what the ceiling an unattended window puts on live lanes counts beside its live lanes (core.openedUnbound): the sessions its lane_open opened in
+// this process, an open under way, and a session a rename or an unpark is binding now, each with the time it was taken.
+export const laneOpened = new Map<string, Map<string, number>>()
 // Counts the `off` commands that ran, so a restore or a join that waited on a dialog can see an `off` came in meanwhile and stop.
 export const offSeq = new Map<string, number>()
 // Sessions whose `here` (/callboard here) ended in this process, by a dropped grant or a key that could not be written: such a session is not here again until the

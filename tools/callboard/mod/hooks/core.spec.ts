@@ -3904,13 +3904,17 @@ test('notRestoredToast: the level, the reason and the command; a reason that nam
   assert.equal(c.notRestoredToast('lead', 'constructor'), 'Lead not restored. Run /callboard lead.')
 })
 
-test('openedUnbound: a session a lead opened counts until a lane record names its id or a lane name is on it, and only while it is live', () => {
+test('openedUnbound: a session a lead opened counts until a lane record names its id or a lane name is on it, while it is live or newly taken, and an open under way counts', () => {
   const S1 = '11111111-1111-4111-8111-111111111111'
   const S2 = '22222222-2222-4222-8222-222222222222'
   const S3 = '33333333-3333-4333-8333-333333333333'
   const S4 = '44444444-4444-4444-8444-444444444444'
   const lanes = [{ name: 'A', folder: '/r', brief: '/r/b', repo: '/r', sid: S2 }, { name: 'B', folder: '/r', brief: '/r/b', repo: '/r' }] as c.Lane[]
   const entries = [{ sessionId: S1, name: 'claude' }, { sessionId: S2, name: 'A' }, { sessionId: S3, name: 'B' }] as c.RegEntry[]
-  assert.deepEqual(c.openedUnbound([S1, S2, S3, S4], lanes, entries), [S1])
-  assert.deepEqual(c.openedUnbound([], lanes, entries), [])
+  const old = 1_000_000
+  const now = old + c.OPENED_GRACE_MS
+  assert.deepEqual(c.openedUnbound([S1, S2, S3, S4].map((x) => [x, old] as [string, number]), lanes, entries, now), [S1])
+  assert.deepEqual(c.openedUnbound([[S4, now - c.OPENED_GRACE_MS + 1]], lanes, entries, now), [S4])
+  assert.deepEqual(c.openedUnbound([['opening:1', old]], lanes, entries, now), ['opening:1'])
+  assert.deepEqual(c.openedUnbound([], lanes, entries, now), [])
 })

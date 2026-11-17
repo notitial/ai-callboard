@@ -902,12 +902,21 @@ async function unattendedOnCommand($: any, sid: string, code: c.OriginCode, end:
   // The last look before the window opens: an off typed in any session since the dialog opened.
   const offed = await unattendedOffSince($, asked, closes)
   if (offed !== false) return no(offed === true ? 'off-typed' : 'unread')
+  // The window's span is measured from when the person asked, so the time the dialog was open does not count against its least length.
   const now = await $.clock.now()
-  if (until - now < pr.UNATTENDED_MIN_MS) return no('span')
-  const opened = await unattendedOpen($, { v: 1, from: now, until, by: code === 'phone' ? 'phone' : 'prompt', manager: pre.manager, savedAt: now })
+  const value: pr.Unattended = { v: 1, from: asked, until, by: code === 'phone' ? 'phone' : 'prompt', manager: pre.manager, savedAt: now }
+  const opened = await unattendedOpen($, value)
   if (!opened.ok) {
     await logq($, sid, 'error', `unattended-open:${opened.why}`)
     return { text: pr.unattendedNoText(opened.why) }
+  }
+  // An off that ran while the window was being written found nothing to end: it still wins, and the window it missed is ended here.
+  const late = await unattendedOffSince($, asked, closes)
+  if (late !== false) {
+    const ended = await unattendedClose($, { code: 'void', only: pr.canonical(value) }).catch(() => 'store-failed' as const)
+    if (ended === 'closed' || ended === 'none') return no(late === true ? 'off-typed' : 'unread')
+    await logq($, sid, 'error', 'unattended-open:store-void')
+    return { text: pr.unattendedNoText('store-void') }
   }
   await logq($, sid, 'command', `unattended-on:${code}`)
   return { text: pr.unattendedOnText(whenLocal(until), pre.manager, opened.u) }

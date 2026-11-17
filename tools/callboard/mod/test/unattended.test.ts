@@ -360,12 +360,12 @@ test('unattended: a read under way while the window is ended in the same process
   expect(uKinds()).toEqual(['unattended-on', 'unattended-off command'])
 })
 
-test('unattended: a read under way while this process opens a window is not kept, so the next read sees it', async ($, on) => {
+test('unattended: a read under way while this process opens a window is not kept, and the off it found is no answer; the next read sees the window', async ($, on) => {
   const { $$, knob } = await proc($, on)
   const v = win()
   // The read has found nothing stored when the open lands.
   knob.afterGet = async () => expect(await unattendedOpen($$, v)).toEqual({ ok: true, u: shortOf(v) })
-  expect(await unattendedNow($$)).toEqual({ state: 'off' })
+  expect(await unattendedNow($$)).toEqual({ state: 'unknown', cause: 'store', key: false })
   expect(await unattendedNow($$)).toEqual({ state: 'on', value: v, u: shortOf(v) })
 })
 
