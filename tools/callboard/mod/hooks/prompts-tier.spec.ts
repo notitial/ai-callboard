@@ -90,6 +90,12 @@ test('parseRequest: the exact shape only, at most REQUEST_MAX bytes', () => {
   assert.equal(p.parseRequest(JSON.stringify({ ...REQ, leadSid: SID_A }))?.leadSid, SID_A)
   assert.equal('leadSid' in p.parseRequest(JSON.stringify(REQ))!, false)
   for (const bad of [{ leadSid: 'x' }, { leadSid: 4 }, { leadSid: null }]) assert.equal(p.parseRequest(JSON.stringify({ ...REQ, ...bad })), undefined, JSON.stringify(bad))
+  // The asker's permission mode (ADR 0008): one plain word, else no request; absent stays absent.
+  for (const mode of ['default', 'acceptEdits', 'bypassPermissions', 'auto', 'plan']) assert.equal(p.parseRequest(JSON.stringify({ ...REQ, mode }))?.mode, mode)
+  assert.equal('mode' in p.parseRequest(JSON.stringify(REQ))!, false)
+  for (const bad of [{ mode: '' }, { mode: 'de fault' }, { mode: 'x'.repeat(33) }, { mode: 4 }, { mode: null }, { mode: 'default\n' }]) assert.equal(p.parseRequest(JSON.stringify({ ...REQ, ...bad })), undefined, JSON.stringify(bad))
+  assert.equal(p.modeOf('default'), 'default')
+  for (const raw of [undefined, null, 3, '', 'two words', 'default;rm']) assert.equal(p.modeOf(raw), undefined, String(raw))
   assert.equal(p.parseRequest('not json'), undefined)
   assert.equal(p.parseRequest('[]'), undefined)
   assert.equal(p.parseRequest(JSON.stringify({ ...REQ, input: 'x'.repeat(p.REQUEST_MAX) })), undefined)
@@ -600,7 +606,11 @@ test('an unattended window in the tier texts: no turn line offers the person, he
   ]
   for (const l of lines) assert.ok(!/put it to (the person|them)|The person said they are here/.test(l), l)
   assert.equal(lines[0], 'Unattended mode: allow, deny or park it by the rubric and the unattended rules below. Nothing is put to the person.')
-  assert.equal(lines[1], 'Unattended mode: answer it with an offered option by the question rubric, or leave it open for the person. Nothing is put to them.')
+  assert.equal(lines[1], 'Unattended mode: answer it with an offered option by the question rubric, or leave it open for the person. Nothing is put to them. Its lane is not recorded in the default permission mode, so it takes no provisional answer.')
+  // A provisional answer is offered only for a lane's question whose request records the default mode.
+  assert.equal(p.turnLine({ top: true, away: 'manager', question: true, provisional: true }), 'Unattended mode: answer it with an offered option by the question rubric, or leave it open for the person. Nothing is put to them. Its lane is in the default permission mode, so one the rubric leaves to the person may take a provisional answer.')
+  assert.ok(!p.turnLine({ top: true, away: 'lower', question: true, provisional: true }).includes('provisional'))
+  assert.ok(!p.turnLine({ top: true, away: 'manager', provisional: true }).includes('provisional'))
   assert.equal(lines[2], 'Unattended mode: you are the top tier for this prompt and the person is not asked. Answer it by the rubric if you can; otherwise leave it, and it is held for the person at 20 minutes.')
   assert.equal(lines[3], "Unattended mode: you are the top tier for this question and the person is not asked. Answer it with an offered option by the rubric if you can; otherwise leave it, and it stays open in the lane's panel.")
   assert.equal(lines[4], lines[2])
@@ -610,7 +620,9 @@ test('an unattended window in the tier texts: no turn line offers the person, he
   assert.ok(p.turnLine({ top: true, away: 'manager', opensInSec: 12 }).endsWith('Your window opens in 12 s; an answer, a relay or a pass-up before then is refused.'))
   // A relay that is still there reads as it always did.
   assert.ok(p.turnLine({ relay: { level: 'lead', name: 'LEAD' }, top: true, away: 'manager' }).startsWith('With the person: the lead LEAD is asking them.'))
-  for (const code of ['unattended', 'unattended-no-manager', 'park-not-allowed', 'unattended-unread']) assert.ok((p.PROMPT_REFUSE[code] ?? '').length > 10, code)
+  for (const code of ['unattended', 'unattended-no-manager', 'park-not-allowed', 'unattended-unread', 'provisional-not-allowed', 'provisional-mode']) assert.ok((p.PROMPT_REFUSE[code] ?? '').length > 10, code)
+  assert.ok(p.PROMPT_REFUSE['unattended-unread'].includes('a park or a provisional answer cannot be recorded'))
+  assert.ok(p.PROMPT_REFUSE['provisional-mode'].includes('records the default permission mode') && p.PROMPT_REFUSE['provisional-mode'].includes('leave it open'))
   assert.ok(p.PROMPT_REFUSE.unattended.includes('allow, deny or park it'))
   assert.ok(p.PROMPT_REFUSE['unattended-no-manager'].includes('held for the person at 20 minutes') && !p.PROMPT_REFUSE['unattended-no-manager'].includes('park'))
   assert.ok(p.PROMPT_REFUSE['bad-input'].includes('or park in unattended mode'))

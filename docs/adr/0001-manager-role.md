@@ -104,6 +104,8 @@ every time, never unattended. This replaces the lines above that keep park and u
   *Amended 2026-11-17 ([ADR 0008](0008-unattended-mode.md)):* in unattended mode the exception also covers a park through
   `prompt_answer`. The manager still never allows a risk-list prompt. "Never unattended" in this ADR means never
   without the person's dialog; unattended mode leaves those dialogs as they are.
+  *Amended 2026-11-17 ([ADR 0008](0008-unattended-mode.md), provisional answers):* the exception also covers a
+  provisional answer to a lane's question through `prompt_answer`.
 - **H6** No message to any session requests, suggests or implies an approval, a merge, a push or a dispatch. A stall
   nudge is exactly: "Status? Report a completion, a blocker, or 'working'."
 

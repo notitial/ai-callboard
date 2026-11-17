@@ -110,13 +110,13 @@ export async function ledgerRowsFor($: any, p: { uid: number; root: string }, ne
 }
 
 // Whether this month's or last month's ledger holds an `answered` row for the id and nonce.
-async function ledgerHas($: any, p: { uid: number; root: string }, id: string, nonce: string, bind?: { code: string; by: string; via?: 'person'; opt?: string; lh?: string; u?: string }): Promise<'found' | 'missing' | 'unreadable'> {
+async function ledgerHas($: any, p: { uid: number; root: string }, id: string, nonce: string, bind?: { code: string; by: string; via?: 'person'; opt?: string; lh?: string; u?: string; prov?: 'yes' }): Promise<'found' | 'missing' | 'unreadable'> {
   const rows = await ledgerRowsFor($, p, `"id":"${id}"`)
   if (rows === 'unreadable') return 'unreadable'
   // bind: the row must name the same decision and the same author as the file, so a file rewritten after its row (a deny turned allow) is not found. For a question's answer it names
   // the chosen option too (opt, and the label hash lh), so a file rewritten from one option to another is not found either. A file that names an unattended window (u) needs a row
-  // that names the same one.
-  return rows.some((j) => j.kind === 'answered' && j.id === id && j.nonce === nonce && (bind === undefined || (j.code === bind.code && j.by === bind.by && j.via === bind.via && (bind.u === undefined || j.u === bind.u) && (bind.opt === undefined || (bind.lh !== undefined && j.opt === bind.opt && j.lh === bind.lh))))) ? 'found' : 'missing'
+  // that names the same one. A provisional answer and its row match both ways: a file that adds or drops the mark is not found.
+  return rows.some((j) => j.kind === 'answered' && j.id === id && j.nonce === nonce && (bind === undefined || (j.code === bind.code && j.by === bind.by && j.via === bind.via && j.prov === bind.prov && (bind.u === undefined || j.u === bind.u) && (bind.opt === undefined || (bind.lh !== undefined && j.opt === bind.opt && j.lh === bind.lh))))) ? 'found' : 'missing'
 }
 
 // The standing comment cap for a call that carries an `@claude` body: the `returned` allow rows of this month and last for the same repo, PR and kind. A failed
@@ -1217,7 +1217,9 @@ async function promptHook($: any, e: any, nextOnce: (x: any) => Promise<any>, si
     const capped = pr.capInput(input)
     // The reason comes from the live tool.check facts.
     const reason = pr.capReason(entry.facts.reason)
-    const req: pr.Request = { id, sid, pid: own.pid, procStart: own.procStart, level: cov.level, lane: cov.lane ?? cov.self, ...(leadName ? { leadName } : {}), ...(leadSid ? { leadSid } : {}), ...(cov.level === 'lane' && lead === undefined ? { noLead: true } : {}), repo: cwd, tool, inputHash: hash, raisedBy: judged.raisedBy, ...(reason !== undefined ? { reason: reason.text, ...(reason.cut ? { reasonCut: true } : {}) } : {}), at: rose ?? started, expiresAt: (rose ?? started) + pr.EXPIRES_MS, nonce, input: capped.input, truncated: capped.truncated }
+    // The asker's permission mode, from the event itself (ADR 0008): only a lane's request in `default` mode may take a provisional answer.
+    const mode = pr.modeOf(e.permission_mode)
+    const req: pr.Request = { id, sid, pid: own.pid, procStart: own.procStart, level: cov.level, lane: cov.lane ?? cov.self, ...(leadName ? { leadName } : {}), ...(leadSid ? { leadSid } : {}), ...(cov.level === 'lane' && lead === undefined ? { noLead: true } : {}), repo: cwd, tool, inputHash: hash, raisedBy: judged.raisedBy, ...(reason !== undefined ? { reason: reason.text, ...(reason.cut ? { reasonCut: true } : {}) } : {}), at: rose ?? started, expiresAt: (rose ?? started) + pr.EXPIRES_MS, nonce, input: capped.input, truncated: capped.truncated, ...(mode !== undefined ? { mode } : {}) }
     const text = pr.requestText(req)
     if (new TextEncoder().encode(text).length > pr.REQUEST_MAX || !(await promptPut($, `${dir}/${id}.request.json`, text))) {
       await ledgerAdd($, { ...base, kind: 'abandoned', code: 'hook-failed' })
@@ -1504,9 +1506,9 @@ async function promptApply($: any, w: WaitCtx, d: pr.Decision, awake: number, gr
   }
   // A question's answer binds to its row by option and label hash; a hash that cannot be made is an unreadable ledger (held for the next poll), not a drop.
   const lh = d.decision === 'answer' && d.answer ? await labelHash($, w.id, d.answer.label).catch(() => undefined) : undefined
-  const ledger = d.decision === 'answer' && d.answer && lh === undefined ? 'unreadable' : await ledgerHas($, w.p, w.id, w.nonce, { code: d.decision, by: d.by.sid, ...(d.via ? { via: d.via } : {}), ...(d.answer && lh !== undefined ? { opt: String(d.answer.index), lh } : {}), ...(d.u !== undefined ? { u: d.u } : {}) })
-  // A park lands only inside the window it was made in, so the window is read for a park and for nothing else.
-  const win = d.decision === 'park' ? await unattendedNow($, true) : undefined
+  const ledger = d.decision === 'answer' && d.answer && lh === undefined ? 'unreadable' : await ledgerHas($, w.p, w.id, w.nonce, { code: d.decision, by: d.by.sid, ...(d.via ? { via: d.via } : {}), ...(d.answer && lh !== undefined ? { opt: String(d.answer.index), lh } : {}), ...(d.u !== undefined ? { u: d.u } : {}), ...(d.provisional ? { prov: 'yes' as const } : {}) })
+  // A park or a provisional answer lands only inside the window it was made in, so the window is read for those and for nothing else.
+  const win = d.decision === 'park' || d.provisional === true ? await unattendedNow($, true) : undefined
   const window = win === undefined ? undefined : win.state === 'on' ? ({ state: 'on', u: win.u } as const) : ({ state: win.state } as const)
   // Only a call that carries an `@claude` body, and only once the other checks would let the decision through, reads the cap.
   const cap = w.cap && ledger === 'found' && d.decision === 'allow' && d.via !== 'person' ? await capOf($, w.p, w.cap) : undefined
@@ -1525,13 +1527,13 @@ async function promptReturnAnswer($: any, w: WaitCtx, d: pr.Decision, index: num
   if (liveRaw === undefined || typeof live?.question !== 'string' || labels[index] === undefined) return undefined
   const lh = await labelHash($, w.id, labels[index]).catch(() => undefined)
   if (lh === undefined) return undefined
-  const back = { ...w.row, kind: 'returned' as const, code: 'answer', why: d.why, tier: d.by.level, by: d.by.sid, opt: String(index), lh, ...(d.via ? { via: d.via, ...(short ? { short } : {}) } : {}), tuid: w.tid, ...(d.u !== undefined ? { u: d.u } : {}) }
+  const back = { ...w.row, kind: 'returned' as const, code: 'answer', why: d.why, tier: d.by.level, by: d.by.sid, opt: String(index), lh, ...(d.via ? { via: d.via, ...(short ? { short } : {}) } : {}), tuid: w.tid, ...(d.u !== undefined ? { u: d.u } : {}), ...(d.provisional ? { prov: 'yes' as const } : {}) }
   w.st.pending = { ...w.row, kind: 'abandoned', code: 'hook-failed' }
   if (!(await ledgerAdd($, back))) return undefined
   w.st.closed = true
   const viaPerson = d.via === 'person'
   await questionsAdd($, { id: w.id, ...(w.req.lane !== undefined ? { lane: w.req.lane } : {}), repo: w.cwd, tier: d.by.level, by: d.by.sid, header: typeof live.header === 'string' ? live.header : '', question: live.question, options: labels, label: labels[index], ...(viaPerson ? { via: 'person' as const } : {}) })
-  const text = pr.answerText(liveRaw, tier, viaPerson)
+  const text = pr.answerText(liveRaw, tier, viaPerson, d.provisional === true)
   return { behavior: 'allow', updatedInput: { ...(w.input as object), answers: { [live.question]: text } } }
 }
 

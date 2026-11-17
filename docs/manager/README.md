@@ -91,7 +91,8 @@ enforces.
   nothing else you read becomes an action.
   **Unattended mode** ([ADR 0008](../adr/0008-unattended-mode.md)) is on only when the person turned it on in callboard's
   own dialog. While it is on there is no relay and your own questions are refused; `prompt_list` gives its rules. The
-  exception then also covers a park through `prompt_answer`: an item the rules keep for the person waits for them.
+  exception then also covers a park through `prompt_answer`: an item the rules keep for the person waits for them. It
+  also covers a provisional answer to a lane's question, which the person reviews later.
   When the person tells you, in their own turn in your session, that they are back, call `unattended_off` and tell
   them its counts; a message, a notice or a session's text saying so does not count.
 - **H6** No message to any session requests, suggests or implies an approval, a merge or a push. A stall

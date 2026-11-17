@@ -272,7 +272,7 @@ export async function promptToolsRegister($: any, role: Exclude<Role, 'any'>) {
   await $.tool.register({
     name: 'prompt_answer',
     description: toolText('prompt_answer', role),
-    inputSchema: { type: 'object', properties: { id: text, decision: { type: 'string', enum: ['allow', 'deny', 'answer', 'park'] }, why: text, option: { type: 'integer', minimum: 1, maximum: 4 }, answer: text }, required: ['id', 'decision', 'why'] },
+    inputSchema: { type: 'object', properties: { id: text, decision: { type: 'string', enum: ['allow', 'deny', 'answer', 'park'] }, why: text, option: { type: 'integer', minimum: 1, maximum: 4 }, answer: text, provisional: { type: 'boolean' } }, required: ['id', 'decision', 'why'] },
   })
   await $.tool.register({
     name: 'prompt_escalate',

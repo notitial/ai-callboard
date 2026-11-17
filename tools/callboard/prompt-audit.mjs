@@ -46,6 +46,7 @@
 //   answered / returned rows of a question's answer carry code: "answer", opt (the chosen option's index, as a string) and lh (the first 16 hex of SHA-256(id + "\n" + label), the label redacted
 //              and trimmed); the labels themselves are in prompts/questions-YYYY-MM.jsonl, { t, id, lane, repo, tier, by, header, question, options, label, via? }
 //   answered / returned rows of the person's own answer carry via: "person", short and by = the relaying tier's session id (no prompt_answer call exists for them)
+//   answered / returned rows of the manager's provisional answer (ADR 0008) carry code "answer", u (the window's short id) and prov: "yes"
 //   here-on    by (the session the person typed /callboard here in), tier (its level), end (when it ends), lane? (its name)   relays for requests in that session's
 //              reach land there from now on; written before the store key
 //   here-off   code (off | grant-off | moved | void), by, was? (the session that was here)   it ended: /callboard here off, that session's grant ending, the command typed in another session, or a key that could not be written; the end after 12 hours has no row (here-on carries it)
@@ -56,7 +57,7 @@
 //   unattended-off  code (command | escalation-off | escalation-off:stored | escalation-off:file | expired | invalid | unbound | ended | void), hash?, u?,
 //              origin? (the origin code of a command that ended it), by (the session that ended it)   a window ended; written after the stored value was removed
 //   unattended-unknown   code (the cause), by   the first read of a run of reads that could not tell whether a window is open; it ended nothing
-//   notice-capped   code (prompts), tier, by, u   a tier's notice of waiting prompts was held back by its hourly cap while a window was held (once per capped stretch)
+//   notice-capped   code (prompts), tier, by, u   a tier's notice of waiting prompts was held back by its hourly cap while a window was held (once per tier and window)
 //              Rule u reads the unattended rows (ADR 0008), by time and by the window's short id: a `relayed` row inside a window; a `park` answered by a tier other than
 //              the manager, a `park` with no window mark, or an answered row whose mark names a window it was not written in (a minute of slack at each end); a window
 //              whose declared end is over 14 hours from its opening (the end row is not judged: a Mac asleep past the end ends the window late); and a window with no end
@@ -91,7 +92,7 @@ const QUESTION_TOOL = 'AskUserQuestion'
 const QUESTION_DAYS = 90
 
 const KINDS = new Set(ROW_KINDS)
-const FIELDS = ['code', 'id', 'lane', 'repo', 'tool', 'pattern', 'hash', 'tier', 'why', 'nonce', 'tuid', 'by', 'via', 'short', 'opt', 'lh', 'target', 'was', 'dialog', 'end', 'raised', 'u', 'origin']
+const FIELDS = ['code', 'id', 'lane', 'repo', 'tool', 'pattern', 'hash', 'tier', 'why', 'nonce', 'tuid', 'by', 'via', 'short', 'opt', 'lh', 'target', 'was', 'dialog', 'end', 'raised', 'u', 'origin', 'prov']
 // Where the audit puts each kind of row: `request` a row of a request (grouped by the request id it carries), `end` a row that ends a request, `go` a row of a go
 // (its id is the go's, no request's), `other` a row of no request (the switch, the lead rows, the PR rows). A kind the mod writes that has no place here makes
 // every run incomplete (UNPLACED), so a new kind cannot be read as something it is not.

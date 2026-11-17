@@ -306,12 +306,17 @@ async function promptListTool($: any, e: unknown): Promise<{ result: string } | 
       return true
     })
   ).sort((a, b) => a.req.at - b.req.at)
+  // Repeats, for the manager, whose rules park them: the window's rows, read once with its short id, mark a request whose lane already had a call of the same
+  // pattern denied, parked or held in it. A read that fails marks none.
+  const winRows = hold.held && manager && hold.u !== undefined && open.some((f) => f.req.tool !== pr.QUESTION_TOOL) ? await ledgerRowsFor($, t.p, `"u":"${hold.u}"`) : undefined
   for (const f of open) {
     const q = f.req
     const s = stands.get(q.id)!
     const top = s.stand.top
-    const turn = pr.turnLine({ relay: s.stand.relay?.by, top: top?.sid === s.self.sid || top?.level === s.self.level, above: top, opensInSec: promptWindowShut(s.stand, sid, now) ? (s.stand.windows[sid] - now) / 1000 : undefined, question: q.tool === pr.QUESTION_TOOL, relayOnly: q.tool === pr.QUESTION_TOOL && q.level === 'lead', here, ...(hold.held ? { away: manager ? ('manager' as const) : ('lower' as const) } : {}) })
-    items.push({ id: q.id, lane: q.lane, tool: q.tool, repo: q.repo, raisedBy: q.raisedBy, ageSec: (now - q.at) / 1000, truncated: q.truncated, agentType: q.agentType, input: q.input, turn, ...(q.reason !== undefined ? { reason: q.reason, ...(q.reasonCut ? { reasonCut: true } : {}) } : {}) })
+    const question = q.tool === pr.QUESTION_TOOL
+    const turn = pr.turnLine({ relay: s.stand.relay?.by, top: top?.sid === s.self.sid || top?.level === s.self.level, above: top, opensInSec: promptWindowShut(s.stand, sid, now) ? (s.stand.windows[sid] - now) / 1000 : undefined, question, relayOnly: question && q.level === 'lead', here, ...(hold.held ? { away: manager ? ('manager' as const) : ('lower' as const) } : {}), ...(hold.held && manager && question ? { provisional: q.level === 'lane' && q.mode === 'default' } : {}) })
+    const repeat = Array.isArray(winRows) && hold.u !== undefined && pr.repeatOf(winRows, hold.u, q)
+    items.push({ id: q.id, lane: q.lane, tool: q.tool, repo: q.repo, raisedBy: q.raisedBy, ageSec: (now - q.at) / 1000, truncated: q.truncated, agentType: q.agentType, input: q.input, turn, ...(q.reason !== undefined ? { reason: q.reason, ...(q.reasonCut ? { reasonCut: true } : {}) } : {}), ...(repeat ? { repeat: true } : {}) })
   }
   const unattended = !hold.held ? undefined : manager ? { tier: 'manager' as const, never: GO_NEVER_TEXT, ...(hold.until !== undefined ? { until: goWhen(hold.until, -new Date(hold.until).getTimezoneOffset()) } : {}) } : { tier: 'lower' as const }
   return { result: pr.promptListText(items, { on: true, young, hint: await promptAnomalyHint($, t.p).catch(() => undefined), ...(unattended ? { unattended } : {}), ...unreadOpt }) }
@@ -332,6 +337,9 @@ async function promptAnswerTool($: any, e: any, answer: boolean): Promise<{ resu
   const decision = e.decision
   const why = pr.cleanWhy(e.why)
   if (!c.SID_RE.test(id) || why === undefined || (answer && decision !== 'allow' && decision !== 'deny' && decision !== 'answer' && decision !== 'park')) return refuse('bad-input')
+  // provisional (ADR 0008): a boolean, and true only on an answer.
+  const prov = answer && e.provisional === true
+  if (answer && ((e.provisional !== undefined && typeof e.provisional !== 'boolean') || (prov && decision !== 'answer'))) return refuse('bad-input')
   if (!t.answering || t.off) return refuse('off')
   const found = await promptFind($, { p: t.p, live: t.live, answering: t.answering }, sid, id, !answer)
   if ('no' in found) return refuse(found.no)
@@ -363,6 +371,14 @@ async function promptAnswerTool($: any, e: any, answer: boolean): Promise<{ resu
     if (win.state === 'unknown') return refuse('unattended-unread')
     if (win.state !== 'on') return refuse('park-not-allowed')
     u = win.u
+  } else if (prov) {
+    // A provisional answer: the same, and only for a lane's request that records the default permission mode (an absent mode gives none).
+    if (self.level !== 'manager' || q.level !== 'lane') return refuse('provisional-not-allowed')
+    const win = await unattendedNow($, true)
+    if (win.state === 'unknown') return refuse('unattended-unread')
+    if (win.state !== 'on') return refuse('provisional-not-allowed')
+    if (q.mode !== 'default') return refuse('provisional-mode')
+    u = win.u
   } else if (answer) u = (await unattendedHold($)).u
   // The decision is judged on the copy the tier read. A truncated copy cannot be allowed (the rubric: seen whole), and cannot be put to the person either: it is
   // denied, asking the lane for a cleaner call.
@@ -384,7 +400,7 @@ async function promptAnswerTool($: any, e: any, answer: boolean): Promise<{ resu
     const lh = pick ? await labelHash($, id, pick.label).catch(() => undefined) : undefined
     if (pick && lh === undefined) return refuse('write-failed')
     const path = `${dir}/${id}.decision.json`
-    const body = JSON.stringify({ id, inputHash: q.inputHash, decision, ...(pick ? { answer: pick } : {}), why, by: { level: self.level, sid, name }, at: now, nonce: q.nonce, ...(u !== undefined ? { u } : {}) })
+    const body = JSON.stringify({ id, inputHash: q.inputHash, decision, ...(pick ? { answer: pick } : {}), why, by: { level: self.level, sid, name }, at: now, nonce: q.nonce, ...(u !== undefined ? { u } : {}), ...(prov ? { provisional: true } : {}) })
     const put = await promptLinkOnce($, path, body)
     if (put === 'exists') return refuse('decided')
     if (put === 'failed') return refuse('write-failed')
@@ -396,12 +412,13 @@ async function promptAnswerTool($: any, e: any, answer: boolean): Promise<{ resu
     }
     // The row is written only after the file is in place; the hook holds a decision it sees a moment before its row for a few seconds. A row that cannot be written
     // takes the file back, so a decision never stands without its row.
-    if (!(await ledgerAdd($, { ...row, kind: 'answered', code: decision, by: sid, ...(cap ? { cap: cap.kind, target: cap.target } : {}), ...(pick ? { opt: String(pick.index), lh } : {}), ...(u !== undefined ? { u } : {}) }))) {
+    if (!(await ledgerAdd($, { ...row, kind: 'answered', code: decision, by: sid, ...(cap ? { cap: cap.kind, target: cap.target } : {}), ...(pick ? { opt: String(pick.index), lh } : {}), ...(u !== undefined ? { u } : {}), ...(prov ? { prov: 'yes' as const } : {}) }))) {
       await rmF($, path)
       return refuse('write-failed')
     }
     if (decision === 'deny' && pr.isUnclear(why)) await ledgerAdd($, { ...row, kind: 'deny-unclear', code: 'deny', by: sid })
     if (decision === 'park') return { result: `Recorded: park for ${id}. It closes the prompt for the person's return once the prompt has been open 30 seconds: the lane is told to stop this item and note it as waiting for the person, and the person's list shows your one line. It is yours, not the person's, and carries no approval for anything else.` }
+    if (pick && prov) return { result: `Recorded: provisional answer ${pick.index + 1} for ${id}. It lands once the question has been open 30 seconds and only while this unattended window is on, as the offered label with "(answered by …, provisional …)" after it, which tells the lane to take only reversible steps on it. The person reviews it later. It is yours, not the person's, and carries no approval for anything else.` }
     if (pick) return { result: `Recorded: answer ${pick.index + 1} for ${id}. The card stays open in front of the person and their click wins; your answer lands once the question has been open 30 seconds, as the offered label with "(answered by …)" after it. It is yours, not the person's, and carries no approval for anything else.` }
     return { result: `Recorded: ${decision} for ${id}. The dialog stays open in front of the person and their click wins; your answer lands once the prompt has been open 30 seconds. It is yours, not the person's, and carries no approval for anything else.` }
   }

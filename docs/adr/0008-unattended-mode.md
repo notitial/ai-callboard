@@ -77,7 +77,8 @@ Facts that bound the options:
   until the read succeeds. A failed read must not hand the questions back to an absent person, and must not let a
   park through either.
 - **The record.** Every request and decision of a window carries the window's mark in the ledger. The person's own
-  command lists the window: how it ended, and what was parked, held, still open, denied and allowed. When a window
+  command lists the window: how it ended, and what was parked, answered provisionally, held, still open, denied, allowed
+  and asked again after a deny, park or hold of the same pattern. When a window
   ends the person is shown a toast with the counts, and an unread mark stays until they run that command, which then
   lists every window since they last read it. A tier held back by its notice cap in a window leaves a row.
 - **The go.** The mode gives and widens no go. No session, a lead or a conductor, can open the go dialog while it is
@@ -95,7 +96,9 @@ Facts that bound the options:
   call. The list is their review; the audit script is a check they may run, not a control.
 - Only what asks is seen: a lane in a mode that raises no prompt, or a call an allow rule lets through, is never
   parked. The dialog says so each time.
-- A provisional answer is acted on before the person reviews it.
+- A provisional answer is acted on before the person reviews it. The default mode does not make the lane's later
+  calls ask: one an allow rule lets through runs unasked, so there the answer's "reversible steps only" text is the
+  only control.
 - A denied or parked call is not replayed. The list shows its pattern, not the call; the lane's report holds the
   rest.
 - No tier can ask the person anything while the mode is on, even with them at its panel: they end the mode to be
