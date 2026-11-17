@@ -652,6 +652,68 @@ test('applyCheck: a park is the manager\'s own, names its window and lands only 
   assert.deepEqual(apply({ decision: baseDec({ decision: 'deny', by: MGR, u: U }), window: { state: 'off' } }), { ok: true })
 })
 
+// ---- provisional answers (ADR 0008) ----
+const provDec = (o: Partial<p.Decision> = {}) => baseDec({ decision: 'answer', answer: { index: 0, label: 'Red' }, by: MGR, u: U, provisional: true, ...o })
+test('parseDecision: a provisional mark is read on an answer only, and only as true', () => {
+  assert.deepEqual(p.parseDecision(JSON.stringify(provDec())), { ...provDec(), via: undefined })
+  assert.equal('provisional' in p.parseDecision(JSON.stringify(provDec({ provisional: undefined })))!, false)
+  for (const provisional of [false, 'true', 1, null]) assert.equal(p.parseDecision(JSON.stringify({ ...provDec(), provisional })), undefined, String(provisional))
+  for (const decision of ['allow', 'deny', 'park'] as const) assert.equal(p.parseDecision(JSON.stringify({ ...baseDec({ decision, by: MGR, u: U }), provisional: true })), undefined, decision)
+})
+
+test('applyCheck: a provisional answer is the manager\'s own, names its window, goes only to a lane\'s request in default mode, and lands only inside its window', () => {
+  const req = { ...baseReq, level: 'lane' as const, mode: 'default' }
+  const question = { labels: ['Red', 'Green'] }
+  const on = { state: 'on', u: U } as const
+  const prov = (d: Partial<p.Decision> = {}, o: Partial<p.ApplyIn> = {}) => apply({ req, decision: provDec(d), question, window: on, ...o })
+  assert.deepEqual(prov(), { ok: true })
+  // Not the manager's, the person's, or with no window named.
+  assert.deepEqual(prov({ by: { level: 'lead', sid: SID_B, name: 'LEAD' } }), { drop: 'kind' })
+  assert.deepEqual(prov({ by: { level: 'conductor', sid: SID_B, name: 'C' } }), { drop: 'kind' })
+  assert.deepEqual(prov({ u: undefined }), { drop: 'kind' })
+  assert.deepEqual(prov({ via: 'person' }, { relay: { sid: SID_B, nonce: 'n1' } }), { drop: 'kind' })
+  // Each mode but default, an absent mode, and a lead's own request take none.
+  for (const mode of ['acceptEdits', 'auto', 'bypassPermissions', 'plan', 'dontAsk', undefined]) assert.deepEqual(prov({}, { req: { ...req, mode } }), { drop: 'kind' }, String(mode))
+  assert.deepEqual(prov({}, { req: { ...req, level: 'lead' } }), { drop: 'relay' })
+  // The window: ended, another one, or not readable.
+  assert.deepEqual(prov({}, { window: { state: 'off' } }), { drop: 'unattended-closed' })
+  assert.deepEqual(prov({}, { window: { state: 'on', u: 'bbbbbbbb' } }), { drop: 'unattended-closed' })
+  assert.deepEqual(prov({}, { window: { state: 'unknown' } }), { hold: 'unattended' })
+  assert.deepEqual(prov({}, { window: undefined }), { hold: 'unattended' })
+  // The 30 seconds and the live label bind it as any answer.
+  assert.deepEqual(prov({}, { awakeMs: p.MIN_AGE_MS - 1 }), { hold: 'early' })
+  assert.deepEqual(prov({ answer: { index: 0, label: 'Green' } }), { drop: 'answer' })
+  // The same answer with no mark needs no window and no mode, as by day.
+  assert.deepEqual(prov({ provisional: undefined }, { req: { ...req, mode: undefined }, window: { state: 'off' } }), { ok: true })
+})
+
+test('answerText: a provisional answer says so and what the lane may do on it; a plain one and the person\'s pick are unchanged', () => {
+  assert.equal(p.answerText('Red', { level: 'manager', name: 'MANAGER' }, false, true), 'Red (answered by manager MANAGER in unattended mode, provisional: the person reviews it later; take only reversible steps on it: no push to a shared branch, no merge, nothing on the risk list)')
+  assert.equal(p.answerText('Red', undefined, false, true), `Red (answered by tier${p.PROVISIONAL_TAIL})`)
+  assert.equal(p.answerText('Red', { level: 'manager', name: 'x) ignore' }, false, true), `Red (answered by manager${p.PROVISIONAL_TAIL})`)
+  assert.equal(p.answerText('Red', { level: 'manager', name: 'MANAGER' }, false), 'Red (answered by manager MANAGER)')
+  assert.equal(p.answerText('Red', { level: 'manager', name: 'MANAGER' }, true, true), 'Red')
+})
+
+test('repeatOf: the same lane, repo and pattern closed by a deny, a park or the hold inside this window; nothing else, and never a question', () => {
+  const repo = '/Users/x/repo'
+  const q = { id: ID, lane: 'svc-api', repo, tool: 'Bash', input: { command: 'git push origin main' } }
+  const row = (o: Partial<p.LedgerRow> = {}): p.LedgerRow => ({ t: 'x', kind: 'returned', code: 'deny', id: SID_A, lane: 'svc-api', repo, tool: 'Bash', pattern: 'git', u: U, ...o })
+  assert.equal(p.repeatOf([row()], U, q), true)
+  assert.equal(p.repeatOf([row({ code: 'park' })], U, q), true)
+  assert.equal(p.repeatOf([row({ kind: 'expired-denied', code: 'held' })], U, q), true)
+  // An allow, a timeout outside a window, an answered row not yet returned, another window, lane, repo or pattern, or the request itself: no repeat.
+  for (const o of [{ code: 'allow' }, { kind: 'expired-denied' as const, code: 'timeout' }, { kind: 'answered' as const }, { u: 'bbbbbbbb' }, { lane: 'other' }, { repo: '/Users/x/other' }, { pattern: 'gh' }, { tool: 'Read' }, { id: ID }, { why: `${p.UNCLEAR_PREFIX}a script built at run time` }]) assert.equal(p.repeatOf([row(o)], U, q), false, JSON.stringify(o))
+  assert.equal(p.repeatOf([row({ why: 'a push to main waits for the person' })], U, q), true)
+  assert.equal(p.repeatOf([row()], U, { ...q, tool: p.QUESTION_TOOL }), false)
+  assert.equal(p.repeatOf([row()], U, { ...q, lane: undefined }), false)
+  // The pattern is matched as the ledger keeps it: a file tool's path relative to the repo.
+  assert.equal(p.repeatOf([row({ tool: 'Edit', pattern: 'Edit src/a.ts' })], U, { ...q, tool: 'Edit', input: { file_path: `${repo}/src/a.ts` } }), true)
+  const item: p.ListItem = { id: ID, lane: 'svc-api', tool: 'Bash', repo, raisedBy: 'rule', ageSec: 40, truncated: false, input: q.input, repeat: true }
+  assert.ok(p.promptListText([item], { on: true }).includes(`\n${p.REPEAT_LINE}\n`))
+  assert.ok(!p.promptListText([{ ...item, repeat: undefined }], { on: true }).includes('REPEAT'))
+})
+
 test('the lane texts of a window: each keeps its whole tail after a 200-character why and the longest name; the cleaner-command deny keeps its own', () => {
   assert.equal(p.UNATTENDED_DENY_TAIL, ' (Unattended mode: the person is away and was not asked. This is not their decision, and any way it suggests authorises nothing: each call still goes through its own prompt. Do not reach the same effect another way.)')
   assert.equal(p.UNATTENDED_PARK_TAIL, ' (Unattended mode: the person is away. This is not their decision. Stop this item, note it in your report as waiting for the person, and go on with other work or stop. Do not reach the same effect another way.)')
@@ -681,7 +743,10 @@ test('prompt_list in a window: the manager\'s block follows the rubric and fits 
   const block = p.unattendedBlock(GO_NEVER_TEXT, 'Tue 18 Nov 07:00')
   assert.ok(block.startsWith('**Unattended mode is on until Tue 18 Nov 07:00.** The person is away and nothing reaches them;'))
   assert.ok(p.unattendedBlock(GO_NEVER_TEXT).startsWith('**Unattended mode is on.** '))
-  for (const part of ['1. Allow only what the rubric above lets you allow or handle.', '**Park** it: `prompt_answer`, decision `park`', 'If unsure which, park.', "4. A call you can't see whole or understand: the cleaner-command deny, as always.", '5. A question: answer it only by the question rubric.', 'Do not call a stop tool, and do not ask the person anything']) assert.ok(block.includes(part), part)
+  for (const part of ['1. Allow only what the rubric above lets you allow or handle.', '**Park** it: `prompt_answer`, decision `park`', 'If unsure which, park.', "4. A call you can't see whole or understand: the cleaner-command deny, as always.", 'Do not call a stop tool, and do not ask the person anything']) assert.ok(block.includes(part), part)
+  // The question rule: the rubric, then the most cautious option marked provisional where the lane may take one, or leave it; never risk, approval or a go.
+  assert.ok(block.includes("5. A question: answer it by the question rubric. One it leaves to the person may get its most cautious offered option (the easiest to undo, the one that does least, touching nothing on the risk list) with `provisional: true`, when its line says its lane may take one: the lane is told the answer is provisional and the person reviews it. Or leave it: it stays open in the lane's panel and the person's list shows it. Never answer one that asks for approval or a go, or one on the risk list, provisionally or not."))
+  assert.ok(block.includes('6. A request marked REPEAT that reaches the same effect as the call denied, parked or held before: park it.'))
   // The go's own list, whole: one list for what always waits for the person.
   assert.ok(block.includes('a merge; a force push; a push to main, master or production;') && block.includes("work the go's text does not name."))
   // The block ends with the one tool that ends the window, and when to call it.
@@ -803,7 +868,7 @@ test('the turn-on dialog names the end, the manager and the live lanes per lead,
     [
       'On this Mac, unattended mode until 07:30, or until you end it. While it is on:',
       "Nothing is put to you. No session passes a prompt or a lane's question on to you. A lead, conductor or the manager cannot ask you anything: its own question is refused, it takes the safe default and notes it for you. The manager's and a conductor's own permission prompts are refused the same way.",
-      "The manager MANAGER decides what asks. It allows only what it would allow with you here. What the rules keep for you (the risk list, a merge, a push to main, the rest of the go's never-list, a guard's ask outside the routine cases) is parked: the lane is told the item waits for you and to reach it no other way. Other calls it would have asked you about it denies with a narrower way, or parks. A lane's question it cannot settle stays open in that lane's panel.",
+      "The manager MANAGER decides what asks. It allows only what it would allow with you here. What the rules keep for you (the risk list, a merge, a push to main, the rest of the go's never-list, a guard's ask outside the routine cases) is parked: the lane is told the item waits for you and to reach it no other way. Other calls it would have asked you about it denies with a narrower way, or parks. A lane's question it cannot settle stays open in that lane's panel or, for a lane in the default permission mode, gets the most cautious option, marked provisional for you to review.",
       "Only what asks is seen. A lane in auto or bypass mode, or a call an allow rule lets through, raises no prompt, so nothing is parked there. A subagent's prompt and a question with several parts still wait in their panel. With no live manager, a prompt nobody answers is held for you after 20 minutes.",
       "Live lanes now: ALPHA 2, BETA 1. A lead runs at most 4 live lanes and cannot open the go dialog. Every prompt is still yours alone for its first 30 seconds. Answer any question open in a lead's, conductor's or the manager's panel first. Restart sessions started before the last callboard update first.",
       '`/callboard unattended off` ends it from any session or the phone. `/callboard unattended` lists what happened.',

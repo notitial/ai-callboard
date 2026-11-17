@@ -371,6 +371,12 @@ the risk list.
   label the tier saw. The hook checks both against the live input and returns the live label, trimmed, followed by
   `(answered by <level> <NAME>)`, with the name taken from the tier's presence, never from the decision file. That text
   is built by the hook and is the only thing it returns for a question.
+  *Amended 2026-11-17 ([ADR 0008](0008-unattended-mode.md)):* while unattended mode is on, the manager may give a lane's
+  question that the rubric leaves to the person its most cautious offered option, marked provisional. Only for a lane
+  whose request records the default permission mode, as the permission event gave it; a request with no mode takes
+  none. The answer lands only while the window it was given in is on, and the lane reads that it is provisional, that
+  the person reviews it, and to take only reversible steps on it. A risk-list, approval or go question is never
+  answered.
 - **Never denied.** A question is not denied for lateness: with no tier answering, the wait ends at 21 minutes and the card
   stays. A relayed question is never denied either.
 - **The person's pick, framed.** After a relayed pick lands, the top tier is told in a fixed line that the pick is the
