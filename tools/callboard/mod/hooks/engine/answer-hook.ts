@@ -542,14 +542,21 @@ export async function unattendedOpen($: any, raw: unknown): Promise<{ ok: true; 
   const sid = await ownSid($)
   const by = sid !== undefined ? { by: sid } : {}
   if (!(await ledgerAdd($, { kind: 'unattended-on', hash, u, end: new Date(value.until).toISOString(), origin: value.by, lane: value.manager, ...by }))) return { ok: false, why: 'ledger' }
-  if (!(await storeDo($, () => $.store.set(UNATTENDED_KEY, value)))) {
-    // The write may have landed all the same: this value, found now, is removed with its void row; otherwise the void row stands alone.
-    if ((await unattendedClose($, { code: 'void', only: pr.canonical(value) }).catch(() => 'store-failed' as const)) === 'closed') return { ok: false, why: 'store' }
-    return { ok: false, why: (await offRow($, { kind: 'unattended-off', code: 'void', hash, u, ...by })) ? 'store' : 'store-void' }
-  }
+  // The write may have landed all the same: unattendedVoid ends it either way.
+  if (!(await storeDo($, () => $.store.set(UNATTENDED_KEY, value)))) return { ok: false, why: (await unattendedVoid($, value)) ? 'store' : 'store-void' }
   mem.unattended = undefined
   mem.unattendedOpens++
   return { ok: true, u }
+}
+// Ends a value this process stored, or tried to store, that must not stand: the value is removed if it is there (the close writes its void row); otherwise
+// its void row is written alone, and owed if the ledger refuses it (offRow), so a reader ends the value. false: neither went through, and the value may stand.
+export async function unattendedVoid($: any, value: pr.Unattended): Promise<boolean> {
+  const text = pr.canonical(value)
+  if ((await unattendedClose($, { code: 'void', only: text }).catch(() => 'store-failed' as const)) === 'closed') return true
+  const hash = await windowHash($, text)
+  if (hash === undefined) return false
+  const sid = await ownSid($)
+  return offRow($, { kind: 'unattended-off', code: 'void', hash, u: pr.windowShort(hash), ...(sid !== undefined ? { by: sid } : {}) })
 }
 
 // ---- here: the session the person said they are in (/callboard here, ADR 0009) ----

@@ -78,7 +78,7 @@ import { ensureTimer } from './tick.ts'
 import { grantNameNo } from './lead-open.ts'
 import { epochOf, heldNo, holdsOf, levelSave } from './levels.ts'
 import type { LevelDesc } from './levels.ts'
-import { ANSWERING_KEY, ledgerAdd, promptsOff, escalationNow, defaultForget, hereRead, hereDrop, unattendedNow, unattendedClose, ledgerRowsFor, unattendedOpen, unattendedOffMark, unattendedOffSince, unattendedClosesNow, unattendedBusy } from './answer-hook.ts'
+import { ANSWERING_KEY, ledgerAdd, promptsOff, escalationNow, defaultForget, hereRead, hereDrop, unattendedNow, unattendedClose, ledgerRowsFor, unattendedOpen, unattendedVoid, unattendedOffMark, unattendedOffSince, unattendedClosesNow, unattendedBusy } from './answer-hook.ts'
 import { ledgerRestore } from './answer-tiers.ts'
 import * as go from '../go.ts'
 import { goCommand, goGrantorOff } from './go.ts'
@@ -913,8 +913,7 @@ async function unattendedOnCommand($: any, sid: string, code: c.OriginCode, end:
   // An off that ran while the window was being written found nothing to end: it still wins, and the window it missed is ended here.
   const late = await unattendedOffSince($, asked, closes)
   if (late !== false) {
-    const ended = await unattendedClose($, { code: 'void', only: pr.canonical(value) }).catch(() => 'store-failed' as const)
-    if (ended === 'closed' || ended === 'none') return no(late === true ? 'off-typed' : 'unread')
+    if (await unattendedVoid($, value)) return no(late === true ? 'off-typed' : 'unread')
     await logq($, sid, 'error', 'unattended-open:store-void')
     return { text: pr.unattendedNoText('store-void') }
   }

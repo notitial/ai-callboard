@@ -1502,7 +1502,10 @@ export async function laneUnparkCall($: any, e: any, next: any) {
       release()
       return r
     }
-    if (r.sid !== want) return no('reopen-bad-result', c.reasonWhy('reopen-bad-result'))
+    if (r.sid !== want) {
+      release()
+      return no('reopen-bad-result', c.reasonWhy('reopen-bad-result'))
+    }
     await unmark()
     await log($, sid, 'reopened', name)
     toast($, `Lane ${name} reopened`)

@@ -198,6 +198,19 @@ test('unattended on: an off whose mark lands while the window is being written s
   expect(logged(stdins)).toContain('refused:unattended-on:off-typed')
 })
 
+test('unattended on: a late off whose removal of the value fails still ends the window, by its void row', async ($, on) => {
+  await manager($, on)
+  h.storeSetHook = (k: string) => {
+    if (k === UNATTENDED_KEY) h.store.set(UNATTENDED_OFF_AT_KEY, h.nowMs)
+  }
+  h.storeDeleteFails = true
+  expect(await onCmd($)).toBe(prm.unattendedNoText('off-typed'))
+  expect(uKinds()).toEqual(['unattended-on', 'unattended-off void'])
+  h.storeDeleteFails = false
+  h.nowMs += 11_000
+  expect(await statusText($)).not.toContain('| Unattended | ON')
+})
+
 longTest('unattended on: a dialog nobody answers times out after 10 minutes and stores nothing; a click on it afterwards turns nothing on and says so', async ($, on) => {
   await manager($, on, [], { clock: true })
   const answer = holdDialog()

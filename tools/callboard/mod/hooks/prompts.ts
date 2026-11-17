@@ -899,10 +899,11 @@ const UNATTENDED_NO_TEXT: Record<UnattendedNo, string> = {
   hash: 'its value could not be hashed.',
   ledger: 'the ledger did not answer.',
   store: 'the store did not answer.',
-  'store-void': 'the store did not answer, and the row that voids the window could not be written either: run /callboard unattended off once the store answers.',
+  'store-void': 'the store did not answer, and the row that voids the window could not be written either, so the window may stand: run /callboard unattended off once the store answers.',
 }
 // extra: what the refusal adds, such as the escalation state that names the missing piece.
-export const unattendedNoText = (why: UnattendedNo, extra?: string): string => `Unattended mode was not turned on: ${UNATTENDED_NO_TEXT[why]}${extra === undefined ? '' : ` ${extra}`} Nothing is on.`
+// A window whose void row could not be written may stand, so that refusal does not say nothing is on.
+export const unattendedNoText = (why: UnattendedNo, extra?: string): string => `Unattended mode was not turned on: ${UNATTENDED_NO_TEXT[why]}${extra === undefined ? '' : ` ${extra}`}${why === 'store-void' ? '' : ' Nothing is on.'}`
 export const UNATTENDED_OFF_SUBAGENT = 'unattended_off is for the main agent only: a subagent cannot end unattended mode. The main agent calls it when the person says they are back.'
 export const UNATTENDED_OFF_NOT_MANAGER = "unattended_off is the manager's tool. Any session can type /callboard unattended off."
 export const UNATTENDED_COUNTS_UNREAD = 'What the window did could not be counted from the ledger. The person reads the list with /callboard unattended.'
