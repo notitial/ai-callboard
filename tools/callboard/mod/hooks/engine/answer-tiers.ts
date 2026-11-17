@@ -115,7 +115,10 @@ export async function promptReachTiers($: any, live: RegRow[], a: pr.Answering, 
 
 // Where a request stands: who it reaches, who has passed it up (the files `<id>.escalate-<level>.json`, with the time of each), the relay if a tier put it to the
 // person, which of the reached tiers can act now (not passed, and not asking: a tier whose own relay question is open is blocked in that turn, unless it is this
-// request's relay), the top one of those, and when each one's window opens.
+// request's relay), the top tier, and when each one's window opens. The top is the highest tier that has not passed the request up, an asking one included while
+// its registry row shows a dialog open: a tier busy with its own relay question is still the one that puts a request to the person, once its question is over, so
+// a lower tier passes up and never relays in its own session meanwhile. An asking mark with no open dialog behind it (left by a turn that ended oddly) does not
+// keep the top.
 type Stand = { tiers: pr.Tier[]; active: pr.Tier[]; top?: pr.Tier; passed: Partial<Record<pr.TierLevel, number>>; relay?: pr.Relay; windows: Record<string, number> }
 export async function promptStand($: any, p: { uid: number; root: string }, live: RegRow[], a: pr.Answering, dir: string, names: Set<string>, q: pr.Request, recs?: LeadRecs | string): Promise<Stand> {
   const tiers = await promptReachTiers($, live, a, q, q.noLead === true, recs)
@@ -146,7 +149,11 @@ export async function promptStand($: any, p: { uid: number; root: string }, live
   windowsSeen.set(q.id, seen)
   const windows: Record<string, number> = {}
   for (const t of active) windows[t.sid] = seen[t.sid] = Math.min(seen[t.sid] ?? Infinity, opens[reps.find((r) => r.level === t.level)!.sid])
-  return { tiers, active, top: pr.topOf(active), passed, relay, windows }
+  // A row waiting on a dialog, as the other readers judge it (status waiting with waitingFor set). A stale mark beside some other dialog of that tier holds the
+  // top only until that tier's turn ends, which clears its mark.
+  const rowWaiting = (sid: string) => live.some((r) => r.j.sessionId === sid && r.j.status === 'waiting' && (r.j.waitingFor ?? null) !== null)
+  const topOf = tiers.filter((t) => passed[t.level] === undefined && (!asking.has(t.sid) || rowWaiting(t.sid)))
+  return { tiers, active, top: pr.topOf(topOf), passed, relay, windows }
 }
 const WINDOWS_SEEN_MAX = 512
 

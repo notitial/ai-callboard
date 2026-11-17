@@ -561,12 +561,61 @@ test('prompts: a lid closed for over 21 minutes does not expire the prompt on wa
   expect(r).toEqual({})
   expect(rowKinds()).toEqual(['requested', 'off'])
 })
-test('prompts: no live lead: no request, an abandoned no-tier row, the dialog stays', async ($, on) => {
+longTest('prompts: no live lead: the ask holds 30 minutes of awake time with no request, then abandoned no-tier, the dialog stays', async ($, on) => {
   await answerer($, on, [])
   leadFiles.delete(LEADPATH)
-  expect(await runRequest($, [])).toEqual({})
-  expect(rowKinds()).toEqual(['abandoned no-tier'])
+  let filesDuring = -1
+  expect(await runRequest($, [at(20 * 60_000, () => { filesDuring = reqFiles().length })])).toEqual({})
+  expect(filesDuring).toBe(0)
+  expect(rowKinds()).toEqual(['no-tier', 'abandoned no-tier'])
+  expect(h.nowMs - T0).toBeGreaterThanOrEqual(prm.RISE_HOLD_MS)
+  expect(h.nowMs - T0).toBeLessThan(prm.RISE_HOLD_MS + 10_000)
   expect(reqFiles().length).toBe(0)
+})
+longTest('prompts: an ask with no live lead rises once the lead is back: the request starts then, and the answer waits its own 30 s', async ($, on) => {
+  await answerer($, on, [])
+  const lf = leadFiles.get(LEADPATH)!
+  leadFiles.delete(LEADPATH)
+  let req: any
+  const r = await runRequest($, [at(100_000, () => { leadFiles.set(LEADPATH, lf) }), at(122_000, () => { req = readReq(); handDecision(req) })])
+  expect(r).toEqual({ decision: { behavior: 'allow' } })
+  expect(rowKinds()).toEqual(['no-tier', 'requested', 'answered allow', 'returned allow'])
+  // The reach is read every 30 s: the lead back at 100 s is found at 120 s, and the request's clocks run from there.
+  expect(req.at - T0).toBe(120_000)
+  expect(req.expiresAt - req.at).toBe(prm.EXPIRES_MS)
+  expect(h.nowMs - T0).toBeGreaterThanOrEqual(150_000)
+})
+test('prompts: the person\'s click during the hold ends it, with no request', async ($, on) => {
+  await answerer($, on, [])
+  leadFiles.delete(LEADPATH)
+  expect(await runRequest($, [at(10_000, async () => { await $.classic.PostToolUse({ tool_name: 'Bash', tool_input: PRQ, tool_use_id: 'tu1', tool_response: {} } as any) })])).toEqual({})
+  expect(rowKinds()).toEqual(['no-tier', 'abandoned no-tier'])
+  expect(h.nowMs - T0).toBeLessThan(14_000)
+  expect(reqFiles().length).toBe(0)
+})
+test('prompts: the switch going off during the hold ends it, with no request', async ($, on) => {
+  await answerer($, on, [])
+  leadFiles.delete(LEADPATH)
+  expect(await runRequest($, [stop(20_000)])).toEqual({})
+  expect(rowKinds()).toEqual(['no-tier', 'abandoned no-tier'])
+  expect(h.nowMs - T0).toBeLessThan(24_000)
+  expect(reqFiles().length).toBe(0)
+})
+test('prompts: the switch narrowed to another lane during the hold ends it: no request, even once the lead is back', async ($, on) => {
+  await answerer($, on, [])
+  const lf = leadFiles.get(LEADPATH)!
+  leadFiles.delete(LEADPATH)
+  expect(await runRequest($, [at(10_000, () => { h.store.set('answering', { ...(h.store.get('answering') as object), scope: 'svc-other' }); leadFiles.set(LEADPATH, lf) })])).toEqual({})
+  expect(rowKinds()).toEqual(['no-tier', 'abandoned no-tier'])
+  expect(h.nowMs - T0).toBeLessThan(14_000)
+  expect(reqFiles().length).toBe(0)
+})
+test('prompts: the dialog\'s own row going from waiting to busy during the hold ends it: a Yes on a long tool', async ($, on) => {
+  await answerer($, on, [])
+  leadFiles.delete(LEADPATH)
+  expect(await runRequest($, [at(10_000, () => { h.sessions = { ...ownReg({ status: 'busy', waitingFor: null, statusUpdatedAt: T0 + 10_000 }) } })])).toEqual({})
+  expect(rowKinds()).toEqual(['no-tier', 'abandoned no-tier'])
+  expect(h.nowMs - T0).toBeLessThan(14_000)
 })
 test('prompts: a plain session (no lane, no lead) is never covered', async ($, on) => {
   on('classic.PermissionRequest', () => ({}))

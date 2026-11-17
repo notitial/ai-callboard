@@ -112,6 +112,15 @@ Trust rises with the tier.
   windows, the 30 seconds, the rubric, the relay file and the apply check are unchanged: the apply side never asked
   which tier relayed, only that the relay's author is a live tier in reach that has not passed the request up and
   that the answer comes from that same session.
+  *Amended 2026-11-17:* a tier whose own relay question is open (its asking mark, with its registry row showing a
+  dialog open) is still the top. It cannot act in that turn, but a lower tier passes the request up rather than
+  putting it to the person in its own session; the top relays it once its question is over. The cost: while the
+  person leaves that question open, a permission prompt passed up behind it is not relayed and ends in the 20-minute
+  deny (the lane may ask again); a question is never denied and stays in the lane's panel. A mark with no open
+  dialog behind it does not keep the top. The mark is set a few seconds before the row shows waiting: in that gap the
+  tier is not the top yet, and a lower tier may still put a request to the person in its own session. The row shows
+  any dialog of the tier's own, not only its relay question, so a mark with another of its dialogs open keeps it the
+  top too, at the same cost.
 - **A call the tier cannot understand** is denied, with a message that asks the lane for a cleaner one. Any tier may
   do this; nothing is put to the person for it.
 - **The risk list may go through the relay.** The floor never reaches any tier.

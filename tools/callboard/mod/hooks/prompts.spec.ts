@@ -152,6 +152,15 @@ test('canonical: key order does not change it, and the join key names tool, hash
 })
 
 // ---- the awake clock, expiry, windows ----
+test('an ask with no tier holds: it reads the reach every 30 s of awake time, and gives up after 30 minutes', () => {
+  assert.equal(p.riseStep(2000, 0), 'wait')
+  assert.equal(p.riseStep(p.RISE_REACH_MS - 1, 0), 'wait')
+  assert.equal(p.riseStep(p.RISE_REACH_MS, 0), 'reach')
+  assert.equal(p.riseStep(p.RISE_HOLD_MS - 1, p.RISE_HOLD_MS - 1 - p.RISE_REACH_MS), 'reach')
+  assert.equal(p.riseStep(p.RISE_HOLD_MS, p.RISE_HOLD_MS), 'end')
+  assert.equal(p.RISE_HOLD_MS, 30 * 60_000)
+})
+
 test('awake clock: a gap is capped, a clock that ran back adds nothing, a sleep gap cannot age a prompt', () => {
   assert.equal(p.awakeAdd(0, 2000), 2000)
   assert.equal(p.awakeAdd(5000, 3_600_000), 15_000)

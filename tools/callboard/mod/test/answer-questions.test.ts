@@ -95,16 +95,32 @@ test('prompts: a question with no answer form whose only tier goes during the 30
   expect(rowKinds()).toEqual(['not-judgeable question-count'])
 })
 
-test('prompts: a question with no answer form and no live tier in reach is not denied: it stays the person\'s, with no wait', async ($, on) => {
+test('prompts: a question with no answer form and no live tier in reach holds for one: the switch going off ends the hold and it stays the person\'s', async ($, on) => {
   await answerer($, on, [], { verdict: QASK, asksScope: 'all' })
   const c = callOf('AskUserQuestion', NO_FORM[0][1])
   await askCheck($, c.check)
   // The lane's own row and no lead's: nobody is in reach.
   h.sessions = { ...h.extraRows, ...ownReg({ status: 'waiting', waitingFor: 'permission prompt', statusUpdatedAt: T0 + 500 }) }
   driveClock()
+  h.clockHooks.push(stop(5000))
   expect(await $.classic.PermissionRequest({ ...c.over } as any)).toEqual({})
-  expect(h.nowMs - T0).toBe(0)
-  expect(rowKinds()).toEqual(['not-judgeable question-count'])
+  expect(rowKinds()).toEqual(['not-judgeable question-count', 'no-tier', 'abandoned no-tier'])
+  expect(reqFiles().length).toBe(0)
+})
+
+test('prompts: a question with no answer form and no live tier is ended with the form message once its lead is back', async ($, on) => {
+  await answerer($, on, [], { verdict: QASK, asksScope: 'all' })
+  const c = callOf('AskUserQuestion', NO_FORM[0][1])
+  await askCheck($, c.check)
+  const own = ownReg({ status: 'waiting', waitingFor: 'permission prompt', statusUpdatedAt: T0 + 500 })
+  h.sessions = { ...h.extraRows, ...own }
+  // The reach is read every 30 s: the lead back at 40 s is found at 60 s, past the person's first 30 s, so the form message comes then.
+  driveClock()
+  h.clockHooks.push(at(40_000, () => { h.sessions = { ...leadReg(), ...h.extraRows, ...own } }))
+  expect(await $.classic.PermissionRequest({ ...c.over } as any)).toEqual(FORM_DENY)
+  expect(h.nowMs - T0).toBe(60_000)
+  expect(rowKinds()).toEqual(['not-judgeable question-count', 'no-tier', 'question-denied question-count'])
+  expect(reqFiles().length).toBe(0)
 })
 
 test('prompts: a question with no answer form is not denied with escalation off, or with the questions scope unset', async ($, on) => {

@@ -2,7 +2,7 @@ import { expect, test } from 'claude-code/testing'
 import { toolNames } from '../hooks/tool-text'
 import { h, LEADRECDIR, ROOT, SID, T0, extraStat, leadFiles, longTest, pfs, toolDefs, toolDesc } from './harness'
 import { APISID, COND, LEADPATH, LEADSID, OTHERLEAD, PIN, condOn, condPresenceOf, leadRecsJson, listCall, mgrCall, ownedBy, putCond, putLeadRecs, regAs } from './fixtures'
-import { APIQ, CNDT, LDIR, LEAD2, PDIR, TID, TID2, addCondT, answerCall, answerer, asConductor, at, byCond, decideBy, pcall, putQ, readReq, refusal, rowKinds, runRequest, said } from './answer-fixtures'
+import { APIQ, CNDT, LDIR, LEAD2, PDIR, TID, TID2, addCondT, answerCall, answerer, asConductor, at, byCond, decideBy, pcall, putQ, readReq, refusal, rowKinds, runRequest, said, stop } from './answer-fixtures'
 
 // ---- ADR 0007: who is told of a lead's prompts, and what a conductor reaches, follows the lead's record ----
 // A conductor of PIN that is trusted (presence file, saved grant, list file) and listed in the registry, as the conductors above lead LEAD are.
@@ -68,8 +68,8 @@ for (const [what, setup] of [
     await answerer($, on, [])
     leadFiles.delete(LEADPATH)
     setup()
-    expect(await runRequest($, [])).toEqual({})
-    expect(rowKinds()).toEqual(['abandoned no-tier'])
+    expect(await runRequest($, [stop(5000)])).toEqual({})
+    expect(rowKinds()).toEqual(['no-tier', 'abandoned no-tier'])
   })
 }
 
