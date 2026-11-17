@@ -97,7 +97,9 @@ caller.
    (ADR 0009). The dialog is short, and so is TEXT: two or three lines, with the detail in the brief or the plan.
    `go_status` shows a session what covers it. A closed, parked or crashed panel ends no go; `go off` does.
    Typed in a conductor, the same command gives one go for the leads it owns and their lanes, the ones it
-   opens later included; its main agent can ask you for one with `go_request`, as a lead's can. It counts a lane only when the lane's record names one of those leads by
+   opens later included; its main agent can ask you for one with `go_request`, as a lead's can. A lead a
+   conductor owns opens no go dialog of its own: its `go_request` is refused and it asks the conductor, so you
+   answer in the conductor's session only (your own `/callboard go` typed in the lead still works). It counts a lane only when the lane's record names one of those leads by
    session id. Such a go ends at its end time, at `go off`, when the conductor turns off, or when its saved
    conductor grant is refused for good at a restart; taking a repo off the conductor's list does not end
    it, and a lead or lane it held at the click keeps it until then, also if that lead leaves the conductor. The

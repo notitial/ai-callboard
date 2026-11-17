@@ -46,7 +46,7 @@ const LEAD_TEXT: Record<string, string> = {
   lane_unpark: `Reopen a lane's saved conversation in its VS Code window: a parked lane, or one whose session was closed, never a retired one. It becomes the lane again within seconds; then call lane_resume. ${LANE_ARG}`,
   lane_list: 'List the lanes of your repo as one table: each lane with its lead, its folder, whether a live session carries its name or it is parked, and the minutes it has waited on a prompt.',
   go_request:
-    "Ask the person for one go that counts in your lanes (ADR 0009). It only opens the person's dialog in this session: text says what the work is, in at most 3 short plain lines, with the detail in the brief or the plan; the person reads it, and the lanes read it back from go_status. Main agent of a lead only.",
+    "Ask the person for one go that counts in your lanes (ADR 0009). It only opens the person's dialog in this session: text says what the work is, in at most 3 short plain lines, with the detail in the brief or the plan; the person reads it, and the lanes read it back from go_status. Main agent of a lead only; refused in a lead a conductor owns, which asks its conductor by message instead.",
   ...PROMPT_TEXT,
 }
 
@@ -70,7 +70,7 @@ const TEXT: Record<Role, Record<string, string>> = {
     lead_open:
       'Open a lead in one of your repos, briefed with task, and make it the lead without asking the person. The person sees a toast. repo (absolute path), name, task; optional model and job (true: one small task, no lanes).',
     go_request:
-      "Ask the person for one go that counts in the leads you own and in their lanes (ADR 0009). It only opens the person's dialog in this session: text says what the work is, in at most 3 short plain lines, with the detail in the brief or the plan; the person reads it, and the leads and lanes read it back from go_status. Main agent of a conductor only.",
+      "Ask the person for one go that counts in the leads you own and in their lanes (ADR 0009). It only opens the person's dialog in this session: text says what the work is, in at most 3 short plain lines, with the detail in the brief or the plan; the person reads it, and the leads and lanes read it back from go_status. The leads you own open no go dialog of their own: they ask you. Main agent of a conductor only.",
     ...upperText('conductor'),
   },
   manager: {
