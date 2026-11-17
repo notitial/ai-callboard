@@ -1,5 +1,8 @@
 import * as prm from '../hooks/prompts'
-import { h, PROMPTS_DIR, ROOT, SETTINGS_FILE, SID, T0, extraStat, leadFiles, pdirs, pfs, realMap } from './harness'
+import { HOUR_MS } from '../hooks/core'
+import { mem, windowHeldSeen } from '../hooks/mem'
+import { UNATTENDED_KEY } from '../hooks/engine/answer-hook'
+import { h, PROMPTS_DIR, ROOT, SETTINGS_FILE, SID, T0, extraStat, fakeSha, leadFiles, pdirs, pfs, realMap } from './harness'
 import { APISID, APP2, COND, LEADPATH, LEADPS, LEADSID, PIN, SVC, attacher, condOn, condPresenceOf, dirStat, doLane, lead, leadAt, leadFileText, leadReg, leadSelfReg, ownReg, ownedBy, putCond, regAs } from './fixtures'
 
 // ---- ADR 0004 prompt answering: the hook, the files and the switch ----
@@ -73,6 +76,22 @@ export async function runRequest($: any, acts: ((rel: number) => void | Promise<
 }
 export const noFiles = () => [...pfs.keys()].filter((k) => k.startsWith(PDIR)).length === 0
 export const callOf = (tool: string, input: unknown) => ({ check: { tool, input }, over: { tool_name: tool, tool_input: input } })
+
+// ---- the unattended window (ADR 0008), seeded as the open step writes it: the stored value, and the `unattended-on` row with its hash ----
+export const win = (over: Partial<prm.Unattended> = {}): prm.Unattended => ({ v: 1, from: T0, until: T0 + 8 * HOUR_MS, by: 'prompt', manager: 'MANAGER', savedAt: T0, ...over })
+export const winHash = (v: prm.Unattended) => fakeSha(prm.canonical(v))
+export const winShort = (v: prm.Unattended) => winHash(v).slice(0, 8)
+export const winOnRow = (v: prm.Unattended) => ({ t: new Date(v.savedAt).toISOString(), kind: 'unattended-on', hash: winHash(v), u: winShort(v), end: new Date(v.until).toISOString(), origin: v.by, lane: v.manager })
+export function putWindow(v: prm.Unattended = win(), row = true): prm.Unattended {
+  h.store.set(UNATTENDED_KEY, v)
+  if (row) putLedger([winOnRow(v)])
+  return v
+}
+// The engine files a test imports are one module for the whole file, so a test that reads the window starts from the memory of a new process.
+export const newProcess = () => {
+  Object.assign(mem, { unattended: undefined, unattendedSure: undefined, unattendedU: undefined, unattendedUnknown: false, unattendedHash: undefined, unattendedLookedAt: undefined })
+  windowHeldSeen.clear()
+}
 
 // ---- the sweep ----
 export const GONE = '7a1b2c3d-0000-4000-8000-123456789abc'
