@@ -93,7 +93,9 @@ Facts that bound the options:
   call. The list is their review; the audit script is a check they may run, not a control.
 - Only what asks is seen: a lane in a mode that raises no prompt, or a call an allow rule lets through, is never
   parked. The dialog says so each time.
-- A provisional answer is acted on before the person reviews it.
+- A provisional answer is acted on before the person reviews it. The default mode does not make the lane's later
+  calls ask: one an allow rule lets through runs unasked, so there the answer's "reversible steps only" text is the
+  only control.
 - A denied or parked call is not replayed. The list shows its pattern, not the call; the lane's report holds the
   rest.
 - No tier can ask the person anything while the mode is on, even with them at its panel: they end the mode to be

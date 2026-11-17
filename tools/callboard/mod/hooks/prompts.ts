@@ -827,7 +827,7 @@ function windowItems(rows: LedgerRow[]): { parked: string[]; held: string[]; wai
     if (ret) {
       if (ret.code === 'park') parked.push(item(ret, text(ret.why)))
       else if (ret.code === 'deny') denied.push(item(ret, by(ret), text(ret.why)))
-      else allowed.push(item(ret, ret.code === 'answer' ? `a question answered ${by(ret)}` : by(ret), text(ret.why)))
+      else allowed.push(item(ret, ret.code === 'answer' ? `a question answered ${ret.prov === 'yes' ? 'provisionally, for you to review, ' : ''}${by(ret)}` : by(ret), text(ret.why)))
     } else if (exp) (exp.code === 'held' ? held : denied).push(item(exp, exp.code === 'held' ? '' : 'nobody answered within 20 minutes'))
     else if (of('superseded')) continue
     else {
