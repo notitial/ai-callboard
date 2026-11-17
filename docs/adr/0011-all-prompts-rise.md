@@ -192,6 +192,17 @@ from the rise. A click, the switch going off or failed pauses during the hold le
 no tier within the 30 minutes; each writes `abandoned no-tier`. A question with no answer form holds the same way and,
 once a tier is in reach, is ended with its message; the hold counts as the person's first 30 seconds.*
 
+*2026-11-17: a lead's own question.* It was the person's in the lead's panel (ADR 0004). The person's words: "If there
+is a conductor, I should never open any lead." While the lead's conductor is live and in reach, a lead's own
+single-choice question with two to four options becomes a request that no tier answers or denies: `prompt_answer`
+refuses it (`relay-only`), and the lead's hook drops any decision on it that is not the person's through a relay, a
+check made on the hook's own copy of the request, not the file. A tier passes it up; the top tier, or the session where
+the person typed `/callboard here`, puts it to them, and their pick lands in the lead. It is never denied for
+lateness: unrelayed, its wait ends at 21 minutes and the card stays in the lead's panel. With no live conductor, a
+question headed `Person` or of another shape, it stays the person's in the lead, with no hold. It needs `leadAsks` in
+the switch, set by the escalation dialog whose text says so (and in the default): a switch turned on under the
+earlier text keeps a lead's questions the person's until they turn it on again.
+
 A truncated copy is a request, as before: a tier may deny it and never allow or relay it (ADR 0004, Limits), so it
 ends in the 20-minute deny.
 

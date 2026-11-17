@@ -951,14 +951,26 @@ async function promptHook($: any, e: any, nextOnce: (x: any) => Promise<any>, si
       await ledgerAdd($, { ...base, kind: 'not-judgeable', code: judged.why })
       return beneath
     }
-    // 5b. A question: the questions scope covers this lane (a lead's own question is the person's), then the mechanical shape. Each refusal is a row with its
-    // code, no request and no notice. Checked first, so with the scope unset nothing else about the question is read.
+    // 5b. A question: the questions scope covers this lane, then the mechanical shape. Each refusal is a row with its code, no request and no notice. Checked
+    // first, so with the scope unset nothing else about the question is read. A lead's own question rises only relay-only (no tier answers it, prompt_answer and
+    // applyCheck), only while the switch carries leadAsks and its conductor is live in reach; otherwise it is the person's, in the lead's panel.
     if (tool === pr.QUESTION_TOOL) {
-      if (cov.level !== 'lane' || !pr.coversAsks(cov.a, { lane: cov.lane, lead: lead?.name, self: cov.self })) {
+      const asks = pr.coversAsks(cov.a, { lane: cov.lane, lead: lead?.name, self: cov.self })
+      const leadQ = cov.level === 'lead' && cov.a.leadAsks === true && asks
+      if (!asks || (cov.level !== 'lane' && !leadQ)) {
         await ledgerAdd($, { ...base, kind: 'not-judgeable', code: 'question-scope' })
         return beneath
       }
       const shape = pr.questionShape(input)
+      // A lead's question with no answer form, or headed Person, stays the person's: it is never ended with a message.
+      if (leadQ && !shape.ok) {
+        await ledgerAdd($, { ...base, kind: 'not-judgeable', code: shape.code })
+        return beneath
+      }
+      if (leadQ && !(await reachOf()).reach.some((t) => t.level === 'conductor')) {
+        await ledgerAdd($, { ...base, kind: 'not-judgeable', code: 'question-scope' })
+        return beneath
+      }
       if (!shape.ok) {
         // A question with no answer form cannot rise: its row first, whatever follows. With a tier in reach it is then ended with a fixed message that says how
         // to ask again, once the person has had their first 30 seconds with the card; a click, the switch going off or a failed pause leaves it theirs.
@@ -1069,6 +1081,8 @@ async function promptWait($: any, beneath: any, signal: AbortSignal, w: WaitCtx)
     if (await promptsOff($)) return false
     const cv = await promptCoverage($, w.sid)
     // A question also needs the questions scope: off asks, or a questions scope that no longer covers the lane, ends a waiting question and leaves permission prompts alone.
+    // A lead's own question also needs leadAsks still set.
+    if (cv !== undefined && w.req.level === 'lead' && w.tool === pr.QUESTION_TOOL && cv.a.leadAsks !== true) return false
     return cv !== undefined && pr.requestCovered(cv.a, { tool: w.tool }, { lane: cv.lane, lead: w.leadName, self: cv.self })
   }
   // What must hold right before an answer goes back: no click, the switch still on.

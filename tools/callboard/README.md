@@ -65,7 +65,9 @@ caller.
    the hook's reason, handles the routine cases its rubric names (a rerun of the lane's own CI run, a delete inside
    the lane's own clone) and passes the rest up, and the top live tier relays it to you. A request that no tier
    answers or relays is denied after 20 minutes, and the lane may ask again
-   ([ADR 0011](../../docs/adr/0011-all-prompts-rise.md)). The time the Mac sleeps does not count toward that deny or toward a request's expiry; the windows
+   ([ADR 0011](../../docs/adr/0011-all-prompts-rise.md)). A lead's own single-choice question rises too while its
+   conductor is live, but no tier answers it: only you do, where the relay opens. A lead's force stop of a lane then
+   goes through its conductor, whose dialog asks you. The time the Mac sleeps does not count toward that deny or toward a request's expiry; the windows
    in which each tier may answer do count it. A sleep
    does not by itself end a request's wait.
    The relay opens in the top tier's panel, which with a manager

@@ -431,7 +431,7 @@ test('coversAsks and requestCovered: a question needs both scopes; a permission 
   assert.equal(p.requestCovered(a, { tool: 'Bash' }, { lane: 'LANE2' }), true)
   assert.equal(p.requestCovered(a, { tool: 'AskUserQuestion' }, { lane: 'LANE2' }), false)
   // The one dialog keeps every limit the two old ones stated, and names both ways out.
-  for (const part of ['EVERY lane and lead', 'EVERY lane (a lead\'s own questions stay yours)', 'settled or harmless', 'the sessions are told to leave anything on the risk list to you too', 'your click always wins', '30 seconds', 'A plan-mode exit is theirs to answer too', 'Not passed to them: a subagent\'s permission ask, which is denied with a message that tells the main session to run the call itself while one of them is in reach, and stays yours otherwise; its questions stay yours', 'stopped by ai-toolkit\'s protected-paths hook, not by callboard', 'Merges, force pushes, pushes to main, master or production, and destructive deletes are on the risk list: the sessions are told to pass them up to you', 'its questions stay yours', 'the risk list', 'Questions headed Person always stay yours; a question that is not one single-choice question with two to four options stays yours for 30 seconds and, while one of the sessions is in reach, is then ended with a message that tells the lane to ask again as one', 'put to you in the top session', 'kept, redacted, for 90 days', '/callboard escalation off turns it off', "/callboard off in a lane's session takes that lane out"]) assert.ok(p.ESCALATION_QUESTION.includes(part), part)
+  for (const part of ['EVERY lane and lead', 'EVERY lane when', 'A lead\'s own questions are never answered by them: while its conductor is live, one is put to you in the top session, or in the one where you typed /callboard here, and otherwise stays in the lead', 'settled or harmless', 'the sessions are told to leave anything on the risk list to you too', 'your click always wins', '30 seconds', 'A plan-mode exit is theirs to answer too', 'Not passed to them: a subagent\'s permission ask, which is denied with a message that tells the main session to run the call itself while one of them is in reach, and stays yours otherwise; its questions stay yours', 'stopped by ai-toolkit\'s protected-paths hook, not by callboard', 'Merges, force pushes, pushes to main, master or production, and destructive deletes are on the risk list: the sessions are told to pass them up to you', 'its questions stay yours', 'the risk list', 'Questions headed Person always stay yours; a question that is not one single-choice question with two to four options stays yours for 30 seconds and, while one of the sessions is in reach, is then ended with a message that tells the lane to ask again as one', 'put to you in the top session', 'kept, redacted, for 90 days', '/callboard escalation off turns it off', "/callboard off in a lane's session takes that lane out"]) assert.ok(p.ESCALATION_QUESTION.includes(part), part)
   assert.ok(!/answering/i.test(p.ESCALATION_QUESTION) && !/answering/i.test(p.ESCALATION_USAGE) && !/answering/i.test(p.ESCALATION_NOT_PERSON))
   // The state line still reads a narrower value an earlier version stored.
   assert.ok(p.escalationState(a, false).includes('questions: answered for LANE1') && p.escalationState({ ...a, asksScope: undefined }, false).includes('questions: yours'))
@@ -565,4 +565,26 @@ test('tierLead: a lead\'s own request names its own lead; a lane\'s names its le
   assert.equal(p.tierLead({ level: 'lane', lane: 'svc-api', leadName: 'LEAD' }), 'LEAD')
   assert.equal(p.tierLead({ level: 'lane', lane: 'svc-api', leadSid: SID_B }), '', 'known but unnamed: no record can name it')
   assert.equal(p.tierLead({ level: 'lane', lane: 'svc-api' }), undefined, 'a lane that names no lead follows the repo\'s only record')
+})
+
+test('apply: a lead\'s own question takes only the person\'s answer through a relay; a tier\'s answer is dropped relay, a lane\'s is not', () => {
+  const ans = { id: ID, inputHash: H, decision: 'answer' as const, answer: { index: 0, label: 'A' }, why: 'ok', by: { level: 'conductor', sid: SID_B, name: 'C' }, at: 1, nonce: 'n1' }
+  const base = { req: { id: ID, nonce: 'n1', inputHash: H, sid: SID_A, level: 'lead' as const }, decision: ans, liveHash: H, awakeMs: 60_000, expiresAt: p.EXPIRES_MS, byOk: true, ledger: 'found' as const, graceMs: 0, question: { labels: ['A', 'B'] } }
+  assert.deepEqual(p.applyCheck(base), { drop: 'relay' })
+  assert.deepEqual(p.applyCheck({ ...base, req: { ...base.req, level: 'lane' as const } }), { ok: true })
+  assert.deepEqual(p.applyCheck({ ...base, decision: { ...ans, via: 'person' as const }, relay: { sid: SID_B, nonce: 'n1' } }), { ok: true })
+})
+test('turnLine: a lead\'s own question is never answered: the top or the session the person is in puts it to them, a lower tier passes it up', () => {
+  assert.equal(p.turnLine({ top: true, question: true, relayOnly: true }), "A lead's own question: never answer it. Put it to the person with prompt_escalate, which shows them the lead's own options.")
+  assert.equal(p.turnLine({ top: false, above: { level: 'manager', name: 'MANAGER' }, question: true, relayOnly: true, here: true }), "A lead's own question: never answer it. Put it to the person with prompt_escalate, which shows them the lead's own options.")
+  assert.equal(p.turnLine({ top: false, above: { level: 'manager', name: 'MANAGER' }, question: true, relayOnly: true }), "The manager MANAGER is above you. A lead's own question: never answer it; pass it up with prompt_escalate.")
+  assert.ok(!p.turnLine({ top: true, question: true, relayOnly: true }).includes('answer it with'))
+})
+test('parseAnswering: leadAsks is kept only as true; the default and the dialog\'s value carry it, an older value lacks it', () => {
+  assert.equal(p.parseAnswering({ scope: 'all', asks: false, savedAt: 1, asksScope: 'all', leadAsks: true })?.leadAsks, true)
+  assert.equal(p.parseAnswering({ scope: 'all', asks: false, savedAt: 1, asksScope: 'all', leadAsks: 'yes' })?.leadAsks, undefined)
+  assert.equal(p.parseAnswering({ scope: 'all', asks: false, savedAt: 1, asksScope: 'all' })?.leadAsks, undefined)
+  assert.equal(p.DEFAULT_ANSWERING.leadAsks, true)
+  assert.ok(p.relayQuestionSteps('7a1b2c3d', 'LEADX', false, true).includes('[7a1b2c3d] Lead LEADX asks:'))
+  assert.ok(p.relayQuestionSteps('7a1b2c3d', 'svc-api').includes('[7a1b2c3d] Lane svc-api asks:'))
 })

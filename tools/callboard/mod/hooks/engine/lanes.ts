@@ -1462,6 +1462,13 @@ export async function stopVerbCall($: any, e: any, next: any, verb: (typeof c.ST
       const cut = () => ({ deny: leadReason(verb, c.reasonWhy('abandoned')) })
       let prep = await leadPrep($, e, sid)
       if ('err' in prep) return no(...prep.err)
+      // A force stop in a lead whose conductor owns it and is live opens no dialog here: the person confirms it in the conductor's session, through the
+      // conductor's own lane_terminate. A conductor not live, a stale tie or records that cannot be read: the dialog opens here, as with no conductor.
+      if (verb === 'terminate' && level === 'lead') {
+        const reg = await registryEntries($).catch(() => undefined)
+        const o = reg ? await ownOwner($, sid, reg).catch(() => undefined) : undefined
+        if (o !== undefined && typeof o === 'object') return no('conductor-owns', c.terminateOwnedText(prep.lane.name, typeof o.name === 'string' && c.NAME_RE.test(o.name) ? o.name : undefined))
+      }
       let one = c.laneSession(prep.entries, prep.lane, sid)
       // A retire or a force stop of a lane no live session carries removes its record directly (stopNoSession); a park has nothing to stop.
       if (!one.ok && one.reason === 'no-live-session' && verb !== 'park') return stopNoSession($, e, sid, verb, level, prep, no, abandoned)

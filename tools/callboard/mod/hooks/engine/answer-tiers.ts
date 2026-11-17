@@ -296,7 +296,7 @@ async function promptListTool($: any, e: unknown): Promise<{ result: string } | 
     const q = f.req
     const s = stands.get(q.id)!
     const top = s.stand.top
-    const turn = pr.turnLine({ relay: s.stand.relay?.by, top: top?.sid === s.self.sid || top?.level === s.self.level, above: top, opensInSec: promptWindowShut(s.stand, sid, now) ? (s.stand.windows[sid] - now) / 1000 : undefined, question: q.tool === pr.QUESTION_TOOL, here })
+    const turn = pr.turnLine({ relay: s.stand.relay?.by, top: top?.sid === s.self.sid || top?.level === s.self.level, above: top, opensInSec: promptWindowShut(s.stand, sid, now) ? (s.stand.windows[sid] - now) / 1000 : undefined, question: q.tool === pr.QUESTION_TOOL, relayOnly: q.tool === pr.QUESTION_TOOL && q.level === 'lead', here })
     items.push({ id: q.id, lane: q.lane, tool: q.tool, repo: q.repo, raisedBy: q.raisedBy, ageSec: (now - q.at) / 1000, truncated: q.truncated, agentType: q.agentType, input: q.input, turn, ...(q.reason !== undefined ? { reason: q.reason, ...(q.reasonCut ? { reasonCut: true } : {}) } : {}) })
   }
   return { result: pr.promptListText(items, { on: true, young, hint: await promptAnomalyHint($, t.p).catch(() => undefined) }) }
@@ -327,6 +327,9 @@ async function promptAnswerTool($: any, e: any, answer: boolean): Promise<{ resu
   // A question takes only decision `answer`, by the number prompt_list showed (`option`), with the label as an optional echo; nothing else takes `answer`.
   const isQ = q.tool === pr.QUESTION_TOOL
   let pick: { index: number; label: string } | undefined
+  // A lead's own question is the person's: a tier only passes it up or puts it to them (the relay), never answers it. The asker's hook drops any answer to it
+  // that is not the person's through the relay as well.
+  if (answer && isQ && q.level === 'lead') return refuse('relay-only')
   if (answer && isQ) {
     if (decision !== 'answer') return refuse('question-answer-only')
     if (q.truncated) return refuse('truncated-question')
@@ -411,7 +414,7 @@ async function promptAnswerTool($: any, e: any, answer: boolean): Promise<{ resu
     return refuse('write-failed')
   }
   promptForget(sid, id)
-  return { result: isQ ? pr.relayQuestionSteps(short, q.lane ?? '', !top) : pr.relaySteps(short, q.lane ?? '', !top) }
+  return { result: isQ ? pr.relayQuestionSteps(short, q.lane ?? '', !top, q.level === 'lead') : pr.relaySteps(short, q.lane ?? '', !top) }
 }
 
 // The tick's notice: one fixed turn to an idle lead (a busy one gets the text mid-turn, promptMidTurnNotice), covering every open request in reach. A request is told once; a notice over the hourly cap stays owed
