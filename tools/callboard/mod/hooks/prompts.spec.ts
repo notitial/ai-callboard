@@ -797,6 +797,13 @@ test('the end of a window: the toast carries the counts or says they could not b
   assert.doesNotMatch(text, /manager/)
 })
 
+test('the list of a window with no row at all says its rows may be older than the ledger read, and does not say nothing was raised', () => {
+  const text = p.unattendedListText({ u: 'aaaaaaaa', live: false, rows: [], unknown: [], when: () => '<t>' })
+  assert.equal(text, `Window aaaaaaaa: its opening row was not found; no end row was found.\n${p.UNATTENDED_LIST_OLD}`)
+  // A window with its opening row and nothing else still says so.
+  assert.match(p.unattendedListText({ u: 'aaaaaaaa', live: true, rows: [{ t: '2026-01-10T22:00:00.000Z', kind: 'unattended-on', u: 'aaaaaaaa' }], unknown: [], when: () => '<t>' }), /Nothing was raised in this window\.$/)
+})
+
 test('the unread mark: a stored value reads as the valid, distinct window marks, newest eight; anything else reads as none', () => {
   assert.deepEqual(p.parseUnread({ v: 1, us: ['aaaaaaaa', 'bbbbbbbb', 'aaaaaaaa', 'nope', 7, 'AAAAAAAA'] }), ['aaaaaaaa', 'bbbbbbbb'])
   const many = Array.from({ length: 12 }, (_, i) => i.toString(16).padStart(8, '0'))

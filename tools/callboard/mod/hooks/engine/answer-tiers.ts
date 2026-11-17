@@ -456,12 +456,15 @@ async function promptAnswerTool($: any, e: any, answer: boolean): Promise<{ resu
   return { result: isQ ? pr.relayQuestionSteps(short, q.lane ?? '', !top, q.level === 'lead') : pr.relaySteps(short, q.lane ?? '', !top) }
 }
 
-// A tier held back by its hourly notice cap inside an unattended window leaves a `notice-capped` row with the window's short id (once per capped stretch, like the
-// log line), so the person's list shows that a waiting prompt went untold for a while. Outside a window nothing is written. Best effort.
+// A tier held back by its hourly notice cap inside an unattended window leaves a `notice-capped` row with the window's short id: one for each window the tier is
+// capped in, however long the stretch (a stretch that began before the window, or runs into the next one, still leaves its row there). The person's list then
+// shows that a waiting prompt went untold for a while. Outside a window nothing is written. Best effort.
+const capRowU = new Map<string, string>()
 async function noticeCappedRow($: any, sid: string): Promise<void> {
   try {
     const hold = await unattendedHold($)
-    if (hold.held && hold.u !== undefined) await ledgerAdd($, { kind: 'notice-capped', code: 'prompts', tier: grantOf(sid)?.level, by: sid, u: hold.u })
+    if (!hold.held || hold.u === undefined || capRowU.get(sid) === hold.u) return
+    if (await ledgerAdd($, { kind: 'notice-capped', code: 'prompts', tier: grantOf(sid)?.level, by: sid, u: hold.u })) capRowU.set(sid, hold.u)
   } catch {}
 }
 
@@ -547,9 +550,9 @@ export async function promptNoticeTick($: any, sid: string, submitsAtStart: numb
   const now = await $.clock.now()
   const times = promptNotices.get(sid) ?? []
   if (!c.noticeAllowed(times, now, pr.PROMPT_NOTICES_PER_HOUR)) {
+    await noticeCappedRow($, sid)
     if (promptCapLogged.has(sid)) return
     promptCapLogged.add(sid)
-    await noticeCappedRow($, sid)
     return log($, sid, 'notice-capped', 'prompts')
   }
   if (dialogOpen.has(sid) || mem.submits !== submitsAtStart) return
@@ -562,6 +565,7 @@ export async function promptNoticeTick($: any, sid: string, submitsAtStart: numb
   if (owed.length === 0) return
   for (const id of owed) told.set(id, 0)
   promptCapLogged.delete(sid)
+  capRowU.delete(sid)
   promptNotices.set(sid, c.pushRecent(promptNotices.get(sid) ?? times, now))
   await submitOwn($, pr.PROMPT_NOTICE_TEXT, false).catch(async () => {
     for (const id of owed) told.set(id, -1)
@@ -613,9 +617,9 @@ export async function promptMidTurnNotice($: any, e: any): Promise<string | unde
     const now = await $.clock.now()
     const times = promptNotices.get(sid) ?? []
     if (!c.noticeAllowed(times, now, pr.PROMPT_NOTICES_PER_HOUR)) {
+      await noticeCappedRow($, sid)
       if (!promptCapLogged.has(sid)) {
         promptCapLogged.add(sid)
-        await noticeCappedRow($, sid)
         await log($, sid, 'notice-capped', 'prompts')
       }
       return undefined
@@ -630,6 +634,7 @@ export async function promptMidTurnNotice($: any, e: any): Promise<string | unde
     for (const id of owed) sent.add(id)
     promptMidSent.set(sid, sent)
     promptCapLogged.delete(sid)
+    capRowU.delete(sid)
     promptNotices.set(sid, c.pushRecent(promptNotices.get(sid) ?? [], now))
     await logq($, sid, 'notice', 'prompts mid-turn')
     return pr.PROMPT_NOTICE_TEXT

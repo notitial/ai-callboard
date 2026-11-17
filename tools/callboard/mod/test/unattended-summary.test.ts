@@ -121,6 +121,27 @@ test('window end: the manager\'s unattended_off toasts and marks like the comman
   expect(ended()).toHaveLength(1)
 })
 
+test('window end: a value put back while the ledger still refuses its off row is ended again without a new mark or toast', async ($, on) => {
+  await started($, on, [])
+  const v = putWindow()
+  const u = winShort(v)
+  const ledgerRefuses = (a: string[]) => a[0] === '/usr/bin/tee' && a.includes('-a')
+  h.pfsFails = ledgerRefuses
+  await off($)
+  expect(unread()).toEqual({ v: 1, us: [u] })
+  expect(ended()).toHaveLength(1)
+  h.pfsFails = undefined
+  await list($)
+  expect(unread()).toBeUndefined()
+  h.pfsFails = ledgerRefuses
+  h.store.set('unattended', v)
+  h.nowMs += 11_000
+  await $.command.run(lane('status'))
+  expect(unread()).toBeUndefined()
+  expect(ended()).toHaveLength(1)
+  h.pfsFails = undefined
+})
+
 test('window end: the manager\'s prompt_list says so also while escalation is off', async ($, on) => {
   await mgrAt($, on, [], { sess: MGR_SESS({ name: 'MANAGER', nameSource: 'user' }) })
   h.store.set('answering', { off: true, savedAt: T0 })
@@ -167,4 +188,23 @@ longTest('window end: a tier held back by its notice cap inside a window leaves 
 longTest('window end: the same cap outside a window leaves no row', async ($, on) => {
   const { rows } = await capLoop($, on, false)
   expect(rows).toEqual([])
+})
+
+longTest('window end: a capped stretch that began before the window leaves its row once the window is held, and one row for each window', async ($, on) => {
+  const stdins: string[] = []
+  await tier($, on, stdins, { clock: true })
+  for (let i = 1; i <= 31; i++) {
+    putQ({ id: `${i.toString(16).padStart(8, '0')}-aaaa-4000-8000-123456789abc` })
+    await h.clock!.advance(2000)
+  }
+  expect(ledgerRows().filter((r) => r.kind === 'notice-capped')).toEqual([])
+  const v1 = putWindow()
+  await h.clock!.advance(30_000)
+  await h.clock!.advance(30_000)
+  expect(ledgerRows().filter((r) => r.kind === 'notice-capped').map((r) => r.u)).toEqual([winShort(v1)])
+  await $.command.run(lane('unattended off', { kind: 'peer' }))
+  const v2 = putWindow(win({ from: h.nowMs, savedAt: h.nowMs, until: h.nowMs + 4 * 3_600_000 }))
+  await h.clock!.advance(30_000)
+  await h.clock!.advance(30_000)
+  expect(ledgerRows().filter((r) => r.kind === 'notice-capped').map((r) => r.u)).toEqual([winShort(v1), winShort(v2)])
 })
