@@ -110,12 +110,13 @@ export async function ledgerRowsFor($: any, p: { uid: number; root: string }, ne
 }
 
 // Whether this month's or last month's ledger holds an `answered` row for the id and nonce.
-async function ledgerHas($: any, p: { uid: number; root: string }, id: string, nonce: string, bind?: { code: string; by: string; via?: 'person'; opt?: string; lh?: string }): Promise<'found' | 'missing' | 'unreadable'> {
+async function ledgerHas($: any, p: { uid: number; root: string }, id: string, nonce: string, bind?: { code: string; by: string; via?: 'person'; opt?: string; lh?: string; u?: string }): Promise<'found' | 'missing' | 'unreadable'> {
   const rows = await ledgerRowsFor($, p, `"id":"${id}"`)
   if (rows === 'unreadable') return 'unreadable'
   // bind: the row must name the same decision and the same author as the file, so a file rewritten after its row (a deny turned allow) is not found. For a question's answer it names
-  // the chosen option too (opt, and the label hash lh), so a file rewritten from one option to another is not found either.
-  return rows.some((j) => j.kind === 'answered' && j.id === id && j.nonce === nonce && (bind === undefined || (j.code === bind.code && j.by === bind.by && j.via === bind.via && (bind.opt === undefined || (bind.lh !== undefined && j.opt === bind.opt && j.lh === bind.lh))))) ? 'found' : 'missing'
+  // the chosen option too (opt, and the label hash lh), so a file rewritten from one option to another is not found either. A file that names an unattended window (u) needs a row
+  // that names the same one.
+  return rows.some((j) => j.kind === 'answered' && j.id === id && j.nonce === nonce && (bind === undefined || (j.code === bind.code && j.by === bind.by && j.via === bind.via && (bind.u === undefined || j.u === bind.u) && (bind.opt === undefined || (bind.lh !== undefined && j.opt === bind.opt && j.lh === bind.lh))))) ? 'found' : 'missing'
 }
 
 // The standing comment cap for a call that carries an `@claude` body: the `returned` allow rows of this month and last for the same repo, PR and kind. A failed
@@ -323,8 +324,20 @@ export async function escalationSure($: any): Promise<pr.EscalationSure> {
   return pr.escalationSureOf(stored, offFile)
 }
 
+// The text a reader judged a stored value by: its canonical text, or for a value that does not parse its JSON, marked so it never equals a canonical text.
+// undefined: a value with no JSON form.
+function windowText(raw: unknown, value: pr.Unattended | undefined): string | undefined {
+  if (value) return pr.canonical(value)
+  try {
+    const j = JSON.stringify(raw)
+    return typeof j === 'string' ? `bad:${j}` : undefined
+  } catch {
+    return undefined
+  }
+}
+
 // Ends a window: the stored value is removed, then the `unattended-off` row is written with how it ended, the origin of a command that ended it and this
-// session. `only`: the canonical text a reader judged; a stored value that is another one by now is left alone. 'none': nothing was stored (or, with `only`,
+// session. `only`: the text a reader judged (windowText); a stored value that is another one by now is left alone. 'none': nothing was stored (or, with `only`,
 // another value was). 'store-failed': the store did not answer or would not remove the value; nothing was written. A removal that did not answer is read
 // again: a value that is gone by then was removed, and gets its row. After 'closed' this process knows the window is off.
 export type WindowClosed = 'closed' | 'none' | 'store-failed'
@@ -334,7 +347,7 @@ export async function unattendedClose($: any, how: { code: string; origin?: c.Or
   if (got.raw === undefined || got.raw === null) return 'none'
   const value = pr.parseUnattended(got.raw)
   const text = value ? pr.canonical(value) : undefined
-  if (how.only !== undefined && text !== how.only) return 'none'
+  if (how.only !== undefined && windowText(got.raw, value) !== how.only) return 'none'
   const hash = text === undefined ? undefined : await windowHash($, text)
   if (!(await storeDo($, () => $.store.delete(UNATTENDED_KEY)))) {
     const after = await storeRead($, UNATTENDED_KEY)
@@ -342,7 +355,9 @@ export async function unattendedClose($: any, how: { code: string; origin?: c.Or
   }
   mem.unattended = undefined
   mem.unattendedSure = 'off'
+  mem.unattendedU = undefined
   mem.unattendedUnknown = false
+  mem.unattendedBadSeen = undefined
   mem.unattendedCloses++
   const sid = await ownSid($)
   const row: Omit<pr.LedgerRow, 't'> = { kind: 'unattended-off', code: how.code, ...(hash !== undefined ? { hash, u: pr.windowShort(hash) } : {}), ...(how.origin !== undefined ? { origin: how.origin } : {}), ...(sid !== undefined ? { by: sid } : {}) }
@@ -355,24 +370,33 @@ export async function unattendedClose($: any, how: { code: string; origin?: c.Or
 async function windowRead($: any, now: number): Promise<pr.Window> {
   const got = await storeRead($, UNATTENDED_KEY)
   if (!got.read) return windowUnknown('store', false)
-  if (got.raw === undefined || got.raw === null) return { state: 'off' }
-  const value = pr.parseUnattended(got.raw)
-  if (!value) return windowUnknown('value', true)
-  const text = pr.canonical(value)
-  const over = async (code: string): Promise<pr.Window> => {
-    await unattendedClose($, { code, only: text })
+  if (got.raw === undefined || got.raw === null) {
+    mem.unattendedBadSeen = undefined
     return { state: 'off' }
   }
+  const value = pr.parseUnattended(got.raw)
+  const text = windowText(got.raw, value)
+  const over = async (code: string): Promise<pr.Window> => {
+    if (text !== undefined) await unattendedClose($, { code, only: text })
+    return { state: 'off' }
+  }
+  // A value that does not parse holds for UNATTENDED_GRACE_MS from when this process first saw it, then ends as invalid.
+  if (!value) {
+    if (text === undefined || mem.unattendedBadSeen?.text !== text) mem.unattendedBadSeen = text === undefined ? undefined : { text, at: now }
+    return mem.unattendedBadSeen && now - mem.unattendedBadSeen.at > pr.UNATTENDED_GRACE_MS ? over('invalid') : windowUnknown('value', true)
+  }
+  mem.unattendedBadSeen = undefined
   const time = pr.unattendedTime(value, now)
   if (time === 'invalid' || time === 'expired') return over(time)
-  if (time === 'early') return windowUnknown('clock', true)
-  const hash = await windowHash($, text)
+  // The ledger is read before the clock is judged, so a value with no row ends after the grace even while the clock reads before its start.
+  const hash = await windowHash($, text!)
   if (hash === undefined) return windowUnknown('hash', true)
   const p = await where($)
   const rows = p ? await ledgerRowsFor($, p, `"hash":"${hash}"`) : 'unreadable'
   if (rows === 'unreadable') return windowUnknown('ledger', true)
   const bind = pr.unattendedBind(rows, hash, value, now)
   if (bind === 'ended' || bind === 'unbound') return over(bind)
+  if (time === 'early') return windowUnknown('clock', true)
   if (bind === 'wait') return windowUnknown('unbound', true)
   return { state: 'on', value, u: pr.windowShort(hash) }
 }
@@ -380,13 +404,14 @@ async function windowRead($: any, now: number): Promise<pr.Window> {
 // The one reader of the window, kept UNATTENDED_TTL_MS per process with the last sure state beside it (mem.unattendedSure). The first `unknown` of an episode
 // writes one `unattended-unknown` row, best effort, when a stored value was seen or this process last read `on`; a store that fails with no window in sight
 // writes none.
-export async function unattendedNow($: any): Promise<pr.Window> {
+// fresh: the kept read is not served, for a caller that must see a window opened a moment ago.
+export async function unattendedNow($: any, fresh = false): Promise<pr.Window> {
   let w: pr.Window
   try {
     const now = await $.clock.now()
     const kept = mem.unattended
     // A kept `on` is not served past its window's end.
-    if (kept && now >= kept.at && now - kept.at < UNATTENDED_TTL_MS && !(kept.w.state === 'on' && now >= kept.w.value.until)) return kept.w
+    if (!fresh && kept && now >= kept.at && now - kept.at < UNATTENDED_TTL_MS && !(kept.w.state === 'on' && now >= kept.w.value.until)) return kept.w
     const closes = mem.unattendedCloses
     w = await windowRead($, now)
     // A window ended in this process while the read was under way: what the read found is older than that end, so it is not kept and the answer is off.
@@ -397,6 +422,7 @@ export async function unattendedNow($: any): Promise<pr.Window> {
   }
   if (w.state !== 'unknown') {
     mem.unattendedSure = w.state
+    mem.unattendedU = w.state === 'on' ? w.u : undefined
     mem.unattendedUnknown = false
   } else if (!mem.unattendedUnknown && (w.key || mem.unattendedSure === 'on')) {
     mem.unattendedUnknown = true
@@ -405,10 +431,17 @@ export async function unattendedNow($: any): Promise<pr.Window> {
   }
   return w
 }
-// What `unknown` means, so no caller decides it for itself. Held: on, or unknown when this process last read on; for everything a window forbids. On: on only;
-// for what only a window permits.
-export async function unattendedHeld($: any): Promise<boolean> {
-  return pr.unattendedHeldOf(await unattendedNow($), mem.unattendedSure)
+// What `unknown` means, so no caller decides it for itself. Held: on, or unknown when this process last read on or the read saw a stored value; for everything a
+// window forbids. On: on only; for what only a window permits.
+export async function unattendedHeld($: any, fresh = false): Promise<boolean> {
+  return pr.unattendedHeldOf(await unattendedNow($, fresh), mem.unattendedSure)
+}
+// Held, with what a caller shows or writes beside it: the window's short id (the live window's, or the last one this process read on while the read gives no
+// answer) and the live window's end.
+export async function unattendedHold($: any): Promise<{ held: boolean; u?: string; until?: number }> {
+  const w = await unattendedNow($)
+  if (!pr.unattendedHeldOf(w, mem.unattendedSure)) return { held: false }
+  return w.state === 'on' ? { held: true, u: w.u, until: w.value.until } : { held: true, ...(mem.unattendedU !== undefined ? { u: mem.unattendedU } : {}) }
 }
 export async function unattendedOn($: any): Promise<boolean> {
   return pr.unattendedOnOf(await unattendedNow($))
@@ -812,6 +845,20 @@ async function promptHook($: any, e: any, nextOnce: (x: any) => Promise<any>, si
   if (!c.SID_RE.test(sid)) return nextOnce(e)
   // A request left without its closing row is retried here as well as on the tick (a no-op while none is owed).
   if (unclosed.size > 0) await promptCloseTick($).catch(() => undefined)
+  // A lead's, a conductor's or the manager's own question while an unattended window is held, a relay question included: nobody is there to answer it, so it is
+  // denied before anything is marked, held or shown. A read that throws denies only when this process last read the window on, and passes the ask on otherwise.
+  if (String(e.tool_name) === 'AskUserQuestion' && grants.get(sid) !== undefined) {
+    let held: boolean
+    try {
+      held = await unattendedHeld($)
+    } catch {
+      held = mem.unattendedSure === 'on'
+    }
+    if (held) {
+      await logq($, sid, 'refused', 'unattended-question')
+      return { decision: { behavior: 'deny', message: pr.TIER_QUESTION_DENY } }
+    }
+  }
   // 0. A tier's relay question: it is the person's already (AskUserQuestion), so it raises no request. It marks the relay asked and the tier asking,
   // before the coverage gate, so a conductor's or the manager's question is marked too. The chain beneath runs as it always did, and the hook then holds the
   // question (promptRelayHold) until it ends or a request it relays closes elsewhere.
@@ -832,7 +879,18 @@ async function promptHook($: any, e: any, nextOnce: (x: any) => Promise<any>, si
   }
   // 1. The switch and the session's kind. The emergency file wins over the switch.
   const cov = await promptCoverage($, sid)
-  if (!cov || (await promptsOff($))) return nextOnce(e)
+  if (!cov || (await promptsOff($))) {
+    // A manager's or a conductor's own permission prompt is covered by no tier, so inside an unattended window it would wait for the person with no limit: what
+    // the chain beneath answers stands, a click that got there first stands, and anything else is denied at once. Escalation surely off ends the window, so the
+    // prompt then waits for the person as by day.
+    const level = grants.get(sid)?.level
+    if ((level !== 'manager' && level !== 'conductor') || !(await unattendedHeld($).catch(() => mem.unattendedSure === 'on'))) return nextOnce(e)
+    if ((await escalationSure($).catch(() => ({ state: 'unread' as const }))).state === 'off') return nextOnce(e)
+    const beneath = await nextOnce(e)
+    if ((beneath && typeof beneath === 'object' && Object.keys(beneath).length > 0) || signal.aborted) return beneath
+    await logq($, sid, 'refused', 'unattended-own-prompt')
+    return { decision: { behavior: 'deny' as const, message: pr.TIER_PROMPT_DENY } }
+  }
   const p = await where($)
   if (!p) return nextOnce(e)
   const tool = String(e.tool_name)
@@ -875,7 +933,9 @@ async function promptHook($: any, e: any, nextOnce: (x: any) => Promise<any>, si
       leadRead = true
       if (!pr.covers(cov.a, { lane: cov.lane, lead: lead?.name, self: cov.self })) return beneath
     }
-    const base = { lane: cov.lane ?? cov.self, repo: cwd, tool, pattern: pr.patternOf(tool, input, cwd), hash }
+    // The unattended window, read once for this ask: while it is held, every row of the request carries its short id.
+    const hold = await unattendedHold($)
+    const base = { lane: cov.lane ?? cov.self, repo: cwd, tool, pattern: pr.patternOf(tool, input, cwd), hash, ...(hold.u !== undefined ? { u: hold.u } : {}) }
     // The live tiers in reach of this ask, with the asker's own registry row and its lead (read once).
     const reachOf = async () => {
       if (!leadRead) lead = await promptLeadOf($, cov.level, sid, cwd, cov.lead)
@@ -922,6 +982,11 @@ async function promptHook($: any, e: any, nextOnce: (x: any) => Promise<any>, si
     const { own, reach, leadName, leadSid } = await reachOf()
     if (reach.length === 0 && own && typeof own.pid === 'number' && typeof own.procStart === 'string') {
       await ledgerAdd($, { ...base, kind: 'abandoned', code: 'no-tier' })
+      // A lead's own prompt with nobody above it would wait for the person: inside an unattended window it is denied at once. A lane's stays in its panel.
+      if (cov.level === 'lead' && hold.held && !signal.aborted && !doneIds.has(tid as string)) {
+        await logq($, sid, 'refused', 'unattended-own-prompt')
+        return { ...(beneath && typeof beneath === 'object' ? beneath : {}), decision: { behavior: 'deny' as const, message: pr.TIER_PROMPT_DENY } }
+      }
       return beneath
     }
     if (!pr.requestCovered(cov.a, { tool }, { lane: cov.lane, lead: leadName, self: cov.self })) return beneath
@@ -1032,10 +1097,13 @@ async function promptWait($: any, beneath: any, signal: AbortSignal, w: WaitCtx)
   let presenceAt = 0
   let pauseFails = 0
   // A relay whose question the person had on screen (asked) never ends in the 20-minute deny, even if it is lost later: the prompt stays in the dialog (expired at 21 minutes).
+  // A relay taken back for an unattended window is the exception: the person is away, so the wait ends in the hold, also past the 21-minute expiry (takenBack).
   let personSaw = false
+  let takenBack = false
   const relayLost = async (code: string): Promise<void> => {
     const r = relay
-    if (askedSeen) personSaw = true
+    if (askedSeen && code !== 'unattended') personSaw = true
+    if (code === 'unattended') takenBack = true
     if (!(await ledgerAdd($, { ...w.row, kind: 'relay-lost', code, ...(r ? { short: r.short, by: r.by.sid, tier: r.by.level } : {}) }))) return
     await rmF($, [relayPath, askedPath, leftPath])
     relay = undefined
@@ -1069,8 +1137,11 @@ async function promptWait($: any, beneath: any, signal: AbortSignal, w: WaitCtx)
     if (relay) {
       if ((await statR($, leftPath)) !== 'absent') return end('abandoned', 'relay-left')
       if (!askedSeen) askedSeen = (await statR($, askedPath)) !== 'absent'
+      // A relay inside an unattended window is taken back: the person is away, so the request returns to the tiers (the relaying tier's question is then
+      // withdrawn). A decision already in is the person's own answer and is applied below.
+      if ((await unattendedHeld($)) && (await statR($, `${w.dir}/${w.id}.decision.json`)) === 'absent') await relayLost('unattended')
       // A decision already in (the person answered between two polls, which spent the mark) is applied below, not lost.
-      if (!askedSeen && awake - relayFrom >= pr.ASKED_WAIT_MS && (await statR($, `${w.dir}/${w.id}.decision.json`)) === 'absent') await relayLost('not-asked')
+      else if (!askedSeen && awake - relayFrom >= pr.ASKED_WAIT_MS && (await statR($, `${w.dir}/${w.id}.decision.json`)) === 'absent') await relayLost('not-asked')
       else if (awake - presenceAt >= 60_000) {
         presenceAt = awake
         const step = pr.relayLostStep(noCount, await promptRelayTierSeen($, w.p, relay.by))
@@ -1079,7 +1150,7 @@ async function promptWait($: any, beneath: any, signal: AbortSignal, w: WaitCtx)
       }
     }
     const withPerson = relay !== undefined
-    if (awake >= pr.expiresAfter(withPerson)) return end('abandoned', 'expired')
+    if (awake >= pr.expiresAfter(withPerson) && !(takenBack && !withPerson && w.tool !== pr.QUESTION_TOOL)) return end('abandoned', 'expired')
     const df = await readSmallR($, `${w.dir}/${w.id}.decision.json`, w.p.uid, pr.DECISION_MAX)
     // A decision that is dropped (its row is written) is taken away: a file left in place would make every tier's answer and pass-up 'decided', and hide the request
     // from prompt_list and the notice, so no tier could act on it again and the wait would end in the 20-minute deny.
@@ -1125,14 +1196,17 @@ async function promptWait($: any, beneath: any, signal: AbortSignal, w: WaitCtx)
             if (answered === undefined) return beneath
             return { ...(beneath && typeof beneath === 'object' ? beneath : {}), decision: answered }
           } else {
-            const back = { ...w.row, kind: 'returned' as const, code: d.decision, why: d.why, tier: d.by.level, by: d.by.sid, ...(d.via ? { via: d.via, ...(relay ? { short: relay.short } : {}) } : {}), tuid: w.tid, ...(w.cap ? { cap: w.cap.kind, target: w.cap.target } : {}) }
+            // A decision made inside an unattended window names it on its row, whatever window the request was raised in.
+            const back = { ...w.row, kind: 'returned' as const, code: d.decision, why: d.why, tier: d.by.level, by: d.by.sid, ...(d.via ? { via: d.via, ...(relay ? { short: relay.short } : {}) } : {}), tuid: w.tid, ...(w.cap ? { cap: w.cap.kind, target: w.cap.target } : {}), ...(d.u !== undefined ? { u: d.u } : {}) }
             w.st.pending = { ...w.row, kind: 'abandoned', code: 'hook-failed' }
             if (!(await ledgerAdd($, back))) return beneath
             w.st.closed = true
             const unclear = d.decision === 'deny' && d.via !== 'person' && pr.isUnclear(d.why)
-            const text = pr.denyText(applied.tier, d.via === 'person', d.why)
-            // The cleaner-command text is appended after the cap, so a long reason never cuts it off.
-            const message = pr.capBytes(pr.redact(text), 300).text + (unclear ? pr.UNCLEAR_SUFFIX : '')
+            const text = d.decision === 'park' ? pr.parkText(applied.tier, d.why) : pr.denyText(applied.tier, d.via === 'person', d.why)
+            // What follows the head is appended after the cap, so a long reason never cuts it off: the cleaner-command text, or what a park or a deny made
+            // inside an unattended window tells the lane.
+            const tail = d.decision === 'park' ? pr.UNATTENDED_PARK_TAIL : unclear ? pr.UNCLEAR_SUFFIX : d.u !== undefined && d.via !== 'person' ? pr.UNATTENDED_DENY_TAIL : ''
+            const message = pr.capBytes(pr.redact(text), 300).text + tail
             const decision = d.decision === 'allow' ? { behavior: 'allow' as const } : { behavior: 'deny' as const, message }
             return { ...(beneath && typeof beneath === 'object' ? beneath : {}), decision }
           }
@@ -1145,9 +1219,11 @@ async function promptWait($: any, beneath: any, signal: AbortSignal, w: WaitCtx)
       const stop = await guards()
       if (stop !== undefined) return stop
       w.st.pending = { ...w.row, kind: 'abandoned', code: 'hook-failed' }
-      if (!(await ledgerAdd($, { ...w.row, kind: 'expired-denied', code: 'timeout' }))) return beneath
+      // Inside an unattended window the prompt is held for the person, and the lane is told so; its row names the window.
+      const hold = await unattendedHold($)
+      if (!(await ledgerAdd($, { ...w.row, kind: 'expired-denied', code: hold.held ? 'held' : 'timeout', ...(hold.u !== undefined ? { u: hold.u } : {}) }))) return beneath
       w.st.closed = true
-      return { ...(beneath && typeof beneath === 'object' ? beneath : {}), decision: { behavior: 'deny' as const, message: pr.DENY_TIMEOUT_MESSAGE } }
+      return { ...(beneath && typeof beneath === 'object' ? beneath : {}), decision: { behavior: 'deny' as const, message: hold.held ? pr.UNATTENDED_HOLD_MESSAGE : pr.DENY_TIMEOUT_MESSAGE } }
     }
     // A pause that failed (a sleep outlasts its time limit) is not the wait's end: the poll runs again. Its gap adds no awake time, so a Mac that slept through
     // it never shortens the person's own first 30 seconds.
@@ -1204,10 +1280,13 @@ async function promptApply($: any, w: WaitCtx, d: pr.Decision, awake: number, gr
   }
   // A question's answer binds to its row by option and label hash; a hash that cannot be made is an unreadable ledger (held for the next poll), not a drop.
   const lh = d.decision === 'answer' && d.answer ? await labelHash($, w.id, d.answer.label).catch(() => undefined) : undefined
-  const ledger = d.decision === 'answer' && d.answer && lh === undefined ? 'unreadable' : await ledgerHas($, w.p, w.id, w.nonce, { code: d.decision, by: d.by.sid, ...(d.via ? { via: d.via } : {}), ...(d.answer && lh !== undefined ? { opt: String(d.answer.index), lh } : {}) })
+  const ledger = d.decision === 'answer' && d.answer && lh === undefined ? 'unreadable' : await ledgerHas($, w.p, w.id, w.nonce, { code: d.decision, by: d.by.sid, ...(d.via ? { via: d.via } : {}), ...(d.answer && lh !== undefined ? { opt: String(d.answer.index), lh } : {}), ...(d.u !== undefined ? { u: d.u } : {}) })
+  // A park lands only inside the window it was made in, so the window is read for a park and for nothing else.
+  const win = d.decision === 'park' ? await unattendedNow($, true) : undefined
+  const window = win === undefined ? undefined : win.state === 'on' ? ({ state: 'on', u: win.u } as const) : ({ state: win.state } as const)
   // Only a call that carries an `@claude` body, and only once the other checks would let the decision through, reads the cap.
   const cap = w.cap && ledger === 'found' && d.decision === 'allow' && d.via !== 'person' ? await capOf($, w.p, w.cap) : undefined
-  const out = pr.applyCheck({ req: w.req, decision: d, liveHash, awakeMs: awake, expiresAt: pr.expiresAfter(relay !== undefined), byOk, ...(relay ? { relay } : {}), ...(w.tool === pr.QUESTION_TOOL ? { question: { labels: pr.questionLabels(w.input) } } : {}), ledger, graceMs, cap })
+  const out = pr.applyCheck({ req: w.req, decision: d, liveHash, awakeMs: awake, expiresAt: pr.expiresAfter(relay !== undefined), byOk, ...(relay ? { relay } : {}), ...(w.tool === pr.QUESTION_TOOL ? { question: { labels: pr.questionLabels(w.input) } } : {}), ledger, graceMs, cap, ...(window ? { window } : {}) })
   // The two drops that rest on those lookups are held for the next poll when one failed; the final codes (id, hash, nonce, expired, cap) never are.
   return unsure && 'drop' in out && (out.drop === 'by-sid' || out.drop === 'relay') ? { out: { hold: 'lookup' } } : { out, ...(tier ? { tier } : {}) }
 }
@@ -1222,7 +1301,7 @@ async function promptReturnAnswer($: any, w: WaitCtx, d: pr.Decision, index: num
   if (liveRaw === undefined || typeof live?.question !== 'string' || labels[index] === undefined) return undefined
   const lh = await labelHash($, w.id, labels[index]).catch(() => undefined)
   if (lh === undefined) return undefined
-  const back = { ...w.row, kind: 'returned' as const, code: 'answer', why: d.why, tier: d.by.level, by: d.by.sid, opt: String(index), lh, ...(d.via ? { via: d.via, ...(short ? { short } : {}) } : {}), tuid: w.tid }
+  const back = { ...w.row, kind: 'returned' as const, code: 'answer', why: d.why, tier: d.by.level, by: d.by.sid, opt: String(index), lh, ...(d.via ? { via: d.via, ...(short ? { short } : {}) } : {}), tuid: w.tid, ...(d.u !== undefined ? { u: d.u } : {}) }
   w.st.pending = { ...w.row, kind: 'abandoned', code: 'hook-failed' }
   if (!(await ledgerAdd($, back))) return undefined
   w.st.closed = true

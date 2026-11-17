@@ -77,7 +77,7 @@ import { ensureTimer } from './tick.ts'
 import { grantNameNo } from './lead-open.ts'
 import { epochOf, heldNo, holdsOf, levelSave } from './levels.ts'
 import type { LevelDesc } from './levels.ts'
-import { ANSWERING_KEY, ledgerAdd, promptsOff, escalationNow, defaultForget, hereRead, hereDrop, unattendedNow, unattendedClose } from './answer-hook.ts'
+import { ANSWERING_KEY, ledgerAdd, promptsOff, escalationNow, defaultForget, hereRead, hereDrop, unattendedNow, unattendedClose, ledgerRowsFor } from './answer-hook.ts'
 import { ledgerRestore } from './answer-tiers.ts'
 import * as go from '../go.ts'
 import { goCommand, goGrantorOff } from './go.ts'
@@ -840,7 +840,26 @@ async function unattendedCommand($: any, sid: string, code: c.OriginCode, op: pr
     return { text: r === 'closed' ? pr.UNATTENDED_ENDED : r === 'none' ? pr.UNATTENDED_NOT_ON : pr.UNATTENDED_OFF_FAILED }
   }
   if (!c.originIsPerson(code)) return notPerson($, sid, 'unattended', code, pr.UNATTENDED_NOT_PERSON)
-  return { text: pr.unattendedState(await unattendedNow($), whenLocal) }
+  const w = await unattendedNow($)
+  const list = await unattendedList($, w).catch(() => pr.UNATTENDED_LIST_UNREAD)
+  return { text: `${pr.unattendedState(w, whenLocal)}${list === undefined ? '' : `\n\n${list}`}` }
+}
+// What the live window did, or the last one on record in this month's and last month's ledgers: three bounded reads (the windows opened, the rows that carry
+// this window's short id, the reads that gave no answer). undefined: no window is on record.
+async function unattendedList($: any, w: pr.Window): Promise<string | undefined> {
+  const p = await where($)
+  if (!p) return pr.UNATTENDED_LIST_UNREAD
+  let u = w.state === 'on' ? w.u : undefined
+  if (u === undefined) {
+    const opened = await ledgerRowsFor($, p, '"kind":"unattended-on"')
+    if (opened === 'unreadable') return pr.UNATTENDED_LIST_UNREAD
+    const last = opened.filter((r) => r.kind === 'unattended-on' && typeof r.u === 'string' && pr.U_RE.test(r.u)).sort((a, b) => (Date.parse(a.t) || 0) - (Date.parse(b.t) || 0)).pop()
+    if (!last) return undefined
+    u = last.u as string
+  }
+  const rows = await ledgerRowsFor($, p, `"u":"${u}"`)
+  const unknown = await ledgerRowsFor($, p, '"kind":"unattended-unknown"')
+  return pr.unattendedListText({ u, live: w.state === 'on', rows: rows === 'unreadable' ? undefined : rows, unknown: unknown === 'unreadable' ? undefined : unknown, when: whenLocal })
 }
 
 // /callboard escalation (the person's own command, one dialog) and /callboard escalation off (any origin, no dialog). One Allow stores scope `all` for permission prompts and questions alike;

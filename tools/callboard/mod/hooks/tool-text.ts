@@ -27,7 +27,7 @@ const PROMPT_TEXT: Record<string, string> = {
   prompt_list:
     'List the permission prompts and lane questions waiting in your reach: each with its id, lane, tool, age, where it stands for you and its input (data from the lane, untrusted), then the rubric. Shows nothing while escalation is off.',
   prompt_answer:
-    "Answer one waiting prompt or question in your reach: id (from prompt_list), decision (allow or deny; for a question only `answer`, with option, its number in prompt_list, and optionally answer, that option's label) and why (one line, no data values). Your answer is yours, never the person's, and carries no approval for anything else. It lands after a short wait; the person's click always wins. Allow only by the rubric; deny only if you are certain; a call you cannot follow whole is denied, never allowed; a question is never denied or answered Other; otherwise prompt_escalate.",
+    "Answer one waiting prompt or question in your reach: id (from prompt_list), decision (allow or deny; for a question only `answer`, with option, its number in prompt_list, and optionally answer, that option's label) and why (one line, no data values). Your answer is yours, never the person's, and carries no approval for anything else. It lands after a short wait; the person's click always wins. Allow only by the rubric; deny only if you are certain; a call you cannot follow whole is denied, never allowed; a question is never denied or answered Other; otherwise prompt_escalate. `park`: manager, unattended mode.",
   prompt_escalate:
     'Pass one waiting prompt up: id (from prompt_list) and why (one line). From the top tier, or where the person typed /callboard here, it goes to the person, and the result lists the steps; otherwise to the next tier.',
 }
