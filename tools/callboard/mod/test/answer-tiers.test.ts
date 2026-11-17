@@ -704,13 +704,17 @@ test('prompts tools: a conductor whose pins do not hold the lane\'s repo is not 
   expect(pfs.has(`${LDIR()}/${TID}.relay.json`)).toBe(true)
 })
 
-const mgrRow = (status: string) => { h.sessions = { ...h.sessions, '4243.json': JSON.stringify({ ...JSON.parse(h.sessions['4243.json']), status, waitingFor: status === 'waiting' ? 'question' : null, statusUpdatedAt: T0 }) } }
+const mgrRow = (status: string, waitingFor: string | null = status === 'waiting' ? 'question' : null) => { h.sessions = { ...h.sessions, '4243.json': JSON.stringify({ ...JSON.parse(h.sessions['4243.json']), status, waitingFor, statusUpdatedAt: T0 }) } }
 
 test('prompts tools: an asking mark with no open dialog behind it (the row is not waiting) does not keep the top: the lead relays, as with no mark', async ($, on) => {
   await tier($, on)
   tierFixtures('mgr')
   mgrRow('busy')
   putQ()
+  pfs.set(`${PROMPTS_DIR}/asking/${MGRT}`, { text: '{}', mtimeSec: T0 / 1000 })
+  expect(turnOf(said(await $.tool.call(pcall('prompt_list'))))).toContain('You are the top tier')
+  // A row marked waiting with nothing it waits for is no open dialog either.
+  mgrRow('waiting', null)
   pfs.set(`${PROMPTS_DIR}/asking/${MGRT}`, { text: '{}', mtimeSec: T0 / 1000 })
   expect(said(await $.tool.call(pcall('prompt_escalate', { id: TID, why: 'x' })))).toContain('You are the top tier here')
   expect(pfs.has(`${LDIR()}/${TID}.relay.json`)).toBe(true)
