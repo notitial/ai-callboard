@@ -223,6 +223,8 @@ ends in the 20-minute deny.
   Tier sessions need a reload after the checkout moves.
 - **An ask a tier surfaces waits for the person only while a tier relays it.** With a live top tier that passes it
   up, the person is asked in that tier's session. With tiers that do nothing, it ends in the 20-minute deny.
+  *Amended 2026-11-17 ([ADR 0008](0008-unattended-mode.md)):* while unattended mode is on, an ask a tier surfaces is
+  parked or held for the person, not relayed. What rises, and what a tier may handle, stand.
 
 ### What this widens: plainly
 

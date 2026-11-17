@@ -121,6 +121,9 @@ Trust rises with the tier.
   tier is not the top yet, and a lower tier may still put a request to the person in its own session. The row shows
   any dialog of the tier's own, not only its relay question, so a mark with another of its dialogs open keeps it the
   top too, at the same cost.
+  *Amended 2026-11-17 ([ADR 0008](0008-unattended-mode.md)):* while unattended mode is on no tier relays, and a relay that
+  slips in is taken back; a tier's own question is refused by its mod. The manager denies or parks what it would have
+  passed up, and a prompt that reached a tier and that none answered is held for the person's return.
 - **A call the tier cannot understand** is denied, with a message that asks the lane for a cleaner one. Any tier may
   do this; nothing is put to the person for it.
 - **The risk list may go through the relay.** The floor never reaches any tier.

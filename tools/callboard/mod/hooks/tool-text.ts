@@ -80,6 +80,7 @@ const TEXT: Record<Role, Record<string, string>> = {
     lane_terminate: `Stop ${LANE.manager} with SIGTERM, whatever it is doing; with no live session it is removed directly. ${LANE_ARG}`,
     lane_retire: `Stop ${LANE.manager} once it confirms it can end: idle, with its report signed done. ${NO_SESSION} Retire is final. ${LANE_ARG}`,
     ...upperText('manager'),
+    unattended_off: "End unattended mode on this Mac, as /callboard unattended off does. No arguments; it can only end the mode. The result counts what the window did. Main agent of the manager only.",
   },
   any: {
     request_compact:

@@ -40,11 +40,11 @@ test('window: a lead that is the top tier is refused the relay: no relay file, a
   expect(pfs.has(`${LDIR()}/${TID}.relay.json`)).toBe(false)
   expect(of('relay-refused')).toEqual([expect.objectContaining({ id: TID, code: 'refused', tier: 'lead', by: SID, u: winShort(v), lane: 'svc-api' })])
   expect(of('relayed')).toEqual([])
-  // The request stays open to the tier, and a lead's answer carries no window mark.
+  // The request stays open to the tier, and a lead's answer in the window carries its mark, as every tier's does.
   expect(await list($)).toContain(`### ${TID}`)
   expect(said(await $.tool.call(answerCall()))).toContain('Recorded: allow')
-  expect(JSON.parse(pfs.get(`${LDIR()}/${TID}.decision.json`)!.text).u).toBeUndefined()
-  expect(of('answered')[0].u).toBeUndefined()
+  expect(JSON.parse(pfs.get(`${LDIR()}/${TID}.decision.json`)!.text).u).toBe(winShort(v))
+  expect(of('answered')[0].u).toBe(winShort(v))
 })
 
 test('window: a conductor that is the top tier is refused the relay the same way, and may still answer', async ($, on) => {
@@ -300,6 +300,14 @@ test('window: a deny the manager made in the window ends with the unattended tex
   expect(plain.decision.message).toBe('Denied by the manager MANAGER: no')
 })
 
+test('window: a lead\'s deny in the window carries the mark and ends with the unattended text', async ($, on) => {
+  await answerer($, on, [])
+  const u = winShort(open())
+  const r = await runRequest($, [at(4000, () => handDecision(readReq(), { decision: 'deny', why: 'no', u }, { u }))])
+  expect(r).toEqual({ decision: { behavior: 'deny', message: `Denied by the lead LEAD: no${prm.UNATTENDED_DENY_TAIL}` } })
+  expect(of('returned')[0]).toMatchObject({ code: 'deny', u })
+})
+
 for (const [name, decide, drop] of [
   ['by a tier that is not the manager', (req: any, u: string) => handDecision(req, { decision: 'park', why: 'x', u }, { u }), 'dropped kind'],
   ['that names another window', (req: any) => handDecision(req, { decision: 'park', why: 'x', by: byMgr, u: 'bbbbbbbb' }, { by: MGRT, u: 'bbbbbbbb' }), 'dropped unattended-closed'],
@@ -382,6 +390,35 @@ longTest('window: a relay 25 minutes old taken back for a window ends in the hol
   expect(of('expired-denied')[0].u).toBe(winShort(v!))
 })
 
+longTest('window: a relay the person saw that was lost, then a second relay taken back for a window, still ends in the hold', async ($, on) => {
+  await answerer($, on, [])
+  let v: prm.Unattended | undefined
+  const r = await runRequest($, [
+    at(4000, () => putRelay(readReq())),
+    at(4000, () => putFileAt(`${readReq().id}.asked`)),
+    at(20_000, () => putFileAt(`${readReq().id}.relay.json`, 'not a relay')),
+    at(40_000, () => putRelay(readReq())),
+    at(60_000, () => { v = putWindow(win({ from: h.nowMs, savedAt: h.nowMs, until: h.nowMs + 8 * HOUR_MS })) }),
+  ])
+  expect(r).toEqual({ decision: { behavior: 'deny', message: prm.UNATTENDED_HOLD_MESSAGE } })
+  expect(kinds()).toEqual(['requested', 'relay-lost bad-file', 'relay-lost unattended', 'expired-denied held'])
+  expect(of('expired-denied')[0].u).toBe(winShort(v!))
+})
+
+longTest('window: a relay taken back, then the window ends and a new relay the person saw is lost: the wait ends at the 21-minute expiry', async ($, on) => {
+  await answerer($, on, [])
+  const r = await runRequest($, [
+    at(4000, () => putRelay(readReq())),
+    at(20_000, () => { putWindow(win({ from: h.nowMs, savedAt: h.nowMs, until: h.nowMs + 8 * HOUR_MS })) }),
+    at(40_000, async () => { await $.command.run(lane('unattended off')) }),
+    at(60_000, () => putRelay(readReq())),
+    at(60_000, () => putFileAt(`${readReq().id}.asked`)),
+    at(80_000, () => putFileAt(`${readReq().id}.relay.json`, 'not a relay')),
+  ])
+  expect(r).toEqual({})
+  expect(kinds()).toEqual(['requested', 'relay-lost unattended', 'relay-lost bad-file', 'abandoned expired'])
+})
+
 longTest('window: a prompt raised before the window and still unanswered at 20 minutes inside it is held too; one whose window ended meanwhile gets the usual text', async ($, on) => {
   await answerer($, on, [])
   let v: prm.Unattended | undefined
@@ -461,6 +498,44 @@ longTest('window: with three lanes live the fourth still opens', async ($, on) =
   await ceilingLead($, on, LIVE.slice(0, 3))
   open()
   expect(await opening($)).toContain(`session ${NEWSID}`)
+})
+
+longTest('window: with three lanes live, a session opened and not yet renamed counts, so a second open in a row is refused', async ($, on) => {
+  await ceilingLead($, on, LIVE.slice(0, 3))
+  open()
+  expect(await opening($)).toContain(`session ${NEWSID}`)
+  // The opened panel is live with no lane's name yet.
+  Object.assign(h.sessions, cueSession(NEWSID, undefined, `${PIN}/api`, { pid: 4700 }))
+  expect(JSON.stringify(await drive($.tool.call(leadCall('open', { lane: 'L4' }))))).toContain(`lane_open refused: unattended-lanes: ${REASON_TEXT['unattended-lanes']}`)
+})
+
+longTest('window: with three lanes live, a panel just opened counts before its session is in the registry, so a second open is refused', async ($, on) => {
+  await ceilingLead($, on, LIVE.slice(0, 3))
+  open()
+  expect(await opening($)).toContain(`session ${NEWSID}`)
+  expect(JSON.stringify(await drive($.tool.call(leadCall('open', { lane: 'L4' }))))).toContain(`lane_open refused: unattended-lanes: ${REASON_TEXT['unattended-lanes']}`)
+})
+
+longTest('window: with three lanes live, an open still under way counts, so an open beside it is refused', async ($, on) => {
+  await ceilingLead($, on, LIVE.slice(0, 3))
+  open()
+  h.openResultPath = `${ROOT}/open/L5.result`
+  const first = $.tool.call(leadCall('open', { lane: 'L5' }))
+  await h.clock!.advance(500)
+  expect(JSON.stringify(await drive($.tool.call(leadCall('open', { lane: 'L4' }))))).toContain(`lane_open refused: unattended-lanes: ${REASON_TEXT['unattended-lanes']}`)
+  h.openResult = `ok ${NEWSID}\n`
+  expect(JSON.stringify(await drive(first))).toContain(`session ${NEWSID}`)
+})
+
+longTest('window: with four lanes live, lane_rename that would bind a fifth is refused; it is not refused with three', async ($, on) => {
+  await ceilingLead($, on)
+  open()
+  Object.assign(h.sessions, cueSession(NEWSID, undefined, `${PIN}/api`, { pid: 4700 }))
+  const full = `lane_rename refused: unattended-lanes: ${REASON_TEXT['unattended-lanes']}`
+  expect(JSON.stringify(await drive($.tool.call(leadCall('rename', { sid: NEWSID, lane: 'L5' }))))).toContain(full)
+  // L4's session ends: three are live, and the rename goes on to its cue.
+  delete h.sessions['4604.json']
+  expect(JSON.stringify(await drive($.tool.call(leadCall('rename', { sid: NEWSID, lane: 'L5' }))))).not.toContain('unattended-lanes')
 })
 
 // ---- the list under /callboard unattended ----

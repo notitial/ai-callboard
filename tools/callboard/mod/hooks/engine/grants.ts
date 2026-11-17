@@ -973,6 +973,7 @@ export async function managerTools($: any, sid: string) {
     ['lead_unpark', lead],
     ['lead_retire', lead],
     ['lead_terminate', lead],
+    ['unattended_off', { type: 'object', properties: {} }],
   ]
   for (const [name, inputSchema] of tools) await $.tool.register({ name, description: toolText(name, 'manager'), inputSchema })
   await promptToolsRegister($, 'manager')

@@ -344,8 +344,9 @@ extension's version is fixed, so the link stays and the reload loads the new cod
 Panels shows the build it loaded (the checkout's commit). Only when `extension/package.json` itself changed
 (`activationEvents`, `engines`, `extensionDependencies`, `main`) is the version bumped, because VS Code caches the
 manifest: then quit VS Code (Cmd+Q), merge as above, run `link-extension.py --apply` in a plain Terminal, then reopen
-VS Code. Restart every session, and restart every conductor session before it calls `lead_open`: from extension 1.3.0 the answer to a lead open carries a nonce, which a conductor still on the older mod refuses (the panel opens, but the conductor is told the open failed). For the usage watcher, run
-its installer again with the new `--ref`.
+VS Code. Restart every session, and restart every conductor session before it calls `lead_open`: from extension 1.3.0 the answer to a lead open carries a nonce, which a conductor still on the older mod refuses (the panel opens, but the conductor is told the open failed). Before
+you turn unattended mode on, restart every session started before the update: a lane and a tier both on older code
+can still relay a prompt to you. For the usage watcher, run its installer again with the new `--ref`.
 
 ## The guided way
 

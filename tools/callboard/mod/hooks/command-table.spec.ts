@@ -43,7 +43,7 @@ test('a later word completes from the forms the earlier words fit', () => {
   assert.deepEqual(words('/callboard config ', 'p'), ['ping'])
   assert.deepEqual(words('/callboard escalation ', 'o'), ['off'])
   assert.deepEqual(words('/callboard go ', 'o'), ['off'])
-  assert.deepEqual(words('/callboard unattended ', 'o'), ['off'])
+  assert.deepEqual(words('/callboard unattended ', 'o'), ['on', 'off'])
 })
 
 test('a value the person supplies, a word past the end of a form and a draft that is not /callboard offer nothing', () => {
@@ -59,13 +59,13 @@ test('a value the person supplies, a word past the end of a form and a draft tha
 })
 
 // Every line a form stands for: each optional token left out and filled in, each `a|b` alternative, a value replaced by one the parser takes.
-const NUMBER: Record<string, string> = { ping: '40', stop: '2', idle: '200', working: '400', lanes: '30' }
+const NUMBER: Record<string, string> = { ping: '40', stop: '2', idle: '200', working: '400', lanes: '30', for: '3' }
 function lines(form: string): string[] {
   let out: string[][] = [[]]
   for (const t of form.split(' ')) {
     const optional = t.startsWith('[')
     const alts = t.replace(/^\[|\]$/g, '').split('|').filter((a) => !/^N[mh]$/.test(a))
-    const choices = /[A-Z]/.test(t) ? [t.includes('Nm|Nh') ? '3m' : t.startsWith('SHORT') || t.startsWith('[SHORT') ? '0a1b2c3d' : 'blue'] : alts
+    const choices = /[A-Z]/.test(t) ? [t.includes('Nm|Nh') ? '3m' : t.includes('HH:MM') ? '09:00' : t.startsWith('SHORT') || t.startsWith('[SHORT') ? '0a1b2c3d' : 'blue'] : alts
     out = out.flatMap((l) => [...(optional ? [l] : []), ...choices.map((c) => [...l, t === 'N' ? NUMBER[l[l.length - 1]] : c])])
   }
   return out.map((l) => l.join(' '))

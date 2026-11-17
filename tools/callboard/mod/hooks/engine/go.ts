@@ -8,7 +8,7 @@ import * as c from '../core.ts'
 import * as pr from '../prompts.ts'
 import * as g from '../go.ts'
 import { dialogOpen, goAsked, goWatch, conductorHome } from '../mem.ts'
-import { sha, where, statR, dirOk, readSmallR, run, MKDIR, rmF, log, logq, toast, withTimeout } from './base.ts'
+import { sha, where, statR, dirOk, readSmallR, run, MKDIR, rmF, log, logq, toast, askLimited } from './base.ts'
 import { loadLanes, registryEntries } from './store.ts'
 import { grantOf } from './grants.ts'
 import { epochOf } from './levels.ts'
@@ -91,25 +91,9 @@ async function goPrune($: any, p: Paths, now: number): Promise<number | undefine
   return names.filter((n) => g.GO_NAME_RE.test(n.name) && !gone.has(n.name)).length
 }
 
-// The go dialog: the mod's own, with its own time limit, Cancel first. Only the person's click on Give go is a yes. After the limit the engine dialog may still
-// be on screen: a click on it then records nothing, and a toast says so.
-async function goAsk($: any, sid: string, question: string): Promise<'yes' | 'no' | 'error' | 'timed-out' | 'busy'> {
-  if (dialogOpen.has(sid)) return 'busy'
-  dialogOpen.add(sid)
-  try {
-    const asked = Promise.resolve($.ui.ask(question, { options: [g.GO_NO, g.GO_YES], header: g.GO_HEADER })) as Promise<unknown>
-    const a = await withTimeout($, asked.then((x) => ({ x })), g.GO_DIALOG_MS)
-    if (a === 'timeout') {
-      asked.then((x) => (x === g.GO_YES ? toast($, g.GO_LATE_TOAST) : undefined)).catch(() => undefined)
-      toast($, g.GO_TIMED_OUT_TOAST)
-      return 'timed-out'
-    }
-    return a.x === g.GO_YES ? 'yes' : a.x === g.GO_NO ? 'no' : 'error'
-  } catch {
-    return 'error'
-  } finally {
-    dialogOpen.delete(sid)
-  }
+// The go dialog: the mod's own, with its own time limit, Cancel first. Only the person's click on Give go is a yes; a click after the limit records nothing.
+async function goAsk($: any, sid: string, question: string) {
+  return askLimited($, sid, question, { yes: g.GO_YES, no: g.GO_NO, header: g.GO_HEADER, ms: g.GO_DIALOG_MS, timedOut: g.GO_TIMED_OUT_TOAST, late: g.GO_LATE_TOAST })
 }
 
 // The lead records a conductor's go reaches beyond the leads it holds from the click: among the sessions asked about (`cands`), the ones whose record names the

@@ -428,6 +428,8 @@ export const h = {
   takenPlanted: false,
   storeWrites: 'ok' as 'ok' | 'fail' | 'ignore',
   storeDeleteFails: false,
+  // A store read of a key this names throws.
+  storeGetFails: undefined as ((key: string) => boolean) | undefined,
   // Hangs the nth delete of a saved lead grant (the second is /callboard off's, after it has read the binding).
   leadDeleteHang: undefined,
   // Hangs the next read of a saved lead grant, once.
@@ -593,6 +595,7 @@ function resetPluginState() {
   h.leadSetHang = undefined
   h.storeSetHook = undefined
   h.storeDeleteFails = false
+  h.storeGetFails = undefined
   h.leadDeleteHang = undefined
   h.leadGetHang = undefined
   h.ownerGetHang = undefined
@@ -832,6 +835,7 @@ export function engine(on0: any, argvSeen: string[][], stdins: string[] = [], cl
   on('command.register', () => ({ value: { command: 'callboard' } }))
   on('store.get', (_: any, e: any) => {
     if (h.storeThrowSync === 'get') throw new Error('sync')
+    if (h.storeGetFails?.(String(e.key))) throw new Error('disk')
     if (h.leadGetHang && String(e.key).startsWith('lead:')) {
       const gate = h.leadGetHang
       h.leadGetHang = undefined

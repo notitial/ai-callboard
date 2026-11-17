@@ -48,6 +48,8 @@ Every one starts with `[callboard]` or `[compact-cue]`. This rule says how to an
   a check-in.
 - It is given once per wait. Call `lane_list` and `prompt_list`. A waiting prompt that `prompt_list` does not show is
   one you cannot answer: tell the person which session waits.
+- While unattended mode is on, the relay is refused and so is a tier's own question: nothing is put to the person.
+  `prompt_list` gives the rules for that time.
 
 ## The go
 

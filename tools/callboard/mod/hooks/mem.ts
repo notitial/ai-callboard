@@ -39,8 +39,11 @@ export const mem = {
   // the run of unknown reads now under way has its ledger row. unattendedHash: the last value
   // hashed, by its canonical text. unattendedLookedAt: when the tick last looked. unattendedCloses: how many windows this process has ended, so a read under way
   // across an end is not kept. unattendedU: the short id of the window last read on, until a read is sure it is off. unattendedBadSeen: a stored value that
-  // does not parse (its windowText) and when this process first read it.
+  // does not parse (its windowText) and when this process first read it. unattendedOpens: how many windows this process has opened, so a read under way across an
+  // open is not kept. unattendedOffDue: the `unattended-off` rows the ledger refused, written again before the next read.
   unattended: undefined as { at: number; w: pr.Window } | undefined,
+  unattendedOpens: 0,
+  unattendedOffDue: [] as Omit<pr.LedgerRow, 't'>[],
   unattendedBadSeen: undefined as { text: string; at: number } | undefined,
   unattendedSure: undefined as 'on' | 'off' | undefined,
   unattendedU: undefined as string | undefined,
@@ -81,6 +84,9 @@ export const restoredOnce = new Set<string>()
 
 // One callboard question per session at a time: a second request while one is open is refused, not queued.
 export const dialogOpen = new Set<string>()
+// Per lead, what the ceiling an unattended window puts on live lanes counts beside its live lanes (core.openedUnbound): the sessions its lane_open opened in
+// this process, an open under way, and a session a rename or an unpark is binding now, each with the time it was taken.
+export const laneOpened = new Map<string, Map<string, number>>()
 // Counts the `off` commands that ran, so a restore or a join that waited on a dialog can see an `off` came in meanwhile and stop.
 export const offSeq = new Map<string, number>()
 // Sessions whose `here` (/callboard here) ended in this process, by a dropped grant or a key that could not be written: such a session is not here again until the
@@ -170,7 +176,7 @@ export const leadToolsInFlight = new Map<string, Promise<void>>()
 export const managerSeen = new Map<string, { at: number; live: boolean; manager?: string; conductors?: string[] }>()
 export const managerSeenBusy = new Map<string, object>()
 
-// The manager's five lane tools and six lead tools, declared at its grant, then the three prompt tools (fourteen in all, c.MANAGER_TOOLS). The handlers are the lead's (leadBase refuses every other lane tool at manager level).
+// The manager's five lane tools, six lead tools and unattended_off, declared at its grant, then the three prompt tools (fifteen in all, c.MANAGER_TOOLS). The handlers are the lead's (leadBase refuses every other lane tool at manager level).
 export const managerDeclared = new Set<string>()
 
 // Lead cue calls to one target go one at a time inside this process (a lead can issue parallel tool calls); they share one answer file.

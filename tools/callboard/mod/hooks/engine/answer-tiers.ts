@@ -351,7 +351,7 @@ async function promptAnswerTool($: any, e: any, answer: boolean): Promise<{ resu
     pick = { index: opt - 1, label: labels[opt - 1] }
   } else if (answer && decision === 'answer') return refuse('bad-input')
   // The unattended window (ADR 0008). A park is the manager's alone and only while a fresh read of the window says on: a window that cannot be read permits none.
-  // Every decision the manager makes while a window is held carries the window's short id, in its file and on its row.
+  // Every decision a tier makes while a window is held carries the window's short id, in its file and on its row, and a deny then tells the lane the item waits.
   let u: string | undefined
   if (answer && decision === 'park') {
     if (self.level !== 'manager') return refuse('park-not-allowed')
@@ -359,7 +359,7 @@ async function promptAnswerTool($: any, e: any, answer: boolean): Promise<{ resu
     if (win.state === 'unknown') return refuse('unattended-unread')
     if (win.state !== 'on') return refuse('park-not-allowed')
     u = win.u
-  } else if (answer && self.level === 'manager') u = (await unattendedHold($)).u
+  } else if (answer) u = (await unattendedHold($)).u
   // The decision is judged on the copy the tier read. A truncated copy cannot be allowed (the rubric: seen whole), and cannot be put to the person either: it is
   // denied, asking the lane for a cleaner call.
   if (answer) {

@@ -28,6 +28,7 @@ import {
   managerDeclared,
   lastSaved,
   signalledCalls,
+  laneOpened,
   mem,
 } from '../mem.ts'
 import {
@@ -952,7 +953,7 @@ export async function rebindTick($: any, sid: string) {
 const SUBAGENT = ['subagent', 'for the main agent only.'] as const
 export async function leadBase($: any, e: unknown, sid: string) {
   if ((e as { agentId?: string }).agentId !== undefined) return { err: SUBAGENT }
-  // The manager has fourteen tools (c.MANAGER_TOOLS: five lane tools, six lead tools and the three prompt tools); every other lane tool refuses it, declared or not.
+  // The manager has fifteen tools (c.MANAGER_TOOLS: five lane tools, six lead tools, the three prompt tools and unattended_off); every other lane tool refuses it, declared or not.
   if (grantOf(sid)?.level === 'manager' && !c.MANAGER_TOOLS.includes(String((e as { tool?: unknown }).tool))) return { err: ['manager-tool', c.REASON_TEXT['manager-tool']] as const }
   // The conductor has fourteen (c.CONDUCTOR_TOOLS: three lane tools, lead_open, six lead tools, go_request and the three prompt tools).
   if (grantOf(sid)?.level === 'conductor' && !c.CONDUCTOR_TOOLS.includes(String((e as { tool?: unknown }).tool))) return { err: ['conductor-tool', c.REASON_TEXT['conductor-tool']] as const }
@@ -1068,11 +1069,37 @@ async function leadPrep($: any, e: unknown, sid: string) {
   const pick = c.leadLane(base.lanes, base.g, (e as { lane?: unknown }).lane)
   if (!pick.ok) return { err: [pick.reason, c.reasonWhy(pick.reason)] as const }
   const entries = base.live.flatMap((r) => (typeof r.j.sessionId === 'string' ? [regEntry(r)] : []))
-  // liveLanes: the lanes in this lead's reach whose session is live now, read wide (liveLaneNames), for the ceiling an unattended window puts on them.
-  return { lane: pick.lane, entries, liveLanes: c.liveLaneNames(base.lanes.filter((l) => c.inReach(base.g, l)), entries).length }
+  // liveLanes: for the ceiling an unattended window puts on live lanes, the lanes in this lead's reach whose session is live now, read wide (liveLaneNames), and
+  // what this lead holds beside them (openedUnbound), read from laneOpened when it is called. but: the same count without one lane record and one session, for
+  // a rename.
+  const reach = base.lanes.filter((l) => c.inReach(base.g, l))
+  const now = await $.clock.now()
+  const opened = heldBy(sid)
+  for (const [s, at] of [...opened]) if (c.SID_RE.test(s) && now - at >= c.OPENED_GRACE_MS && !entries.some((x) => x.sessionId === s)) opened.delete(s)
+  const count = (lanes: c.Lane[], skip?: string) => c.liveLaneNames(lanes, entries).length + c.openedUnbound([...heldBy(sid)].filter(([s]) => s !== skip), reach, entries, now).length
+  const but = (lane: string, session: string) => count(reach.filter((l) => l.name !== lane), session)
+  return { lane: pick.lane, entries, liveLanes: () => count(reach), but }
 }
-// Inside an unattended window a lead has at most c.UNATTENDED_LIVE_LANES lanes live: the tools that open a lane's session refuse past it.
-const lanesFull = async ($: any, liveLanes: number): Promise<boolean> => liveLanes >= c.UNATTENDED_LIVE_LANES && (await unattendedHeld($))
+function heldBy(lead: string): Map<string, number> {
+  let m = laneOpened.get(lead)
+  if (!m) laneOpened.set(lead, (m = new Map()))
+  return m
+}
+// Inside an unattended window a lead has at most c.UNATTENDED_LIVE_LANES lanes live: the tools that open a lane's session, and a rename that binds one, refuse
+// past it. The count and the hold on `key` are one step after the window is read, with no wait between, so calls made side by side each count the others.
+// undefined: the lead is full. Otherwise `key` is held in laneOpened until the call lets it go (a key that was already held stays).
+async function laneSlot($: any, lead: string, count: () => number, key: string): Promise<(() => void) | undefined> {
+  const now = await $.clock.now()
+  const held = await unattendedHeld($)
+  if (held && count() >= c.UNATTENDED_LIVE_LANES) return undefined
+  const m = heldBy(lead)
+  const had = m.has(key)
+  if (!had) m.set(key, now)
+  return () => {
+    if (!had) m.delete(key)
+  }
+}
+let openSeq = 0
 
 // ---- /callboard lane: an existing session becomes a lane of the lead that runs in its repo ----
 // leadName: the lead's registry name now (c.leadNameOf), stamped on the record so only that lead reaches the lane; none leaves the record legacy.
@@ -1229,6 +1256,15 @@ export async function leadVerbCall($: any, e: any, next: any, verb: (typeof c.LE
         if (verb === 'rename' && to.reason === 'no-live-session') return no(to.reason, c.renameNoSessionText(prep.entries, prep.lane, sid, (e as { sid: string }).sid, await $.clock.now()))
         return no(to.reason, c.reasonWhy(to.reason))
       }
+      // A rename makes one more lane live: past the ceiling it is refused, whatever lane_open counted (a lead that restarted has no list of what it opened).
+      // The session it binds is held while the rename runs, so a rename beside it counts it.
+      let release: (() => void) | undefined
+      if (verb === 'rename') {
+        const p = prep
+        const target = to.sid
+        release = await laneSlot($, sid, () => p.but(p.lane.name, target), target)
+        if (!release) return no('unattended-lanes', c.reasonWhy('unattended-lanes'))
+      }
       // No lane_compact (a lead's, a conductor's or the manager's) cues a session that holds a live presence file (a lead carrying the lane's name in some
       // letter case), as lead_compact's lane-or-lead: a lead is reached only through the lead tools, the manager's behind the person's dialog. A file whose check
       // could not be made counts (fail closed).
@@ -1249,13 +1285,21 @@ export async function leadVerbCall($: any, e: any, next: any, verb: (typeof c.LE
             if (st.fate === 'done') return { deny: '' }
             return no(reason, st.fate === 'waiting' ? c.NO_ANSWER_WAITING : why)
           }
-      const sent = await cueExchange($, sid, prep.lane.name, target, verb, deadline, noCue)
-      if (sent && st.fate === 'done') {
-        await log($, sid, 'acted-late', `${verb} ${prep.lane.name}`)
-        return { result: `${c.lateDoneText(verb, prep.lane.name, target)}${verb === 'start' ? await goTailFor($, sid, target) : ''}` }
+      // A rename that went through keeps its session held: until the registry shows the lane's name on it, it counts as an opened session does.
+      let acted = false
+      try {
+        const sent = await cueExchange($, sid, prep.lane.name, target, verb, deadline, noCue)
+        if (sent && st.fate === 'done') {
+          acted = true
+          await log($, sid, 'acted-late', `${verb} ${prep.lane.name}`)
+          return { result: `${c.lateDoneText(verb, prep.lane.name, target)}${verb === 'start' ? await goTailFor($, sid, target) : ''}` }
+        }
+        if (sent) return sent
+        acted = true
+        return { result: `cue ${verb} acted for lane ${prep.lane.name}.${verb === 'start' ? await goTailFor($, sid, target) : ''}` }
+      } finally {
+        if (!acted) release?.()
       }
-      if (sent) return sent
-      return { result: `cue ${verb} acted for lane ${prep.lane.name}.${verb === 'start' ? await goTailFor($, sid, target) : ''}` }
     })
 }
 
@@ -1402,8 +1446,16 @@ export async function laneOpenCall($: any, e: any, next: any) {
     if (prep.lane.adopted) return no('adopted-record', c.reasonWhy('adopted-record'))
     if (prep.lane.parked !== undefined) return no('parked', c.reasonWhy('parked'))
     if (prep.entries.some((x) => x.name === prep.lane.name)) return no('name-in-use', 'a live session already carries that lane name.')
-    if (await lanesFull($, prep.liveLanes)) return no('unattended-lanes', c.reasonWhy('unattended-lanes'))
-    const r = await openExchange($, sid, prep.lane.name, 'open', c.OPEN_TEXT, 'no window answered within 45 seconds. A VS Code window with the lane folder as its first workspace folder must run the callboard panels extension. A panel may still appear: check for an unnamed session in that folder first.', no)
+    // The open under way is held until its panel's session is: an open beside it counts it.
+    const release = await laneSlot($, sid, prep.liveLanes, `opening:${++openSeq}`)
+    if (!release) return no('unattended-lanes', c.reasonWhy('unattended-lanes'))
+    let r: Awaited<ReturnType<typeof openExchange>>
+    try {
+      r = await openExchange($, sid, prep.lane.name, 'open', c.OPEN_TEXT, 'no window answered within 45 seconds. A VS Code window with the lane folder as its first workspace folder must run the callboard panels extension. A panel may still appear: check for an unnamed session in that folder first.', no)
+      if (!('deny' in r)) heldBy(sid).set(r.sid, await $.clock.now())
+    } finally {
+      release()
+    }
     if ('deny' in r) return r
     await log($, sid, 'opened', prep.lane.name)
     return { result: `lane ${prep.lane.name}: panel opened as session ${r.sid}. Next: lane_rename with sid ${r.sid}, then lane_start.` }
@@ -1451,10 +1503,21 @@ export async function laneUnparkCall($: any, e: any, next: any) {
     }
     if (live.length > 0) return no('session-live', c.reasonWhy('session-live'))
     if (prep.entries.some((x) => x.name === name && x.sessionId !== want)) return no('name-in-use', c.reasonWhy('name-in-use'))
-    if (await lanesFull($, prep.liveLanes)) return no('unattended-lanes', c.reasonWhy('unattended-lanes'))
-    const r = await openExchange($, sid, name, 'reopen', `${want}\n`, c.reasonWhy('reopen-timeout'), no)
-    if ('deny' in r) return r
-    if (r.sid !== want) return no('reopen-bad-result', c.reasonWhy('reopen-bad-result'))
+    // The reopened session is held until the registry shows it: an open beside it counts it. A reopen that failed lets it go.
+    const release = await laneSlot($, sid, prep.liveLanes, want)
+    if (!release) return no('unattended-lanes', c.reasonWhy('unattended-lanes'))
+    const r = await openExchange($, sid, name, 'reopen', `${want}\n`, c.reasonWhy('reopen-timeout'), no).catch((err: unknown) => {
+      release()
+      throw err
+    })
+    if ('deny' in r) {
+      release()
+      return r
+    }
+    if (r.sid !== want) {
+      release()
+      return no('reopen-bad-result', c.reasonWhy('reopen-bad-result'))
+    }
     await unmark()
     await log($, sid, 'reopened', name)
     toast($, `Lane ${name} reopened`)
