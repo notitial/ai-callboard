@@ -109,7 +109,9 @@ export const GH_LINK = '/opt/homebrew/bin/gh'
 export const GH_REAL = '/opt/homebrew/Cellar/gh/2.0.0/bin/gh'
 export const ghCalls: { argv: string[]; env: Record<string, string> | undefined; timeoutMs: unknown }[] = []
 export const SETTINGS_FILE = '/Users/x/.claude/settings.json'
-const isPromptPath = (p: unknown) => typeof p === 'string' && (p === PROMPTS_DIR || p.startsWith(`${PROMPTS_DIR}/`) || p === USAGE_DIR || p.startsWith(`${USAGE_DIR}/`) || p === OFFERS_DIR || p.startsWith(`${OFFERS_DIR}/`) || p === GO_DIR || p.startsWith(`${GO_DIR}/`) || p === PRS_DIR || p.startsWith(`${PRS_DIR}/`) || p === SETTINGS_FILE || p.endsWith('/.protected-checkout'))
+// A lead repo's token file and its temporary name (engine/repo-id.ts) are in the same file fake once a test sets h.repoIdFs; with it unset they are not there.
+const REPO_ID_RE = /\/\.git\/\.?callboard-repo-id(\.[^/]*)?$/
+const isPromptPath = (p: unknown) => typeof p === 'string' && ((h.repoIdFs && REPO_ID_RE.test(p)) || p === PROMPTS_DIR || p.startsWith(`${PROMPTS_DIR}/`) || p === USAGE_DIR || p.startsWith(`${USAGE_DIR}/`) || p === OFFERS_DIR || p.startsWith(`${OFFERS_DIR}/`) || p === GO_DIR || p.startsWith(`${GO_DIR}/`) || p === PRS_DIR || p.startsWith(`${PRS_DIR}/`) || p === SETTINGS_FILE || p.endsWith('/.protected-checkout'))
 function promptList(path: string) {
   const pre = path.endsWith('/') ? path : `${path}/`
   const names = new Map<string, { kind: string; size: number; mtimeMs: number }>()
@@ -312,6 +314,7 @@ export const h = {
   // The entries of ~/.claude/hooks (links into the toolkit's checkout, by realMap).
   hooksList: [] as string[],
   pfsFails: undefined,
+  repoIdFs: false,
   gh: undefined as ((argv: string[]) => { stdout: string; exitCode?: number; stderr?: string; truncated?: boolean } | 'throw' | undefined) | undefined,
   // A shasum whose input (the request id, a newline and a label) the test makes fail: the label hash of a question's answer.
   shaFailsFor: undefined,
@@ -666,6 +669,7 @@ function resetPrompts() {
   h.hooksList = []
   h.uuidN = 0
   h.pfsFails = undefined
+  h.repoIdFs = false
   h.gh = undefined
   ghCalls.length = 0
   h.shaFailsFor = undefined

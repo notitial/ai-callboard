@@ -26,8 +26,11 @@ import {
   attnMid,
   attnToasted,
   laneBrief,
+  leadRestorePending,
+  leadRepoId,
   mem,
 } from '../mem.ts'
+import type { LeadPending } from '../mem.ts'
 import { logq, where, askOnce, askLimited, timedOut, log, pickLead, pickFrom, ask, sha, withTimeout, toast, logFail } from './base.ts'
 import type { Asked } from './base.ts'
 import { editStore, registryEntries, keptLanes, loadLanes } from './store.ts'
@@ -58,6 +61,8 @@ import {
   secondLeadNo,
   watchInit,
   regEntry,
+  leadRepoIdSave,
+  LEAD_RESTORE_TRIES,
 } from './grants.ts'
 import type { CondOut } from './grants.ts'
 import {
@@ -79,10 +84,11 @@ import { ensureTimer } from './tick.ts'
 import { grantNameNo } from './lead-open.ts'
 import { epochOf, heldNo, holdsOf, levelSave } from './levels.ts'
 import type { LevelDesc } from './levels.ts'
-import { ANSWERING_KEY, ledgerAdd, promptsOff, escalationNow, defaultForget, hereRead, hereDrop, unattendedNow, unattendedClose, ledgerRowsFor, unattendedOpen, unattendedVoid, unattendedOffMark, unattendedOffSince, unattendedClosesNow, unattendedBusy, unattendedUnread, unattendedUnreadDrop } from './answer-hook.ts'
+import { ANSWERING_KEY, ledgerAdd, promptsOff, escalationNow, defaultForget, hereRead, hereDrop, hereGrantOff, unattendedNow, unattendedClose, ledgerRowsFor, unattendedOpen, unattendedVoid, unattendedOffMark, unattendedOffSince, unattendedClosesNow, unattendedBusy, unattendedUnread, unattendedUnreadDrop } from './answer-hook.ts'
 import { ledgerRestore } from './answer-tiers.ts'
 import * as go from '../go.ts'
 import { goCommand, goGrantorOff } from './go.ts'
+import { moveCheck } from './repo-id.ts'
 import { getCheckinPause, getLane, getRequest, setCheckinPause, setLane, setNudgeDue, setNudgedAt, setRequest, setRest } from '../state.ts'
 
 // The refusal of a person-only command from another origin: logged as <command>-not-person:<origin>, answered with the command's fixed text.
@@ -1116,6 +1122,11 @@ export type LeadGrantOpts = {
   toast?: string
   extraRecheck?: () => Promise<{ text: string; code?: string } | undefined>
   extraApply?: () => Promise<{ text: string; code?: string } | undefined>
+  // The restore of a moved folder (leadMoveAsk): its own question, and its own end when the answer is not yes.
+  question?: string
+  onNotYes?: (r: Asked) => Promise<{ text: string; code?: string }>
+  // Told once the person clicked yes, before any check after the click.
+  onClick?: () => void
   // A NAME typed with the command (the person's own prompt or phone only, checked by the caller): judged before the dialog and after the click, named in the
   // question, and given to the session by a rename after the grant. A session that is a lead already is not renamed this way.
   want?: string
@@ -1159,7 +1170,7 @@ export async function grantLead($: any, sid: string, code: c.OriginCode, busy: (
   const named = await secondLeadNo($, sid, pinned, want)
   if (named !== undefined) return nameNo(named)
   const res = await grantDialog($, sid, LEAD, {
-    question: c.askedFrom(c.leadQuestion(pinned, want), code),
+    question: o.question ?? c.askedFrom(c.leadQuestion(pinned, want), code),
     yes: c.LEAD_YES,
     no: c.LEAD_NO,
     header: c.HEADER.lead,
@@ -1169,8 +1180,10 @@ export async function grantLead($: any, sid: string, code: c.OriginCode, busy: (
     pin: pinned,
     silent: o.silent,
     seq: o.seq,
+    onNotYes: o.onNotYes,
     // After the click the manager grant is read through wasManager alone.
     postClick: () => {
+      o.onClick?.()
       const heldAfter = c.holderNo('lead', { ...holdsOf(sid, laneBinding.has(sid), false), manager: false })
       return heldAfter ? leadNo(heldAfter) : undefined
     },
@@ -1205,7 +1218,8 @@ export async function grantLead($: any, sid: string, code: c.OriginCode, busy: (
         return { text: 'Nothing changed: callboard was turned off meanwhile.', code: 'off-meanwhile' }
       }
       // A re-grant with a new folder is a new reach: work in flight for the old one (a check-in) sees the epoch move and stops.
-      const oldPin = pinOf(sid)
+      // A saved grant still waiting to be restored (a moved folder's question) names the folder this session led last.
+      const oldPin = pinOf(sid) ?? leadRestorePending.get(sid)?.hint.pin
       if (oldPin !== undefined && oldPin !== pinned) {
         leadEpoch.set(sid, epochOf(sid) + 1)
         laneObs.delete(sid)
@@ -1231,6 +1245,7 @@ export async function grantLead($: any, sid: string, code: c.OriginCode, busy: (
     after: async () => {
       if (want !== undefined) await nameRename($, sid, want, 'lead')
       await nameGrant($, sid)
+      await leadRepoIdSave($, sid, pinned).catch(logFail($, sid, 'lead-repo-id'))
     },
     text: c.LEAD_ON_TEXT,
   })
@@ -1244,6 +1259,86 @@ export async function grantLead($: any, sid: string, code: c.OriginCode, busy: (
     return some ? { ...res, text: `${res.text}${c.JOIN_AFTER_RENAME}` } : res
   }
   return leadClickQuestion($, sid, res)
+}
+
+// A restore whose saved folder is gone, in a folder with the same repo token (moveCheck): the person is asked in the lead's own dialog, and their click is the
+// grant, through grantLead's steps with every check again after it (the move checks too). The old folder's goes and conductor tie ended when the restore
+// matched (leadRestoreTry); before the grant is set, the `lead-moved` row (no row, no grant), and any goes or tie given since end too. Cancel is the person's
+// no: the saved grant goes, as at any lead question. No answer, or a check that fails after the click, keeps the saved grant and ends `here`: the next start
+// asks again.
+// A dialog already open in the session leaves the entry for the next idle tick.
+export async function leadMoveAsk($: any, sid: string, pend: LeadPending, seq = offSeq.get(sid) ?? 0) {
+  const from = pend.hint.pin
+  const to = pend.move!
+  const mine = () => leadRestorePending.get(sid) === pend
+  const done = () => {
+    if (mine()) leadRestorePending.delete(sid)
+  }
+  // An end with no grant: the goes the lead gave in the old folder end, as at a move or a refusal for another folder, and so does its conductor tie (the record
+  // names the old repo), so a later grant here finds neither.
+  const refused = async (code: string) => {
+    void goGrantorOff($, sid).catch(() => undefined)
+    await ownerLeave($, sid, 'off').catch(() => undefined)
+    // A saved grant that was not restored ends `here`, as a refused one does (ADR 0009).
+    void hereGrantOff($, sid).catch(() => undefined)
+    await log($, sid, 'lead-restore-rejected', code)
+    toast($, c.notRestoredToast('lead', code, from))
+  }
+  let clicked = false
+  // An off since the tick read its counter (leadDrop took the entry) or a replaced entry: nothing is asked. A lead granted meanwhile (the person's own
+  // /callboard lead, or an earlier ask of a replaced entry) ends the question unasked.
+  if (!mine() || (offSeq.get(sid) ?? 0) !== seq) return
+  if (grants.get(sid)?.level === 'lead') return void done()
+  pend.asking = true
+  try {
+    const res = await grantLead($, sid, 'plugin', async () => ({ text: 'busy', code: 'busy' }), {
+      pinned: to,
+      question: c.leadMoveQuestion(from, to),
+      onLog: ['lead-restored', 'moved'],
+      onClick: () => (clicked = true),
+      // The off counter from the tick: an off typed before the dialog opened is seen after the click, and nothing is granted.
+      seq,
+      toast: c.leadMovedToast(from, to),
+      onNotYes: async (r) => {
+        done()
+        if (r === 'no') {
+          await leadDrop($, sid)
+          await log($, sid, 'lead-restore-rejected', 'move-cancelled')
+          return { text: 'Lead stays off.', code: 'move-cancelled' }
+        }
+        await refused('move-unanswered')
+        return { text: 'Lead stays off.', code: 'move-unanswered' }
+      },
+      extraRecheck: async () => {
+        if (!mine()) return { text: 'Lead stays off.', code: 'off-meanwhile' }
+        const p = await where($)
+        const m = p ? await moveCheck($, pend.hint, to, homeOf(p), p.uid) : { again: 'cwd-unreadable' }
+        return m === 'match' ? undefined : { text: 'Lead stays off.', code: 'move-changed' }
+      },
+      extraApply: async () => {
+        if (!(await ledgerAdd($, { kind: 'lead-moved', by: sid, repo: to, was: from }))) return { text: 'Lead stays off.', code: 'ledger-write' }
+        void goGrantorOff($, sid).catch(() => undefined)
+        await ownerLeave($, sid, 'off').catch(() => undefined)
+        // moveCheck proved the token for this folder: the grant is saved with it.
+        leadRepoId.set(sid, { pin: to, id: pend.hint.repoId! })
+        return undefined
+      },
+    })
+    if (res.code === 'busy') return
+    // A check before the dialog that could not be made: asked again at a later idle tick, as many times as a restore is tried. After a click, a failure ends
+    // the question; the saved grant stays for the next start.
+    if (!clicked && (res.code === 'grant-failed' || res.code === 'registry-unreadable') && ++pend.tries < LEAD_RESTORE_TRIES) return
+    done()
+    // An off meanwhile has said its own words and ended the saved grant: no toast of a refusal.
+    if (res.code !== undefined && res.code !== 'move-cancelled' && res.code !== 'move-unanswered' && res.code !== 'off-meanwhile') await refused(res.code)
+  } catch (e) {
+    // No question asked again on every idle tick after a failure: the entry goes, and the person hears of it unless the grant was made.
+    done()
+    if (grants.get(sid)?.level !== 'lead') await refused('error')
+    throw e
+  } finally {
+    pend.asking = false
+  }
 }
 
 // The rows the prompt box's typeahead adds while the draft is /callboard and a word: the words the command table offers there, after the engine's own rows.

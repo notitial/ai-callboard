@@ -62,9 +62,10 @@ import {
   promptMidSent,
   promptMidRetold,
   renameRefused,
+  leadRepoId,
   mem,
 } from '../mem.ts'
-import type { Watch, MgrPending, CondPending } from '../mem.ts'
+import type { Watch, MgrPending, CondPending, LeadPending } from '../mem.ts'
 import {
   withTimeout,
   logq,
@@ -120,6 +121,7 @@ import { toolText } from '../tool-text.ts'
 import { promptHeldSids } from './answer-tiers.ts'
 import { epochOf, heldNo, levelBrief, levelSave } from './levels.ts'
 import { usageDrop, usageSweep } from './usage.ts'
+import { repoIdFor, moveCheck } from './repo-id.ts'
 import type { LevelDesc, GrantDialog } from './levels.ts'
 import { getCheckinPause, getLane, getNudgeDue, getRequest, getTurnEnd } from '../state.ts'
 
@@ -143,7 +145,11 @@ export const LEAD: LevelDesc = {
   silentGraceMs: 0,
   unsaved: 'lead-unsaved',
   hintDelete: 'lead-hint-delete',
-  saved: (_sid, pin) => ({ pin: pin! }),
+  // The repo token goes with the pin it was read for, never with another.
+  saved: (sid, pin) => {
+    const r = leadRepoId.get(sid)
+    return { pin: pin!, ...(r !== undefined && r.pin === pin ? { repoId: r.id } : {}) }
+  },
   held: (sid, pin) => pinOf(sid) === pin,
   pending: leadRestorePending,
   isOn: (sid) => grants.has(sid) || leadRestorePending.has(sid),
@@ -370,6 +376,7 @@ export function leadDrop($: any, sid: string): Promise<boolean> {
   doneCapped.delete(sid)
   doneHold.delete(sid)
   leadSavedAt.delete(sid)
+  leadRepoId.delete(sid)
   leadRestorePending.delete(sid)
   renameRefused.delete(sid)
   // A conductor's repo, approved list and pending restore go too, and its saved grant below.
@@ -483,11 +490,13 @@ async function restoreAttempt<A>($: any, me: string, d: LevelDesc, attempt: () =
 
 // A session whose saved grant names its own folder is lead again when it starts, with no question. Started in session.start; a cwd read or a tool
 // registration that does not answer in time is tried again from the tick, up to LEAD_RESTORE_TRIES ticks, and the key is kept. A grant for another folder is
-// deleted. A bound session keeps the key and is not made lead. The briefing note stays in the history from the first grant: no second note.
+// deleted, unless that folder is gone and this one holds the same repo token (repo-id.ts, moveCheck): then the person is asked (leadMoveAsk, from the tick).
+// A bound session keeps the key and is not made lead. The briefing note stays in the history from the first grant: no second note.
 export const LEAD_RESTORE_TRIES = 15
 
-// One try: a code when it is to be tried again, undefined when it ended (made lead, or refused and logged).
-async function leadRestoreTry($: any, me: string, hint: c.LeadHint): Promise<string | undefined> {
+// One try: a code when it is to be tried again, { move } when the person is to be asked about a moved folder, undefined when it ended (made lead, or refused
+// and logged).
+async function leadRestoreTry($: any, me: string, hint: c.LeadHint): Promise<string | { move: string } | undefined> {
   const reject = (code: string) => log($, me, 'lead-restore-rejected', code)
   // A final end that no toast of its own tells. `told`: the reason the person reads, when the log's code would say more than is known.
   const end = async (code: string, told = code, repo?: string) => {
@@ -511,10 +520,21 @@ async function leadRestoreTry($: any, me: string, hint: c.LeadHint): Promise<str
   if (dropped()) return
   if (cwd === 'timeout' || typeof cwd !== 'string') return 'cwd-unreadable'
   if (cwd !== hint.pin) {
+    // A check that could not be made is tried again; a definite no ends the saved grant, its goes and `here`, as for any other folder.
+    const p = await where($)
+    const m = p ? await moveCheck($, hint, cwd, homeOf(p), p.uid) : { again: 'cwd-unreadable' }
+    if (dropped()) return
+    // The question waits for an idle turn: the old folder's goes and conductor tie end now, as at any restore in another folder (`here` stays for the move).
+    if (m === 'match') {
+      void goGrantorOff($, me).catch(() => undefined)
+      await ownerLeave($, me, 'off').catch(() => undefined)
+      return { move: cwd }
+    }
+    if ('again' in m) return m.again
     void goGrantorOff($, me).catch(() => undefined)
     await $.store.delete(`${c.LEAD_HINT_PREFIX}${me}`)
     void hereGrantOff($, me).catch(() => undefined)
-    return void (await end('wrong-folder', 'wrong-folder', hint.pin))
+    return void (await end(m.no, 'wrong-folder', hint.pin))
   }
   // A lane is never a lead too (the rebind refuses a lead in turn); a read that does not answer counts as a binding.
   const held = await withTimeout($, getLane($), c.ENGINE_CALL_TIMEOUT_MS)
@@ -545,6 +565,8 @@ async function leadRestoreTry($: any, me: string, hint: c.LeadHint): Promise<str
     if (dropped()) return
     if (set === 'timeout') return 'tools-timeout'
     grants.set(me, c.leadGrant(hint.pin))
+    // The token saved before for this pin stands until a read of the folder says otherwise (leadRepoIdSave, below).
+    if (hint.repoId !== undefined) leadRepoId.set(me, { pin: hint.pin, id: hint.repoId })
   } finally {
     leadGranting.delete(me)
   }
@@ -555,10 +577,33 @@ async function leadRestoreTry($: any, me: string, hint: c.LeadHint): Promise<str
   await log($, me, 'lead-restored')
   toast($, c.leadRestoredToast(hint.pin))
   await nameGrant($, me)
+  // The grant is made: a failure here is logged, not told as a restore that failed.
+  await leadRepoIdSave($, me, hint.pin).catch(logFail($, me, 'lead-repo-id'))
+}
+
+// The pin's repo token after a grant (the person's, a conductor's offer, a restore): read, or minted when there is none, and saved with the grant. A check that
+// could not be made keeps what was there; a definite no (no .git folder, a bad or foreign file) saves none. Nothing is saved once the grant changed.
+export async function leadRepoIdSave($: any, sid: string, pin: string) {
+  const g = grants.get(sid)
+  const p = await where($)
+  if (!p || pinOf(sid) !== pin) return
+  const r = await repoIdFor($, sid, pin, p.uid)
+  if (grants.get(sid) !== g || 'again' in r) return
+  const was = leadRepoId.get(sid)
+  if ('no' in r) {
+    if (was === undefined) return
+    leadRepoId.delete(sid)
+  } else {
+    if (was?.pin === pin && was.id === r.id) return
+    leadRepoId.set(sid, { pin, id: r.id })
+  }
+  await levelSave($, sid, LEAD, pin)
 }
 export async function leadRestore($: any, me: string, hint: c.LeadHint, tries: number) {
   const again = await restoreAttempt($, me, LEAD, () => leadRestoreTry($, me, hint))
   if (again === undefined) return
+  // The question waits in the entry until the session is idle (the tick); the tries count only the checks before it.
+  if (typeof again === 'object') return void leadRestorePending.set(me, { hint, tries, move: again.move } satisfies LeadPending)
   if (tries >= LEAD_RESTORE_TRIES) {
     leadRestorePending.delete(me)
     await log($, me, 'lead-restore-rejected', again)

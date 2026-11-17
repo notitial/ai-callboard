@@ -6,6 +6,7 @@ import {
   cmpMarked,
   requestFails,
   leadRestorePending,
+  offSeq,
   cmpCutPending,
   grants,
   watch,
@@ -24,8 +25,10 @@ import {
   presenceText,
   presenceErrs,
 } from '../mem.ts'
+import type { LeadPending } from '../mem.ts'
 import { TICK_MS, withTimeout, ACTION_TIMEOUT_MS, log, logq, sha, submitOwn, logFail, where, liveCheckoutCheck, toast } from './base.ts'
-import { unlockRetry, answerer, pruneResults, pruneLogs } from './store.ts'
+import { unlockRetry, answerer, pruneResults, pruneLogs, idleCheck } from './store.ts'
+import { leadMoveAsk } from './commands.ts'
 import type { Answer } from './store.ts'
 import {
   reservedGet,
@@ -65,6 +68,7 @@ import {
   keepaliveTick,
   TOOL,
   pruneHints,
+  personRow,
 } from './compaction.ts'
 import { promptCloseTick, promptSweep, unattendedLookDue, unattendedTick } from './answer-hook.ts'
 import { promptNoticeTick } from './answer-tiers.ts'
@@ -103,6 +107,15 @@ function bgStep($: any, sid: string, busy: Set<string>, label: string, work: () 
 async function timedStep($: any, sid: string, work: Promise<unknown>, event: string, reason: (outcome: 'timeout' | 'error') => string) {
   const r = await withTimeout($, work, ACTION_TIMEOUT_MS).catch(() => 'error' as const)
   if (r === 'timeout' || r === 'error') await logq($, sid, event, reason(r))
+}
+
+// A moved folder's question (leadMoveAsk) waits for a person's session that is idle with an empty prompt box. Not awaited: the dialog waits up to 90 s.
+// The off counter is read before the reads, so an off typed during them ends the question (leadMoveAsk).
+async function leadMoveTick($: any, sid: string, lr: LeadPending) {
+  if (lr.asking) return
+  const seq = offSeq.get(sid) ?? 0
+  if (!(await personRow($, sid)) || (await idleCheck($, sid)) !== undefined) return
+  void leadMoveAsk($, sid, lr, seq).catch(logFail($, sid, 'lead-move-ask'))
 }
 
 // The request step of the tick: what a request needs next (clear, drop, resume, compact now). It is guarded: a step that throws on every tick must not keep the
@@ -194,7 +207,9 @@ async function tick($: any) {
     await usageFlush($, sid).catch(logFail($, sid, 'usage-write'))
     // None of these may stop the cue path below: each logs its own failure.
     const lr = leadRestorePending.get(sid)
-    if (lr) await timedStep($, sid, leadRestore($, sid, lr.hint, lr.tries + 1), 'error', (r) => `lead-restore-${r}`)
+    // A moved folder's question waits for a person's session that is idle with an empty prompt box (not awaited: the dialog waits up to 90 s).
+    if (lr?.move !== undefined) await leadMoveTick($, sid, lr).catch(logFail($, sid, 'lead-move-tick'))
+    else if (lr) await timedStep($, sid, leadRestore($, sid, lr.hint, lr.tries + 1), 'error', (r) => `lead-restore-${r}`)
     // A pending conductor restore, and a running conductor's reach and saved grant.
     await conductorTick($, sid).catch(logFail($, sid, 'conductor-tick'))
     // A conductor's own lead offers that nobody answered.

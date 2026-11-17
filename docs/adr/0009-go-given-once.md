@@ -204,7 +204,9 @@ The risk list is used in two senses, and the go separates them.
   session's grant does not end it either, as a closed panel ends no go; a grant the person drops does, and so does a
   saved grant that is refused at a restart; a new grant in that session does not bring it back while the mod keeps
   running (a key that could not be removed is held back by a mark in memory, which a restart loses). A lead moved to
-  another folder stays `here`, for its new reach. `here off` does not take back a relay question already on screen:
+  another folder stays `here`, for its new reach; so does a lead whose saved grant followed its repo to a new folder
+  on the person's click (ADR 0002, Lead re-grant), and the goes it gave end there, as at any move to another folder;
+  a move question that gets no answer, or fails after the click, ends `here` as a refused saved grant does. `here off` does not take back a relay question already on screen:
   that request is in front of the person, and their click still lands.
 
 ### Audit

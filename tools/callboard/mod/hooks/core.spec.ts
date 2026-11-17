@@ -1811,6 +1811,51 @@ test('parseLeadHint takes a pin lane_create would accept and a savedAt of the la
   assert.ok(c.parseLeadHint({ pin, savedAt: NOW + 60_000 }, NOW, HOME))
 })
 
+test('parseLeadHint takes a repoId of the uuid shape and drops any other, keeping the rest', () => {
+  const NOW = 1_700_000_000_000
+  const HOME = '/Users/x'
+  const pin = '/Users/x/code/app'
+  const id = '0000000a-0000-4000-8000-123456789abc'
+  assert.deepEqual(c.parseLeadHint({ pin, savedAt: NOW, repoId: id }, NOW, HOME), { pin, savedAt: NOW, repoId: id })
+  for (const bad of [id.toUpperCase(), `${id}\n`, 'x', 7, null, ['a']]) assert.deepEqual(c.parseLeadHint({ pin, savedAt: NOW, repoId: bad }, NOW, HOME), { pin, savedAt: NOW }, String(bad))
+})
+
+test('the repo token file: the id and one newline, nothing else; a mark is an object with a time', () => {
+  const id = '0000000a-0000-4000-8000-123456789abc'
+  assert.equal(c.repoIdText(id), `${id}\n`)
+  assert.equal(c.parseRepoIdText(`${id}\n`), id)
+  for (const t of [id, `${id}\n\n`, ` ${id}\n`, `${id.toUpperCase()}\n`, `${id}\r\n`, '']) assert.equal(c.parseRepoIdText(t), undefined, JSON.stringify(t))
+  assert.ok(c.repoIdText(id).length <= c.REPO_ID_MAX)
+  assert.equal(c.repoIdMarkOk({ at: 1 }), true)
+  for (const m of [undefined, null, {}, { at: '1' }, 1, [1]]) assert.equal(c.repoIdMarkOk(m), false, JSON.stringify(m))
+})
+
+test('repoIdPrune keeps the newest marks up to the cap with the one just minted, oldest first out, a bad mark first of all', () => {
+  const k = (i: number) => `${c.REPO_ID_PREFIX}${i}`
+  const marks = Array.from({ length: c.REPO_ID_KEEP }, (_, i) => ({ key: k(i), raw: { at: 1000 + i } }))
+  assert.deepEqual(c.repoIdPrune(marks, k(0)), [])
+  assert.deepEqual(c.repoIdPrune([...marks, { key: 'new', raw: { at: 5 } }], 'new'), [k(0)])
+  assert.deepEqual(c.repoIdPrune([...marks, { key: 'bad', raw: 'x' }, { key: 'new', raw: { at: 1 } }], 'new'), [k(0), 'bad'])
+  assert.deepEqual(c.repoIdPrune(marks.slice(0, 3), k(0)), [])
+})
+
+test('the moved-folder question and toast name both folders, say the goes end, and keep a long path to its end', () => {
+  const q = c.leadMoveQuestion('/Users/x/old/app', '/Users/x/new/app')
+  assert.equal(q, 'Lead was on in /Users/x/old/app, which is gone or moved.\nThis folder carries its repo mark (moved or copied here): /Users/x/new/app.\nLet this session lead the lanes here again?\nIt can create, start, resume, compact, park, stop and retire them. Only a force stop asks you.\nIts goes end: give them again with /callboard go.\nLead stays on after a restart until you run /callboard off.')
+  assert.ok(q.length <= c.QUESTION_MAX)
+  const long = `/Users/x/${'d/'.repeat(300)}app`
+  const ql = c.leadMoveQuestion(long, long)
+  assert.ok(ql.length <= c.QUESTION_MAX)
+  assert.ok(ql.includes('…') && ql.includes('d/app,'))
+  assert.ok(!c.leadMoveQuestion('/Users/x/a\u0007b', '/Users/x/c').includes('\u0007'))
+  assert.equal(c.leadMovedToast('/Users/x/old/app', '/Users/x/new/app2'), 'Lead is on again in app2, moved from app. Its goes ended: give them again with /callboard go.')
+})
+
+test('a moved-folder restore that got no answer, or failed its checks after the click, says the saved grant is kept and asked again', () => {
+  assert.equal(c.notRestoredToast('lead', 'move-unanswered', '/Users/x/old/app'), 'Lead not restored: the question for its moved folder (from app) got no answer. It is asked again when this session starts next. Run /callboard lead.')
+  assert.equal(c.notRestoredToast('lead', 'move-changed', '/Users/x/old/app'), 'Lead not restored: its moved folder (from app) no longer passed the checks after the click. It is asked again when this session starts next. Run /callboard lead.')
+})
+
 test('parseOpenResult with the reopen table keeps its own codes and maps anything else to other', () => {
   for (const code of ['lanes-file', 'unknown-lane', 'bad-request', 'sid-mismatch', 'too-soon', 'too-many', 'live-elsewhere', 'timeout', 'failed']) {
     assert.deepEqual(c.parseOpenResult(`error ${code}\n`, c.REOPEN_TEXT_BY_CODE), { ok: false, reason: code })
