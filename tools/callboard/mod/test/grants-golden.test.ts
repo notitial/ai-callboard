@@ -322,7 +322,7 @@ for (const level of ['lead', 'conductor'] as const) {
     expect(h.store.has(LV[level].key)).toBe(false)
     expect(logged(stdins)).toContain(`${LV[level].restoreRejected}:wrong-folder`)
     expect(h.askCount).toBe(0)
-    expect(toasts).toContain(`${level === 'lead' ? 'Lead' : 'Conductor'} not restored: the session started in another folder than its saved grant names, so the saved grant was removed. Run /callboard ${level}.`)
+    expect(toasts).toContain(`${level === 'lead' ? 'Lead' : 'Conductor'} not restored: the session started in another folder than the one its saved grant names (cond), so the saved grant was removed. Run /callboard ${level} in this folder.`)
   })
 }
 

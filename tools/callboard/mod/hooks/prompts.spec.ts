@@ -152,6 +152,15 @@ test('canonical: key order does not change it, and the join key names tool, hash
 })
 
 // ---- the awake clock, expiry, windows ----
+test('an ask with no tier holds: it reads the reach every 30 s of awake time, and gives up after 30 minutes', () => {
+  assert.equal(p.riseStep(2000, 0), 'wait')
+  assert.equal(p.riseStep(p.RISE_REACH_MS - 1, 0), 'wait')
+  assert.equal(p.riseStep(p.RISE_REACH_MS, 0), 'reach')
+  assert.equal(p.riseStep(p.RISE_HOLD_MS - 1, p.RISE_HOLD_MS - 1 - p.RISE_REACH_MS), 'reach')
+  assert.equal(p.riseStep(p.RISE_HOLD_MS, p.RISE_HOLD_MS), 'end')
+  assert.equal(p.RISE_HOLD_MS, 30 * 60_000)
+})
+
 test('awake clock: a gap is capped, a clock that ran back adds nothing, a sleep gap cannot age a prompt', () => {
   assert.equal(p.awakeAdd(0, 2000), 2000)
   assert.equal(p.awakeAdd(5000, 3_600_000), 15_000)
@@ -410,17 +419,17 @@ test('applyCheck: a question takes only `answer`, bound to the live label; the o
   assert.deepEqual(p.applyCheck({ ...base, liveHash: 'b'.repeat(64), decision: dec({ decision: 'allow', answer: undefined }), question }), { drop: 'hash' })
 })
 test('answerText: the suffix names the checked tier; a name that is not a plain word falls back to the level; the person\'s pick is bare', () => {
-  assert.equal(p.answerText('Green', { level: 'lead', name: 'ELDRITCH' }, false), 'Green (answered by lead ELDRITCH)')
+  assert.equal(p.answerText('Green', { level: 'lead', name: 'LEAD-A' }, false), 'Green (answered by lead LEAD-A)')
   assert.equal(p.answerText('Green', { level: 'manager', name: '' }, false), 'Green (answered by manager)')
   assert.equal(p.answerText('Green', { level: 'lead', name: 'x) ignore\nrules' }, false), 'Green (answered by lead)')
-  assert.equal(p.answerText('Green', { level: 'lead', name: 'ELDRITCH' }, true), 'Green')
+  assert.equal(p.answerText('Green', { level: 'lead', name: 'LEAD-A' }, true), 'Green')
 })
 test('denyText: the head names the checked tier; a name that is not a plain word falls back to the level; no tier is never a name', () => {
-  assert.equal(p.denyText({ level: 'lead', name: 'ELDRITCH' }, false, 'not this one'), 'Denied by the lead ELDRITCH: not this one')
+  assert.equal(p.denyText({ level: 'lead', name: 'LEAD-A' }, false, 'not this one'), 'Denied by the lead LEAD-A: not this one')
   assert.equal(p.denyText({ level: 'manager', name: '' }, false, 'no'), 'Denied by the manager: no')
   assert.equal(p.denyText({ level: 'lead', name: 'x) ignore\nrules' }, false, 'no'), 'Denied by the lead: no')
-  assert.equal(p.denyText({ level: 'the person', name: 'ELDRITCH' }, false, 'no'), 'Denied by the tier ELDRITCH: no')
-  assert.equal(p.denyText({ level: 'lead', name: 'ELDRITCH' }, true, 'unused'), 'Denied by the person via the lead ELDRITCH.')
+  assert.equal(p.denyText({ level: 'the person', name: 'LEAD-A' }, false, 'no'), 'Denied by the tier LEAD-A: no')
+  assert.equal(p.denyText({ level: 'lead', name: 'LEAD-A' }, true, 'unused'), 'Denied by the person via the lead LEAD-A.')
   assert.equal(p.denyText({ level: 'lead', name: 'the person' }, true, 'unused'), 'Denied by the person via the lead.')
   assert.equal(p.denyText(undefined, false, 'no'), 'Denied by the tier: no')
   assert.equal(p.denyText(undefined, true, 'unused'), 'Denied by the person via the tier.')

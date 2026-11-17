@@ -229,13 +229,13 @@ test('window: a lead\'s own prompt with no tier above it is denied at once; a la
   expect(logged(stdins)).toContain('refused:unattended-own-prompt')
 })
 
-test('window: a lane\'s prompt with no tier in reach is not denied: it stays in the lane\'s panel, with its row marked', async ($, on) => {
+longTest('window: a lane\'s prompt with no tier in reach is not denied: it holds 30 minutes for a tier, then stays in the lane\'s panel, its rows marked', async ($, on) => {
   await answerer($, on, [])
   leadFiles.delete(LEADPATH)
   const v = open()
   expect(await runRequest($, [])).toEqual({})
-  expect(kinds()).toEqual(['abandoned no-tier'])
-  expect(rows()[0].u).toBe(winShort(v))
+  expect(kinds()).toEqual(['no-tier', 'abandoned no-tier'])
+  expect(rows().map((r) => r.u)).toEqual([winShort(v), winShort(v)])
 })
 
 // ---- park ----

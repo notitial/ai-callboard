@@ -40,6 +40,12 @@ export function awakeAdd(awake: number, gapMs: number): number {
 }
 export const expiresAfter = (withPerson: boolean): number => (withPerson ? PERSON_EXPIRES_MS : EXPIRES_MS)
 export const pollFor = (withPerson: boolean): number => (withPerson ? PERSON_POLL_MS : POLL_MS)
+// An ask that found no live tier holds beside its dialog for at most RISE_HOLD_MS of awake time, reading the reach again every RISE_REACH_MS, and rises as a
+// request once a tier is in reach (ADR 0011). A tier away for a compaction or a restart is back well within the hold.
+export const RISE_HOLD_MS = 30 * 60_000
+export const RISE_REACH_MS = 30_000
+// The hold's next step, from its awake time and the awake time of its last read of the reach: end it, read the reach, or wait one more poll.
+export const riseStep = (awake: number, reachAt: number): 'end' | 'reach' | 'wait' => (awake >= RISE_HOLD_MS ? 'end' : awake - reachAt >= RISE_REACH_MS ? 'reach' : 'wait')
 
 // ---- the whole-input hash: the same canonical text on both sides of the join (probed equal between tool.check and PermissionRequest) ----
 export function canonical(v: unknown): string {

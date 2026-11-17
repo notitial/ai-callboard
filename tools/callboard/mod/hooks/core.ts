@@ -842,7 +842,7 @@ export function completions(draft: string, word: string): Completion[] {
 }
 
 // What escalation does not hold back: the one wording of it, appended to the answer of /callboard escalation.
-export const DIALOG_LINE = 'Nothing is held back from the tiers by the mod: an ask that tool.check reports from a lane or a lead rises, the plan-mode exit included, and the rubric says what they surface to you. What cannot rise (a call with no usable tool.check entry, no live tier) stays in the lane\'s panel, and the waiting-prompt toast tells you. While a tier is in reach, a subagent\'s ask is denied with a message to run the call in the main session, and a question with no answer form is ended after your first 30 seconds with a message to ask again as one single-choice question. A prompt that a host answers is not yours to click: nothing waits on you there. Writes to the checkouts, the settings and callboard\'s state are stopped by a hook before any prompt exists, not here. Merges, force pushes, pushes to main, master or production and destructive deletes rise too: the rubric passes them up.'
+export const DIALOG_LINE = 'Nothing is held back from the tiers by the mod: an ask that tool.check reports from a lane or a lead rises, the plan-mode exit included, and the rubric says what they surface to you. An ask that finds no live tier waits up to 30 minutes for one and rises when one is back (a switch scoped to one lead covers its lanes only while that lead is live). What cannot rise (a call with no usable tool.check entry, no tier within those 30 minutes) stays in the lane\'s panel, and the waiting-prompt toast tells you. While a tier is in reach, a subagent\'s ask is denied with a message to run the call in the main session, and a question with no answer form is ended after your first 30 seconds with a message to ask again as one single-choice question. A prompt that a host answers is not yours to click: nothing waits on you there. Writes to the checkouts, the settings and callboard\'s state are stopped by a hook before any prompt exists, not here. Merges, force pushes, pushes to main, master or production and destructive deletes rise too: the rubric passes them up.'
 // /callboard with no argument and /callboard help: one row per form in COMMAND_TABLE, in the shared table style (mdPage).
 export const helpText = (): string => mdPage('**Callboard commands**', ['Command', 'What it does'], COMMAND_TABLE.map((r) => [r.form, r.help].map(mdEscape)))
 // A word the handler does not know: the short list, then the way to the full one.
@@ -3014,7 +3014,7 @@ export function managerRestoreStep(code: string | undefined, fails: number, unan
 // The toast at a final end of a restore that no other toast tells: the level, why, and the command that grants it by hand. The reason is the restore's own
 // word for the code, else the level's refusal text; a code with neither gets no reason. `repo` is the conductor repo, for the texts that name it.
 const RESTORE_END_TEXT: Record<string, string> = {
-  'wrong-folder': 'the session started in another folder than its saved grant names, so the saved grant was removed.',
+  'wrong-folder': 'the session started in another folder than the one its saved grant names (FOLDER), so the saved grant was removed.',
   invalid: 'its saved grant was too old or could not be read, so it was removed.',
   'cwd-unreadable': 'the session folder could not be read.',
   tools: 'its tools could not be registered.',
@@ -3029,7 +3029,7 @@ const RESTORE_END_TEXT: Record<string, string> = {
 export function notRestoredToast(level: Level, code: string, repo?: string): string {
   const label = level.charAt(0).toUpperCase() + level.slice(1)
   const table = level === 'lead' ? REASON_TEXT : level === 'conductor' ? CONDUCTOR_REFUSAL : MANAGER_REFUSAL
-  const run = `Run /callboard ${level}.`
+  const run = code === 'wrong-folder' ? `Run /callboard ${level} in this folder.` : `Run /callboard ${level}.`
   const reason = (hasCode(RESTORE_END_TEXT, code) ? RESTORE_END_TEXT[code] : hasCode(table, code) ? table[code] : undefined)?.replace(/FOLDER/g, () => (repo === undefined ? 'this folder' : folderName(repo))).replace(/ Try again\.$/, '')
   if (reason === undefined) return `${label} not restored. ${run}`
   return `${label} not restored: ${reason}${/Run \/callboard|\/rename/.test(reason) ? '' : ` ${run}`}`

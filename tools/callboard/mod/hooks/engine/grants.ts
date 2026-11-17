@@ -490,9 +490,9 @@ export const LEAD_RESTORE_TRIES = 15
 async function leadRestoreTry($: any, me: string, hint: c.LeadHint): Promise<string | undefined> {
   const reject = (code: string) => log($, me, 'lead-restore-rejected', code)
   // A final end that no toast of its own tells. `told`: the reason the person reads, when the log's code would say more than is known.
-  const end = async (code: string, told = code) => {
+  const end = async (code: string, told = code, repo?: string) => {
     await reject(code)
-    toast($, c.notRestoredToast('lead', told))
+    toast($, c.notRestoredToast('lead', told, repo))
   }
   const epoch = epochOf(me)
   const dropped = () => epochOf(me) !== epoch
@@ -514,7 +514,7 @@ async function leadRestoreTry($: any, me: string, hint: c.LeadHint): Promise<str
     void goGrantorOff($, me).catch(() => undefined)
     await $.store.delete(`${c.LEAD_HINT_PREFIX}${me}`)
     void hereGrantOff($, me).catch(() => undefined)
-    return void (await end('wrong-folder'))
+    return void (await end('wrong-folder', 'wrong-folder', hint.pin))
   }
   // A lane is never a lead too (the rebind refuses a lead in turn); a read that does not answer counts as a binding.
   const held = await withTimeout($, getLane($), c.ENGINE_CALL_TIMEOUT_MS)

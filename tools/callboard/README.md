@@ -73,8 +73,9 @@ caller.
    manager's session: for 12 hours a prompt or question in its reach that no tier settles is put to you there, in
    that session's words. It moves when you type it in another session and ends at `/callboard here off`, when that
    session stops being a tier, or after the 12 hours; the tiers above keep their relay, so one may still ask you in
-   its own panel if the session you named does not (ADR 0009). What cannot rise (a call with no usable
-   `tool.check` entry, no live tier) stays in the lane's panel. While a tier is in reach, a subagent's ask is denied
+   its own panel if the session you named does not (ADR 0009). An ask that finds no live tier (one compacting or
+   restarting) waits up to 30 minutes for one and rises when one is back (a switch scoped to one lead covers its lanes only while that lead is live). What cannot rise (a call with no usable
+   `tool.check` entry, no tier within those 30 minutes) stays in the lane's panel. While a tier is in reach, a subagent's ask is denied
    at once with a message that tells the main session to run the call itself, and a question with no answer form is
    ended after your first 30 seconds with a message that tells the lane to ask again as one single-choice question;
    neither is a decision on the call or the question. A prompt that a host
@@ -306,7 +307,7 @@ Other symptoms:
   again after the next prompt in that session, three times in all; then a toast says to run the role's command.
   Your click in the dialog stays the only yes.
 - **A prompt stays in the lane's panel and no tier sees it.** Some prompts cannot rise: one with no live tier in
-  reach, a question headed `Person`, and the others ADR 0011 lists. A subagent's ask and a question that is not
+  reach for 30 minutes, one under a switch scoped to a lead that is not live, a question headed `Person`, and the others ADR 0011 lists. A subagent's ask and a question that is not
   one single-choice question are denied with a message while a tier is in reach, and stay in the panel otherwise. The
   waiting-prompt toast is what tells you. After a fast-forward of the checkout, reload the lead, conductor and
   manager sessions: one whose mod loaded earlier skips the requests it does not know, and they end in the
