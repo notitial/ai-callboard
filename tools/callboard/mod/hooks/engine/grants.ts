@@ -952,7 +952,8 @@ export async function watchTick($: any, sid: string) {
     return log($, sid, 'notice-capped', w.kind === 'leads' ? 'leads-changed' : 'lanes-changed')
   }
   if ((await idleCheck($, sid)) !== undefined) return
-  if (mem.submits !== submitsAt) return
+  // A turn submitted while a callboard dialog of this session is open could close it before the person answers: the change stays owed.
+  if (mem.submits !== submitsAt || dialogOpen.has(sid)) return
   const before = w.told
   const seenBefore = w.seen
   // The notice is the telling: seen moves with told, so the lane_list the lead makes in answer carries no footer for the same change.

@@ -1567,6 +1567,7 @@ export const REASON_TEXT: Record<string, string> = {
   'context-floor': `context is below ${MIN_CONTEXT_TOKENS / 1000}k tokens, so it may not compact.`,
   'not-idle': 'the session is busy or waiting for the person. Retry once idle.',
   'draft-in-box': 'the person has a draft in that prompt box. Retry after it is sent or cleared.',
+  'dialog-open': 'a callboard dialog is open in that session, waiting for the person. Retry after they answer it.',
   'background-work': 'a background agent or shell is still running in the session. Retry once it finishes.',
   'background-unknown': 'the lane could not check for background work. Retry later; lane_terminate asks the person.',
   'report-stale': 'the report is not newer than the lane\'s last turn. It must sign again by appending a done line, then retry.',
@@ -3576,4 +3577,16 @@ export function parseKeptProof(raw: unknown): KeptProof | undefined {
   const name = (raw as { name?: unknown } | null | undefined)?.name
   if (!b || typeof name !== 'string' || !NAME_RE.test(name)) return undefined
   return { ...b, name }
+}
+
+// ---- the mod's own dialogs, as the permission hook may see them (ADR 0008) ----
+// Each $.ui.ask the mod opens is recorded by its header and question while it is open, so a question call that carries the same two is known for the mod's own
+// dialog: the permission hook passes it on as it stands, never refusing it or raising it as a request.
+export const ownDialogKey = (header: string, question: string): string => JSON.stringify([header, question])
+// The key of a question call (AskUserQuestion input) that holds exactly one question with a string header and question; undefined for any other shape.
+export function questionCallKey(input: unknown): string | undefined {
+  const qs = input && typeof input === 'object' ? (input as { questions?: unknown }).questions : undefined
+  if (!Array.isArray(qs) || qs.length !== 1) return undefined
+  const q = qs[0] as { header?: unknown; question?: unknown } | null
+  return q && typeof q === 'object' && typeof q.header === 'string' && typeof q.question === 'string' ? ownDialogKey(q.header, q.question) : undefined
 }
