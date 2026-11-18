@@ -80,6 +80,44 @@ test('window end: every window since the list was last read is listed, oldest fi
   expect(again).toContain(`Window ${winShort(v2)}:`)
 })
 
+// Rows for one window: `n` requests each closed by a park, a deny and an allow, every item as long as an item may be.
+const bigRows = (u: string, n: number) =>
+  ['park', 'deny', 'allow'].flatMap((code, k) =>
+    Array.from({ length: n }, (_, i) => ({ ...parkRow(u, `${(k * 1000 + i).toString(16).padStart(8, '0')}-0000-4000-8000-123456789abc`), code, why: 'x'.repeat(190) })),
+  )
+
+test('window end: a list past its size shows the windows that fit, keeps the others unread, and says how many are left', async ($, on) => {
+  await started($, on, [])
+  const us: string[] = []
+  for (let k = 0; k < 3; k++) {
+    const v = putWindow(win({ from: T0 + 1000 * (k + 1), savedAt: T0 + 1000 * (k + 1) }))
+    us.push(winShort(v))
+    putLedger(bigRows(winShort(v), 30))
+    await off($)
+  }
+  expect(unread()).toEqual({ v: 1, us })
+  const text = await list($)
+  expect(text.length).toBeLessThan(prm.LIST_TEXT_MAX + 2000)
+  expect(text).toContain(prm.unattendedListsHead(2))
+  expect(text).toContain(`Window ${us[0]}:`)
+  expect(text).not.toContain(`Window ${us[2]}:`)
+  expect(text).toContain(prm.unattendedListMore(1))
+  expect(unread()).toEqual({ v: 1, us: [us[2]] })
+  const next = await list($)
+  expect(next).toContain(`Window ${us[2]}:`)
+  expect(next).not.toContain(prm.unattendedListMore(1))
+  expect(unread()).toBeUndefined()
+})
+
+test('window end: with the unread mark full the list says an older window may be missing, and with room it does not', async ($, on) => {
+  await started($, on, [])
+  const full = Array.from({ length: prm.UNREAD_MAX }, (_, i) => `${(i + 1).toString(16).padStart(8, '0')}`)
+  h.store.set(UNATTENDED_UNREAD_KEY, { v: 1, us: full })
+  expect(await list($)).toContain(prm.unattendedListFull())
+  h.store.set(UNATTENDED_UNREAD_KEY, { v: 1, us: full.slice(1) })
+  expect(await list($)).not.toContain(prm.unattendedListFull())
+})
+
 test('window end: a window on now is listed with the unread ones and stays unmarked', async ($, on) => {
   await started($, on, [])
   const v1 = putWindow()

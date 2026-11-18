@@ -91,7 +91,7 @@ caller.
    (the OFF file, no tier in reach, a question that stays yours, or that no escalation record of it was found), so a
    switch that reads on but does nothing shows itself. You get one toast per wait in each window that watches the
    lane, held or not. That alert lets no one answer the prompt: it only says that one is waiting.
-4. A lane that waits on a pull request registers it with `pr_watch` and is told when checks finish, reviews arrive
+4. A lane, lead or conductor that waits on a pull request registers it with `pr_watch` and is told when checks finish, reviews arrive
    or the PR is mergeable, merged or closed. A merge is still yours.
 5. A big lane is asked to compact before it loses its notes, and a lead can order it to. You never type that.
 6. A lane finishes, signs its report, and the lead retires it. The lead is told of a signature within a few minutes

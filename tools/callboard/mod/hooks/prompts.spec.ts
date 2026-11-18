@@ -956,6 +956,20 @@ test('the list of a window: each section from its rows, the lane\'s text escaped
   assert.ok(p.unattendedListText({ u: U, live: true, rows: [rows[0]], unknown: undefined, when }).includes('could not be listed'))
 })
 
+test('a window\'s list is cut at its size, the frame still closes, and the cut is said', () => {
+  const U = 'aaaaaaaa'
+  const row = (n: number, code: string, extra: Record<string, unknown> = {}): p.LedgerRow => ({ t: '2026-01-10T22:10:00.000Z', kind: 'returned', id: `${n.toString(16).padStart(8, '0')}-0000-4000-8000-123456789abc`, lane: 'ALPHA', repo: '/Users/x/repo', tool: 'Bash', pattern: 'p'.repeat(150), u: U, code, tier: 'manager', why: 'x'.repeat(190), ...extra })
+  // Four sections of 30 long items are about 43 KB.
+  const rows: p.LedgerRow[] = [{ t: '2026-01-10T22:00:00.000Z', kind: 'unattended-on', u: U }]
+  let n = 0
+  for (const [code, extra] of [['park', {}], ['deny', {}], ['allow', {}], ['answer', { prov: 'yes' }]] as const) for (let i = 0; i < 30; i++) rows.push(row(++n, code, extra))
+  const text = p.unattendedListText({ u: U, live: true, rows, unknown: [], when: () => '<t>' })
+  assert.ok(text.length < p.UNATTENDED_LIST_BODY_MAX + 2000, String(text.length))
+  assert.ok(text.endsWith(`${p.UNATTENDED_LIST_CUT}\n</untrusted-ledger>`))
+  // A list under the size is not marked cut.
+  assert.ok(!p.unattendedListText({ u: U, live: true, rows: rows.slice(0, 40), unknown: [], when: () => '<t>' }).includes(p.UNATTENDED_LIST_CUT))
+})
+
 test('the end of a window: the toast carries the counts or says they could not be had; the notice-cap rows are a section and a count', () => {
   const U = 'aaaaaaaa'
   const rows: p.LedgerRow[] = [
@@ -1045,18 +1059,18 @@ test('the turn-on dialog is short: the end, what changes, what is seen, the live
     q,
     [
       'Turn on unattended mode on this Mac until 07:30? /callboard unattended off ends it.',
-      'No prompt or question is passed on to you. The manager MANAGER decides what asks: it allows only what it would allow with you here, and parks what the rules keep for you (the risk list, a merge, a push to main). A lane\'s question it cannot settle may get the most cautious option, marked provisional for you to review.',
+      'No prompt or question is passed on to you. The manager MANAGER decides what asks: it allows only what it would allow with you here, and parks what the rules keep for you (the risk list, a merge, a push to main). A lane\'s question it cannot settle stays in its panel or, in default mode, may get the most cautious option, marked provisional for you to review.',
       "A lead's, a conductor's or the manager's own question is refused: it takes the safe default and notes it for you.",
-      'Only calls that ask are seen: a lane in auto or bypass mode, or a call an allow rule lets through, raises nothing to park.',
+      'Only calls that ask are seen: a lane in auto or bypass mode, or a call an allow rule lets through, raises nothing to park. One nobody answers is held for you after 20 minutes.',
       'Live lanes now: ALPHA 2, BETA 1. A lead runs at most 4 live lanes and cannot ask for a go. Restart sessions started before the last callboard update first.',
       "The manager's and a conductor's own permission prompts are refused too, so keep the manager in auto mode: in any other mode even its board write may be refused.",
     ].join('\n'),
   )
-  // Six short lines, no blank line, under 1000 characters.
+  // Six short lines, no blank line. The turn-on dialog has no length cap of its own (askLimited), so its pin is its own: under 1100 characters.
   assert.equal(q.split('\n').length, 6)
-  assert.ok(q.length < 1000, String(q.length))
+  assert.ok(q.length < 1100, String(q.length))
   const many = Array.from({ length: 10 }, (_, i) => ({ lead: `L${'x'.repeat(38)}${i}`, n: 1 }))
-  assert.ok(p.unattendedQuestion('Sun 16 Nov 19:25', 'M'.repeat(40), many).length < 1400)
+  assert.ok(p.unattendedQuestion('Sun 16 Nov 19:25', 'M'.repeat(40), many).length < 1500)
   assert.match(p.unattendedQuestion('07:30', 'MANAGER', []), /Live lanes now: none\./)
   assert.match(p.unattendedQuestion('07:30', 'MANAGER', undefined), /Live lanes now: could not be read\./)
   // A name that is not a name is left out, and past eight leads the rest are counted.
