@@ -54,9 +54,10 @@ Facts that bound the options:
 - **Nothing is put to the person.** No tier relays, and a relay that slips in is taken back. A tier's own question is
   refused by its mod, failing closed; so is a prompt of its own that no tier can answer. The tier takes the safe
   default and notes the open decision in its own state or report, for the person's return.
-- **What a tier may allow does not grow.** The manager allows only what the rubric lets it allow by day. What it
-  would have passed up, it now settles another way:
-  - what the rubric sends to the person, and whatever a go never covers, it **parks**;
+- **What a tier may allow does not grow.** The manager allows only what the rubric lets it allow by day, with one
+  exception (the 2026-11-18 amendment: the repo's own Claude review). What it would have passed up, it now settles
+  another way:
+  - what the rubric sends to the person, and whatever a go never covers, it **parks** (the same exception aside);
   - anything else it denies with a reason the lane can act on, or parks. Such a deny is the manager's, not the
     person's, and the lane is told so.
   Only the manager parks, and only inside a window.
@@ -142,3 +143,32 @@ Each gets a dated line pointing here when the code that makes it true lands, not
   The mod sees a permission mode only on a permission event, never as a session's state, so the dialog carries a
   fixed line that the manager must be in auto mode (in another mode its own prompts are refused unless a rule already allows
   them, its board write too); no turn-on is refused over a mode.
+- **2026-11-18: the repo's own Claude review.** Marking a PR ready starts the paid automatic review in a repo that has
+  `.github/workflows/claude-review.yml`, and the merges wait on it, so parking it stopped a whole chain overnight. The
+  person asked that the mode be able to do this unattended. It is a narrow exception that exists only inside a window,
+  to the clauses "allows only what the rubric lets it allow by day" and "whatever a go never covers, it parks". It
+  is not a wider rubric: by day the manager decides a mark-ready by judgment and the comment by `SPECIFIC_CALLS`, and
+  in a window three texts would still park both (rule 1, rule 2 with the go's list, and the rubric's paragraph on a
+  guard's ask), so the manager's block says it overrides them for two calls and no others:
+  - **A mark-ready** (`update_pull_request` with `draft` false and nothing else in the input), on a draft in the
+    lane's own repo, only when the checks on the head are present and none is pending or failed, the head holds main's
+    tip, and no changed file is under `.github/` or is the review command (a mark-ready runs the PR's own copy of the
+    workflow with its secrets). The manager looks these up with the GitHub tools: a check made by judgment, not by the
+    mod, which sees only the call. A mark-ready not ready yet is denied with a why that starts `Not yet: `; that
+    manager's deny of that tool is the one further deny (besides the cleaner-command deny) `repeatOf` does not count, so the retry after the fix is judged and
+    not parked as a repeat.
+  - **An `@claude review` comment** (`add_issue_comment`, body exactly the command, with or without `--comments`),
+    inside the cap the mod already enforces at `prompt_answer`: 2 `--comments` and 1 full review per PR. Past it the
+    manager parks it.
+  A mark-ready does not count against the cap: it is the automatic run, which the workflow gives once per PR. A PR can
+  so reach four paid runs: the automatic one, one full review and two follow-ups. Every other paid call, and a
+  `create_pull_request` that is not a draft, stays parked.
+  - **The go's list is unchanged**, here and in ADR 0009: the exception belongs to the manager's block alone, which
+    only the manager reads, and `go_status` still prints "anything that pays".
+  - **Residual risk.** A wrong allow costs one paid review run, with no data and no merge. A lane may set a PR back to
+    draft with no ask and an allowed mark-ready is never a repeat, so a toggle loop is bounded only by the workflow's
+    once-per-PR gate, which fails open on an API error. The allow lands up to 20 minutes after the manager's look, keyed
+    on the call and not the head. Checks and main are the manager's reading, so a model that is steered can allow a
+    mark-ready it should not; the person's list shows it, with its why. A mark-ready held at 20 minutes is a repeat when
+    asked again, as for any call, so a busy manager can still stall one. A repo whose checks never run on a draft is
+    parked, not looped on `Not yet:`.
