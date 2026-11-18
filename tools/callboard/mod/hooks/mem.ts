@@ -138,8 +138,17 @@ export const leadRepoId = new Map<string, { pin: string; id: string }>()
 
 // move: the session's folder, when the saved grant's folder is gone and this one holds the same repo token; the tick then asks the person (leadMoveAsk).
 // asking: that question is on screen.
-export type LeadPending = { hint: c.LeadHint; tries: number; move?: string; asking?: boolean }
+// live: a try got past the person's-session check, so the session is one that will be made lead (an ask it raises waits for that, ADR 0011).
+export type LeadPending = { hint: c.LeadHint; tries: number; move?: string; asking?: boolean; live?: boolean }
 export const leadRestorePending = new Map<string, LeadPending>()
+// A lead restore try is running past the person's-session check (the start time, ms): set for the whole try (grants.ts leadRestoreTry), so no second try starts and an ask raised meanwhile waits.
+export const leadRestoring = new Map<string, number>()
+// A marker older than this is a try that hung: it holds nobody and blocks no retry.
+export const RESTORE_TRY_MS = 60_000
+export const restoreTrying = (sid: string, now: number): boolean => {
+  const t = leadRestoring.get(sid)
+  return t !== undefined && now - t < RESTORE_TRY_MS
+}
 
 // The cut-compaction mark (c.CMP_PREFIX). cmpMarked: this load wrote the mark, so the tick clears it once the request has left `compacting`.
 // cmpCutPending: a fresh mark found at start with no request left in $.state; the tick gives the note once the session counts as a person's.

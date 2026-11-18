@@ -6,6 +6,7 @@ import {
   cmpMarked,
   requestFails,
   leadRestorePending,
+  restoreTrying,
   offSeq,
   cmpCutPending,
   grants,
@@ -209,7 +210,7 @@ async function tick($: any) {
     const lr = leadRestorePending.get(sid)
     // A moved folder's question waits for a person's session that is idle with an empty prompt box (not awaited: the dialog waits up to 90 s).
     if (lr?.move !== undefined) await leadMoveTick($, sid, lr).catch(logFail($, sid, 'lead-move-tick'))
-    else if (lr) await timedStep($, sid, leadRestore($, sid, lr.hint, lr.tries + 1), 'error', (r) => `lead-restore-${r}`)
+    else if (lr && !restoreTrying(sid, await $.clock.now())) await timedStep($, sid, leadRestore($, sid, lr.hint, lr.tries + 1), 'error', (r) => `lead-restore-${r}`)
     // A pending conductor restore, and a running conductor's reach and saved grant.
     await conductorTick($, sid).catch(logFail($, sid, 'conductor-tick'))
     // A conductor's own lead offers that nobody answered.
