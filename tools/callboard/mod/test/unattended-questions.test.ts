@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 import * as prm from '../hooks/prompts'
 import { h, SID, T0, longTest, pfs } from './harness'
-import { APISID, MGR_SESS, lane, logged, mgrAt, ownedBy, putCond } from './fixtures'
+import { APISID, MGR_SESS, lane, leadReg, logged, mgrAt, ownReg, ownedBy, putCond } from './fixtures'
 import { APIQ, CNDT, LDIR, MGRT, QASK, QIN, QTEXT, TID, addCondT, addMgrT, answerCall, answerer, asConductor, askCheck, at, byCond, byMgr, callOf, handDecision, ledgerRows, pcall, putQ, putWindow, readReq, refusal, reqFiles, runRequest, said, stop, win, winShort } from './answer-fixtures'
 
 // ---- a lead's own question while an unattended window is held (ADR 0008): it rises to the manager alone, which answers it, answers it provisionally or
@@ -42,9 +42,9 @@ test('window: a lead\'s own question with leadAsks unset rises to the manager al
 test('window: the manager\'s answer to a lead\'s question that names no window is dropped as the person\'s', async ($, on) => {
   await leadInWindow($, on)
   putWindow()
-  // The OFF file then ends the wait; the window is still held, so the question is refused rather than left waiting for the person.
+  // The OFF file then ends the wait. Escalation is then surely off, which ends the window, so the card is the person's and no deny is given.
   const r = await runRequest($, [at(4000, () => handDecision(readReq(), ans(), { by: MGRT })), stop(20_000)], QCALL.over, QCALL.check)
-  expect(r).toEqual(QUESTION_DENIED)
+  expect(r).toEqual({})
   expect(kinds()).toEqual(['requested', 'answered answer', 'dropped relay', 'off'])
 })
 
@@ -58,7 +58,7 @@ for (const [name, mode, want] of [
     const r = await runRequest($, [at(4000, () => handDecision(readReq(), ans({ u, provisional: true }), { by: MGRT, u, prov: 'yes' })), stop(20_000)], { ...QCALL.over, permission_mode: mode }, QCALL.check)
     expect(kinds()).toContain(want)
     if (mode === 'default') expect(r.decision.updatedInput.answers[QTEXT]).toBe(`8080 (answered by manager MANAGER${prm.PROVISIONAL_TAIL})`)
-    else expect(r).toEqual(QUESTION_DENIED)
+    else expect(r).toEqual({})
   })
 }
 
@@ -252,4 +252,21 @@ test('window: the manager lists a conductor\'s own question with its own line, a
   expect(await list($)).toContain("Unattended mode: a conductor's own question, and you are its only tier.")
   expect(said(await $.tool.call(answerCall({ decision: 'park', why: 'which repo first' })))).toContain(`Recorded: park for ${TID}.`)
   expect(dec()).toMatchObject({ decision: 'park', u: winShort(v) })
+})
+
+// A click while the manager has not decided ends the wait as superseded: the person answered, so the window's deny never lands over it.
+test('window: the person\'s click on a lead\'s question while the manager is undecided stands; no deny is given over it', async ($, on) => {
+  await leadInWindow($, on)
+  putWindow()
+  const r = await runRequest($, [at(10_000, () => { h.sessions = { ...leadReg(), ...h.extraRows, ...ownReg({ status: 'busy', waitingFor: null, statusUpdatedAt: T0 + 10_000 }) } })], QCALL.over, QCALL.check)
+  expect(r).toEqual({})
+  expect(kinds()).toEqual(['requested', 'superseded'])
+})
+
+test('window: a lead\'s question that ends (its PostToolUse) while the manager is undecided stands; no deny is given over it', async ($, on) => {
+  await leadInWindow($, on)
+  putWindow()
+  const r = await runRequest($, [at(10_000, async () => { await $.classic.PostToolUse({ tool_name: 'AskUserQuestion', tool_input: QIN, tool_use_id: 'tu1', tool_response: {} } as any) })], QCALL.over, QCALL.check)
+  expect(r).toEqual({})
+  expect(kinds()).toEqual(['requested', 'superseded'])
 })
