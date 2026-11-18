@@ -25,6 +25,7 @@ import {
   attnTold,
   attnMid,
   attnToasted,
+  attnWhy,
   laneBrief,
   leadRestorePending,
   leadRepoId,
@@ -84,7 +85,7 @@ import { ensureTimer } from './tick.ts'
 import { grantNameNo } from './lead-open.ts'
 import { epochOf, heldNo, holdsOf, levelSave } from './levels.ts'
 import type { LevelDesc } from './levels.ts'
-import { ANSWERING_KEY, ledgerAdd, promptsOff, escalationNow, defaultForget, hereRead, hereDrop, hereGrantOff, unattendedNow, unattendedClose, ledgerRowsFor, unattendedOpen, unattendedVoid, unattendedOffMark, unattendedOffSince, unattendedClosesNow, unattendedBusy, unattendedUnread, unattendedUnreadDrop } from './answer-hook.ts'
+import { ANSWERING_KEY, ledgerAdd, promptCoverageText, promptsOff, escalationNow, defaultForget, hereRead, hereDrop, hereGrantOff, unattendedNow, unattendedClose, ledgerRowsFor, unattendedOpen, unattendedVoid, unattendedOffMark, unattendedOffSince, unattendedClosesNow, unattendedBusy, unattendedUnread, unattendedUnreadDrop } from './answer-hook.ts'
 import { ledgerRestore } from './answer-tiers.ts'
 import * as go from '../go.ts'
 import { goCommand, goGrantorOff } from './go.ts'
@@ -1226,6 +1227,7 @@ export async function grantLead($: any, sid: string, code: c.OriginCode, busy: (
         attnTold.delete(sid)
         attnMid.delete(sid)
         attnToasted.delete(sid)
+        attnWhy.delete(sid)
         // The goes this lead gave were for the old folder's lanes: they end, beside the grant, which does not wait for the rows.
         void goGrantorOff($, sid).catch(() => undefined)
       }
@@ -1458,7 +1460,8 @@ export async function commandRun($: any, e: any) {
   const grantPart: [string, string] = gs?.level === 'manager' ? ['Manager', 'ON'] : gs?.level === 'conductor' ? ['Conductor', c.conductorStatus(gs.pins.length)] : ['Lead', grants.has(sid) ? 'ON' : 'OFF']
   const laneLead: [string, string][] = bound ? [["This lane's lead", c.laneStatusLead(laneBrief.get(sid), bound.name)]] : []
   if (arg === 'status') {
-    const esc: [string, string][] = [['Escalation', pr.escalationStatus(await escalationNow($), await promptsOff($))], ['Unattended', pr.unattendedStatus(await unattendedNow($), whenLocal)]]
+    const covered = await promptCoverageText($, sid).catch(() => undefined)
+    const esc: [string, string][] = [['Escalation', pr.escalationStatus(await escalationNow($), await promptsOff($))], ...(covered !== undefined ? [['Prompts', covered] as [string, string]] : []), ['Unattended', pr.unattendedStatus(await unattendedNow($), whenLocal)]]
     const unread = await unattendedUnread($)
     if (unread !== 'unreadable' && unread.length > 0) esc.push(['Unattended list', pr.unattendedUnreadStatus(unread.length)])
     const ownerRow: [string, string][] = gs?.level === 'lead' ? [['Conductor', await ownerStatusNow($, sid)]] : []

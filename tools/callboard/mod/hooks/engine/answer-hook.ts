@@ -667,6 +667,26 @@ async function promptCoverage($: any, sid: string, opt: { pending?: boolean } = 
   return opt.pending && g === undefined && restoreWaits(sid, await $.clock.now()) && (a.scope === undefined || a.scope === 'all') ? { a, level: 'lead', self: '', pending: true } : undefined
 }
 
+// What the hook sees for this session, for /callboard status: whether an ask raised here would be judged by the tiers, and the first check that says no. It reads
+// what the hook reads (the OFF file first, then the switch, then the scope against the lane, its live lead's name, or the lead's own), so the line shows what the
+// hook decides next to the "Escalation" line, which shows only the switch.
+export async function promptCoverageText($: any, sid: string): Promise<string | undefined> {
+  const b = (await getLane($)).value as Bound | null | undefined
+  const g = grants.get(sid)
+  const lane = b && typeof b.name === 'string' ? b : undefined
+  if (!lane && g?.level !== 'lead' && !leadRestorePending.has(sid)) return undefined
+  if (await promptsOff($)) return 'NO (the OFF file exists)'
+  const a = await answeringNow($)
+  if (!a) return 'NO (escalation is off)'
+  if (lane) {
+    const plain = a.scope === undefined || a.scope === 'all' || a.scope === lane.name
+    const lead = plain ? undefined : await promptLeadOf($, 'lane', sid, String(await sessionRoot($).catch(() => '')), typeof lane.lead === 'string' ? lane.lead : undefined).catch(() => undefined)
+    return pr.covers(a, { lane: lane.name, lead: lead?.name }) ? 'YES (lane)' : 'NO (the switch is scoped to other sessions)'
+  }
+  if (g?.level === 'lead') return pr.covers(a, { self: g.name }) ? 'YES (lead)' : 'NO (the switch is scoped to other sessions)'
+  return 'NO (the lead grant is not restored yet)'
+}
+
 // tool.check only observes: it stores what it saw for an ask in a covered session, and the caller returns the verdict unchanged, every time (F-C).
 async function promptObserve($: any, e: any, r: any): Promise<void> {
   if (r?.decision !== 'ask' || typeof e.tool_use_id !== 'string' || typeof e.agentId === 'string') return

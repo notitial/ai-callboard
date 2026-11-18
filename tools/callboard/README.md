@@ -87,7 +87,9 @@ caller.
    in front of the manager after 10 minutes, also right after the Mac wakes (the other check-ins then wait 30
    minutes, this one does not); a prompt a tier already holds as a request was told by that request's
    own notice, so its check-in is skipped, and it comes back if the request ends (answered, withdrawn, denied) or
-   runs past its time with the lane still waiting. You get one toast per wait in each window that watches the
+   runs past its time with the lane still waiting. The check-in also says, per lane, what the mod saw for that prompt
+   (the OFF file, no tier in reach, a question that stays yours, or that no escalation record of it was found), so a
+   switch that reads on but does nothing shows itself. You get one toast per wait in each window that watches the
    lane, held or not. That alert lets no one answer the prompt: it only says that one is waiting.
 4. A lane that waits on a pull request registers it with `pr_watch` and is told when checks finish, reviews arrive
    or the PR is mergeable, merged or closed. A merge is still yours.
@@ -302,7 +304,8 @@ says to. The session's log in `~/.claude/callboard/log/` has the same code and w
 
 Other symptoms:
 
-- **Nothing happens after a prompt.** Check `/callboard status` and `lanes`; escalation reads `ON (default)` only
+- **Nothing happens after a prompt.** Check `/callboard status` (in a lane or lead its "Prompts" line says whether the
+  hook covers that session, and what fails first) and `lanes`; escalation reads `ON (default)` only
   while the protected-paths hook and its `.protected-checkout` markers are in place (`docs/setup.md`). The hook
   counts only as ai-toolkit's wrapped entry, exactly as `docs/setup.md` shows it: a bare path to the hook (an
   install from before the wrapper), another command or an extra field reads as not wired, until ai-toolkit's

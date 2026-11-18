@@ -1163,6 +1163,19 @@ test('prompts: /callboard escalation off stores an explicit off: the default doe
   expect(rowKinds()).toEqual([...DEFAULT_ROWS, 'answering-off off'])
 })
 
+test('prompts: /callboard status in a lane has a Prompts line: YES with the switch on for it, else the first check that fails; a session that is no lane or lead has none', async ($, on) => {
+  await started($, on, [], { bound: true })
+  h.store.set('answering', { scope: 'all', asks: false, asksScope: 'all', savedAt: T0 })
+  expect(await statusOf($)).toContain('| Prompts | YES (lane) |')
+  h.store.set('answering', { scope: 'NOT-THIS-LANE', asks: false, asksScope: 'all', savedAt: T0 })
+  expect(await statusOf($)).toContain('| Prompts | NO (the switch is scoped to other sessions) |')
+  h.store.set('answering', { off: true, savedAt: T0 })
+  expect(await statusOf($)).toContain('| Prompts | NO (escalation is off) |')
+  h.store.set('answering', { scope: 'all', asks: false, asksScope: 'all', savedAt: T0 })
+  pfs.set(OFF_FILE, { text: '', mtimeSec: T0 / 1000 })
+  expect(await statusOf($)).toContain('| Prompts | NO (the OFF file exists) |')
+})
+
 test('prompts: the OFF file beats the default at once', async ($, on) => {
   await started($, on, [])
   wireGuard()
