@@ -51,6 +51,7 @@ import {
   lastSubmitAt,
   orderBusy,
   dialogOpen,
+  dialogUp,
   offSeq,
   renameChecked,
   managerRestorePending,
@@ -950,7 +951,7 @@ export async function watchTick($: any, sid: string) {
   }
   if ((await idleCheck($, sid)) !== undefined) return
   // A turn submitted while a callboard dialog of this session is open could close it before the person answers: the change stays owed.
-  if (mem.submits !== submitsAt || dialogOpen.has(sid)) return
+  if (mem.submits !== submitsAt || dialogUp(sid)) return
   const before = w.told
   const seenBefore = w.seen
   // The notice is the telling: seen moves with told, so the lane_list the lead makes in answer carries no footer for the same change.
@@ -1492,7 +1493,7 @@ async function attentionNotice($: any, sid: string, items: c.AttentionItem[], su
   const told = attnTold.get(sid)
   if (!told) return
   const untold = (xs: c.AttentionItem[]) => xs.filter((i) => !told.has(c.checkinKey(i)))
-  if (render(untold(items)) === undefined || dialogOpen.has(sid) || mem.submits !== submitsAtStart) return
+  if (render(untold(items)) === undefined || dialogUp(sid) || mem.submits !== submitsAtStart) return
   const sentAt = lastSubmitAt.get(sid)
   if ((await getRequest($)).value != null || (await getNudgeDue($)).value != null) return
   // The hourly cap: the lanes-changed notice's, or the caller's own budget (opts.budget), which then leaves the shared one untouched.
@@ -1517,10 +1518,10 @@ async function attentionNotice($: any, sid: string, items: c.AttentionItem[], su
   // the told set are read again. Every read comes before the last guard, so nothing is awaited between it and the submit.
   if (await capped()) return
   const now = await $.clock.now()
-  if (dialogOpen.has(sid) || (await getRequest($)).value != null || (await getNudgeDue($)).value != null) return
+  if (dialogUp(sid) || (await getRequest($)).value != null || (await getNudgeDue($)).value != null) return
   if ((await idleCheck($, sid)) !== undefined) return
   const draft = (await $.prompt.read()).text
-  if (draft !== '' || dialogOpen.has(sid) || mem.submits !== submitsAtStart || lastSubmitAt.get(sid) !== sentAt || !grants.has(sid) || epochOf(sid) !== ep) return
+  if (draft !== '' || dialogUp(sid) || mem.submits !== submitsAtStart || lastSubmitAt.get(sid) !== sentAt || !grants.has(sid) || epochOf(sid) !== ep) return
   const fresh = untold(kept)
   const text = render(fresh)
   if (text === undefined) return

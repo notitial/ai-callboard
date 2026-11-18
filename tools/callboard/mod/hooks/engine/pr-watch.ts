@@ -8,7 +8,7 @@ import * as pw from '../pr-watch.ts'
 import {
   mem,
   grants,
-  dialogOpen,
+  dialogUp,
   lastSubmitAt,
   laneBrief,
   prTrack,
@@ -471,7 +471,7 @@ async function prCold($: any, sid: string, from: number | undefined, n: number) 
 export async function prNoticeTick($: any, sid: string, submitsAtStart: number) {
   await spoolLoad($, sid)
   const n = prPending.get(sid)?.length ?? 0
-  if (n === 0 || dialogOpen.has(sid) || mem.submits !== submitsAtStart) return
+  if (n === 0 || dialogUp(sid) || mem.submits !== submitsAtStart) return
   if ((await getRequest($)).value != null || (await getNudgeDue($)).value != null) return
   const now = await $.clock.now()
   const turnEnd = (await getTurnEnd($)).value
@@ -488,7 +488,7 @@ export async function prNoticeTick($: any, sid: string, submitsAtStart: number) 
     return log($, sid, 'notice-capped', 'pr')
   }
   // Every read is behind us: nothing is awaited between this guard and the claim.
-  if (dialogOpen.has(sid) || mem.submits !== submitsAtStart) return
+  if (dialogUp(sid) || mem.submits !== submitsAtStart) return
   const got = prClaim(sid)
   if (!got) return
   prCapLogged.delete(sid)

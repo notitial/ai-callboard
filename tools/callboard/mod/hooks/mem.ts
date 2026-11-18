@@ -89,6 +89,9 @@ export const dialogOpen = new Set<string>()
 // The mod's own dialogs open now, per session: c.ownDialogKey of each, counted (plain `ask` dialogs can overlap). Recorded before $.ui.ask is called and taken out
 // when it returns, so the permission hook knows such a dialog for the mod's own (ADR 0008).
 export const ownAsks = new Map<string, Map<string, number>>()
+// Whether a mod dialog of this session is up: one held by askOnce, askLimited or a command (dialogOpen), or any other $.ui.ask (a plain ask, a pick) still
+// recorded in ownAsks. Nothing the mod submits into a session goes in while one is up, since a submitted turn could close it.
+export const dialogUp = (sid: string): boolean => dialogOpen.has(sid) || [...(ownAsks.get(sid)?.values() ?? [])].some((n) => n > 0)
 // Per lead, what the ceiling an unattended window puts on live lanes counts beside its live lanes (core.openedUnbound): the sessions its lane_open opened in
 // this process, an open under way, and a session a rename or an unpark is binding now, each with the time it was taken.
 export const laneOpened = new Map<string, Map<string, number>>()

@@ -117,6 +117,24 @@ test('a nudge due while a callboard dialog of the session is open stays due, and
   expect(nudges()).toEqual([nudgeText('idle')])
 })
 
+test('a nudge due while a plain callboard dialog is open (a lead\'s Force stop question, which is not one-per-session) stays due, and goes out once it closes', async ($, on) => {
+  await lead($, on, [], { clock: true })
+  let release: (a: string) => void = () => undefined
+  h.askHang = new Promise<string>((r) => (release = r))
+  const n = h.askCount
+  const open = $.tool.call(leadCall('terminate'))
+  await waitFor(() => h.askCount !== n)
+  h.tokensNow = 300_000
+  await $.turn.complete(TURN as any)
+  await ticks(3)
+  expect(nudges()).toEqual([])
+  release('Cancel')
+  h.askHang = undefined
+  expect(JSON.stringify(await open)).toContain('did not confirm')
+  await ticks(1)
+  expect(nudges().length).toBe(1)
+})
+
 for (const [what, setup] of [
   ['a background agent', () => { h.agentsNow = [{ status: 'running' }] }],
   ['a background shell', () => { h.psTable = `${SELF_PS} 4400  4999 /bin/zsh -c sleep 90\n` }],

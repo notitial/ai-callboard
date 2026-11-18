@@ -2,7 +2,7 @@
 // Trust rules held here: no decision without a ledger row; the relay reads only the person's own answer.
 import * as c from '../core.ts'
 import * as pr from '../prompts.ts'
-import { grants, checks, openReqs, doneIds, unclosed, askingSids, relayAskedTurn, relayHolds, hereGone, ownAsks, dialogOpen, mem } from '../mem.ts'
+import { grants, checks, openReqs, doneIds, unclosed, askingSids, relayAskedTurn, relayHolds, hereGone, ownAsks, dialogUp, mem } from '../mem.ts'
 import { run, MKDIR, dirOk, INSTALL, TEE, MV, rmF, where, facts, sha, statR, readSmallR, pause, RMDIR, realR, toast, withTimeout, GREP, logq } from './base.ts'
 import { registryEntries, registryOf } from './store.ts'
 import { leadsFor, homeOf, presenceCheck } from './grants.ts'
@@ -1031,8 +1031,7 @@ async function promptHook($: any, e: any, nextOnce: (x: any) => Promise<any>, si
       held = mem.unattendedSure === 'on'
     }
     if (held) {
-      const dialog = dialogOpen.has(sid) || [...(ownAsks.get(sid)?.values() ?? [])].some((n) => n > 0)
-      if (grants.get(sid)?.level !== 'lead' || relayShorts(e.tool_input).length > 0 || dialog) {
+      if (grants.get(sid)?.level !== 'lead' || relayShorts(e.tool_input).length > 0 || dialogUp(sid)) {
         await logq($, sid, 'refused', 'unattended-question')
         return { decision: { behavior: 'deny', message: pr.TIER_QUESTION_DENY } }
       }

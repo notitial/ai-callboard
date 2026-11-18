@@ -8,7 +8,7 @@ import {
   promptRelaySeen,
   promptNotices,
   promptCapLogged,
-  dialogOpen,
+  dialogUp,
   turnKind,
   promptMidSent,
   promptMidRetold,
@@ -599,12 +599,12 @@ export async function promptNoticeTick($: any, sid: string, submitsAtStart: numb
     promptCapLogged.add(sid)
     return log($, sid, 'notice-capped', 'prompts')
   }
-  if (dialogOpen.has(sid) || mem.submits !== submitsAtStart) return
+  if (dialogUp(sid) || mem.submits !== submitsAtStart) return
   // A pending request (a compaction that is armed or waiting to resume) or a due nudge has the idle moment first.
   if ((await getRequest($)).value != null || (await getNudgeDue($)).value != null) return
   if ((await idleCheck($, sid)) !== undefined) return
   // Every read is behind us: nothing is awaited between this guard and the submit. A request the mid-turn path told meanwhile is not told again.
-  if (dialogOpen.has(sid) || mem.submits !== submitsAtStart) return
+  if (dialogUp(sid) || mem.submits !== submitsAtStart) return
   const owed = mine.filter((id) => told.get(id) === -1)
   if (owed.length === 0) return
   for (const id of owed) told.set(id, 0)
