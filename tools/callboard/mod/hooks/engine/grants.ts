@@ -16,7 +16,6 @@ import {
   watch,
   cappedLogged,
   laneObs,
-  laneOpened,
   leadObs,
   attnTold,
   attnCapped,
@@ -356,8 +355,6 @@ export function leadDrop($: any, sid: string): Promise<boolean> {
   }
   leadEpoch.set(sid, epochOf(sid) + 1)
   grants.delete(sid)
-  // The sessions this lead opened for the unattended ceiling do not come back with a later grant.
-  laneOpened.delete(sid)
   briefed.delete(sid)
   watch.delete(sid)
   cappedLogged.delete(sid)
