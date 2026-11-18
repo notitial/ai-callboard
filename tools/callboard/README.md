@@ -58,16 +58,17 @@ caller.
    session and starts it with the brief. In a terminal you start a `claude` yourself, type `/callboard lane NAME`,
    and the lead prompts it from then on.
 3. The lanes work. When a lane waits on a permission prompt, the dialog stays in front of you; with escalation on,
-   the lead (then the conductor, then the manager) may answer it, never in your first 30 seconds (in an unattended window, step 8, a prompt
-   raised in it gives no such 30 seconds), and your click
-   normally wins (a Yes that lands in a short gap can be missed: ADR 0004). Merges, force pushes, pushes to main or production and destructive deletes are always passed up
+   the lead (then the conductor, then the manager) may answer it, but not in your first 30 seconds, and your click
+   normally wins (a Yes that lands in a short gap can be missed: ADR 0004). A prompt raised in an unattended window
+   (step 8) has no such 30 seconds. Merges, force pushes, pushes to main or production and destructive deletes are always passed up
    to you. Every ask that `tool.check` reports for a lane's or a lead's own call rises this way, whatever raised it
    (a rule, a hook or guard, a setting, a plugin) and whatever the tool, a plan-mode exit included: the tier sees what raised it and
    the hook's reason, handles the routine cases its rubric names (a rerun of the lane's own CI run, a delete inside
    the lane's own clone) and passes the rest up, and the top live tier relays it to you. A request that no tier
    answers or relays is denied after 20 minutes, and the lane may ask again
    ([ADR 0011](../../docs/adr/0011-all-prompts-rise.md)). A lead's own single-choice question rises too while its
-   conductor is live, but no tier answers it: only you do, where the relay opens. A lead's force stop of a lane the conductor
+   conductor is live, but no tier answers it: only you do, where the relay opens (in an unattended window it goes to
+   the manager instead, step 8). A lead's force stop of a lane the conductor
    reaches then goes through it, whose dialog asks you. The time the Mac sleeps does not count toward that deny or toward a request's expiry; the windows
    in which each tier may answer do count it. A sleep
    does not by itself end a request's wait.
@@ -114,15 +115,17 @@ caller.
    what changes; nothing is on until you click Turn on. A span under 30 minutes is refused with the earliest end it
    takes. Keep the manager in auto mode: in any other mode its own permission prompts, its board write included, are
    refused while the window is on (unless a rule already allows them). Restart sessions started before the last callboard update first, so an old lane and
-   an old tier do not relay. While it is on nothing is put to you: no relay, a lead's,
-   conductor's or the manager's own question is refused, and so are the manager's and a conductor's own permission
-   prompts. The manager decides what asks, allows only what
+   an old tier do not relay. While it is on nothing is put to you: no relay. A lead's own
+   question goes to the manager alone, which answers it, answers it provisionally (when the lead is in the default
+   permission mode) or leaves it for you, and one nobody decides is closed at 20 minutes; either way the lead takes
+   the safe default. A conductor's or the manager's own question is refused, and so are the manager's and a
+   conductor's own permission prompts. The manager decides what asks, allows only what
    it would allow with you there, and parks what the rules keep for you (the lane is told it waits for you). A lead
    runs at most 4 live lanes and cannot ask for a go, though you can still type `/callboard go` in its session
    yourself. A prompt raised while the window is on may be answered at once, with no 30 seconds for you. A callboard
    dialog of your own stays open: it is not refused as a tier's question. With no live manager a prompt nobody answers is held for you
    at 20 minutes. When you are back, tell the manager in its session (it ends the window and gives you the counts),
-   or type `/callboard unattended off` anywhere; `/callboard unattended` lists what was parked, held or decided.
+   or type `/callboard unattended off` anywhere; `/callboard unattended` lists the questions left for you and what was parked, held or decided.
    When a window ends, the process that ended it shows a toast with the counts, and `/callboard status` and the
    manager's prompt list say that its list is unread until you run `/callboard unattended`, which then lists every
    window since you last read it ([ADR 0008](../../docs/adr/0008-unattended-mode.md)).

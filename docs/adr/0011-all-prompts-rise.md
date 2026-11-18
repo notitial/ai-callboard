@@ -206,6 +206,10 @@ question headed `Person` or of another shape, it stays the person's in the lead,
 the switch, set by the escalation dialog whose text says so (and in the default): a switch turned on under the
 earlier text keeps a lead's questions the person's until they turn it on again.
 
+*2026-11-18 ([ADR 0008](0008-unattended-mode.md), amendment on a lead's question):* inside an unattended window a lead's
+own question rises to the manager alone, with no conductor and no `leadAsks`, and the manager may answer it or leave it
+for the person. What cannot rise there is refused rather than left in the lead's panel.
+
 A truncated copy is a request, as before: a tier may deny it and never allow or relay it (ADR 0004, Limits), so it
 ends in the 20-minute deny.
 
