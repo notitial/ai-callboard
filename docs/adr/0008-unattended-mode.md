@@ -228,3 +228,19 @@ Each gets a dated line pointing here when the code that makes it true lands, not
   - Which askers may take a provisional answer, and whose question may be parked, are one constant each
     (`PROVISIONAL_ASKERS`, `QUESTION_PARK_ASKERS` in `prompts.ts`), so a later choice for a lane's question is a
     one-word change.
+- **2026-11-18: the manager may leave a lane's question for the person.** A lane's question the manager could not
+  settle stayed open in the lane's panel until the person came back, so the lane waited for the whole window. Now
+  `QUESTION_PARK_ASKERS` names a lane too, on the person's own choice:
+  - The manager may park a lane's question by the same rule as a tier's own (rule 5 of its unattended block): one
+    that asks for approval or a go, is on the risk list, is a design choice the person kept, offers only options that
+    are hard to undo, or that it is unsure of. The why names the question in a few words.
+  - It lands as every park does: the manager's, naming the window, and only while that window is on as the lane's
+    hook reads it at apply. A park from a window that has ended, or from another one, is dropped
+    (`unattended-closed`). By day `prompt_answer` refuses it (`park-not-allowed`), so a lane's question by day is
+    still answered or passed up and never parked.
+  - The lane gets the question park text: this is not the person's answer; take the safe default, note the open
+    decision where the person will see it, and go on. The person's list shows it under "Questions left for you".
+  - A lane's question is still never closed for lateness: one the manager neither answers nor parks stays open in
+    the lane's panel. A provisional answer still goes only to a lane in the default permission mode.
+  - The turn-on dialog, rule 5, the manager's line for a lane's question and the refusal texts say so. This note
+    replaces the line above that a lane's question takes no park, and the turn-on dialog's "stays in its panel".

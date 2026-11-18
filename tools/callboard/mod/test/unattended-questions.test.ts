@@ -114,6 +114,26 @@ longTest('window: a lane\'s question nobody answers is not held: it stays open i
   expect(kinds()).toEqual(['requested', 'abandoned expired'])
 })
 
+// A lane's question: the manager may leave it for the person too, and the lane takes the safe default.
+test('window: the manager\'s park of a lane\'s question closes it with the park text and the question tail, and its returned row names the window', async ($, on) => {
+  await answerer($, on, [], { verdict: QASK, asksScope: 'all' })
+  addMgrT()
+  const u = winShort(putWindow())
+  const r = await runRequest($, [at(4000, () => handDecision(readReq(), { decision: 'park', why: 'which port: a design choice', by: byMgr, u }, { by: MGRT, u }))], QCALL.over, QCALL.check)
+  expect(r).toEqual({ decision: { behavior: 'deny', message: `Parked by the manager MANAGER for the person: which port: a design choice${prm.UNATTENDED_QUESTION_PARK_TAIL}` } })
+  expect(kinds()).toEqual(['requested', 'answered park', 'returned park'])
+  expect(of('returned')[0]).toMatchObject({ tool: 'AskUserQuestion', u })
+})
+
+test('window: the manager\'s park of a lane\'s question made in a window that has since ended is dropped, and the question waits on', async ($, on) => {
+  await answerer($, on, [], { verdict: QASK, asksScope: 'all' })
+  addMgrT()
+  const u = winShort(putWindow())
+  const r = await runRequest($, [at(4000, async () => { handDecision(readReq(), { decision: 'park', why: 'x', by: byMgr, u }, { by: MGRT, u }); await $.command.run(lane('unattended off')) }), stop(20_000)], QCALL.over, QCALL.check)
+  expect(r).toEqual({})
+  expect(kinds()).toEqual(['requested', 'answered park', 'dropped unattended-closed', 'off'])
+})
+
 test('window: a lead\'s same question asked twice rises twice, each with its own entry, and each takes the manager\'s answer', async ($, on) => {
   await leadInWindow($, on)
   const u = winShort(putWindow())
@@ -181,7 +201,7 @@ test('window: the manager lists a lead\'s own question with its own line, and ma
   expect(ledgerRows().find((r) => r.kind === 'answered')).toMatchObject({ code: 'answer', u: winShort(v) })
 })
 
-test('window: the manager may park a lead\'s question, and give a provisional answer to one in default mode; a lane\'s question takes no park', async ($, on) => {
+test('window: the manager may park a lead\'s question, and give a provisional answer to one in default mode', async ($, on) => {
   await asManager($, on)
   const v = putWindow()
   putQ(LEADQ({ mode: 'default' }))
@@ -189,9 +209,17 @@ test('window: the manager may park a lead\'s question, and give a provisional an
   expect(dec()).toMatchObject({ decision: 'park', u: winShort(v) })
   pfs.delete(`${LDIR(APISID)}/${TID}.decision.json`)
   expect(await call($, { provisional: true })).toContain(`Recorded: provisional answer 2 for ${TID}.`)
-  pfs.delete(`${LDIR(APISID)}/${TID}.decision.json`)
+})
+
+test('window: the manager may park a lane\'s question, and its file names the window; by day the same park is refused', async ($, on) => {
+  await asManager($, on)
   putQ({ ...LEADQ(), level: 'lane', lane: 'API' })
-  expect(said(await $.tool.call(answerCall({ decision: 'park', why: 'x' })))).toContain(refusal('question-answer-only'))
+  expect(said(await $.tool.call(answerCall({ decision: 'park', why: 'x' })))).toContain(refusal('park-not-allowed'))
+  const v = putWindow()
+  later()
+  expect(await list($)).toContain('or leave it for the person with decision `park` (rule 5 below)')
+  expect(said(await $.tool.call(answerCall({ decision: 'park', why: 'which port: a design choice' })))).toContain(`Recorded: park for ${TID}. It closes the question`)
+  expect(dec()).toMatchObject({ decision: 'park', u: winShort(v), by: { level: 'manager' } })
 })
 
 test('window: the manager\'s decision on a lead\'s question is refused while the window cannot be read', async ($, on) => {

@@ -693,6 +693,23 @@ test('applyCheck: a park is the manager\'s own, names its window and lands only 
 // ---- provisional answers (ADR 0008) ----
 const provDec = (o: Partial<p.Decision> = {}) => baseDec({ decision: 'answer', answer: { index: 0, label: 'Red' }, by: MGR, u: U, provisional: true, ...o })
 // ---- a lead's own question in a window (ADR 0008) ----
+test('applyCheck: a lane\'s question takes the manager\'s park only inside the window it names; a tier\'s park, one with no window or from an ended window is dropped', () => {
+  const req = { ...baseReq, level: 'lane' as const, mode: 'auto' }
+  const question = { labels: ['Red', 'Green'] }
+  const park = (o: Partial<p.Decision> = {}) => baseDec({ decision: 'park', by: MGR, u: U, ...o })
+  const lane = (d: p.Decision, o: Partial<p.ApplyIn> = {}) => apply({ req, decision: d, question, window: { state: 'on', u: U }, ...o })
+  assert.deepEqual(lane(park()), { ok: true })
+  assert.deepEqual(lane(park({ by: { level: 'lead', sid: SID_B, name: 'L' } })), { drop: 'kind' })
+  assert.deepEqual(lane(park({ by: { level: 'conductor', sid: SID_B, name: 'C' } })), { drop: 'kind' })
+  assert.deepEqual(lane(park({ u: undefined })), { drop: 'kind' })
+  assert.deepEqual(lane(park(), { window: { state: 'off' } }), { drop: 'unattended-closed' })
+  assert.deepEqual(lane(park(), { window: { state: 'on', u: 'bbbbbbbb' } }), { drop: 'unattended-closed' })
+  assert.deepEqual(lane(park(), { window: { state: 'unknown' } }), { hold: 'unattended' })
+  // An allow or a deny is still no decision on a question.
+  assert.deepEqual(lane(baseDec({ decision: 'deny', by: MGR, u: U })), { drop: 'kind' })
+  assert.deepEqual(['lane', 'lead', 'conductor'].map((level) => p.questionParkAllowed({ level } as Pick<p.Request, 'level'>)), [true, true, true])
+})
+
 test('applyCheck: a lead\'s own question takes the manager\'s answer, provisional answer or park only inside the window it names; anything else from a tier is dropped', () => {
   const req = { ...baseReq, level: 'lead' as const, mode: 'auto' }
   const question = { labels: ['Red', 'Green'] }
@@ -719,16 +736,13 @@ test('applyCheck: a lead\'s own question takes the manager\'s answer, provisiona
   assert.deepEqual(lead(baseDec({ decision: 'deny', by: MGR, u: U })), { drop: 'kind' })
   // The person's answer through a relay lands as by day.
   assert.deepEqual(lead(ans({ by: { level: 'conductor', sid: SID_B, name: 'C' }, u: undefined, via: 'person' }), { relay: { sid: SID_B, nonce: 'n1' }, window: undefined }), { ok: true })
-  // A lane's question takes no park: one the manager cannot settle stays open in the lane's panel.
-  assert.deepEqual(lead(baseDec({ decision: 'park', by: MGR, u: U }), { req: { ...req, level: 'lane' } }), { drop: 'kind' })
-  assert.deepEqual([p.questionParkAllowed({ level: 'lead' }), p.questionParkAllowed({ level: 'conductor' }), p.questionParkAllowed({ level: 'lane' })], [true, true, false])
   // A conductor's own question follows the same rule.
   assert.deepEqual(lead(ans(), { req: { ...req, level: 'conductor' } }), { ok: true })
   assert.deepEqual(lead(ans({ by: { level: 'conductor', sid: SID_B, name: 'C' } }), { req: { ...req, level: 'conductor' } }), { drop: 'relay' })
   assert.deepEqual(lead(baseDec({ decision: 'park', by: MGR, u: U }), { req: { ...req, level: 'conductor' } }), { ok: true })
   assert.deepEqual([p.provisionalAllowed({ level: 'lead', mode: 'default' }), p.provisionalAllowed({ level: 'lane', mode: 'default' }), p.provisionalAllowed({ level: 'lead', mode: 'auto' }), p.provisionalAllowed({ level: 'lead' })], [true, true, false, false])
 })
-test('the window list: a lead\'s question left for the person has its own section, first, and its own count; a held one is in the held section', () => {
+test('the window list: a question left for the person (a lane\'s or a tier\'s own) has its own section, first, and its own count; a held one is in the held section', () => {
   const t = (min: number) => new Date(Date.UTC(2026, 10, 17, 22, min)).toISOString()
   const id = (n: number) => `${String(n).padStart(8, '0')}-0000-4000-8000-123456789abc`
   const q = (n: number, lane: string): p.LedgerRow => ({ t: t(n), kind: 'requested', id: id(n), lane, repo: '/Users/x/repo', tool: 'AskUserQuestion', pattern: 'Port', u: U })
@@ -900,7 +914,7 @@ test('prompt_list in a window: the manager\'s block follows the rubric and fits 
   assert.ok(p.unattendedBlock(GO_NEVER_TEXT).startsWith('**Unattended mode is on.** '))
   for (const part of ['1. Allow only what the rubric above lets you allow or handle.', '**Park** it: `prompt_answer`, decision `park`', 'If unsure which, park.', "4. A call you can't see whole or understand: the cleaner-command deny, as always.", 'Do not call a stop tool, and do not ask the person anything']) assert.ok(block.includes(part), part)
   // The question rule: the rubric, then the most cautious option marked provisional where the lane may take one, or leave it; never risk, approval or a go.
-  assert.ok(block.includes("5. A question: answer it by the question rubric. One it leaves to the person may get its most cautious offered option (the easiest to undo, the one that does least, touching nothing on the risk list) with `provisional: true`, when its line says its asker may take one: the asker is told the answer is provisional and the person reviews it. A lead's or a conductor's own question shows here too, and you are its only tier: one that asks for approval or a go, is on the risk list, is a design choice the person kept, offers only options that are hard to undo, or that you are unsure of, **leave it for the person** with decision `park` and a why that names the question in a few words (that line is what the person reads); the asker takes the safe default and goes on. A lane's question you cannot settle: leave it unanswered; it stays open in the lane's panel and the person's list shows it. Never answer one that asks for approval or a go, or one on the risk list, provisionally or not, and never deny a question."))
+  assert.ok(block.includes("5. A question: answer it by the question rubric. One it leaves to the person may get its most cautious offered option (the easiest to undo, the one that does least, touching nothing on the risk list) with `provisional: true`, when its line says its asker may take one: the asker is told the answer is provisional and the person reviews it. A lead's or a conductor's own question shows here too, and you are its only tier. A question, a lane's or a tier's own, that asks for approval or a go, is on the risk list, is a design choice the person kept, offers only options that are hard to undo, or that you are unsure of: **leave it for the person** with decision `park` and a why that names the question in a few words (that line is what the person reads); the asker takes the safe default and goes on. Never answer one that asks for approval or a go, or one on the risk list, provisionally or not, and never deny a question."))
   assert.ok(block.includes('6. A request marked REPEAT that reaches the same effect as the call denied, parked or held before: park it.'))
   // The go's own list, whole: one list for what always waits for the person.
   assert.ok(block.includes('a merge; a force push; a push to main, master or production;') && block.includes("work the go's text does not name."))
@@ -1124,7 +1138,7 @@ test('the turn-on dialog is short: the end, what changes, what is seen, the live
     q,
     [
       'Turn on unattended mode on this Mac until 07:30? /callboard unattended off ends it.',
-      'No prompt or question is passed on to you. The manager MANAGER decides what asks: it allows only what it would allow with you here, and parks what the rules keep for you (the risk list, a merge, a push to main). A lane\'s question it cannot settle stays in its panel or, in default mode, may get the most cautious option, marked provisional for you to review.',
+      'No prompt or question is passed on to you. The manager MANAGER decides what asks: it allows only what it would allow with you here, and parks what the rules keep for you (the risk list, a merge, a push to main). A lane\'s question it cannot settle is left for you (the lane takes the safe default) or, in default mode, gets the most cautious option, marked provisional for you to review.',
       "A lead's or a conductor's own question goes to the manager, which answers it or leaves it for you. The manager's own is refused.",
       'Only calls that ask are seen: a lane in auto or bypass mode, or a call an allow rule lets through, raises nothing to park. One nobody answers is held for you after 20 minutes.',
       'Live lanes now: ALPHA 2, BETA 1. A lead runs at most 4 live lanes and cannot ask for a go. Restart sessions started before the last callboard update first.',

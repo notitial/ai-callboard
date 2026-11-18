@@ -120,8 +120,9 @@ caller.
    an old tier do not relay. While it is on nothing is put to you: no relay. A lead's or a
    conductor's own question goes to the manager alone, which answers it, answers it provisionally (when the asker is
    in the default permission mode) or leaves it for you, and one nobody decides is closed at 20 minutes; either way
-   the asker takes the safe default. The manager's own question is refused, and so are the manager's and a
-   conductor's own permission prompts. The manager decides what asks, allows only what
+   the asker takes the safe default. The manager may leave a lane's question for you too, and the lane then takes the
+   safe default; one it neither answers nor leaves stays open in the lane's panel. The manager's own question is
+   refused, and so are the manager's and a conductor's own permission prompts. The manager decides what asks, allows only what
    it would allow with you there, and parks what the rules keep for you (the lane is told it waits for you). A lead
    runs at most 4 live lanes and cannot ask for a go, though you can still type `/callboard go` in its session
    yourself. A prompt raised while the window is on may be answered at once, with no 30 seconds for you. A callboard
