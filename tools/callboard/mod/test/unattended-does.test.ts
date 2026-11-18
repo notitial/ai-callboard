@@ -381,11 +381,14 @@ test('window: park is refused from a lead; from the manager it is refused outsid
   expect(apiDec().u).toBe(winShort(v))
 })
 
-test('window: a lead may not park', async ($, on) => {
-  await tier($, on)
+test('window: a lead may not park, a prompt or a lane\'s question', async ($, on) => {
+  await tier($, on, [], { asksScope: 'all' })
   putQ()
   open()
   expect(said(await $.tool.call(answerCall({ decision: 'park', why: 'x' })))).toContain(refusal('park-not-allowed'))
+  putQ({ id: TID2, tool: 'AskUserQuestion', input: QIN })
+  expect(said(await $.tool.call(answerCall({ id: TID2, decision: 'park', why: 'x' })))).toContain(refusal('park-not-allowed'))
+  expect(pfs.has(`${LDIR()}/${TID2}.decision.json`)).toBe(false)
   expect(said(await $.tool.call(answerCall({ decision: 'hold', why: 'x' })))).toContain(refusal('bad-input'))
   expect(pfs.has(`${LDIR()}/${TID}.decision.json`)).toBe(false)
 })

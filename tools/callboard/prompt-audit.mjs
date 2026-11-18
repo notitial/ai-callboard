@@ -381,7 +381,7 @@ function ruleQuestions(g, { flag, onOff }) {
   const req = g.requested[0]
   // Questions. The tool is the request's own (the first row that names one when the requested row is missing); `answer` belongs to an AskUserQuestion only, and a question is never decided allow or deny.
   // A question is never closed for lateness either, except a lead's own question held inside an unattended window (ADR 0008): `expired-denied` with code held
-  // and the window's mark. A park of a question (a lead's, by the manager) decides nothing and is rule u's.
+  // and the window's mark. A park of a question (a lane's, or a lead's or a conductor's own, by the manager) decides nothing and is rule u's.
   const qTool = req?.tool ?? g.rows.find((r) => r.tool !== undefined)?.tool
   for (const r of g.rows) {
     const decided = r.kind === 'answered' || r.kind === 'returned'

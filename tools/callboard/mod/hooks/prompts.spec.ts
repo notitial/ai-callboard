@@ -1138,7 +1138,7 @@ test('the turn-on dialog is short: the end, what changes, what is seen, the live
     q,
     [
       'Turn on unattended mode on this Mac until 07:30? /callboard unattended off ends it.',
-      'No prompt or question is passed on to you. The manager MANAGER decides what asks: it allows only what it would allow with you here, and parks what the rules keep for you (the risk list, a merge, a push to main). A lane\'s question it cannot settle it leaves for you (the lane takes the safe default) or, in default mode, gives it the most cautious option, marked provisional for you to review.',
+      'No prompt or question is passed on to you. The manager MANAGER decides what asks: it allows only what it would allow with you here, and parks what the rules keep for you (the risk list, a merge, a push to main). A lane\'s question it cannot settle is left for you (the lane takes the safe default) or, in default mode, gets the most cautious option, marked provisional for you to review.',
       "A lead's or a conductor's own question goes to the manager, which answers it or leaves it for you. The manager's own is refused.",
       'Only calls that ask are seen: a lane in auto or bypass mode, or a call an allow rule lets through, raises nothing to park. One nobody answers is held for you after 20 minutes.',
       'Live lanes now: ALPHA 2, BETA 1. A lead runs at most 4 live lanes and cannot ask for a go. Restart sessions started before the last callboard update first.',

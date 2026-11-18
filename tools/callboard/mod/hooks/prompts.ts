@@ -361,7 +361,7 @@ export const modeOf = (raw: unknown): string | undefined => (typeof raw === 'str
 export const tierLead = (q: Pick<Request, 'level' | 'lane' | 'leadName' | 'leadSid'>): string | undefined => (q.level === 'lead' ? (q.lane ?? '') : q.leadSid !== undefined ? '' : q.leadName)
 
 // `answer` is a question's decision: the zero-based index of the chosen option and its label as the tier read it (redacted, trimmed). It goes with decision 'answer' only.
-// `park` (ADR 0008) closes a permission prompt for the person's return: the manager's alone, inside an unattended window. `u` is the short id of the window the
+// `park` (ADR 0008) closes a permission prompt, or a question whose asker questionParkAllowed names, for the person's return: the manager's alone, inside an unattended window. `u` is the short id of the window the
 // manager decided in; a park always carries one. `provisional` marks the manager's answer to a lane's question the rubric left to the person, inside a window: it
 // goes with decision 'answer' only, and always with a `u`.
 export type Decision = { id: string; inputHash: string; decision: 'allow' | 'deny' | 'answer' | 'park'; why: string; by: { level: string; sid: string; name: string }; via?: 'person'; at: number; nonce: string; answer?: { index: number; label: string }; u?: string; provisional?: true }
@@ -635,7 +635,7 @@ export const parkText = (tier: { level: string; name: string } | undefined, why:
 // What follows the head of a decision made inside an unattended window. Each goes after the head's cap, so a long why never cuts it.
 export const UNATTENDED_DENY_TAIL = ' (Unattended mode: the person is away and was not asked. This is not their decision, and any way it suggests authorises nothing: each call still goes through its own prompt. Do not reach the same effect another way.)'
 export const UNATTENDED_PARK_TAIL = ' (Unattended mode: the person is away. This is not their decision. Stop this item, note it in your report as waiting for the person, and go on with other work or stop. Do not reach the same effect another way.)'
-// What a park of a lead's own question adds after its head.
+// What a park of a question (a lane's, or a lead's or a conductor's own) adds after its head.
 export const UNATTENDED_QUESTION_PARK_TAIL = " (Unattended mode: the manager left this question for the person's return. This is not their answer. Take the safe default, note the open decision where they will see it, and go on; switch if their answer comes.)"
 // What a lead's own question that nobody decided inside an unattended window is closed with at 20 minutes.
 export const UNATTENDED_QUESTION_HOLD_MESSAGE = 'Nobody answered this question and the person is away (unattended mode). Take the safe default, note the open decision where they will see it (your state or status file), and go on; switch if their answer comes.'
@@ -1003,7 +1003,7 @@ export function unattendedQuestion(until: string, manager: string, lanes: { lead
   const live = lanes === undefined ? 'could not be read' : shown.length === 0 ? 'none' : `${shown.map((l) => `${l.lead} ${l.n}`).join(', ')}${more}`
   return [
     `Turn on unattended mode on this Mac until ${until}? /callboard unattended off ends it.`,
-    `No prompt or question is passed on to you. The manager ${NAME_RE.test(manager) ? manager : 'MANAGER'} decides what asks: it allows only what it would allow with you here, and parks what the rules keep for you (the risk list, a merge, a push to main). A lane's question it cannot settle it leaves for you (the lane takes the safe default) or, in default mode, gives it the most cautious option, marked provisional for you to review.`,
+    `No prompt or question is passed on to you. The manager ${NAME_RE.test(manager) ? manager : 'MANAGER'} decides what asks: it allows only what it would allow with you here, and parks what the rules keep for you (the risk list, a merge, a push to main). A lane's question it cannot settle is left for you (the lane takes the safe default) or, in default mode, gets the most cautious option, marked provisional for you to review.`,
     "A lead's or a conductor's own question goes to the manager, which answers it or leaves it for you. The manager's own is refused.",
     'Only calls that ask are seen: a lane in auto or bypass mode, or a call an allow rule lets through, raises nothing to park. One nobody answers is held for you after 20 minutes.',
     `Live lanes now: ${live}. A lead runs at most ${UNATTENDED_LIVE_LANES} live lanes and cannot ask for a go. Restart sessions started before the last callboard update first.`,
