@@ -516,7 +516,8 @@ async function leadRestoreTry($: any, me: string, hint: c.LeadHint): Promise<str
   if (!(await interactive($, me))) return dropped() ? undefined : 'not-interactive'
   if (dropped()) return
   // From here the session is one that will be made lead: an ask it raises waits for that (promptCoverage `pending`), and the tick starts no second try.
-  leadRestoring.set(me, await $.clock.now())
+  const began = await $.clock.now()
+  leadRestoring.set(me, began)
   try {
     return await (async (): Promise<string | { move: string } | undefined> => {
       let cwd: unknown
@@ -589,7 +590,8 @@ async function leadRestoreTry($: any, me: string, hint: c.LeadHint): Promise<str
       await leadRepoIdSave($, me, hint.pin).catch(logFail($, me, 'lead-repo-id'))
     })()
   } finally {
-    leadRestoring.delete(me)
+    // A try that ran past the marker's minute may have been followed by another: only its own marker goes.
+    if (leadRestoring.get(me) === began) leadRestoring.delete(me)
   }
 }
 
@@ -624,7 +626,9 @@ export async function leadRestore($: any, me: string, hint: c.LeadHint, tries: n
     else if (again !== 'not-interactive') toast($, c.notRestoredToast('lead', again))
     return
   }
-  leadRestorePending.set(me, { hint, tries, ...(again !== 'not-interactive' ? { live: true } : {}) })
+  // Once a try has passed the person's-session check the restore stays live: a later try that misses the check once does not end the hold.
+  const live = again !== 'not-interactive' || leadRestorePending.get(me)?.live === true
+  leadRestorePending.set(me, { hint, tries, ...(live ? { live: true } : {}) })
 }
 
 export const regEntry = (r: RegRow): c.RegEntry => ({ sessionId: r.j.sessionId as string, name: r.j.name, nameSource: r.j.nameSource, entrypoint: r.j.entrypoint, cwd: r.j.cwd, pid: String(r.j.pid) === r.pid ? r.j.pid : undefined, procStart: r.j.procStart, startedAt: r.j.startedAt, status: r.j.status, statusUpdatedAt: r.j.statusUpdatedAt, waitingFor: r.j.waitingFor })

@@ -1173,7 +1173,7 @@ async function promptHook($: any, e: any, nextOnce: (x: any) => Promise<any>, si
       return promptReach($, cv, sid, cwd, tool, lead)
     }
     if (!usable || entry === undefined) {
-      // A lead still being restored left no row before and leaves none now.
+      // A lead still being restored leaves no row.
       if (!cov.pending) await ledgerAdd($, { ...base, kind: 'not-judgeable', code: 'no-check' })
       return beneath
     }

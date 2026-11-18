@@ -129,7 +129,7 @@ longTest('restore: a pending lead\'s own question inside a held unattended windo
   expect(rowKinds().filter((k) => k !== 'unattended-on')).toEqual([])
 })
 
-longTest('restore: an ask with no tool.check entry (nothing to judge) is not held and leaves no row, as before', async ($, on) => {
+longTest('restore: an ask with no tool.check entry (nothing to judge) is not held and leaves no row', async ($, on) => {
   await pendingLead($, on)
   h.sessions = waitingRow(T0 + 500)
   expect(await startReq($)).toEqual({})
