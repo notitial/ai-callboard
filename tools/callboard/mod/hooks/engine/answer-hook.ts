@@ -1102,23 +1102,23 @@ async function promptHook($: any, e: any, nextOnce: (x: any) => Promise<any>, si
   // A lead's or a conductor's own question in a window ends with a decision, a click or this deny: one that would otherwise wait for the person (no entry, a
   // shape the mod does not raise, no manager in reach, a wait that ended with no decision, a failure) is refused, since nobody is there. Once the window has
   // ended, or escalation is surely off (which ends it), it is theirs.
-  const ctx: { tid?: string; clicked?: boolean } = {}
+  const ctx: { clicked?: boolean } = {}
   let out: any
   try {
     out = await promptAsk($, e, nextOnce, signal, sid, ctx)
   } catch {
     out = await nextOnce(e).catch(() => undefined)
   }
-  if ((out && typeof out === 'object' && Object.keys(out).length > 0) || signal.aborted || ctx.clicked === true || (ctx.tid !== undefined && doneIds.has(ctx.tid))) return out
+  if ((out && typeof out === 'object' && Object.keys(out).length > 0) || signal.aborted || ctx.clicked === true) return out
   if (!(await unattendedHeld($).catch(() => mem.unattendedSure === 'on'))) return out
   if ((await escalationSure($).catch(() => ({ state: 'unread' as const }))).state === 'off') return out
   await logq($, sid, 'refused', 'unattended-question')
   return { decision: { behavior: 'deny', message: pr.TIER_QUESTION_DENY } }
 }
 
-// The ask itself, after the window's early deny. ctx.tid: the call's tool_use_id once its tool.check entry is found; ctx.clicked: the person's click ended the
-// ask. Both let the caller see a click after this function's cleanup has dropped the call's done mark.
-async function promptAsk($: any, e: any, nextOnce: (x: any) => Promise<any>, signal: AbortSignal, sid: string, ctx: { tid?: string; clicked?: boolean }): Promise<any> {
+// The ask itself, after the window's early deny. ctx.clicked: the person's click (or the call's end) ended the ask, set on every return before this function's
+// cleanup drops the call's done mark, so the caller sees it afterwards.
+async function promptAsk($: any, e: any, nextOnce: (x: any) => Promise<any>, signal: AbortSignal, sid: string, ctx: { clicked?: boolean }): Promise<any> {
   // 0. A tier's relay question: it is the person's already (AskUserQuestion), so it raises no request. It marks the relay asked and the tier asking,
   // before the coverage gate, so a conductor's or the manager's question is marked too. The chain beneath runs as it always did, and the hook then holds the
   // question (promptRelayHold) until it ends or a request it relays closes elsewhere.
@@ -1171,7 +1171,6 @@ async function promptAsk($: any, e: any, nextOnce: (x: any) => Promise<any>, sig
   const started = await $.clock.now()
   const usable = entry !== undefined && !entry.dup && started - entry.at <= CHECK_TTL_MS
   const tid = usable ? entry.toolUseId : undefined
-  ctx.tid = tid
   // The call is marked open now, so a click (and the tool's end) during the chain beneath is seen.
   if (tid !== undefined) {
     openReqs.set(tid, {})
@@ -1382,8 +1381,10 @@ async function promptAsk($: any, e: any, nextOnce: (x: any) => Promise<any>, sig
     }
     throw err
   } finally {
+    // A click seen on any return, an early one included, is kept for the caller before the done mark goes.
+    if (tid !== undefined && doneIds.has(tid)) ctx.clicked = true
     // The files go only with a closing row in the ledger. Without one (the write failed, or the person's No cut this dispatch off) they stay, and the tick writes it.
-    // A request that never got its `requested` row has nothing to close: its files go as before.
+    // A request that never got its `requested` row has nothing to close: its files go now.
     if (reqDir.id && reqDir.dir && st.requested && !st.closed) {
       unclosed.set(reqDir.id, { dir: reqDir.dir, row: st.pending ?? { kind: 'abandoned', code: 'hook-failed', id: reqDir.id }, tries: 0 })
       forgetReq(tid ?? '')
