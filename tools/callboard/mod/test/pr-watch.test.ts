@@ -2,7 +2,8 @@ import { expect, test } from 'claude-code/testing'
 import * as pw from '../hooks/pr-watch'
 import { REST_SET, REST_TOOL } from '../hooks/core'
 import { GH_LINK, GH_REAL, PRS_DIR, PROMPTS_DIR, SID, extraStat, ghCalls, h, laneSeed, longTest, pdirs, pfs, realMap, submitted } from './harness'
-import { LEADSID, LEAD_LANES, MIN, OTHER, OWN_ROW, TURN, advanceQuiet, lane, logged, midCtx, ownTurn, person, postBeneath, ticks } from './fixtures'
+import { LEADSID, LEAD_LANES, MGR_SESS, MIN, OTHER, OWN_ROW, TURN, advanceQuiet, lane, logged, mgrAt, midCtx, ownTurn, person, postBeneath, ticks } from './fixtures'
+import { asConductor } from './answer-fixtures'
 
 const CALL = (owner: unknown = 'acme', repo: unknown = 'app', number: unknown = 12, extra: object = {}) => ({ tool: `mcp__callboard__${pw.PR_TOOL}`, owner, repo, number, ...extra }) as any
 const said = (r: any): string => String(r?.result ?? r?.deny ?? JSON.stringify(r))
@@ -395,6 +396,60 @@ longTest('a lead is told of its lane\'s PR with the lane named, and polls the tr
   expect(notices().slice(2)).toEqual([one('`acme/app#12` (registered by lane `API`): merged. Tracking ended.')])
   expect(pfs.has(`${PRS_DIR}/${OTHER}.json`)).toBe(false)
   expect(pfs.has(`${PRS_DIR}/${LEADSID}.json`)).toBe(true)
+})
+
+longTest('pr_watch: a lead registers a PR and is told in its own session, with no copy sent up, within the same limits', async ($, on) => {
+  const stdins: string[] = []
+  world.clear()
+  realMap.clear()
+  postBeneath(on)
+  await person($, on, stdins)
+  await $.command.run(lane('off'))
+  laneSeed.text = LEAD_LANES('/data/x/work')
+  await $.command.run(lane('lead'))
+  h.sessions = OWN_ROW()
+  cli()
+  await $.turn.complete(TURN as any)
+  world.set('acme/app', { 12: node() })
+  expect(said(await $.tool.call(CALL()))).toBe(pw.watchOk(REF, false))
+  // The tracker has the lead's own label and no lead above it; the same limits as a lane's apply.
+  const t = tracker()!
+  expect(t.sid).toBe(SID)
+  expect(t.lane).toBe('lead')
+  expect(t.lead).toBeUndefined()
+  expect(t.prs).toHaveLength(1)
+  world.set('acme/app', { 12: node(rollup('FAILURE')) })
+  await round()
+  expect(notices()).toEqual([one('`acme/app#12`: a check failed on aaaaaaa. Read the checks with the github tools.')])
+  expect(ledger().map((r) => [r.kind, r.code, r.tier, r.target])).toEqual([['pr-watch', 'new', undefined, 'acme/app#12'], ['pr-notice', 'failed', 'lead', 'acme/app#12']])
+  // Nothing is written into another session's folder of notes.
+  expect([...pfs.keys()].filter((k) => k.startsWith(`${PRS_DIR}/notes/`) && !k.startsWith(`${NOTES}/`))).toEqual([])
+  world.set('acme/app', Object.fromEntries(Array.from({ length: pw.PR_MAX + 1 }, (_, i) => [i + 1, node()])))
+  for (let i = 1; i < pw.PR_MAX; i++) expect(said(await $.tool.call(CALL('acme', 'app', i)))).toBe(pw.watchOk({ ...REF, number: i }, false))
+  expect(said(await $.tool.call(CALL('acme', 'app', pw.PR_MAX + 1)))).toBe(pw.WATCH_DENY.full)
+})
+
+test('pr_watch: a conductor registers a PR under its own label, with no lead above it', async ($, on) => {
+  world.clear()
+  realMap.clear()
+  await asConductor($, on)
+  cli()
+  world.set('acme/app', { 12: node() })
+  expect(said(await $.tool.call(CALL()))).toBe(pw.watchOk(REF, false))
+  const t = tracker()!
+  expect(t.lane).toBe('COND')
+  expect(t.lead).toBeUndefined()
+  expect(t.prs).toHaveLength(1)
+})
+
+test('pr_watch: the manager is refused, as is a session with no grant', async ($, on) => {
+  world.clear()
+  realMap.clear()
+  await mgrAt($, on, [], { sess: MGR_SESS({ name: 'MANAGER', nameSource: 'user' }) })
+  cli()
+  world.set('acme/app', { 12: node() })
+  expect(said(await $.tool.call(CALL()))).toBe(pw.WATCH_DENY['not-lane'])
+  expect(ghCalls).toEqual([])
 })
 
 longTest('at most 12 wakes an hour: a further note waits, logged once, and still reaches the next tool result', async ($, on) => {

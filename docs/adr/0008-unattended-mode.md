@@ -142,3 +142,8 @@ Each gets a dated line pointing here when the code that makes it true lands, not
   The mod sees a permission mode only on a permission event, never as a session's state, so the dialog carries a
   fixed line that the manager must be in auto mode (in another mode its own prompts are refused unless a rule already allows
   them, its board write too); no turn-on is refused over a mode.
+- **2026-11-18: the dialog and this ADR say the same.** The dialog's two lines that the short form had left to the docs are back in a few words: a
+  lane's question the manager cannot settle stays in its panel unless the lane is in the default mode, where it may get the most cautious option; and a
+  prompt nobody answers is held for the person after 20 minutes. The list the person reads says when more windows wait than it shows (it keeps to one
+  size, and the windows left out stay unread) and when the unread mark is full, so an older window that ended may be missing; a window's items are
+  cut at a size, and the cut is said.

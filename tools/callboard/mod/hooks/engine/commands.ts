@@ -981,12 +981,20 @@ async function unattendedList($: any, w: pr.Window, unread: string[]): Promise<{
   const unknown = await ledgerRowsFor($, p, '"kind":"unattended-unknown"')
   const parts: string[] = []
   const shown: string[] = []
+  let size = 0
   for (const u of us) {
     const rows = await ledgerRowsFor($, p, `"u":"${u}"`)
-    parts.push(pr.unattendedListText({ u, live: u === live, rows: rows === 'unreadable' ? undefined : rows, unknown: unknown === 'unreadable' ? undefined : unknown, when: whenLocal }))
+    const part = pr.unattendedListText({ u, live: u === live, rows: rows === 'unreadable' ? undefined : rows, unknown: unknown === 'unreadable' ? undefined : unknown, when: whenLocal })
+    // One list stays under a size: the windows left out are neither shown nor cleared from the unread mark, so the next run lists them.
+    const bytes = new TextEncoder().encode(part).length
+    if (parts.length > 0 && size + bytes > pr.LIST_TEXT_MAX) break
+    size += bytes
+    parts.push(part)
     if (rows !== 'unreadable' && unknown !== 'unreadable' && u !== live) shown.push(u)
   }
-  return { text: us.length === 1 ? parts[0] : `${pr.unattendedListsHead(us.length)}\n\n${parts.join('\n\n')}`, shown }
+  const notes = [...(us.length > parts.length ? [pr.unattendedListMore(us.length - parts.length)] : []), ...(unread.length >= pr.UNREAD_MAX ? [pr.unattendedListFull()] : [])]
+  const body = parts.length === 1 ? parts[0] : `${pr.unattendedListsHead(parts.length)}\n\n${parts.join('\n\n')}`
+  return { text: [body, ...notes].join('\n\n'), shown }
 }
 
 // /callboard escalation (the person's own command, one dialog) and /callboard escalation off (any origin, no dialog). One Allow stores scope `all` for permission prompts and questions alike;

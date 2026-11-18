@@ -4,7 +4,7 @@ import * as g from '../hooks/go'
 import { HOUR_MS, REASON_TEXT, UNATTENDED_LIVE_LANES } from '../hooks/core'
 import { UNATTENDED_KEY } from '../hooks/engine/answer-hook'
 import { h, GO_DIR, ROOT, SID, T0, leadFiles, longTest, pfs, submitted } from './harness'
-import { APISID, LEADPATH, LEADSID, MGR_SESS, NEWSID, PIN, ckLane, ckRow, cueSession, drive, lane, leadAt, leadCall, leadSelfReg, logged, mgrAt, putStore, started, tickTwice, waitFor } from './fixtures'
+import { APISID, LEADPATH, LEADSID, MGR_SESS, NEWSID, PIN, ckLane, ckRow, cueSession, drive, grantAt, lane, leadAt, leadCall, leadSelfReg, logged, mgrAt, putStore, started, tickTwice, waitFor } from './fixtures'
 import { APIQ, LDIR, MGRT, OFF_FILE, PDIR, PRQ, QIN, TID, TID2, addMgrT, answerCall, answerer, asConductor, at, beneathHooks, byMgr, handDecision, ledgerRows, pcall, putFileAt, putLedger, putQ, putRelay, putWindow, readReq, refusal, relayQ, reqFiles, runRequest, said, stop, tier, win, winShort, wireGuard } from './answer-fixtures'
 
 // ---- what an unattended window does (ADR 0008): nothing is put to the person, no tier waits on its own question or prompt, the manager's park, the window's
@@ -476,9 +476,9 @@ const ceilingLead = async ($: any, on: any, names = LIVE) => {
   await leadAt($, on, [], { clock: true, sess: { ...leadSelfReg(), ...liveRows(names) }, seed: () => putStore(lanes) })
 }
 // The window answers once the open request has been written.
-const opening = async ($: any) => {
-  h.openResultPath = `${ROOT}/open/L5.result`
-  const p = $.tool.call(leadCall('open', { lane: 'L5' }))
+const opening = async ($: any, laneName = 'L5') => {
+  h.openResultPath = `${ROOT}/open/${laneName}.result`
+  const p = $.tool.call(leadCall('open', { lane: laneName }))
   await h.clock!.advance(500)
   h.openResult = `ok ${NEWSID}\n`
   return JSON.stringify(await drive(p))
@@ -514,6 +514,17 @@ longTest('window: with three lanes live, a panel just opened counts before its s
   open()
   expect(await opening($)).toContain(`session ${NEWSID}`)
   expect(JSON.stringify(await drive($.tool.call(leadCall('open', { lane: 'L4' }))))).toContain(`lane_open refused: unattended-lanes: ${REASON_TEXT['unattended-lanes']}`)
+})
+
+longTest('window: a lead that is dropped and granted again does not carry the panel it opened before', async ($, on) => {
+  await ceilingLead($, on, LIVE.slice(0, 3))
+  open()
+  expect(await opening($)).toContain(`session ${NEWSID}`)
+  const refused = `lane_open refused: unattended-lanes: ${REASON_TEXT['unattended-lanes']}`
+  expect(JSON.stringify(await drive($.tool.call(leadCall('open', { lane: 'L4' }))))).toContain(refused)
+  await $.command.run(lane('off'))
+  await grantAt($, PIN)
+  expect(await opening($, 'L4')).toContain(`session ${NEWSID}`)
 })
 
 longTest('window: with three lanes live, an open still under way counts, so an open beside it is refused', async ($, on) => {
