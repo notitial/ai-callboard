@@ -1567,6 +1567,7 @@ export const REASON_TEXT: Record<string, string> = {
   'context-floor': `context is below ${MIN_CONTEXT_TOKENS / 1000}k tokens, so it may not compact.`,
   'not-idle': 'the session is busy or waiting for the person. Retry once idle.',
   'draft-in-box': 'the person has a draft in that prompt box. Retry after it is sent or cleared.',
+  'dialog-open': 'a callboard dialog is open in that session, waiting for the person. Retry after they answer it.',
   'background-work': 'a background agent or shell is still running in the session. Retry once it finishes.',
   'background-unknown': 'the lane could not check for background work. Retry later; lane_terminate asks the person.',
   'report-stale': 'the report is not newer than the lane\'s last turn. It must sign again by appending a done line, then retry.',

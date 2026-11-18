@@ -799,13 +799,13 @@ test('recOk: a missing hash is never accepted', () => {
 })
 
 test('every refusal code of the wording table has text, and the lead sees code and text', () => {
-  const codes = ['rate-limit', 'no-request', 'context-floor', 'not-idle', 'draft-in-box', 'background-work', 'start-done', 'not-empty', 'too-old', 'record-changed', 'wrong-folder', 'not-bound', 'not-eligible', 'brief-file', 'brief-path', 'unknown-lane', 'name-in-use', 'user-named', 'already-bound', 'stale', 'grammar', 'other', 'other-repo', 'brief-chars', 'brief-missing', 'brief-outside', 'bind-turns-mismatch', 'registry-unreadable', 'submit-failed', 'timeout', 'cue-busy', 'report-stale', 'report-unknown', 'report-not-done', 'report-missing', 'report-file', 'report-path', 'report-old', 'report-no-start', 'session-changed', 'session-duplicate', 'background-unknown', 'bad-task', 'brief-path-long', 'brief-exists', 'archive-unsafe', 'brief-write', 'abandoned']
+  const codes = ['rate-limit', 'no-request', 'context-floor', 'not-idle', 'draft-in-box', 'dialog-open', 'background-work', 'start-done', 'not-empty', 'too-old', 'record-changed', 'wrong-folder', 'not-bound', 'not-eligible', 'brief-file', 'brief-path', 'unknown-lane', 'name-in-use', 'user-named', 'already-bound', 'stale', 'grammar', 'other', 'other-repo', 'brief-chars', 'brief-missing', 'brief-outside', 'bind-turns-mismatch', 'registry-unreadable', 'submit-failed', 'timeout', 'cue-busy', 'report-stale', 'report-unknown', 'report-not-done', 'report-missing', 'report-file', 'report-path', 'report-old', 'report-no-start', 'session-changed', 'session-duplicate', 'background-unknown', 'bad-task', 'brief-path-long', 'brief-exists', 'archive-unsafe', 'brief-write', 'abandoned']
   for (const code of codes) {
     assert.equal(c.hasText(code), true, code)
     assert.ok(c.REASON_TEXT[code].length > 10, code)
     assert.equal(c.reasonWhy(code), `${code}: ${c.REASON_TEXT[code]}`)
   }
-  for (const code of ['not-idle', 'draft-in-box', 'rate-limit', 'cue-busy', 'background-work', 'report-stale', 'report-unknown', 'report-not-done', 'report-old', 'session-changed']) assert.match(c.REASON_TEXT[code], /[Rr]etry/, code)
+  for (const code of ['not-idle', 'draft-in-box', 'dialog-open', 'rate-limit', 'cue-busy', 'background-work', 'report-stale', 'report-unknown', 'report-not-done', 'report-old', 'session-changed']) assert.match(c.REASON_TEXT[code], /[Rr]etry/, code)
   assert.match(c.REASON_TEXT['report-stale'], /not newer than the lane's last turn.*sign again/)
   assert.match(c.REASON_TEXT['report-unknown'], /no prompt seen since callboard loaded.*take a prompt and sign again/)
   assert.match(c.REASON_TEXT['session-changed'], /No signal was sent/)

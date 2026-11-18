@@ -89,6 +89,11 @@ answer was held, so a fast tier could decide before the person had looked. A tie
 later than before. The head start is counted in wall-clock time from the request; the 30-second hold on what lands
 stays in awake time.
 
+*2026-11-18 ([ADR 0008](0008-unattended-mode.md)): no head start inside an unattended window.* A request raised while
+a window is on carries the window's mark. While that window is still on, its first tier is told and may decide at
+once, and the hook applies the decision at its next poll. A request raised by day keeps its 30 seconds, and so does
+every request once its window has ended or cannot be read.
+
 *2026-11-15 ([ADR 0007](0007-conductor-owns-leads.md), proposed): the conductor tier is one session, the live owner of
 the request's lead (for a lead's own request, of that lead), and only while it passes the lead's conductor checks for
 the repo. An unowned lead, or one whose owner is gone, has no conductor tier: the manager takes its window, as for any missing tier.

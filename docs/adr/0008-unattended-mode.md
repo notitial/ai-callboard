@@ -142,3 +142,20 @@ Each gets a dated line pointing here when the code that makes it true lands, not
   The mod sees a permission mode only on a permission event, never as a session's state, so the dialog carries a
   fixed line that the manager must be in auto mode (in another mode its own prompts are refused unless a rule already allows
   them, its board write too); no turn-on is refused over a mode.
+- **2026-11-18: the mod's own dialogs pass, and a window's requests get no head start.**
+  - The mod's own dialog (the go dialog that the person's typed `/callboard go` opens, the turn-on dialog, a stop
+    dialog) is not a tier's own question. The engine may show it through the permission hook as a question. Such a
+    call, with exactly one question whose header and text match a dialog that this session's mod has open now, is
+    passed on as it stands. It gets one log line (`passed own-dialog`) and no row.
+  - This is the likely cause of a go dialog, typed in a window, that closed as cancelled. The log line shows
+    whether the engine routes the mod's dialog that way.
+  - While one of its dialogs is open, the mod submits no turn that could close it. A compaction nudge, a
+    lanes-changed notice and a lead's resume wait until the dialog closes. The notice for a refused compaction
+    becomes a toast.
+  - A request raised while a window is on carries that window's mark. While the same window is on, the request
+    gives the person no 30-second head start: the first tier is told and may answer at once, a pass-up opens the
+    next tier at once, and the hook applies a decision at its next poll. The person is away, so the head start only
+    delayed every answer. A request raised by day or in another window keeps its 30 seconds. So does every request
+    once its window has ended or cannot be read.
+  - go_request's refusal in a window says that the person can type `/callboard go` in the lead's session
+    themselves, without ending the mode.

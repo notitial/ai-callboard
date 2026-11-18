@@ -1,8 +1,8 @@
 import { expect, test } from 'claude-code/testing'
 import { CONFIG_DEFAULTS, leadResumeText, nudgeText } from '../hooks/core'
-import { h, GOOD, PS_TABLE, SID, T0, extraStat, longTest, seen, submitted } from './harness'
+import { h, GOOD, NO, PS_TABLE, SID, T0, extraStat, longTest, seen, submitted } from './harness'
 import type { Trace } from './harness'
-import { COND, OTHER, OTHERLEAD, PIN, TURN, condPresenceOf, cue, cueSession, dirStat, putStore, leadAt, leadSelfReg, logged, mgrFile, mgrRow, nudges, ownedBy, putCond, putLeadRecs, regAs, ticks } from './fixtures'
+import { COND, OTHER, OTHERLEAD, PIN, TURN, condPresenceOf, cue, cueSession, dirStat, putStore, leadAt, leadSelfReg, logged, mgrFile, mgrRow, nudges, ownedBy, putCond, putLeadRecs, regAs, ticks, lane, waitFor } from './fixtures'
 
 // ---- the cues a lead takes (ADR 0007): resume and compact from its owner and from a trusted manager ----
 // A lead LEAD (this session, SID) in PIN. The conductor CONDX (session OTHERLEAD, pid 4243) in COND is trusted for PIN: its presence file, its saved grant
@@ -53,6 +53,21 @@ test('a resume waits while the lead is busy or has a draft in its prompt box', a
   expect(resumes()).toEqual([])
   h.draftNow = ''
   expect(await cue(22, 'resume\n')).toBe('resume ok - 22\n')
+})
+
+test('a resume waits while a callboard dialog of the lead is open, and goes through once it closes', async ($, on) => {
+  await lead($, on)
+  let release: (a: string) => void = () => undefined
+  h.askHang = new Promise<string>((r) => (release = r))
+  const n = h.askCount
+  const open = $.command.run(lane('off', { kind: 'plugin', name: 'x' }))
+  await waitFor(() => h.askCount !== n)
+  expect(await cue(23, 'resume\n')).toBe('resume held dialog-open 23\n')
+  expect(resumes()).toEqual([])
+  release(NO)
+  h.askHang = undefined
+  await open
+  expect(await cue(24, 'resume\n')).toBe('resume ok - 24\n')
 })
 
 longTest('the 13th resume in an hour is refused rate-limit', async ($, on) => {

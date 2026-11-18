@@ -181,6 +181,94 @@ test('window: a stored value the process cannot judge (the ledger does not answe
   h.pfsFails = undefined
 })
 
+// ---- the mod's own dialog in a window ----
+// The mod's own dialog ($.ui.ask), should the engine show it through the permission hook, is passed on as it stands while it is open: the window's refusal of a
+// tier's own question never closes it. Only the header and question of a dialog open now in this session pass; anything else is the tier's own question.
+const holdDialog = () => {
+  let release: (a: string) => void = () => undefined
+  h.askHang = new Promise<string>((r) => (release = r))
+  return (a: string) => {
+    release(a)
+    h.askHang = undefined
+  }
+}
+const GO_WORK = 'Build the API: the schema change in api/db.'
+// The question the mocked engine was last shown, as the permission hook would see it.
+const shownQ = () => ({ ...PLAIN, header: h.lastHeader, question: h.lastQuestion })
+const goLead = async ($: any, on: any, stdins: string[]) => {
+  beneathHooks(on)
+  await leadAt($, on, stdins, { clock: true, sess: { ...leadSelfReg(), ...ckRow() }, seed: () => putStore([ckLane()]) })
+  await waitFor(() => h.liveHeadAsked !== undefined)
+  wireGuard()
+}
+// Runs the typed command and waits (real time) until its dialog is up.
+const typedGo = async ($: any) => {
+  ;(h as any).lastHeader = undefined
+  const p = $.command.run(lane(`go ${GO_WORK}`))
+  await waitFor(() => h.lastHeader === g.GO_HEADER)
+  return { done: p }
+}
+
+test('window: a lead\'s go dialog, open, passes the permission hook as it stands with a passed own-dialog line and no row; another header, a second question or a relay question is denied, and so is the same once it closes', async ($, on) => {
+  const stdins: string[] = []
+  await goLead($, on, stdins)
+  open()
+  const release = holdDialog()
+  const typed = (await typedGo($)).done
+  expect((await ask($, [shownQ()])) ?? {}).toEqual({})
+  expect(logged(stdins)).toContain('passed:own-dialog')
+  expect(await ask($, [{ ...shownQ(), header: 'Plan' }])).toEqual(QUESTION_DENIED)
+  expect(await ask($, [{ ...shownQ(), question: `${h.lastQuestion} ` }])).toEqual(QUESTION_DENIED)
+  expect(await ask($, [shownQ(), PLAIN])).toEqual(QUESTION_DENIED)
+  expect(await ask($, [relayQ(TID)])).toEqual(QUESTION_DENIED)
+  expect(rows()).toEqual([])
+  release(g.GO_NO)
+  expect(String((await typed).text)).toContain('No go was given: cancelled')
+  expect(await ask($, [shownQ()])).toEqual(QUESTION_DENIED)
+})
+
+test('window: the manager\'s own dialog, open when the window is seen, passes the permission hook; once it closes the same question is denied', async ($, on) => {
+  const stdins: string[] = []
+  beneathHooks(on)
+  await mgrAt($, on, stdins, { sess: MGR_SESS({ name: 'MANAGER', nameSource: 'user' }), seed: () => putStore([ckLane({ sid: APISID, leadName: 'LEAD' })]) })
+  h.store.set('answering', { scope: 'all', asks: false, asksScope: 'all', savedAt: T0 })
+  const release = holdDialog()
+  const n = h.askCount
+  const typed = $.command.run(lane('unattended on for 3 h'))
+  await waitFor(() => h.askCount !== n)
+  expect(h.lastHeader).toBe(prm.UNATTENDED_HEADER)
+  // Another session's window opens while the dialog is up.
+  open()
+  later()
+  expect(await ask($, [PLAIN])).toEqual(QUESTION_DENIED)
+  expect((await ask($, [shownQ()])) ?? {}).toEqual({})
+  expect(logged(stdins)).toContain('passed:own-dialog')
+  release(prm.UNATTENDED_NO)
+  await typed
+  expect(await ask($, [shownQ()])).toEqual(QUESTION_DENIED)
+})
+
+longTest('window: a dialog still on screen after its time limit still passes; one whose engine call fails passes no more', async ($, on) => {
+  await goLead($, on, [])
+  open()
+  const release = holdDialog()
+  const typed = (await typedGo($)).done
+  await new Promise((r) => setTimeout(r, 10))
+  await h.clock!.advance(g.GO_DIALOG_MS + 1000)
+  expect(String((await typed).text)).toContain('No go was given: timed-out')
+  expect((await ask($, [shownQ()])) ?? {}).toEqual({})
+  release(g.GO_YES)
+  await new Promise((r) => setTimeout(r, 10))
+  expect(await ask($, [shownQ()])).toEqual(QUESTION_DENIED)
+  expect(goFiles()).toEqual([])
+  // The engine call throws: the dialog's record goes with it.
+  h.askHang = { then: (_: unknown, no: (e: Error) => void) => no(new Error('engine')) } as any
+  const failed = await $.command.run(lane(`go ${GO_WORK}`))
+  h.askHang = undefined
+  expect(String(failed.text)).toContain('No go was given')
+  expect(await ask($, [shownQ()])).toEqual(QUESTION_DENIED)
+})
+
 const PROMPT_DENIED = { decision: { behavior: 'deny', message: prm.TIER_PROMPT_DENY } }
 for (const [level, setup] of [
   ['the manager', asManager],
@@ -466,6 +554,26 @@ test('window: go_request is refused with no dialog, and works again once the win
   expect(String((await goCall($)).result)).toContain('go')
   expect(h.askCount).toBe(asked + 1)
   expect(goFiles().length).toBe(1)
+})
+
+test('window: /callboard go typed by the person, at the prompt or from the phone, opens the dialog and a click gives the go; from a plugin it is refused with no dialog', async ($, on) => {
+  await goLead($, on, [])
+  h.askAnswer = g.GO_YES as any
+  open()
+  expect(String((await goCall($)).deny)).toContain('The person can type /callboard go in this session themselves, without ending the mode.')
+  for (const origin of [{ kind: 'composer' }, { kind: 'bridge' }]) {
+    const asked = h.askCount
+    expect(String((await $.command.run(lane(`go ${GO_WORK}`, origin))).text)).not.toContain('No go was given')
+    expect(h.askCount).toBe(asked + 1)
+    expect(h.lastHeader).toBe(g.GO_HEADER)
+  }
+  expect(goFiles().length).toBe(2)
+  expect(ledgerRows().filter((r) => r.kind === 'go-grant').length).toBe(2)
+  expect(String((await $.tool.call({ tool: 'mcp__callboard__go_status' } as any)).result)).toContain(`\n${GO_WORK}\n>>>`)
+  const asked = h.askCount
+  expect(String((await $.command.run(lane(`go ${GO_WORK}`, { kind: 'plugin', name: 'x' }))).text)).toBe(g.GO_NOT_PERSON)
+  expect(h.askCount).toBe(asked)
+  expect(goFiles().length).toBe(2)
 })
 
 const LIVE = ['L1', 'L2', 'L3', 'L4']

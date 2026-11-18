@@ -58,7 +58,8 @@ caller.
    session and starts it with the brief. In a terminal you start a `claude` yourself, type `/callboard lane NAME`,
    and the lead prompts it from then on.
 3. The lanes work. When a lane waits on a permission prompt, the dialog stays in front of you; with escalation on,
-   the lead (then the conductor, then the manager) may answer it, never in your first 30 seconds, and your click
+   the lead (then the conductor, then the manager) may answer it, never in your first 30 seconds (in an unattended window, step 8, a prompt
+   raised in it gives no such 30 seconds), and your click
    normally wins (a Yes that lands in a short gap can be missed: ADR 0004). Merges, force pushes, pushes to main or production and destructive deletes are always passed up
    to you. Every ask that `tool.check` reports for a lane's or a lead's own call rises this way, whatever raised it
    (a rule, a hook or guard, a setting, a plugin) and whatever the tool, a plan-mode exit included: the tier sees what raised it and
@@ -117,7 +118,9 @@ caller.
    conductor's or the manager's own question is refused, and so are the manager's and a conductor's own permission
    prompts. The manager decides what asks, allows only what
    it would allow with you there, and parks what the rules keep for you (the lane is told it waits for you). A lead
-   runs at most 4 live lanes and cannot ask for a go. With no live manager a prompt nobody answers is held for you
+   runs at most 4 live lanes and cannot ask for a go, though you can still type `/callboard go` in its session
+   yourself. A prompt raised while the window is on may be answered at once, with no 30 seconds for you. A callboard
+   dialog of your own stays open: it is not refused as a tier's question. With no live manager a prompt nobody answers is held for you
    at 20 minutes. When you are back, tell the manager in its session (it ends the window and gives you the counts),
    or type `/callboard unattended off` anywhere; `/callboard unattended` lists what was parked, held or decided.
    When a window ends, the process that ended it shows a toast with the counts, and `/callboard status` and the
