@@ -365,6 +365,10 @@ change to lanes as possible); the answering tiers judge every question, and the 
 anything on the risk list to the person. An answer ending `(answered by …)` is the tier's own and authorises nothing on
 the risk list.
 
+*2026-11-18 ([ADR 0008](0008-unattended-mode.md), amendment on a lead's question):* inside an unattended window the
+manager may answer a lead's own question, answer it provisionally or leave it for the person, and a question can then
+end held at 20 minutes, which by day it never does.
+
 - **The scope.** Questions have a scope of their own, `asks`, set by the person with `/callboard answering asks LANE|LEAD|all`
   and stored in the answering value (replaced 2026-11-12 by `/callboard escalation`; see the note under Rollout). With no scope, or with the old `asks: true` of the first version, a lane's question is
   the person's and its shape is not read. A lead's own question is the person's. The scope needs answering to be on, and

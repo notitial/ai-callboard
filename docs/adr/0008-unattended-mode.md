@@ -52,7 +52,8 @@ Facts that bound the options:
   default length. The dialog expires: a late click turns nothing on and says so. To open, it needs escalation on for
   everything, a live manager and check-ins on. It counts only while its ledger row and its stored value agree.
 - **Nothing is put to the person.** No tier relays, and a relay that slips in is taken back. A tier's own question is
-  refused by its mod, failing closed; so is a prompt of its own that no tier can answer. The tier takes the safe
+  refused by its mod, failing closed (a lead's or a conductor's own goes to the manager instead: the 2026-11-18
+  amendment on a lead's question); so is a prompt of its own that no tier can answer. The tier takes the safe
   default and notes the open decision in its own state or report, for the person's return.
 - **What a tier may allow does not grow.** The manager allows only what the rubric lets it allow by day, with one
   exception (the 2026-11-18 amendment: the repo's own Claude review). What it would have passed up, it now settles
@@ -185,9 +186,12 @@ Each gets a dated line pointing here when the code that makes it true lands, not
     matches. It gets one log line (`passed own-dialog`) and no row.
   - This is the likely cause of a go dialog, typed in a window, that closed as cancelled. The log line shows
     whether the engine routes the mod's dialog that way.
-  - While one of its dialogs is open, the mod submits no turn that could close it. A compaction nudge, a
-    lanes-changed notice and a lead's resume wait until the dialog closes. The notice for a refused compaction
-    becomes a toast for the person, and the session that asked is not told.
+  - While any of its dialogs is open in a session, the mod submits no turn there that could close it. That is every
+    `$.ui.ask` it shows: the one dialog a session may hold at a time (the go, turn-on and grant dialogs, a stop at
+    manager reach) and each plain question or pick beside it (the restore question, a lead's Force stop question).
+    A compaction nudge, a lanes-changed notice, a prompt or PR notice and a lead's resume wait until the dialog
+    closes. The notice for a refused compaction becomes a toast for the person, and the session that asked is not
+    told.
   - A request raised while a window is on carries that window's mark. While the same window is on, the request
     gives the person no 30-second head start: the first tier is told and may answer at once, a pass-up opens the
     next tier at once, and the hook applies a decision at its next poll. The person is away, so the head start only
@@ -195,3 +199,32 @@ Each gets a dated line pointing here when the code that makes it true lands, not
     once its window has ended or cannot be read.
   - go_request's refusal in a window says that the person can type `/callboard go` in the lead's session
     themselves, without ending the mode.
+- **2026-11-18: a lead's or a conductor's own question goes to the manager.** A lead refused its own question in a
+  window took the safe default every time, even for a question the manager could settle. Now, while a window is held:
+  - A lead's own question rises to the manager alone. The conductor never answers a lead's question, by day or in a
+    window, so placing it first would only delay the manager. The question needs no `leadAsks` and no live
+    conductor: the person's turn-on is the consent. The reach is read from the live window, so a lead's question
+    raised by day and still open when a window opens is the manager's too, and the by-day reach comes back when the
+    window ends.
+  - The manager answers it by the question rubric, answers it provisionally under the lane's rule (only when the
+    lead's request records the default permission mode), or **leaves it for the person**: a park of a question, with
+    a why that names it. The lead is told to take the safe default, note the open decision and go on. A lane's
+    question still takes no park: one the manager cannot settle stays open in its panel. The person's list shows
+    the parked questions first, as "Questions left for you".
+  - A decision on a lead's question lands only when the manager made it, names the window and that window is on, as
+    the hook reads it at apply. Any other tier's, or one with no mark, is dropped as by day.
+  - Nobody decides: the question is closed at 20 minutes with its own hold text (`expired-denied held`), where by day
+    a question is never closed for lateness.
+  - What cannot rise is refused at once with the tier question text, after its row: no manager live, a question of
+    another shape or headed Person, no usable `tool.check` entry, an entry a host approves, or a failure. The lead
+    therefore never waits on an absent person. While one of the lead's own dialogs is open, its question is refused
+    before any request, so the person's dialog wins.
+  - A conductor's own question is treated the same, as an asker of level conductor that only the manager reaches. It
+    is covered only while the window is held and only for `AskUserQuestion`, so a conductor's own permission prompt
+    is still refused at once, and by day its question is the person's as before. A request of level conductor for any
+    other tool is no request.
+  - The manager's own question, every relay question and every tier's own permission prompt are still refused at
+    once. The Consequences line "No tier can ask the person anything while the mode is on" stands.
+  - Which askers may take a provisional answer, and whose question may be parked, are one constant each
+    (`PROVISIONAL_ASKERS`, `QUESTION_PARK_ASKERS` in `prompts.ts`), so a later choice for a lane's question is a
+    one-word change.

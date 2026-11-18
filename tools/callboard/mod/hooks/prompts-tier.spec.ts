@@ -88,6 +88,8 @@ test('parseRequest: the exact shape only, at most REQUEST_MAX bytes', () => {
   assert.equal('reasonCut' in p.parseRequest(JSON.stringify({ ...REQ, reason: 'guard: why' }))!, false)
   for (const bad of [{ reasonCut: true }, { reason: 'r', reasonCut: false }, { reason: 'r', reasonCut: 'yes' }, { reason: 4 }, { reason: 'x'.repeat(p.REASON_CAP + 1) }]) assert.equal(p.parseRequest(JSON.stringify({ ...REQ, ...bad })), undefined, JSON.stringify(bad))
   assert.equal(p.parseRequest(JSON.stringify({ ...REQ, leadSid: SID_A }))?.leadSid, SID_A)
+  // A conductor's request is its own question only.
+  assert.equal(p.parseRequest(JSON.stringify({ ...REQ, level: 'conductor', tool: 'AskUserQuestion' }))?.level, 'conductor')
   assert.equal('leadSid' in p.parseRequest(JSON.stringify(REQ))!, false)
   for (const bad of [{ leadSid: 'x' }, { leadSid: 4 }, { leadSid: null }]) assert.equal(p.parseRequest(JSON.stringify({ ...REQ, ...bad })), undefined, JSON.stringify(bad))
   // The asker's permission mode (ADR 0008): one plain word, else no request; absent stays absent.
@@ -637,7 +639,14 @@ test('an unattended window in the tier texts: no turn line offers the person, he
   assert.ok(p.turnLine({ relay: { level: 'lead', name: 'LEAD' }, top: true, away: 'manager' }).startsWith('With the person: the lead LEAD is asking them.'))
   for (const code of ['unattended', 'unattended-no-manager', 'park-not-allowed', 'unattended-unread', 'provisional-not-allowed', 'provisional-mode']) assert.ok((p.PROMPT_REFUSE[code] ?? '').length > 10, code)
   assert.ok(p.PROMPT_REFUSE['unattended-unread'].includes('a park or a provisional answer cannot be recorded'))
-  assert.ok(p.PROMPT_REFUSE['provisional-mode'].includes('records the default permission mode') && p.PROMPT_REFUSE['provisional-mode'].includes('leave it open'))
+  assert.ok(p.PROMPT_REFUSE['provisional-mode'].includes('records the default permission mode') && p.PROMPT_REFUSE['provisional-mode'].includes("a tier's own the manager may park"))
+  assert.ok(p.PROMPT_REFUSE['park-not-allowed'].includes("or a lead's or a conductor's own question") && p.PROMPT_REFUSE['relay-only'].includes('in unattended mode only the manager does'))
+  assert.ok(p.PROMPT_REFUSE['question-answer-only'].includes("only a lead's or a conductor's own question may be parked, by the manager in unattended mode"))
+  // The manager's line for a lead's own question in a window: it may answer it or park it, and a provisional answer follows the lead's recorded mode.
+  assert.equal(p.turnLine({ top: true, away: 'manager', question: true, tierOwn: 'conductor' }).split('.')[0], "Unattended mode: a conductor's own question, and you are its only tier")
+  assert.equal(p.turnLine({ top: true, away: 'manager', question: true, tierOwn: 'lead' }), "Unattended mode: a lead's own question, and you are its only tier. Answer it with an offered option by the question rubric, or leave it for the person with decision `park` (rule 5 below). Nothing is put to them. Its lead is not recorded in the default permission mode, so it takes no provisional answer.")
+  assert.ok(p.turnLine({ top: true, away: 'manager', question: true, tierOwn: 'lead', provisional: true }).endsWith('Its lead is in the default permission mode, so one the rubric leaves to the person may take a provisional answer.'))
+  assert.ok(p.UNATTENDED_TIER_LINE.includes('Your own `AskUserQuestion` goes to the manager alone, which answers it or leaves it for the person'))
   assert.ok(p.PROMPT_REFUSE.unattended.includes('allow, deny or park it'))
   assert.ok(p.PROMPT_REFUSE['unattended-no-manager'].includes('held for the person at 20 minutes') && !p.PROMPT_REFUSE['unattended-no-manager'].includes('park'))
   assert.ok(p.PROMPT_REFUSE['bad-input'].includes('or park in unattended mode'))

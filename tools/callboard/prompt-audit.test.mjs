@@ -737,6 +737,12 @@ test('questions: q-answer-not-question and q-decided-question', () => {
   // A question answered properly, with the same shape, has none of them.
   ledger(fx, [ON(), ASKS(), ...qClean()])
   assert.deepEqual(run(fx).anomalies, [])
+  // A lead's question held inside a window (code held, with the window's mark) and a parked one are not decided; held with no mark still is.
+  const held = (n, o) => [R('requested', BASE + 1000, { ...QT, id: uid(n), nonce: uid(100 + n), tier: 'manager', u: 'aaaaaaaa' }), R('expired-denied', BASE + 2000, { ...QT, id: uid(n), ...o })]
+  const parked = [R('requested', BASE + 1000, { ...QT, id: uid(7), nonce: uid(107), tier: 'manager', u: 'aaaaaaaa' }), R('answered', BASE + 1500, { ...QT, id: uid(7), nonce: uid(107), code: 'park', tier: 'manager', u: 'aaaaaaaa' }), R('returned', BASE + 2000, { ...QT, id: uid(7), code: 'park', tier: 'manager', u: 'aaaaaaaa' })]
+  ledger(fx, [ON(), ASKS(), ...held(5, { code: 'held', u: 'aaaaaaaa' }), ...parked, ...held(6, { code: 'held' })])
+  rep = run(fx)
+  assert.deepEqual(rep.anomalies.filter((a) => a.code.startsWith('q-')).map((a) => [a.code, a.id]), [['q-decided-question', uid(6)]])
 })
 test('questions: q-returned-differs: the returned answer must carry the answered row\'s option and label hash', () => {
   const fx = fixture()

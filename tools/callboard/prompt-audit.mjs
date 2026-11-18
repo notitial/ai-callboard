@@ -380,11 +380,13 @@ function ruleDecisions(g, { flag }) {
 function ruleQuestions(g, { flag, onOff }) {
   const req = g.requested[0]
   // Questions. The tool is the request's own (the first row that names one when the requested row is missing); `answer` belongs to an AskUserQuestion only, and a question is never decided allow or deny.
+  // A question is never closed for lateness either, except a lead's own question held inside an unattended window (ADR 0008): `expired-denied` with code held
+  // and the window's mark. A park of a question (a lead's, by the manager) decides nothing and is rule u's.
   const qTool = req?.tool ?? g.rows.find((r) => r.tool !== undefined)?.tool
   for (const r of g.rows) {
     const decided = r.kind === 'answered' || r.kind === 'returned'
     if (decided && r.code === 'answer' && qTool !== QUESTION_TOOL) flag('q', 'q-answer-not-question', `request ${g.id} (${qTool ?? 'tool unknown'}): the ${r.kind} row (${r.t}) is an answer, but the request is not an ${QUESTION_TOOL}`, { id: g.id, t: r.t })
-    if (qTool === QUESTION_TOOL && ((decided && (r.code === 'allow' || r.code === 'deny')) || r.kind === 'expired-denied')) flag('q', 'q-decided-question', `request ${g.id}: an ${r.kind} row (${r.t}${r.code ? `, ${r.code}` : ''}) decides a question with allow or deny; a question is only ever answered`, { id: g.id, t: r.t })
+    if (qTool === QUESTION_TOOL && ((decided && (r.code === 'allow' || r.code === 'deny')) || (r.kind === 'expired-denied' && !(r.code === 'held' && r.u !== undefined)))) flag('q', 'q-decided-question', `request ${g.id}: an ${r.kind} row (${r.t}${r.code ? `, ${r.code}` : ''}) decides a question with allow or deny; a question is only ever answered`, { id: g.id, t: r.t })
   }
   // A question's request needs an `answering-on` row with code asks still in force: a later plain `answering-on` (a value written without the questions scope) or any `answering-off` ends it; `/callboard escalation` writes the plain row and then the asks row.
   if (req && qTool === QUESTION_TOOL) {

@@ -2,7 +2,7 @@
 // Trust rules held here: no decision without a ledger row; the relay reads only the person's own answer.
 import * as c from '../core.ts'
 import * as pr from '../prompts.ts'
-import { grants, leadRestorePending, restoreTrying, checks, openReqs, doneIds, unclosed, askingSids, relayAskedTurn, relayHolds, hereGone, ownAsks, mem } from '../mem.ts'
+import { grants, leadRestorePending, restoreTrying, checks, openReqs, doneIds, unclosed, askingSids, relayAskedTurn, relayHolds, hereGone, ownAsks, dialogUp, mem } from '../mem.ts'
 import { run, MKDIR, dirOk, INSTALL, TEE, MV, rmF, where, facts, sha, statR, readSmallR, pause, RMDIR, realR, toast, withTimeout, GREP, logq } from './base.ts'
 import { registryEntries, registryOf } from './store.ts'
 import { leadsFor, homeOf, presenceCheck } from './grants.ts'
@@ -25,7 +25,8 @@ const SWEEP_DIRS_MAX = 64
 
 const UNCLOSED_TRIES = 5
 // What a request's hook has done about its closing row: `closed` once one is in the ledger (or the sweep wrote it), `pending` the row it still owes.
-type CloseState = { closed: boolean; requested: boolean; pending?: Omit<pr.LedgerRow, 't'> }
+// clicked: the person's click ended the ask (a No, a Yes seen on the dialog's own row, or the call's done event), so nothing may be returned over it.
+type CloseState = { closed: boolean; requested: boolean; pending?: Omit<pr.LedgerRow, 't'>; clicked?: boolean }
 
 async function promptDir($: any, p: { uid: number; root: string }, sid?: string): Promise<string | undefined> {
   const base = `${p.root}/prompts`
@@ -657,7 +658,7 @@ const restoreWaits = (sid: string, now: number): boolean => restoreTrying(sid, n
 // Whether the switch is on and this session is a lane or a lead: the cheap first test. The scope (a lane's or a lead's name) is judged once the lead is known.
 // With `pending` (the observe step and the hook only), a session whose lead grant is still being restored counts as a lead under a switch whose scope is `all`: its
 // ask waits for the grant (promptRestoreHold). Every other reader sees no grant yet.
-async function promptCoverage($: any, sid: string, opt: { pending?: boolean } = {}): Promise<{ a: pr.Answering; level: 'lane' | 'lead'; lane?: string; self?: string; lead?: string; pending?: true } | undefined> {
+async function promptCoverage($: any, sid: string, opt: { pending?: boolean } = {}): Promise<{ a: pr.Answering; level: 'lane' | 'lead' | 'conductor'; lane?: string; self?: string; lead?: string; pending?: true } | undefined> {
   const a = await answeringNow($)
   if (!a) return undefined
   const b = (await getLane($)).value as Bound | null | undefined
@@ -686,12 +687,22 @@ export async function promptCoverageText($: any, sid: string): Promise<string | 
   if (g?.level === 'lead') return pr.covers(a, { self: g.name }) ? 'YES (lead)' : 'NO (the switch is scoped to other sessions)'
   return 'NO (the lead grant is not restored yet)'
 }
+// The same for one ask: a conductor's own question is covered too, as an asker of level conductor, while an unattended window is held (this process's cached
+// read; a read that throws holds only when this process last read the window on). A conductor's permission prompt never is, so it keeps its own path.
+async function askCoverage($: any, sid: string, tool: string, opt: { pending?: boolean } = {}): ReturnType<typeof promptCoverage> {
+  const cov = await promptCoverage($, sid, opt)
+  if (cov || tool !== pr.QUESTION_TOOL) return cov
+  const g = grants.get(sid)
+  if (g?.level !== 'conductor' || !(await unattendedHeld($).catch(() => mem.unattendedSure === 'on'))) return undefined
+  const a = await answeringNow($)
+  return a ? { a, level: 'conductor', self: g.name } : undefined
+}
 
 // tool.check only observes: it stores what it saw for an ask in a covered session, and the caller returns the verdict unchanged, every time (F-C).
 async function promptObserve($: any, e: any, r: any): Promise<void> {
   if (r?.decision !== 'ask' || typeof e.tool_use_id !== 'string' || typeof e.agentId === 'string') return
   const sid = await $.session.id()
-  if (!c.SID_RE.test(sid) || !(await promptCoverage($, sid, { pending: true }))) return
+  if (!c.SID_RE.test(sid) || !(await askCoverage($, sid, String(e.tool), { pending: true }))) return
   const key = `${sid}\n${pr.joinKey(String(e.tool), await sha($, pr.canonical(e.input)), undefined)}`
   const now = await $.clock.now()
   const old = checks.get(key)
@@ -703,7 +714,7 @@ async function promptObserve($: any, e: any, r: any): Promise<void> {
 }
 
 // The lane's own lead (a live lead of the repo that is not the lane), by sid and name; undefined for a lead's own prompt or when none is live.
-async function promptLeadOf($: any, level: 'lane' | 'lead', sid: string, cwd: string, bound?: string): Promise<{ sid: string; name?: string } | undefined> {
+async function promptLeadOf($: any, level: 'lane' | 'lead' | 'conductor', sid: string, cwd: string, bound?: string): Promise<{ sid: string; name?: string } | undefined> {
   if (level !== 'lane') return undefined
   const live = await registryEntries($)
   if (!live) return undefined
@@ -1024,8 +1035,8 @@ async function promptRiseHold($: any, signal: AbortSignal, w: { sid: string; tid
 }
 
 // An ask raised by a lead whose saved grant is still being restored (promptCoverage `pending`) holds beside its dialog until the restore is over, so it is judged
-// as a lead's ask once the grant lands instead of passing to the panel unseen (ADR 0011). 'stop': a click, the switch going off or the OFF file (the dialog stays the
-// person's, no row). 'over': a grant now, the restore ended, a folder move, the pauses failing, or pr.RESTORE_HOLD_MS of awake time; the caller reads the coverage again.
+// as a lead's ask once the grant lands instead of passing to the panel unseen (ADR 0011). 'stop': a click or the OFF file (the dialog stays the person's, no row);
+// the switch is not read here, the caller reads it once the hold ends. 'over': a grant now, the restore ended, a folder move, the pauses failing, or pr.RESTORE_HOLD_MS of awake time; the caller reads the coverage again.
 async function promptRestoreHold($: any, signal: AbortSignal, w: { sid: string; tid: string; started: number }): Promise<'stop' | 'over'> {
   let last = await $.clock.now()
   let awake = pr.awakeAdd(0, last - w.started)
@@ -1066,8 +1077,11 @@ async function promptHook($: any, e: any, nextOnce: (x: any) => Promise<any>, si
   if (!c.SID_RE.test(sid)) return nextOnce(e)
   // A request left without its closing row is retried here as well as on the tick (a no-op while none is owed).
   if (unclosed.size > 0) await promptCloseTick($).catch(() => undefined)
-  // A lead's, a conductor's or the manager's own question while an unattended window is held, a relay question included: nobody is there to answer it, so it is
-  // denied before anything is marked, held or shown. A read that throws denies only when this process last read the window on, and passes the ask on otherwise.
+  // A tier's own question while an unattended window is held. The manager's, a lead's whose grant is still being restored, and any relay question, is denied
+  // before anything is marked, held or shown: nobody is there to answer it. A lead's or a conductor's own goes on to the manager, unless one of this session's
+  // own dialogs is open (the person's dialog wins, and no request is raised beside it). A read that throws holds only when this process last read the window
+  // on, and passes the ask on otherwise.
+  let leadWin = false
   if (String(e.tool_name) === 'AskUserQuestion' && (grants.get(sid) !== undefined || restoreWaits(sid, await $.clock.now()) || leadRestorePending.get(sid)?.move !== undefined)) {
     let held: boolean
     try {
@@ -1076,10 +1090,35 @@ async function promptHook($: any, e: any, nextOnce: (x: any) => Promise<any>, si
       held = mem.unattendedSure === 'on'
     }
     if (held) {
-      await logq($, sid, 'refused', 'unattended-question')
-      return { decision: { behavior: 'deny', message: pr.TIER_QUESTION_DENY } }
+      const level = grants.get(sid)?.level
+      if ((level !== 'lead' && level !== 'conductor') || relayShorts(e.tool_input).length > 0 || dialogUp(sid)) {
+        await logq($, sid, 'refused', 'unattended-question')
+        return { decision: { behavior: 'deny', message: pr.TIER_QUESTION_DENY } }
+      }
+      leadWin = true
     }
   }
+  if (!leadWin) return promptAsk($, e, nextOnce, signal, sid, {})
+  // A lead's or a conductor's own question in a window ends with a decision, a click or this deny: one that would otherwise wait for the person (no entry, a
+  // shape the mod does not raise, no manager in reach, a wait that ended with no decision, a failure) is refused, since nobody is there. Once the window has
+  // ended, or escalation is surely off (which ends it), it is theirs.
+  const ctx: { clicked?: boolean } = {}
+  let out: any
+  try {
+    out = await promptAsk($, e, nextOnce, signal, sid, ctx)
+  } catch {
+    out = await nextOnce(e).catch(() => undefined)
+  }
+  if ((out && typeof out === 'object' && Object.keys(out).length > 0) || signal.aborted || ctx.clicked === true) return out
+  if (!(await unattendedHeld($).catch(() => mem.unattendedSure === 'on'))) return out
+  if ((await escalationSure($).catch(() => ({ state: 'unread' as const }))).state === 'off') return out
+  await logq($, sid, 'refused', 'unattended-question')
+  return { decision: { behavior: 'deny', message: pr.TIER_QUESTION_DENY } }
+}
+
+// The ask itself, after the window's early deny. ctx.clicked: the person's click (or the call's end) ended the ask, set on every return before this function's
+// cleanup drops the call's done mark, so the caller sees it afterwards.
+async function promptAsk($: any, e: any, nextOnce: (x: any) => Promise<any>, signal: AbortSignal, sid: string, ctx: { clicked?: boolean }): Promise<any> {
   // 0. A tier's relay question: it is the person's already (AskUserQuestion), so it raises no request. It marks the relay asked and the tier asking,
   // before the coverage gate, so a conductor's or the manager's question is marked too. The chain beneath runs as it always did, and the hook then holds the
   // question (promptRelayHold) until it ends or a request it relays closes elsewhere.
@@ -1098,8 +1137,8 @@ async function promptHook($: any, e: any, nextOnce: (x: any) => Promise<any>, si
     const mine = await promptRelayAsked($, sid, relayShorts(e.tool_input)).catch(() => [])
     return promptRelayHold($, sid, under, signal, mine).catch(() => under)
   }
-  // 1. The switch and the session's kind. The emergency file wins over the switch.
-  const cov0 = await promptCoverage($, sid, { pending: true })
+  // 1. The switch and the session's kind. The emergency file wins over the switch. A conductor's own question is covered only inside a window (askCoverage).
+  const cov0 = await askCoverage($, sid, String(e.tool_name), { pending: true })
   if (!cov0 || (await promptsOff($))) {
     // A manager's or a conductor's own permission prompt is covered by no tier, so inside an unattended window it would wait for the person with no limit: what
     // the chain beneath answers stands, a click that got there first stands, and anything else is denied at once. Escalation surely off ends the window, so the
@@ -1109,8 +1148,9 @@ async function promptHook($: any, e: any, nextOnce: (x: any) => Promise<any>, si
     if ((await escalationSure($).catch(() => ({ state: 'unread' as const }))).state === 'off') return nextOnce(e)
     const beneath = await nextOnce(e)
     if ((beneath && typeof beneath === 'object' && Object.keys(beneath).length > 0) || signal.aborted) return beneath
-    await logq($, sid, 'refused', 'unattended-own-prompt')
-    return { decision: { behavior: 'deny' as const, message: pr.TIER_PROMPT_DENY } }
+    const q = String(e.tool_name) === pr.QUESTION_TOOL
+    await logq($, sid, 'refused', q ? 'unattended-question' : 'unattended-own-prompt')
+    return { decision: { behavior: 'deny' as const, message: q ? pr.TIER_QUESTION_DENY : pr.TIER_PROMPT_DENY } }
   }
   let cov: Cov = cov0
   const p = await where($)
@@ -1143,7 +1183,10 @@ async function promptHook($: any, e: any, nextOnce: (x: any) => Promise<any>, si
     const beneath = await nextOnce(e)
     if (beneath && typeof beneath === 'object' && Object.keys(beneath).length > 0) return beneath
     // A No click aborted the signal; a Yes ended the dialog with no signal, so the done events are looked at again.
-    if (signal.aborted || (tid !== undefined && doneIds.has(tid))) return beneath
+    if (signal.aborted || (tid !== undefined && doneIds.has(tid))) {
+      ctx.clicked = true
+      return beneath
+    }
     const cwd = String(await sessionRoot($).catch(() => ''))
     // A session the switch does not cover leaves no row: a scope of one lane or one lead is judged first, and only a scope that names a lead needs the lead's name.
     let lead: { sid: string; name?: string } | undefined
@@ -1167,7 +1210,7 @@ async function promptHook($: any, e: any, nextOnce: (x: any) => Promise<any>, si
     // The same, with the lead read again: a hold waits for a lead that was away (compacting, restarting) as much as for a tier above it, unless the switch is
     // scoped to that lead (the gate above then left the ask the person's).
     const reachAgain = async () => {
-      const cv = (await promptCoverage($, sid)) ?? cov
+      const cv = (await askCoverage($, sid, tool)) ?? cov
       lead = await promptLeadOf($, cv.level, sid, cwd, cv.lead)
       leadRead = true
       return promptReach($, cv, sid, cwd, tool, lead)
@@ -1185,9 +1228,10 @@ async function promptHook($: any, e: any, nextOnce: (x: any) => Promise<any>, si
       if (!cov.pending) await ledgerAdd($, { ...base, kind: 'not-judgeable', code: judged.why })
       return beneath
     }
-    // 5a. A lead whose saved grant is still being restored: the ask waits for it. A question of its own stays the person's, as it was. After the hold the coverage is
-    // read again, strictly: a grant (or a lane binding, or the person's own lead grant) carries the ask on as a lead's; with none, the dialog stays the person's, with a
-    // row, except inside an unattended window, where nobody is there and the ask is denied as a lead's own prompt with nobody above it is.
+    // 5a. A lead whose saved grant is still being restored: the ask waits for it. A question of its own stays the person's (inside a held window the early deny
+    // refuses it). After the hold the coverage is read again, strictly: a grant (or a lane binding, or the person's own lead grant) carries the ask on as a lead's;
+    // with none, the dialog stays the person's, with a row, except inside an unattended window, where nobody is there and the ask is denied as a lead's own prompt
+    // with nobody above it is.
     if (cov.pending) {
       if (tool === pr.QUESTION_TOOL) return beneath
       if ((await promptRestoreHold($, signal, { sid, tid: tid as string, started })) === 'stop') return beneath
@@ -1219,10 +1263,12 @@ async function promptHook($: any, e: any, nextOnce: (x: any) => Promise<any>, si
     }
     // 5b. A question: the questions scope covers this lane, then the mechanical shape. Each refusal is a row with its code, no request and no notice. Checked
     // first, so with the scope unset nothing else about the question is read. A lead's own question rises only relay-only (no tier answers it, prompt_answer and
-    // applyCheck), only while the switch carries leadAsks and its conductor is live in reach; otherwise it is the person's, in the lead's panel.
+    // applyCheck), only while the switch carries leadAsks and its conductor is live in reach; otherwise it is the person's, in the lead's panel. While an
+    // unattended window is held it rises to the manager alone with no leadAsks (the person turned the window on), and what does not rise is refused (promptHook).
+    // A conductor's own question is covered only then, and is treated the same.
     if (tool === pr.QUESTION_TOOL) {
       const asks = pr.coversAsks(cov.a, { lane: cov.lane, lead: lead?.name, self: cov.self })
-      const leadQ = cov.level === 'lead' && cov.a.leadAsks === true && asks
+      const leadQ = ((cov.level === 'lead' && (cov.a.leadAsks === true || hold.held)) || cov.level === 'conductor') && asks
       if (!asks || (cov.level !== 'lane' && !leadQ)) {
         await ledgerAdd($, { ...base, kind: 'not-judgeable', code: 'question-scope' })
         return beneath
@@ -1233,7 +1279,7 @@ async function promptHook($: any, e: any, nextOnce: (x: any) => Promise<any>, si
         await ledgerAdd($, { ...base, kind: 'not-judgeable', code: shape.code })
         return beneath
       }
-      if (leadQ && !(await reachOf()).reach.some((t) => t.level === 'conductor')) {
+      if (leadQ && !hold.held && !(await reachOf()).reach.some((t) => t.level === 'conductor')) {
         await ledgerAdd($, { ...base, kind: 'not-judgeable', code: 'question-scope' })
         return beneath
       }
@@ -1268,11 +1314,17 @@ async function promptHook($: any, e: any, nextOnce: (x: any) => Promise<any>, si
     let rose: number | undefined
     let seen = false
     if (reach.length === 0 && own && typeof own.pid === 'number' && typeof own.procStart === 'string') {
-      // A lead's own prompt with nobody above it would wait for the person: inside an unattended window it is denied at once, with no hold. Any other ask holds.
-      if (cov.level === 'lead' && hold.held && !signal.aborted && !doneIds.has(tid as string)) {
+      // A lead's own prompt or question with nobody above it would wait for the person: inside an unattended window it is denied at once, with no hold. Any
+      // other ask holds.
+      if (cov.level !== 'lane' && hold.held) {
+        if (signal.aborted || doneIds.has(tid as string)) {
+          ctx.clicked = true
+          return beneath
+        }
+        const q = tool === pr.QUESTION_TOOL
         await ledgerAdd($, { ...base, kind: 'abandoned', code: 'no-tier' })
-        await logq($, sid, 'refused', 'unattended-own-prompt')
-        return { ...(beneath && typeof beneath === 'object' ? beneath : {}), decision: { behavior: 'deny' as const, message: pr.TIER_PROMPT_DENY } }
+        await logq($, sid, 'refused', q ? 'unattended-question' : 'unattended-own-prompt')
+        return { ...(beneath && typeof beneath === 'object' ? beneath : {}), decision: { behavior: 'deny' as const, message: q ? pr.TIER_QUESTION_DENY : pr.TIER_PROMPT_DENY } }
       }
       const up = await promptRiseHold($, signal, { sid, tid: tid as string, tool, p, started, leadName, req: own, base, reach: reachAgain })
       if (up === undefined) return beneath
@@ -1280,8 +1332,9 @@ async function promptHook($: any, e: any, nextOnce: (x: any) => Promise<any>, si
       rose = up.at
       seen = up.seen
     }
-    // A lead's own question rises only while its conductor is in reach (5b); one gone by now leaves it the person's, in the lead's panel.
-    if (tool === pr.QUESTION_TOOL && cov.level === 'lead' && !reach.some((t) => t.level === 'conductor')) {
+    // A lead's own question rises only while its conductor is in reach (5b); one gone by now leaves it the person's, in the lead's panel. Inside an unattended
+    // window its only tier is the manager.
+    if (tool === pr.QUESTION_TOOL && cov.level === 'lead' && !hold.held && !reach.some((t) => t.level === 'conductor')) {
       await ledgerAdd($, { ...base, kind: 'not-judgeable', code: 'question-scope' })
       return beneath
     }
@@ -1316,7 +1369,9 @@ async function promptHook($: any, e: any, nextOnce: (x: any) => Promise<any>, si
     // Without a `requested` row no decision could ever pass the ledger check: the dialog is left to the person.
     if (!(await ledgerAdd($, { ...row, kind: 'requested', nonce, raised: judged.raisedBy }))) throw new Error('ledger-unwritable')
     st.requested = true
-    return await promptWait($, beneath, signal, { sid, tid: tid as string, id, nonce, dir, input, tool, cwd, home: homeOf(p), p, started, ...(rose !== undefined ? { rose, seen } : {}), row, req, leadName, cap: pr.claudeCap(tool, input), st })
+    const waited = await promptWait($, beneath, signal, { sid, tid: tid as string, id, nonce, dir, input, tool, cwd, home: homeOf(p), p, started, ...(rose !== undefined ? { rose, seen } : {}), row, req, leadName, cap: pr.claudeCap(tool, input), st })
+    if (st.clicked) ctx.clicked = true
+    return waited
   } catch (err) {
     // A failing hook answers nothing: the dialog stays (the caller returns what the chain beneath gives).
     if (!st.closed) {
@@ -1326,8 +1381,10 @@ async function promptHook($: any, e: any, nextOnce: (x: any) => Promise<any>, si
     }
     throw err
   } finally {
+    // A click seen on any return, an early one included, is kept for the caller before the done mark goes.
+    if (tid !== undefined && doneIds.has(tid)) ctx.clicked = true
     // The files go only with a closing row in the ledger. Without one (the write failed, or the person's No cut this dispatch off) they stay, and the tick writes it.
-    // A request that never got its `requested` row has nothing to close: its files go as before.
+    // A request that never got its `requested` row has nothing to close: its files go now.
     if (reqDir.id && reqDir.dir && st.requested && !st.closed) {
       unclosed.set(reqDir.id, { dir: reqDir.dir, row: st.pending ?? { kind: 'abandoned', code: 'hook-failed', id: reqDir.id }, tries: 0 })
       forgetReq(tid ?? '')
@@ -1344,6 +1401,7 @@ type WaitCtx = { sid: string; tid: string; id: string; nonce: string; dir: strin
 // capped. A relay (a tier put the prompt to the person) makes the wait `withPerson`: expiry at 2 hours, a 10 s poll, and no 20-minute deny.
 async function promptWait($: any, beneath: any, signal: AbortSignal, w: WaitCtx): Promise<any> {
   const end = async (kind: pr.RowKind, code?: string) => {
+    if (kind === 'superseded') w.st.clicked = true
     const row = { ...w.row, kind, ...(code ? { code } : {}) }
     w.st.pending = row
     if (await ledgerAdd($, row)) w.st.closed = true
@@ -1361,10 +1419,10 @@ async function promptWait($: any, beneath: any, signal: AbortSignal, w: WaitCtx)
   // The switch is read again at each poll and before an answer is returned: off, an OFF file, or a scope that no longer covers this lane ends the wait.
   const stillOn = async (): Promise<boolean> => {
     if (await promptsOff($)) return false
-    const cv = await promptCoverage($, w.sid)
+    const cv = await askCoverage($, w.sid, w.tool)
     // A question also needs the questions scope: off asks, or a questions scope that no longer covers the lane, ends a waiting question and leaves permission prompts alone.
-    // A lead's own question also needs leadAsks still set.
-    if (cv !== undefined && w.req.level === 'lead' && w.tool === pr.QUESTION_TOOL && cv.a.leadAsks !== true) return false
+    // A lead's own question also needs leadAsks still set, or an unattended window still held.
+    if (cv !== undefined && w.req.level === 'lead' && w.tool === pr.QUESTION_TOOL && cv.a.leadAsks !== true && !(await unattendedHeld($).catch(() => mem.unattendedSure === 'on'))) return false
     return cv !== undefined && pr.requestCovered(cv.a, { tool: w.tool }, { lane: cv.lane, lead: w.leadName, self: cv.self })
   }
   // What must hold right before an answer goes back: no click, the switch still on.
@@ -1514,7 +1572,7 @@ async function promptWait($: any, beneath: any, signal: AbortSignal, w: WaitCtx)
             const text = d.decision === 'park' ? pr.parkText(applied.tier, d.why) : pr.denyText(applied.tier, d.via === 'person', d.why)
             // What follows the head is appended after the cap, so a long reason never cuts it off: the cleaner-command text, or what a park or a deny made
             // inside an unattended window tells the lane.
-            const tail = d.decision === 'park' ? pr.UNATTENDED_PARK_TAIL : unclear ? pr.UNCLEAR_SUFFIX : d.u !== undefined && d.via !== 'person' ? pr.UNATTENDED_DENY_TAIL : ''
+            const tail = d.decision === 'park' ? (w.tool === pr.QUESTION_TOOL ? pr.UNATTENDED_QUESTION_PARK_TAIL : pr.UNATTENDED_PARK_TAIL) : unclear ? pr.UNCLEAR_SUFFIX : d.u !== undefined && d.via !== 'person' ? pr.UNATTENDED_DENY_TAIL : ''
             const message = pr.capBytes(pr.redact(text), 300).text + tail
             const decision = d.decision === 'allow' ? { behavior: 'allow' as const } : { behavior: 'deny' as const, message }
             return { ...(beneath && typeof beneath === 'object' ? beneath : {}), decision }
@@ -1524,15 +1582,20 @@ async function promptWait($: any, beneath: any, signal: AbortSignal, w: WaitCtx)
     }
     // The 20-minute deny: nobody answered and nobody put it to the person. Some tier was in reach when the request began (the hook did not start the wait otherwise).
     // A question is never denied for lateness (a denied question loops the lane or pushes it to guess): the wait ends at 21 minutes and the card stays with the person.
-    if (!relay && !personSaw && w.tool !== pr.QUESTION_TOOL && awake >= pr.DENY_AFTER_MS && (await statR($, relayPath)) === 'absent') {
+    // The one exception is a lead's own question while an unattended window is held: nobody is there, so it is closed with the hold text, and the lead takes the
+    // safe default.
+    const question = w.tool === pr.QUESTION_TOOL
+    if (!relay && !personSaw && awake >= pr.DENY_AFTER_MS && (!question || (w.req.level !== 'lane' && (await unattendedHeld($).catch(() => mem.unattendedSure === 'on')))) && (await statR($, relayPath)) === 'absent') {
       const stop = await guards()
       if (stop !== undefined) return stop
-      w.st.pending = { ...w.row, kind: 'abandoned', code: 'hook-failed' }
       // Inside an unattended window the prompt is held for the person, and the lane is told so; its row names the window.
       const hold = await unattendedHold($)
-      if (!(await ledgerAdd($, { ...w.row, kind: 'expired-denied', code: hold.held ? 'held' : 'timeout', ...(hold.u !== undefined ? { u: hold.u } : {}) }))) return beneath
-      w.st.closed = true
-      return { ...(beneath && typeof beneath === 'object' ? beneath : {}), decision: { behavior: 'deny' as const, message: hold.held ? pr.UNATTENDED_HOLD_MESSAGE : pr.DENY_TIMEOUT_MESSAGE } }
+      if (!question || hold.held) {
+        w.st.pending = { ...w.row, kind: 'abandoned', code: 'hook-failed' }
+        if (!(await ledgerAdd($, { ...w.row, kind: 'expired-denied', code: hold.held ? 'held' : 'timeout', ...(hold.u !== undefined ? { u: hold.u } : {}) }))) return beneath
+        w.st.closed = true
+        return { ...(beneath && typeof beneath === 'object' ? beneath : {}), decision: { behavior: 'deny' as const, message: question ? pr.UNATTENDED_QUESTION_HOLD_MESSAGE : hold.held ? pr.UNATTENDED_HOLD_MESSAGE : pr.DENY_TIMEOUT_MESSAGE } }
+      }
     }
     // A pause that failed (a sleep outlasts its time limit) is not the wait's end: the poll runs again. Its gap adds no awake time, so a Mac that slept through
     // it never shortens the person's own first 30 seconds.
@@ -1574,7 +1637,7 @@ async function promptApply($: any, w: WaitCtx, d: pr.Decision, awake: number, gr
   const errsBefore = mem.presenceErrors
   if (c.SID_RE.test(d.by.sid) && d.by.sid !== w.sid) {
     const live = await registryEntries($)
-    const cv = await promptCoverage($, w.sid)
+    const cv = await askCoverage($, w.sid, w.tool)
     if (live && cv) {
       const names = new Set(((await $.fs.list(w.dir).catch(() => [])) as { name: string }[]).map((f) => f.name))
       const stand = await promptStand($, w.p, live, cv.a, w.dir, names, w.req).catch(() => undefined)
@@ -1590,9 +1653,10 @@ async function promptApply($: any, w: WaitCtx, d: pr.Decision, awake: number, gr
   // A question's answer binds to its row by option and label hash; a hash that cannot be made is an unreadable ledger (held for the next poll), not a drop.
   const lh = d.decision === 'answer' && d.answer ? await labelHash($, w.id, d.answer.label).catch(() => undefined) : undefined
   const ledger = d.decision === 'answer' && d.answer && lh === undefined ? 'unreadable' : await ledgerHas($, w.p, w.id, w.nonce, { code: d.decision, by: d.by.sid, ...(d.via ? { via: d.via } : {}), ...(d.answer && lh !== undefined ? { opt: String(d.answer.index), lh } : {}), ...(d.u !== undefined ? { u: d.u } : {}), ...(d.provisional ? { prov: 'yes' as const } : {}) })
-  // A park or a provisional answer lands only inside the window it was made in, and a request raised inside a window has no head start while it is on: the
-  // window is read for those and for nothing else.
-  const win = d.decision === 'park' || d.provisional === true || w.req.u !== undefined ? await unattendedNow($, true) : undefined
+  // A park or a provisional answer lands only inside the window it was made in, a tier's decision on a lead's own question only inside a window, and a request
+  // raised inside a window has no head start while it is on: the window is read for those and for nothing else.
+  const leadOwn = w.req.level !== 'lane' && w.tool === pr.QUESTION_TOOL && d.via !== 'person'
+  const win = d.decision === 'park' || d.provisional === true || leadOwn || w.req.u !== undefined ? await unattendedNow($, true) : undefined
   const window = win === undefined ? undefined : win.state === 'on' ? ({ state: 'on', u: win.u } as const) : ({ state: win.state } as const)
   // Only a call that carries an `@claude` body, and only once the other checks would let the decision through, reads the cap.
   const cap = w.cap && ledger === 'found' && d.decision === 'allow' && d.via !== 'person' ? await capOf($, w.p, w.cap) : undefined

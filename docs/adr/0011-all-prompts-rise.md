@@ -240,6 +240,10 @@ until the tick's next try); a Yes click on a long tool during the hold, which is
 ends; and the request's clocks, which run from the ask, not from the end of the hold. A try that hangs is not
 waited for more than a minute.
 
+*2026-11-18 ([ADR 0008](0008-unattended-mode.md), amendment on a lead's question):* inside an unattended window a lead's
+own question rises to the manager alone, with no conductor and no `leadAsks`, and the manager may answer it or leave it
+for the person. What cannot rise there is refused rather than left in the lead's panel.
+
 A truncated copy is a request, as before: a tier may deny it and never allow or relay it (ADR 0004, Limits), so it
 ends in the 20-minute deny.
 

@@ -125,15 +125,13 @@ const PLAIN = { header: 'Plan', question: 'Which way?', options: [{ label: 'A', 
 const ask = ($: any, qs: unknown[], over: Record<string, unknown> = {}) => $.classic.PermissionRequest({ tool_name: 'AskUserQuestion', tool_input: { questions: qs }, ...over } as any)
 const QUESTION_DENIED = { decision: { behavior: 'deny', message: prm.TIER_QUESTION_DENY } }
 for (const [level, setup] of [
-  ['a lead', async ($: any, on: any) => { await tier($, on); putQ() }],
-  ['a conductor', async ($: any, on: any) => { await asConductor($, on); putQ(APIREQ) }],
   ['the manager', async ($: any, on: any) => { await asManager($, on); putQ(APIREQ) }],
 ] as const) {
   test(`window: ${level}'s own AskUserQuestion is denied at once, a relay question included, with nothing marked or held; a subagent's passes beneath, and it is asked as before once the window is off`, async ($, on) => {
     beneathHooks(on)
     await setup($, on)
-    const dir = level === 'a lead' ? LDIR() : LDIR(APISID)
-    const by = { level: level === 'a lead' ? 'lead' : level === 'a conductor' ? 'conductor' : 'manager', sid: SID, name: 'X' }
+    const dir = LDIR(APISID)
+    const by = { level: 'manager', sid: SID, name: 'X' }
     pfs.set(`${dir}/${TID}.relay.json`, { text: JSON.stringify({ id: TID, short: TID.slice(0, 8), by, at: T0, nonce: 'n-1' }), mtimeSec: T0 / 1000 })
     open()
     expect(await ask($, [PLAIN])).toEqual(QUESTION_DENIED)
@@ -148,6 +146,27 @@ for (const [level, setup] of [
     expect((await ask($, [PLAIN])) ?? {}).toEqual({})
   })
 }
+
+// A lead's or a conductor's own plain question goes on to the manager in a window (unattended-questions.test.ts); its relay question is still denied at once.
+for (const [level, setup, dir] of [
+  ['lead', async ($: any, on: any) => { await tier($, on); putQ() }, LDIR()],
+  ['conductor', async ($: any, on: any) => { await asConductor($, on); h.store.set('answering', { scope: 'all', asks: false, asksScope: 'all', savedAt: T0 }); putQ(APIREQ) }, LDIR(APISID)],
+] as const)
+test(`window: a ${level}'s own relay question is denied at once with nothing marked or held; its plain question goes on, and is refused when nothing can rise`, async ($, on) => {
+  beneathHooks(on)
+  await setup($, on)
+  pfs.set(`${dir}/${TID}.relay.json`, { text: JSON.stringify({ id: TID, short: TID.slice(0, 8), by: { level, sid: SID, name: 'X' }, at: T0, nonce: 'n-1' }), mtimeSec: T0 / 1000 })
+  open()
+  expect(await ask($, [relayQ(TID)])).toEqual(QUESTION_DENIED)
+  expect([...pfs.keys()].filter((k) => k.endsWith('.asked') || k.includes('/asking/'))).toEqual([])
+  expect(rows()).toEqual([])
+  // No tool.check entry: its row, then the refusal, since nobody is there.
+  expect(await ask($, [PLAIN])).toEqual(QUESTION_DENIED)
+  expect(kinds()).toEqual(['not-judgeable no-check'])
+  expect((await ask($, [PLAIN], { agent_id: 'a1' })) ?? {}).toEqual({})
+  await $.command.run(lane('unattended off'))
+  expect((await ask($, [PLAIN])) ?? {}).toEqual({})
+})
 
 test('window: a read of the window that fails still denies a tier\'s question in a process that read the window on', async ($, on) => {
   beneathHooks(on)
@@ -228,10 +247,16 @@ test('window: a lead\'s go dialog, open, passes the permission hook as it stands
   expect(await ask($, [{ ...shownQ(), question: `${h.lastQuestion} ` }])).toEqual(QUESTION_DENIED)
   expect(await ask($, [shownQ(), PLAIN])).toEqual(QUESTION_DENIED)
   expect(await ask($, [relayQ(TID)])).toEqual(QUESTION_DENIED)
+  // A lead's own question beside the open dialog is refused before anything is read for it: no row (a question that went on would leave a no-check row), no
+  // request. The person's dialog wins.
+  expect(await ask($, [PLAIN])).toEqual(QUESTION_DENIED)
   expect(rows()).toEqual([])
+  expect(reqFiles().length).toBe(0)
   release(g.GO_NO)
   expect(String((await typed).text)).toContain('No go was given: cancelled')
-  expect(await ask($, [shownQ()])).toEqual(QUESTION_DENIED)
+  // Closed, the same question is the lead's own: it goes on toward the manager, and here the hook beneath answers it.
+  expect(await ask($, [shownQ()])).toEqual(BENEATH_DENY)
+  expect(logged(stdins).filter((l) => l === 'passed:own-dialog').length).toBe(1)
 })
 
 test('window: the manager\'s own dialog, open when the window is seen, passes the permission hook; once it closes the same question is denied', async ($, on) => {
@@ -266,14 +291,14 @@ longTest('window: a dialog still on screen after its time limit still passes; on
   expect((await ask($, [shownQ()])) ?? {}).toEqual({})
   release(g.GO_YES)
   await new Promise((r) => setTimeout(r, 10))
-  expect(await ask($, [shownQ()])).toEqual(QUESTION_DENIED)
+  expect(await ask($, [shownQ()])).toEqual(BENEATH_DENY)
   expect(goFiles()).toEqual([])
   // The engine call throws: the dialog's record goes with it.
   h.askHang = { then: (_: unknown, no: (e: Error) => void) => no(new Error('engine')) } as any
   const failed = await $.command.run(lane(`go ${GO_WORK}`))
   h.askHang = undefined
   expect(String(failed.text)).toContain('No go was given')
-  expect(await ask($, [shownQ()])).toEqual(QUESTION_DENIED)
+  expect(await ask($, [shownQ()])).toEqual(BENEATH_DENY)
 })
 
 const PROMPT_DENIED = { decision: { behavior: 'deny', message: prm.TIER_PROMPT_DENY } }

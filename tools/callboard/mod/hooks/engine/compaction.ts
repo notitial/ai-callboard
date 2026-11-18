@@ -13,7 +13,7 @@ import {
   midTurnSkip,
   midDelivered,
   kaLogged,
-  dialogOpen,
+  dialogUp,
   lastSubmitAt,
   pingCount,
   restoredOnce,
@@ -339,7 +339,7 @@ export async function nudgeTick($: any, sid: string) {
   if (kind === 'lead' && (ct.lastNudgeMs ?? 0) >= due.at) return drop('nudge-limit')
   if (!c.nudgeAllowed(ct, now, kind === 'working', due.again === true || kind === 'lead')) return drop('nudge-limit')
   // A turn submitted while a callboard dialog of this session is open could close it before the person answers: the nudge stays due for a later tick.
-  if (dialogOpen.has(sid)) return
+  if (dialogUp(sid)) return
   if ((await setNudgeDue($, null, { ifVersion: read.version })).isSet === false) return
   await bump($, (ct) => ({ ...ct, lastNudgeMs: now, lastNudgeKind: kind!, nudgeTimes: c.pushRecent(ct.nudgeTimes ?? [], now) }))
   await setNudgedAt($, now)
@@ -445,7 +445,7 @@ async function kaOnce($: any, sid: string, key: string, event: string, reason = 
 }
 export async function keepaliveTick($: any, sid: string, submitsAtStart: number) {
   const k = await cfgGet($, sid)
-  if (!k.keepalive || dialogOpen.has(sid)) return
+  if (!k.keepalive || dialogUp(sid)) return
   const turnEnd = (await getTurnEnd($)).value
   const realEnd = (await getRealEnd($)).value
   // Both come only from a turn.complete this session state saw: after a restart they are unknown (and the cache cold), so nothing is pinged until a turn ends.
@@ -646,7 +646,7 @@ export async function failRequest($: any, sid: string, reason: string, notice: b
   await log($, sid, 'refused', reason)
   // No notice turn goes to the session for these (the person is at it, or the refusal is final), nor while a callboard dialog of this session is open (a turn
   // could close it before the person answers): a toast says that the request ended and why.
-  if (!notice || dialogOpen.has(sid)) return void toast($, c.compactSkippedToast(reason))
+  if (!notice || dialogUp(sid)) return void toast($, c.compactSkippedToast(reason))
   const now = await $.clock.now()
   const times = noticeTimes.get(sid) ?? []
   if (!c.noticeAllowed(times, now)) return log($, sid, 'notice-capped', reason)

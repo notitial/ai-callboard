@@ -1,7 +1,7 @@
 // The process calls (every external binary), the log, the person-facing dialogs and toasts, the private-file reads and the one sender of the mod's own fixed turns.
 // Trust rules held here: a dialog answer is the person's own click or a failure; a file read checks owner, mode, link count and size before and after; submitOwn counts each own text.
 import * as c from '../core.ts'
-import { own, lastLogged, unrealOwn, dialogOpen, ownAsks, mem } from '../mem.ts'
+import { own, lastLogged, unrealOwn, dialogOpen, ownAsks, askWaits, mem } from '../mem.ts'
 
 const ID = '/usr/bin/id'
 export const STAT = '/usr/bin/stat'
@@ -244,12 +244,31 @@ export async function uiAsk($: any, question: string, o: { options: string[]; he
   }
 }
 
+// Runs a plain dialog's wait with the session counted in askWaits until the wait ends (the click, the time limit or a failure). A session id that cannot be read
+// counts nothing.
+async function waited<T>($: any, f: () => Promise<T>): Promise<T> {
+  let sid: string | undefined
+  try {
+    sid = String(await $.session.id())
+  } catch {}
+  if (sid !== undefined) askWaits.set(sid, (askWaits.get(sid) ?? 0) + 1)
+  try {
+    return await f()
+  } finally {
+    if (sid !== undefined) {
+      const n = (askWaits.get(sid) ?? 1) - 1
+      if (n > 0) askWaits.set(sid, n)
+      else askWaits.delete(sid)
+    }
+  }
+}
+
 // 'error' covers a failed dialog and any answer that is neither button; 'timed-out' a question nobody answered in time. Neither is
 // a decision, and every caller treats them alike: only 'no' clears anything. The engine dialog stays on screen (no cancel call); a late click is ignored.
 export type Asked = 'yes' | 'no' | 'error' | 'timed-out'
 export async function ask($: any, question: string, yes: string, no: string, header: string): Promise<Asked> {
   try {
-    const a = await withTimeout($, uiAsk($, question, { options: [yes, no], header }) as Promise<string>, ASK_TIMEOUT_MS)
+    const a = await waited($, () => withTimeout($, uiAsk($, question, { options: [yes, no], header }) as Promise<string>, ASK_TIMEOUT_MS))
     return a === 'timeout' ? 'timed-out' : a === yes ? 'yes' : a === no ? 'no' : 'error'
   } catch {
     return 'error'
@@ -343,7 +362,7 @@ export async function pickFrom($: any, question: string, labels: string[], heade
   for (let page = 0; ; page++) {
     const options = c.pickOptions(labels, page, extra)
     try {
-      const a = await withTimeout($, uiAsk($, question, { options, header }).then((x: unknown) => ({ x })), ASK_TIMEOUT_MS)
+      const a = await waited($, () => withTimeout($, uiAsk($, question, { options, header }).then((x: unknown) => ({ x })), ASK_TIMEOUT_MS))
       if (a === 'timeout') return 'timed-out'
       if (a.x === c.LEAD_MORE && options.includes(c.LEAD_MORE)) continue
       if (extra !== undefined && a.x === extra) return { extra: true }

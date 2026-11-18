@@ -9,7 +9,7 @@ import {
   promptRelaySeen,
   promptNotices,
   promptCapLogged,
-  dialogOpen,
+  dialogUp,
   turnKind,
   promptMidSent,
   promptMidRetold,
@@ -95,7 +95,9 @@ async function promptRequests($: any, p: { uid: number; root: string }, accept?:
 // names a conductor that is trusted and still bound to it; a lead's own request is looked up by its session id), the manager a trusted one. `recs`: the lead
 // records, loaded once by a caller that resolves several requests (a refusal code gives no conductor tier). The switch's scope applies to each. Nobody is the
 // asker. noLead: the lane's own lead could not be resolved (its record names another, or none is found), so no lead is asked, whichever leads are live. Empty:
-// nobody can be asked, and the prompt stays the person's.
+// nobody can be asked, and the prompt stays the person's. A conductor's own question, and a lead's while an unattended window is held (this process's cached
+// read, which a decision never rests on: prompt_answer and the apply read the window fresh), reach the manager alone: a conductor never answers a tier's own
+// question.
 type ReachQ = Pick<pr.Request, 'sid' | 'pid' | 'procStart' | 'level' | 'lane' | 'leadName' | 'leadSid' | 'repo' | 'tool'>
 export async function promptReachTiers($: any, live: RegRow[], a: pr.Answering, q: ReachQ, noLead = false, recs?: LeadRecs | string): Promise<pr.Tier[]> {
   if (!live.some((r) => r.j.sessionId === q.sid && String(r.j.pid) === r.pid && r.pid === String(q.pid) && r.j.procStart === q.procStart)) return []
@@ -109,8 +111,9 @@ export async function promptReachTiers($: any, live: RegRow[], a: pr.Answering, 
       if (pr.requestCovered(a, q, { lane: q.lane, lead: name === '' ? undefined : name })) tiers.push({ level: 'lead', sid: l.sid, name })
     }
   }
-  if (pr.requestCovered(a, q, { lane: q.level === 'lane' ? q.lane : undefined, lead: q.leadName, self: q.level === 'lead' ? q.lane : undefined })) {
-    const o = typeof recs === 'string' ? undefined : await ownerLive($, live, q.sid, q.repo, pr.tierLead(q), recs, q.level === 'lead' ? q.sid : undefined).catch(() => undefined)
+  if (pr.requestCovered(a, q, { lane: q.level === 'lane' ? q.lane : undefined, lead: q.leadName, self: q.level !== 'lane' ? q.lane : undefined })) {
+    const managerOnly = q.level === 'conductor' || (q.level === 'lead' && q.tool === pr.QUESTION_TOOL && (await unattendedHeld($).catch(() => mem.unattendedSure === 'on')))
+    const o = managerOnly || typeof recs === 'string' ? undefined : await ownerLive($, live, q.sid, q.repo, pr.tierLead(q), recs, q.level === 'lead' ? q.sid : undefined).catch(() => undefined)
     if (o) tiers.push({ level: 'conductor', sid: o.sid, name: o.name ?? '' })
     // A manager that is compacting stays a tier (its file's compactingAt, within c.MANAGER_COMPACT_GRACE_MS): no other reader of managersLive allows for it.
     for (const m of await managersLive($, live, q.sid, { grace: true }).catch(() => [])) if (m.unverified !== true && m.name !== undefined) tiers.push({ level: 'manager', sid: m.sid, name: m.name })
@@ -376,7 +379,10 @@ async function promptListTool($: any, e: unknown): Promise<{ result: string } | 
     const s = stands.get(q.id)!
     const top = s.stand.top
     const question = q.tool === pr.QUESTION_TOOL
-    const turn = pr.turnLine({ relay: s.stand.relay?.by, top: top?.sid === s.self.sid || top?.level === s.self.level, above: top, opensInSec: promptWindowShut(s.stand, sid, now) ? (s.stand.windows[sid] - now) / 1000 : undefined, question, relayOnly: question && q.level === 'lead', here, ...(hold.held ? { away: manager ? ('manager' as const) : ('lower' as const) } : {}), ...(hold.held && manager && question ? { provisional: q.level === 'lane' && q.mode === 'default' } : {}) })
+    // Inside a window the manager decides a tier's own question; by day, and for any other tier, no tier answers one.
+    const tierOwn = question && q.level !== 'lane' ? q.level : undefined
+    const leadOwn = tierOwn !== undefined
+    const turn = pr.turnLine({ relay: s.stand.relay?.by, top: top?.sid === s.self.sid || top?.level === s.self.level, above: top, opensInSec: promptWindowShut(s.stand, sid, now) ? (s.stand.windows[sid] - now) / 1000 : undefined, question, relayOnly: leadOwn && !(hold.held && manager), here, ...(hold.held ? { away: manager ? ('manager' as const) : ('lower' as const) } : {}), ...(hold.held && manager && question ? { provisional: pr.provisionalAllowed(q), ...(tierOwn !== undefined ? { tierOwn } : {}) } : {}) })
     const repeat = Array.isArray(winRows) && hold.u !== undefined && pr.repeatOf(winRows, hold.u, q)
     items.push({ id: q.id, lane: q.lane, tool: q.tool, repo: q.repo, raisedBy: q.raisedBy, ageSec: (now - q.at) / 1000, truncated: q.truncated, agentType: q.agentType, input: q.input, turn, ...(q.reason !== undefined ? { reason: q.reason, ...(q.reasonCut ? { reasonCut: true } : {}) } : {}), ...(repeat ? { repeat: true } : {}) })
   }
@@ -412,10 +418,20 @@ async function promptAnswerTool($: any, e: any, answer: boolean): Promise<{ resu
   // A question takes only decision `answer`, by the number prompt_list showed (`option`), with the label as an optional echo; nothing else takes `answer`.
   const isQ = q.tool === pr.QUESTION_TOOL
   let pick: { index: number; label: string } | undefined
-  // A lead's own question is the person's: a tier only passes it up or puts it to them (the relay), never answers it. The asker's hook drops any answer to it
+  // A lead's own question is the person's: a tier only passes it up or puts it to them (the relay), never answers it. Inside an unattended window, read fresh,
+  // the manager decides it instead (answer, a provisional answer or a park), and the decision names that window. The asker's hook drops any other decision on it
   // that is not the person's through the relay as well.
-  if (answer && isQ && q.level === 'lead') return refuse('relay-only')
-  if (answer && isQ) {
+  let leadWin: string | undefined
+  if (answer && isQ && q.level !== 'lane') {
+    if (self.level !== 'manager') return refuse('relay-only')
+    const win = await unattendedNow($, true)
+    if (win.state === 'unknown') return refuse('unattended-unread')
+    if (win.state !== 'on') return refuse('relay-only')
+    leadWin = win.u
+  }
+  // A park of a question: only one whose asker may have its question left for the person (pr.questionParkAllowed), by the manager, checked below.
+  const qPark = answer && isQ && decision === 'park' && pr.questionParkAllowed(q)
+  if (answer && isQ && !qPark) {
     if (decision !== 'answer') return refuse('question-answer-only')
     if (q.truncated) return refuse('truncated-question')
     const labels = pr.questionLabels(q.input)
@@ -434,14 +450,14 @@ async function promptAnswerTool($: any, e: any, answer: boolean): Promise<{ resu
     if (win.state !== 'on') return refuse('park-not-allowed')
     u = win.u
   } else if (prov) {
-    // A provisional answer: the same, and only for a lane's request that records the default permission mode (an absent mode gives none).
-    if (self.level !== 'manager' || q.level !== 'lane') return refuse('provisional-not-allowed')
+    // A provisional answer: the same, and only for a request whose asker may take one and that records the default permission mode (an absent mode gives none).
+    if (self.level !== 'manager' || !pr.PROVISIONAL_ASKERS.includes(q.level)) return refuse('provisional-not-allowed')
     const win = await unattendedNow($, true)
     if (win.state === 'unknown') return refuse('unattended-unread')
     if (win.state !== 'on') return refuse('provisional-not-allowed')
-    if (q.mode !== 'default') return refuse('provisional-mode')
+    if (!pr.provisionalAllowed(q)) return refuse('provisional-mode')
     u = win.u
-  } else if (answer) u = (await unattendedHold($)).u
+  } else if (answer) u = leadWin ?? (await unattendedHold($)).u
   // The decision is judged on the copy the tier read. A truncated copy cannot be allowed (the rubric: seen whole), and cannot be put to the person either: it is
   // denied, asking the lane for a cleaner call.
   if (answer) {
@@ -482,6 +498,7 @@ async function promptAnswerTool($: any, e: any, answer: boolean): Promise<{ resu
     // When it lands: after the person's head start, or within a few seconds inside the unattended window the request was raised in.
     const soon = (await promptHead($, q)) === 0
     const lands = (what: string) => (soon ? 'within a few seconds (this unattended window gives the person no head start)' : `once the ${what} has been open 30 seconds`)
+    if (decision === 'park' && isQ) return { result: `Recorded: park for ${id}. It closes the question for the person's return ${lands('question')}: the lead is told to take the safe default and note the open decision, and the person's list shows your one line. It is yours, not the person's, and carries no approval for anything else.` }
     if (decision === 'park') return { result: `Recorded: park for ${id}. It closes the prompt for the person's return ${lands('prompt')}: the lane is told to stop this item and note it as waiting for the person, and the person's list shows your one line. It is yours, not the person's, and carries no approval for anything else.` }
     if (pick && prov) return { result: `Recorded: provisional answer ${pick.index + 1} for ${id}. It lands ${lands('question')} and only while this unattended window is on, as the offered label with "(answered by …, provisional …)" after it, which tells the lane to take only reversible steps on it. The person reviews it later. It is yours, not the person's, and carries no approval for anything else.` }
     if (pick) return { result: `Recorded: answer ${pick.index + 1} for ${id}. The card stays open in front of the person and their click wins; your answer lands ${lands('question')}, as the offered label with "(answered by …)" after it. It is yours, not the person's, and carries no approval for anything else.` }
@@ -637,12 +654,12 @@ export async function promptNoticeTick($: any, sid: string, submitsAtStart: numb
     promptCapLogged.add(sid)
     return log($, sid, 'notice-capped', 'prompts')
   }
-  if (dialogOpen.has(sid) || mem.submits !== submitsAtStart) return
+  if (dialogUp(sid) || mem.submits !== submitsAtStart) return
   // A pending request (a compaction that is armed or waiting to resume) or a due nudge has the idle moment first.
   if ((await getRequest($)).value != null || (await getNudgeDue($)).value != null) return
   if ((await idleCheck($, sid)) !== undefined) return
   // Every read is behind us: nothing is awaited between this guard and the submit. A request the mid-turn path told meanwhile is not told again.
-  if (dialogOpen.has(sid) || mem.submits !== submitsAtStart) return
+  if (dialogUp(sid) || mem.submits !== submitsAtStart) return
   const owed = mine.filter((id) => told.get(id) === -1)
   if (owed.length === 0) return
   for (const id of owed) told.set(id, 0)

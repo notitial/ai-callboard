@@ -13,7 +13,7 @@ import { getRequest } from '../state.ts'
 import { ownOwner } from './lead-records.ts'
 import { levelSave } from './levels.ts'
 import { reportTargetOf, retireReportCheck } from './lanes.ts'
-import { grants, dialogOpen } from '../mem.ts'
+import { grants, dialogUp } from '../mem.ts'
 
 export type LeadCueCtx = {
   now: number
@@ -50,7 +50,7 @@ export async function leadCue($: any, sid: string, cue: c.Cue, x: LeadCueCtx) {
   const blocked = await idleCheck($, sid, reg)
   if (blocked) return hold(blocked)
   // A turn submitted while a callboard dialog of this session is open could close it before the person answers: the cue waits, as for a busy session.
-  if (dialogOpen.has(sid)) return hold('dialog-open')
+  if (dialogUp(sid)) return hold('dialog-open')
   const name = c.leadNameOf(live.map((r) => r.j), sid) ?? (owner ? own.rec.rec.name : undefined)
   if (name === undefined) return refuse('lead-unnamed')
   const capped = c.resumeAllowed(await counts($), now)
