@@ -8,7 +8,7 @@ const dones = () => submitted.filter((t) => t.startsWith('[callboard] Signed don
 const GONE_TOAST = 'Lane API: session ended, report not signed done.'
 const sign = (sid: string, mtimeSec = T0 / 1000, more = '') => (h.reportFile = { text: `notes${more}\nstatus: done ${sid}\n`, mtimeSec })
 
-test('signed done: an idle lane that signed its report is told to its lead once, within minutes and not after 20; no check-in for it', async ($, on) => {
+longTest('signed done: an idle lane that signed its report is told to its lead once, within minutes and not after 20; no check-in for it', async ($, on) => {
   const stdins: string[] = []
   await ckLead($, on, stdins)
   sign(OTHER)

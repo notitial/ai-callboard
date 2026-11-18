@@ -42,7 +42,7 @@
 //   go-read    id, by (the reading session), code (listed | later), lane? (the reader's name: a lane's, or a lead's under a conductor's go)   a covered session read the go from go_status for the first time; written before the go is reported
 // The go files (--goes, default the go folder beside the prompts folder; read only, each file whole) are checked against the go-grant rows (rule j), and each go is
 // listed with its tier, its text, the leads a conductor's go file lists and the sessions that read it. A lead's go file is `v: 1`, a conductor's `v: 2`; rule j reads both.
-//   pr-watch   code (new | renew | expired | lost | merged | closed), lane, target (owner/repo#number)   a lane's PR tracking began, was renewed or ended (ADR 0010)
+//   pr-watch   code (new | renew | expired | lost | merged | closed), lane, target (owner/repo#number)   a lane's, lead's or conductor's PR tracking began, was renewed or ended (ADR 0010)
 //   pr-notice  code (the note's kind), tier (the level of the session told), lane?, target? (owner/repo#number)   one PR note was delivered; no request of its own
 // The lead records (--records, default the lead-records folder beside the prompts folder; read only, each file whole) are checked against the lead-owner rows (rule i).
 //   answered / returned rows of a question's answer carry code: "answer", opt (the chosen option's index, as a string) and lh (the first 16 hex of SHA-256(id + "\n" + label), the label redacted

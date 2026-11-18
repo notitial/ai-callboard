@@ -152,6 +152,7 @@ person; this decision does not depend on it and adds no notice of its own.
 | A subagent's ask | `subagent-denied`, or none | The engine shows its dialog only after the hooks return; a wait would hide it. | With a tier in reach it is denied with a message; else the check-in and the toast |
 | The request file or its ledger row cannot be written | `abandoned hook-failed` | Without the file no tier can read the request, and without the row no decision could pass the ledger check. | The check-in and the toast |
 | No live tier in reach (since 2026-11-17: for 30 minutes, see the note below) | `abandoned no-tier` | There is nobody to ask. | The toast |
+| A lead whose saved grant is not restored yet, and the restore does not come (its tries run out, or 2 minutes of awake time pass) | `not-judgeable lead-restore` | The session is not yet a lead the tiers can judge for; the ask waited for it (see the note below) and nothing was lost by waiting. | The check-in and the toast |
 | Nobody can be asked, or a host answers (the approver is not the person) | none | The prompt is not one a person clicks in the lane's panel. | Nothing is waiting on the person |
 | A question of a shape with no answer form: several questions, multi-select, a `Person` header | `not-judgeable question-…`, then `question-denied question-…` when it is ended | The relay carries one single-choice question with the lane's own labels; `Person` is the lane's own mark. | With a tier in reach it is ended with a message, a `Person` header excepted; else the check-in and the toast |
 
@@ -195,6 +196,20 @@ scoped to one lead (an older stored value: `/callboard escalation` writes `all`)
 found, so with the lead away the ask stays the person's, with no hold, as before. Inside an unattended window a
 lead's own prompt with no tier is still denied at once (ADR 0008), with no hold.*
 
+*2026-11-18: a manager that is compacting stays in the chain.* The person's words: the manager is the top and nothing
+goes beyond it, so it must never drop out. A manager counted as a tier only while its presence file was at most 30
+seconds old, and the mod's own compaction holds its tick for longer, so after 30 seconds a lower tier became the top.
+Now the manager's mod writes the time the compaction began into its own presence file (`compactingAt`) just before it
+starts one, and takes it off where the compaction's mark ends (PostCompact, a refused command, the tick). The chain's one
+read (`promptReachTiers`, the asker's and every tier's) lists a manager whose file is stale only because of that stamp,
+for at most 8 minutes from the stamp and only while the process checks still pass: the registry row, the pid and start
+time, and a `claude` process. A dead, replaced or forged manager still drops out at once, and past 8 minutes it drops out
+as before (the file is pruned at 10). No other reader takes it: cues, `lane_list`, the manager-exists check and the
+unattended turn-on keep the 30 seconds. An ask that finds only the compacting manager is a request from the start, not
+a held `no-tier` dialog. A request a lead had passed up when the manager leaves after 8 minutes waits for it or for
+the 20-minute deny, as it did after any dropout. A compaction the mod did not start does not hold the tick and is not
+stamped.
+
 *2026-11-17: a lead's own question.* It was the person's in the lead's panel (ADR 0004). The person wants never to have
 to open a lead while a conductor is live. While the lead's conductor is live and in reach, a lead's own
 single-choice question with two to four options becomes a request that no tier answers or denies: `prompt_answer`
@@ -205,6 +220,25 @@ lateness: unrelayed, its wait ends at 21 minutes and the card stays in the lead'
 question headed `Person` or of another shape, it stays the person's in the lead, with no hold. It needs `leadAsks` in
 the switch, set by the escalation dialog whose text says so (and in the default): a switch turned on under the
 earlier text keeps a lead's questions the person's until they turn it on again.
+
+*2026-11-18: an ask raised while a lead's saved grant is being restored.* A lead that was resumed after a park has no lead
+grant until the restore lands (a first try at session start, then one per tick, at most 15). An ask raised in that
+window was covered by nobody, left no row and went to the panel, and was never looked at again. Now the ask holds
+beside its dialog until the restore is over, as an ask with no tier does, then goes on as a lead's own ask. It holds
+only for a session whose restore a try has begun past the person's-session check (a headless run never does) and
+that is not waiting on the person for a moved folder, and only under a switch whose scope is `all` (a scoped one
+never covered an unnamed lead). The hold starts after the ask is classified, so the `tool.check` entry, the open
+mark and the click events work as for any ask; a click or the OFF file ends it with no row. When it ends otherwise (a
+grant, the restore over, a moved folder, or 2 minutes of awake time), the switch and the unattended window are read
+again and the coverage with them: a grant (or a lane binding, or the person's own lead grant) carries the ask on; with
+none, one `not-judgeable lead-restore` row is written and the dialog stays the person's, except inside a held
+unattended window, where nobody is there and the ask is denied as a lead's own prompt with nobody above it is (ADR
+0008), with that path's one `abandoned no-tier` row. A lead's own question is never held: it stays the person's, as before, and inside a held window is denied
+at once while the restore is pending. Left open: the same gap for a conductor or manager restore; a panel whose registry row
+lands after the session starts (the first try then ends before it counts as a person's session, so nothing holds
+until the tick's next try); a Yes click on a long tool during the hold, which is read as a click only when the tool
+ends; and the request's clocks, which run from the ask, not from the end of the hold. A try that hangs is not
+waited for more than a minute.
 
 *2026-11-18 ([ADR 0008](0008-unattended-mode.md), amendment on a lead's question):* inside an unattended window a lead's
 own question rises to the manager alone, with no conductor and no `leadAsks`, and the manager may answer it or leave it

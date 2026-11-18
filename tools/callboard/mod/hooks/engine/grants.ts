@@ -8,6 +8,7 @@ import {
   leadGranting,
   presenceText,
   presenceTouchedAt,
+  presenceCompacting,
   conductorHome,
   conductorPresenceKey,
   presenceErrs,
@@ -18,6 +19,7 @@ import {
   laneObs,
   leadObs,
   attnTold,
+  attnWhy,
   attnCapped,
   attnMid,
   attnToasted,
@@ -33,6 +35,7 @@ import {
   doneHold,
   leadSavedAt,
   leadRestorePending,
+  leadRestoring,
   conductorApproved,
   conductorSavedAt,
   conductorRestorePending,
@@ -110,6 +113,7 @@ import {
 } from './store.ts'
 import type { RegRow, Reg } from './store.ts'
 import { ownOwner } from './lead-records.ts'
+import { lockTeam } from './lock-team.ts'
 import { sessionRoot, leadToolsOnce, promptToolsRegister, leadCore, readReport } from './lanes.ts'
 import type { Bound } from './lanes.ts'
 import { interactive, busyAgents, personRow, backgroundShells } from './compaction.ts'
@@ -119,7 +123,8 @@ import { ownerLeave, ownerRename, leadNameHeld } from './lead-records.ts'
 import { goGrantorOff } from './go.ts'
 import { hereGrantOff } from './answer-hook.ts'
 import { toolText } from '../tool-text.ts'
-import { promptHeldSids } from './answer-tiers.ts'
+import { promptHeldSids, promptWhy } from './answer-tiers.ts'
+import type { WhyAsk } from './answer-tiers.ts'
 import { epochOf, heldNo, levelBrief, levelSave } from './levels.ts'
 import { usageDrop, usageSweep } from './usage.ts'
 import { repoIdFor, moveCheck } from './repo-id.ts'
@@ -279,12 +284,14 @@ export function presenceTouch($: any, sid: string): Promise<boolean | void> {
           return false
         }
       }
-      const key = d.key?.(g, home)
+      // The manager's cached text is made from its compaction stamp too, so it is rebuilt whenever the stamp changes (a touch already in flight cannot cache a stale one).
+      const stamp = g.level === 'manager' ? presenceCompacting.get(sid) : undefined
+      const key = g.level === 'manager' ? String(stamp ?? '') : d.key?.(g, home)
       let text = presenceText.get(sid)
       if (text === undefined || (key !== undefined && conductorPresenceKey.get(sid) !== key)) {
         const me = await presenceSelf($, sid)
         if (!me) return false
-        text = c.leadFileText({ sid, ...me, ...d.fields(g, home) } as Parameters<typeof c.leadFileText>[0]) ?? ''
+        text = c.leadFileText({ sid, ...me, ...d.fields(g, home), ...(stamp !== undefined ? { compactingAt: stamp } : {}) } as Parameters<typeof c.leadFileText>[0]) ?? ''
         // The grant may have ended while the registry was read: its file is not written.
         if (grants.get(sid) !== g) return false
         presenceText.set(sid, text)
@@ -332,6 +339,7 @@ export function presenceDue(sid: string, now: number): boolean {
 }
 export function presenceDrop($: any, sid: string) {
   presenceText.delete(sid)
+  presenceCompacting.delete(sid)
   presenceTouchedAt.delete(sid)
   presenceErrs.delete(sid)
   conductorPresenceKey.delete(sid)
@@ -339,6 +347,23 @@ export function presenceDrop($: any, sid: string) {
     const p = await where($)
     if (p) await run($, [RM, '-f', '--', `${p.root}/leads/${sid}.json`])
   })
+}
+
+// The manager's compaction stamp (compactingAt in its presence file), for the prompt tier chain: on, just before the mod starts the manager's compaction, writes the
+// file with the time now, so a manager whose tick is held through the compaction stays a tier for c.MANAGER_COMPACT_GRACE_MS; a failed write is logged and the
+// compaction goes on without it. off, where the compaction ends (cmpClear), drops the stamp in memory at once and leaves the file's rewrite to a touch in the queue,
+// so the PostCompact hook waits for no file work. Nothing for a session that holds no manager grant.
+export async function compactingMark($: any, sid: string, on: boolean) {
+  if (grants.get(sid)?.level !== 'manager') return
+  if (!on) {
+    if (presenceCompacting.delete(sid)) void presenceTouch($, sid).catch(() => undefined)
+    return
+  }
+  const at = await $.clock.now()
+  // The grant may have ended while the clock was read: no stamp is kept for a session that holds none.
+  if (grants.get(sid)?.level !== 'manager') return
+  presenceCompacting.set(sid, at)
+  if ((await presenceTouch($, sid).catch(() => false)) !== true) await log($, sid, 'error', 'compact-presence')
 }
 
 // Resolves true when the saved grant is gone, false when its delete failed (the off and Cancel replies then say lead may come back after a restart).
@@ -363,6 +388,7 @@ export function leadDrop($: any, sid: string): Promise<boolean> {
   laneObs.delete(sid)
   leadObs.delete(sid)
   attnTold.delete(sid)
+  attnWhy.delete(sid)
   attnCapped.delete(sid)
   attnMid.delete(sid)
   attnToasted.delete(sid)
@@ -512,74 +538,84 @@ async function leadRestoreTry($: any, me: string, hint: c.LeadHint): Promise<str
   // reopened panel may come a moment after session.start).
   if (!(await interactive($, me))) return dropped() ? undefined : 'not-interactive'
   if (dropped()) return
-  let cwd: unknown
+  // From here the session is one that will be made lead: an ask it raises waits for that (promptCoverage `pending`), and the tick starts no second try.
+  const began = await $.clock.now()
+  leadRestoring.set(me, began)
   try {
-    cwd = await withTimeout($, sessionRoot($), c.ENGINE_CALL_TIMEOUT_MS)
-  } catch {
-    return 'cwd-unreadable'
-  }
-  if (dropped()) return
-  if (cwd === 'timeout' || typeof cwd !== 'string') return 'cwd-unreadable'
-  if (cwd !== hint.pin) {
-    // A check that could not be made is tried again; a definite no ends the saved grant, its goes and `here`, as for any other folder.
-    const p = await where($)
-    const m = p ? await moveCheck($, hint, cwd, homeOf(p), p.uid) : { again: 'cwd-unreadable' }
-    if (dropped()) return
-    // The question waits for an idle turn: the old folder's goes and conductor tie end now, as at any restore in another folder (`here` stays for the move).
-    if (m === 'match') {
-      void goGrantorOff($, me).catch(() => undefined)
-      await ownerLeave($, me, 'off').catch(() => undefined)
-      return { move: cwd }
-    }
-    if ('again' in m) return m.again
-    void goGrantorOff($, me).catch(() => undefined)
-    await $.store.delete(`${c.LEAD_HINT_PREFIX}${me}`)
-    void hereGrantOff($, me).catch(() => undefined)
-    return void (await end(m.no, 'wrong-folder', hint.pin))
-  }
-  // A lane is never a lead too (the rebind refuses a lead in turn); a read that does not answer counts as a binding.
-  const held = await withTimeout($, getLane($), c.ENGINE_CALL_TIMEOUT_MS)
-  if (dropped()) return
-  if (held === 'timeout' || held?.value != null || laneBinding.has(me)) return void (await end('lane-holder', held === 'timeout' ? 'lane-check-slow' : undefined))
-  // The person granted lead meanwhile: that grant stands.
-  if (leadBusy(me)) return
-  leadGranting.add(me)
-  try {
-    // The same second-lead check as /callboard lead. A refusal ends the try, keeps the key and tells the person. An unreadable session list or a
-    // check that does not answer is tried again from the tick, as a cwd read is; the person is told once the tries run out (leadRestore).
-    const named = await withTimeout($, secondLeadNo($, me, hint.pin), c.ENGINE_CALL_TIMEOUT_MS)
-    if (dropped()) return
-    if (named === 'timeout') return 'lead-check-slow'
-    // A reopened panel's name can land in the registry a few ticks after session.start: a lead with no name yet beside another lead is tried again.
-    if (named === 'registry-unreadable' || named === 'lead-needs-name') return named
-    if (named !== undefined) {
-      await reject(named)
-      return void toast($, c.leadNotRestoredToast(named))
-    }
-    let set: unknown
-    try {
-      set = await withTimeout($, leadToolsOnce($, me), c.ENGINE_CALL_TIMEOUT_MS)
-    } catch {
-      return void (await end('tools'))
-    }
-    // An off or a Cancel while the tools were registering: nothing is granted, and nothing is tried again.
-    if (dropped()) return
-    if (set === 'timeout') return 'tools-timeout'
-    grants.set(me, c.leadGrant(hint.pin))
-    // The token saved before for this pin stands until a read of the folder says otherwise (leadRepoIdSave, below).
-    if (hint.repoId !== undefined) leadRepoId.set(me, { pin: hint.pin, id: hint.repoId })
+    return await (async (): Promise<string | { move: string } | undefined> => {
+      let cwd: unknown
+      try {
+        cwd = await withTimeout($, sessionRoot($), c.ENGINE_CALL_TIMEOUT_MS)
+      } catch {
+        return 'cwd-unreadable'
+      }
+      if (dropped()) return
+      if (cwd === 'timeout' || typeof cwd !== 'string') return 'cwd-unreadable'
+      if (cwd !== hint.pin) {
+        // A check that could not be made is tried again; a definite no ends the saved grant, its goes and `here`, as for any other folder.
+        const p = await where($)
+        const m = p ? await moveCheck($, hint, cwd, homeOf(p), p.uid) : { again: 'cwd-unreadable' }
+        if (dropped()) return
+        // The question waits for an idle turn: the old folder's goes and conductor tie end now, as at any restore in another folder (`here` stays for the move).
+        if (m === 'match') {
+          void goGrantorOff($, me).catch(() => undefined)
+          await ownerLeave($, me, 'off').catch(() => undefined)
+          return { move: cwd }
+        }
+        if ('again' in m) return m.again
+        void goGrantorOff($, me).catch(() => undefined)
+        await $.store.delete(`${c.LEAD_HINT_PREFIX}${me}`)
+        void hereGrantOff($, me).catch(() => undefined)
+        return void (await end(m.no, 'wrong-folder', hint.pin))
+      }
+      // A lane is never a lead too (the rebind refuses a lead in turn); a read that does not answer counts as a binding.
+      const held = await withTimeout($, getLane($), c.ENGINE_CALL_TIMEOUT_MS)
+      if (dropped()) return
+      if (held === 'timeout' || held?.value != null || laneBinding.has(me)) return void (await end('lane-holder', held === 'timeout' ? 'lane-check-slow' : undefined))
+      // The person granted lead meanwhile: that grant stands.
+      if (leadBusy(me)) return
+      leadGranting.add(me)
+      try {
+        // The same second-lead check as /callboard lead. A refusal ends the try, keeps the key and tells the person. An unreadable session list or a
+        // check that does not answer is tried again from the tick, as a cwd read is; the person is told once the tries run out (leadRestore).
+        const named = await withTimeout($, secondLeadNo($, me, hint.pin), c.ENGINE_CALL_TIMEOUT_MS)
+        if (dropped()) return
+        if (named === 'timeout') return 'lead-check-slow'
+        // A reopened panel's name can land in the registry a few ticks after session.start: a lead with no name yet beside another lead is tried again.
+        if (named === 'registry-unreadable' || named === 'lead-needs-name') return named
+        if (named !== undefined) {
+          await reject(named)
+          return void toast($, c.leadNotRestoredToast(named))
+        }
+        let set: unknown
+        try {
+          set = await withTimeout($, leadToolsOnce($, me), c.ENGINE_CALL_TIMEOUT_MS)
+        } catch {
+          return void (await end('tools'))
+        }
+        // An off or a Cancel while the tools were registering: nothing is granted, and nothing is tried again.
+        if (dropped()) return
+        if (set === 'timeout') return 'tools-timeout'
+        grants.set(me, c.leadGrant(hint.pin))
+        // The token saved before for this pin stands until a read of the folder says otherwise (leadRepoIdSave, below).
+        if (hint.repoId !== undefined) leadRepoId.set(me, { pin: hint.pin, id: hint.repoId })
+      } finally {
+        leadGranting.delete(me)
+      }
+      await levelSave($, me, LEAD, hint.pin)
+      // An off or a Cancel during the save: no note, log or toast says lead is on.
+      if (dropped()) return
+      briefed.set(me, LEAD.noteKey(hint.pin))
+      await log($, me, 'lead-restored')
+      toast($, c.leadRestoredToast(hint.pin))
+      await nameGrant($, me)
+      // The grant is made: a failure here is logged, not told as a restore that failed.
+      await leadRepoIdSave($, me, hint.pin).catch(logFail($, me, 'lead-repo-id'))
+    })()
   } finally {
-    leadGranting.delete(me)
+    // A try that ran past the marker's minute may have been followed by another: only its own marker goes.
+    if (leadRestoring.get(me) === began) leadRestoring.delete(me)
   }
-  await levelSave($, me, LEAD, hint.pin)
-  // An off or a Cancel during the save: no note, log or toast says lead is on.
-  if (dropped()) return
-  briefed.set(me, LEAD.noteKey(hint.pin))
-  await log($, me, 'lead-restored')
-  toast($, c.leadRestoredToast(hint.pin))
-  await nameGrant($, me)
-  // The grant is made: a failure here is logged, not told as a restore that failed.
-  await leadRepoIdSave($, me, hint.pin).catch(logFail($, me, 'lead-repo-id'))
 }
 
 // The pin's repo token after a grant (the person's, a conductor's offer, a restore): read, or minted when there is none, and saved with the grant. A check that
@@ -613,7 +649,9 @@ export async function leadRestore($: any, me: string, hint: c.LeadHint, tries: n
     else if (again !== 'not-interactive') toast($, c.notRestoredToast('lead', again))
     return
   }
-  leadRestorePending.set(me, { hint, tries })
+  // Once a try has passed the person's-session check the restore stays live: a later try that misses the check once does not end the hold.
+  const live = again !== 'not-interactive' || leadRestorePending.get(me)?.live === true
+  leadRestorePending.set(me, { hint, tries, ...(live ? { live: true } : {}) })
 }
 
 export const regEntry = (r: RegRow): c.RegEntry => ({ sessionId: r.j.sessionId as string, name: r.j.name, nameSource: r.j.nameSource, entrypoint: r.j.entrypoint, cwd: r.j.cwd, pid: String(r.j.pid) === r.pid ? r.j.pid : undefined, procStart: r.j.procStart, startedAt: r.j.startedAt, status: r.j.status, statusUpdatedAt: r.j.statusUpdatedAt, waitingFor: r.j.waitingFor })
@@ -639,12 +677,13 @@ async function presenceFileOk($: any, p: { uid: number; root: string }, live: Re
 // The same checks, saying how a file failed them: 'no' for a clear no (gone, not a plain file of ours, stale, another level, no
 // registry row, a dead pid, another start time, not claude), 'error' for a check that could not be made (a read that failed or kept changing, a ps that failed).
 // A trust check (presenceFileOk) takes both as no; manager-exists and a manager's stop count 'error' as a file that holds (fail closed).
-export async function presenceCheck($: any, p: { uid: number; root: string }, live: RegRow[], sid: string, want: (f: c.PresenceFile) => boolean): Promise<c.PresenceFile | 'no' | 'error'> {
-  const r = await presenceRead($, p, live, sid, want)
+// grace: a manager's file that went stale during a compaction it stamped (c.compactingGraceOk) still counts; only the prompt tier chain asks for it.
+export async function presenceCheck($: any, p: { uid: number; root: string }, live: RegRow[], sid: string, want: (f: c.PresenceFile) => boolean, grace = false): Promise<c.PresenceFile | 'no' | 'error'> {
+  const r = await presenceRead($, p, live, sid, want, grace)
   if (r === 'error') mem.presenceErrors++
   return r
 }
-async function presenceRead($: any, p: { uid: number; root: string }, live: RegRow[], sid: string, want: (f: c.PresenceFile) => boolean): Promise<c.PresenceFile | 'no' | 'error'> {
+async function presenceRead($: any, p: { uid: number; root: string }, live: RegRow[], sid: string, want: (f: c.PresenceFile) => boolean, grace: boolean): Promise<c.PresenceFile | 'no' | 'error'> {
   const path = `${p.root}/leads/${sid}.json`
   // A lead rewrites its file by renaming a new one into place: a read that met the swap gets one more try.
   let f = await readSmallR($, path, p.uid, c.LEAD_FILE_MAX)
@@ -652,9 +691,13 @@ async function presenceRead($: any, p: { uid: number; root: string }, live: RegR
   // One more read before a failed or changing read counts as 'error', so a passing failure is not a check that failed.
   if (f.state === 'failed' || f.state === 'changed') f = await readSmallR($, path, p.uid, c.LEAD_FILE_MAX)
   if (f.state === 'failed' || f.state === 'changed') return 'error'
-  if (f.state !== 'ok' || !c.leadFileFresh(await $.clock.now(), f.mtimeMs)) return 'no'
+  if (f.state !== 'ok') return 'no'
+  const now = await $.clock.now()
+  const fresh = c.leadFileFresh(now, f.mtimeMs)
+  if (!fresh && !grace) return 'no'
   const lf = c.parsePresenceFile(f.text, sid)
   if (!lf || !want(lf)) return 'no'
+  if (!fresh && !c.compactingGraceOk(lf, f.mtimeMs, now)) return 'no'
   const reg = live.find((e) => e.pid === String(lf.pid) && e.j.sessionId === sid && c.sameStart(e.j.procStart, lf.procStart) && String(e.j.pid) === e.pid)
   if (!reg) return 'no'
   const start = await psOne($, lf.pid, 'lstart=')
@@ -667,10 +710,17 @@ async function presenceRead($: any, p: { uid: number; root: string }, live: RegR
   return lf
 }
 // The fresh presence file names, cut to the fresh ones before the cap (as leadsFor). strict: a list that throws throws, not "none".
-async function freshPresence($: any, p: { root: string }, strict = false): Promise<string[]> {
+// wide: the cut is the compaction grace (and the second a stat rounds down by) instead of 30 s, so a manager's stamped file, stale by then, is listed. The files
+// between the two cuts are leads and conductors that went away and are not pruned yet (ten minutes); each costs one read and is no manager. The cap is the same,
+// and the fresh files come first, so a pile of stale ones never pushes a live manager (or lead) out of it.
+async function freshPresence($: any, p: { root: string }, strict = false, wide = false): Promise<string[]> {
   const now = await $.clock.now()
   const list = (await (strict ? $.fs.list(`${p.root}/leads`) : $.fs.list(`${p.root}/leads`).catch(() => []))) as { name: string; mtimeMs?: number }[]
-  return list.filter((f) => f.name.endsWith('.json') && c.SID_RE.test(f.name.slice(0, -5)) && typeof f.mtimeMs === 'number' && c.leadFileFresh(now, f.mtimeMs)).map((f) => f.name.slice(0, -5)).sort().slice(0, c.LEAD_FILES_MAX)
+  const within = wide ? c.MANAGER_COMPACT_GRACE_MS + 1000 : c.LEAD_FRESH_MS
+  const kept = list.filter((f) => f.name.endsWith('.json') && c.SID_RE.test(f.name.slice(0, -5)) && typeof f.mtimeMs === 'number' && f.mtimeMs <= now && now - f.mtimeMs <= within)
+  const names = (fs: typeof kept) => fs.map((f) => f.name.slice(0, -5)).sort()
+  const fresh = (f: { mtimeMs?: number }) => c.leadFileFresh(now, f.mtimeMs as number)
+  return [...names(kept.filter(fresh)), ...names(kept.filter((f) => !fresh(f)))].slice(0, c.LEAD_FILES_MAX)
 }
 // Every live manager file of another session, each with its registry name if that is a reserved one (c.managerNameOf). manager-exists counts
 // every such file, whatever its name; a lead takes a compact cue only while one with a reserved name is live.
@@ -678,8 +728,10 @@ async function freshPresence($: any, p: { root: string }, strict = false): Promi
 // (fail closed); managerTrusted never does.
 // A leads folder that is there but fails its checks, or whose list throws, is one unverified manager (manager-exists counts it); a missing
 // folder is none.
-export async function managersLive($: any, live: RegRow[], except: string): Promise<{ sid: string; name?: string; unverified?: true }[]> {
-  const d = await presenceNames($)
+// opts.grace: also a manager that is compacting (its file stamped, c.compactingGraceOk); the prompt tier chain's read, nobody else's.
+export async function managersLive($: any, live: RegRow[], except: string, opts: { grace?: boolean } = {}): Promise<{ sid: string; name?: string; unverified?: true }[]> {
+  const grace = opts.grace === true
+  const d = await presenceNames($, grace)
   if (d === 'none') return []
   if (d === 'error') return [{ sid: '', unverified: true }]
   const p = d.p
@@ -687,7 +739,7 @@ export async function managersLive($: any, live: RegRow[], except: string): Prom
   const out: { sid: string; name?: string; unverified?: true }[] = []
   for (const s of d.names) {
     if (s === except) continue
-    const r = await presenceCheck($, p, live, s, (f) => f.level === 'manager')
+    const r = await presenceCheck($, p, live, s, (f) => f.level === 'manager', grace)
     if (r === 'error') out.push({ sid: s, unverified: true })
     else if (r !== 'no') out.push({ sid: s, name: c.managerNameOf(rows, s) })
   }
@@ -748,7 +800,7 @@ export async function presenceHeld($: any, live: RegRow[], sid: string): Promise
 }
 // The fresh presence file names for a check that fails closed: 'none' when the callboard or leads folder is not there,
 // 'error' when one is there but fails dirOk's rules, its stat could not be made, or the list throws.
-async function presenceNames($: any): Promise<{ p: { uid: number; root: string }; names: string[] } | 'none' | 'error'> {
+async function presenceNames($: any, wide = false): Promise<{ p: { uid: number; root: string }; names: string[] } | 'none' | 'error'> {
   const p = await where($)
   if (!p) return 'error'
   for (const dir of [p.root, `${p.root}/leads`]) {
@@ -757,7 +809,7 @@ async function presenceNames($: any): Promise<{ p: { uid: number; root: string }
     if (f === 'error' || f.kind !== 'dir' || f.uid !== p.uid || f.mode !== 0o700) return 'error'
   }
   try {
-    return { p, names: await freshPresence($, p, true) }
+    return { p, names: await freshPresence($, p, true, wide) }
   } catch {
     return 'error'
   }
@@ -1179,6 +1231,34 @@ function promptToast($: any, sid: string, prompts: c.AttentionItem[], all: c.Att
   for (const i of fresh) toasted.add(c.checkinKey(i))
   if (text !== undefined) toast($, text)
 }
+// The reason a check-in gives for a waiting prompt (c.WhyCode): read once per check-in key, when the prompt first goes out, and kept: 10 minutes when it was found, 5
+// when nothing could be told (a read that failed). A key that leaves the observation leaves the memory. Set on the item itself, so the text beside a tool result
+// (attnMid keeps the same items) carries it. `ask` names what the ledger and the registry know of the lane or lead; undefined: no reason is asked for it.
+const WHY_KEEP_MS = 10 * 60_000
+const WHY_RETRY_MS = 5 * 60_000
+async function attachWhy($: any, sid: string, items: c.AttentionItem[], all: c.AttentionItem[], now: number, ask: (lane: string) => Omit<WhyAsk, 'key'> | undefined) {
+  const cache = attnWhy.get(sid) ?? new Map<string, { why?: c.WhyCode; tried: number }>()
+  attnWhy.set(sid, cache)
+  const keys = new Set(all.map(c.checkinKey))
+  for (const k of cache.keys()) if (!keys.has(k)) cache.delete(k)
+  const asks: WhyAsk[] = []
+  for (const i of items) {
+    if (i.code !== 'prompt') continue
+    const k = c.checkinKey(i)
+    const e = cache.get(k)
+    if (e && e.tried <= now && now - e.tried < (e.why !== undefined ? WHY_KEEP_MS : WHY_RETRY_MS)) continue
+    const a = ask(i.lane)
+    if (a) asks.push({ key: k, ...a })
+  }
+  if (asks.length > 0) {
+    const found = await promptWhy($, asks)
+    for (const a of asks) cache.set(a.key, { ...(found?.get(a.key) !== undefined ? { why: found.get(a.key) } : {}), tried: now })
+  }
+  for (const i of items) {
+    const w = i.code === 'prompt' ? cache.get(c.checkinKey(i))?.why : undefined
+    if (w !== undefined) i.why = w
+  }
+}
 export async function checkinTick($: any, sid: string, submitsAtStart: number) {
   if (grants.get(sid)?.level === 'conductor') return conductorCheckin($, sid, submitsAtStart)
   const now = await $.clock.now()
@@ -1219,6 +1299,22 @@ export async function checkinTick($: any, sid: string, submitsAtStart: number) {
     }
     obs.set(l.name, c.observeLane(prev.get(l.name), l, entries, sid, now))
   }
+  // The workspace lock's owned team, when this lead owns it: a lane that holds a turn the owner may now free (ended, or past its ETA and grace) is owed a notice.
+  // A read that fails keeps what was seen of the lane, so a flaky read neither tells again nor drops the told mark; no team, or no turn, clears it.
+  const pin = base.g.level === 'lead' && obs.size > 0 ? pinOf(sid) : undefined
+  if (pin !== undefined) {
+    const team = await lockTeam($, pin, sid)
+    for (const [name, o] of obs) {
+      const lane = base.lanes.find((l) => l.name === name)
+      const was = prev.get(name)?.turn
+      delete o.turn
+      if (team === 'error' || (team !== undefined && team.owner === sid && team.turn === 'error')) {
+        if (was !== undefined) o.turn = was
+      } else if (team !== undefined && team.owner === sid && team.turn !== undefined && (o.sid ?? lane?.sid) === team.turn.sid && c.lockTurnFreeable(team.turn, now)) {
+        o.turn = { since: team.turn.takenAt }
+      }
+    }
+  }
   // The repo reads above wait: an off or a re-grant meanwhile has cleared this grant's memory, and the observations are not written back over it.
   if (epochOf(sid) !== ep) return
   laneObs.set(sid, obs)
@@ -1229,6 +1325,14 @@ export async function checkinTick($: any, sid: string, submitsAtStart: number) {
   const { told, owed } = owedItems(sid, items, c.checkinSkipHeld(items, held, (l) => obs.get(l)?.sid))
   const gate = owed.length === 0 ? 'off' : await checkinGates($, sid, now)
   const due = gate === 'off' ? [] : c.checkinDueItems(owed, gate === 'all')
+  if (due.length > 0) {
+    await attachWhy($, sid, owed, items, now, (lane) => {
+      const l = base.lanes.find((x) => x.name === lane)
+      const at = obs.get(lane)?.at
+      return l && at !== undefined ? { names: [l.name], dirs: [l.folder, ...(l.repo ? [l.repo] : [])], scopeNames: [...(l.leadName !== undefined ? [l.leadName] : []), ...(base.g.level === 'lead' ? [base.g.name] : [])], scopeKnown: l.leadName !== undefined || base.g.level === 'lead', at } : undefined
+    })
+    if (epochOf(sid) !== ep) return
+  }
   // The manager is told only of lanes no live lead reaches, by leadHere's rule (a lane naming its lead: a live
   // lead of its repo with that registry name; a legacy lane: any live lead of its repo). The leads of a repo are read at most once per evaluation. A lane a lead
   // reaches is left untold, so it is told once its lead is gone. The filter runs right after the timing gates, before the notice's own gate
@@ -1266,7 +1370,7 @@ export async function checkinTick($: any, sid: string, submitsAtStart: number) {
     const send: c.AttentionItem[] = []
     for (const i of items) {
       const l = base.lanes.find((x) => x.name === i.lane)
-      if (i.code !== 'prompt' && l) {
+      if (i.code !== 'prompt' && i.code !== 'turn' && l) {
         const r = await readReport($, l).catch(() => ({ no: 'report-read' }))
         // A lane signed done is told as done: its report is not read again while the condition holds.
         if (!('no' in r) && c.reportSigned(r.text, i.code === 'quiet' ? (obs.get(i.lane)?.sid ?? '') : l.sid)) {
@@ -1323,6 +1427,17 @@ async function conductorCheckin($: any, sid: string, submitsAtStart: number) {
   const { owed: all } = owedItems(sid, items, c.checkinSkipHeld(items, held, (l) => obs.get(l)?.sid))
   const gate = all.length === 0 ? 'off' : await checkinGates($, sid, now)
   const due = gate === 'off' ? [] : c.checkinDueItems(all, gate === 'all')
+  if (due.length > 0) {
+    const regRows = base.live.map((r) => r.j)
+    await attachWhy($, sid, all, items, now, (lane) => {
+      const at = obs.get(lane)?.at
+      const r = repos.get(lane)
+      if (at === undefined || !r) return undefined
+      const reg = c.leadNameOf(regRows, r.sid)
+      return { names: [lane, ...(reg ? [reg] : [])], dirs: [r.repo], scopeNames: [], scopeKnown: true, at }
+    })
+    if (epochOf(sid) !== ep) return
+  }
   // The gate reads wait: an off or a re-grant meanwhile has cleared this grant's memory.
   if (epochOf(sid) !== ep) return
   promptToast($, sid, items, items, 'Lead')

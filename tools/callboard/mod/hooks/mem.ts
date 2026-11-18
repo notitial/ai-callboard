@@ -128,8 +128,10 @@ export const presenceTouchedAt = new Map<string, number>()
 export const badStoreSeen = new Map<string, string>()
 
 export const presenceErrs = new Map<string, { n: number; at: number }>()
-// What a conductor's cached presence text was made from (its repo, name and pins).
+// What a conductor's or the manager's cached presence text was made from (a conductor's repo, name and pins; the manager's compaction stamp).
 export const conductorPresenceKey = new Map<string, string>()
+// When the manager's compaction began (ms), per session, while one runs. It is in memory only: a restart drops the presence file with it.
+export const presenceCompacting = new Map<string, number>()
 
 // The lead grant ends: the tools stay declared and refuse, the presence file goes, the lane-list watch stops.
 // Bumped by every leadDrop. A lead restore or a save of the grant that awaited across a drop sees the change and does nothing more, so an
@@ -144,8 +146,17 @@ export const leadRepoId = new Map<string, { pin: string; id: string }>()
 
 // move: the session's folder, when the saved grant's folder is gone and this one holds the same repo token; the tick then asks the person (leadMoveAsk).
 // asking: that question is on screen.
-export type LeadPending = { hint: c.LeadHint; tries: number; move?: string; asking?: boolean }
+// live: a try got past the person's-session check, so the session is one that will be made lead (an ask it raises waits for that, ADR 0011).
+export type LeadPending = { hint: c.LeadHint; tries: number; move?: string; asking?: boolean; live?: boolean }
 export const leadRestorePending = new Map<string, LeadPending>()
+// A lead restore try is running past the person's-session check (the start time, ms): set for the whole try (grants.ts leadRestoreTry), so no second try starts and an ask raised meanwhile waits.
+export const leadRestoring = new Map<string, number>()
+// A marker older than this is a try that hung: it holds nobody and blocks no retry.
+export const RESTORE_TRY_MS = 60_000
+export const restoreTrying = (sid: string, now: number): boolean => {
+  const t = leadRestoring.get(sid)
+  return t !== undefined && now - t < RESTORE_TRY_MS
+}
 
 // The cut-compaction mark (c.CMP_PREFIX). cmpMarked: this load wrote the mark, so the tick clears it once the request has left `compacting`.
 // cmpCutPending: a fresh mark found at start with no request left in $.state; the tick gives the note once the session counts as a person's.
@@ -265,6 +276,8 @@ export const laneObs = new Map<string, Map<string, c.LaneObs>>()
 export const leadObs = new Map<string, Map<string, c.LaneObs>>()
 export const obsAt = new Map<string, number>()
 export const attnTold = new Map<string, Set<string>>()
+// The reason a check-in gave for a waiting prompt, by check-in key, read once and kept (tried: when); gone with the key (checkin-why.ts).
+export const attnWhy = new Map<string, Map<string, { why?: c.WhyCode; tried: number }>>()
 export const attnCapped = new Set<string>()
 // The waiting prompts the last observation left owed (at: its time), for the hook that tells a busy session in the middle of its turn (checkinMidTurn).
 export const attnMid = new Map<string, { at: number; items: c.AttentionItem[]; render: (items: c.AttentionItem[]) => string | undefined; label: string }>()
