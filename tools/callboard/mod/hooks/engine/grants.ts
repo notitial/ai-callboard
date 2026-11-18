@@ -109,6 +109,7 @@ import {
 } from './store.ts'
 import type { RegRow, Reg } from './store.ts'
 import { ownOwner } from './lead-records.ts'
+import { lockTeam } from './lock-team.ts'
 import { sessionRoot, leadToolsOnce, promptToolsRegister, leadCore, readReport } from './lanes.ts'
 import type { Bound } from './lanes.ts'
 import { interactive, busyAgents, personRow, backgroundShells } from './compaction.ts'
@@ -1217,6 +1218,22 @@ export async function checkinTick($: any, sid: string, submitsAtStart: number) {
     }
     obs.set(l.name, c.observeLane(prev.get(l.name), l, entries, sid, now))
   }
+  // The workspace lock's owned team, when this lead owns it: a lane that holds a turn the owner may now free (ended, or past its ETA and grace) is owed a notice.
+  // A read that fails keeps what was seen of the lane, so a flaky read neither tells again nor drops the told mark; no team, or no turn, clears it.
+  const pin = base.g.level === 'lead' ? pinOf(sid) : undefined
+  const team = pin === undefined ? undefined : await lockTeam($, pin)
+  if (team !== undefined) {
+    for (const [name, o] of obs) {
+      const lane = base.lanes.find((l) => l.name === name)
+      const was = prev.get(name)?.turn
+      delete o.turn
+      if (team === 'error' || (team.owner === sid && team.turn === 'error')) {
+        if (was !== undefined) o.turn = was
+      } else if (team.owner === sid && team.turn !== undefined && (o.sid ?? lane?.sid) === team.turn.sid && c.lockTurnFreeable(team.turn, now)) {
+        o.turn = { since: team.turn.takenAt }
+      }
+    }
+  }
   // The repo reads above wait: an off or a re-grant meanwhile has cleared this grant's memory, and the observations are not written back over it.
   if (epochOf(sid) !== ep) return
   laneObs.set(sid, obs)
@@ -1264,7 +1281,7 @@ export async function checkinTick($: any, sid: string, submitsAtStart: number) {
     const send: c.AttentionItem[] = []
     for (const i of items) {
       const l = base.lanes.find((x) => x.name === i.lane)
-      if (i.code !== 'prompt' && l) {
+      if (i.code !== 'prompt' && i.code !== 'turn' && l) {
         const r = await readReport($, l).catch(() => ({ no: 'report-read' }))
         // A lane signed done is told as done: its report is not read again while the condition holds.
         if (!('no' in r) && c.reportSigned(r.text, i.code === 'quiet' ? (obs.get(i.lane)?.sid ?? '') : l.sid)) {

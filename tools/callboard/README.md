@@ -107,6 +107,14 @@ caller.
    conductor grant is refused for good at a restart; taking a repo off the conductor's list does not end
    it, and a lead or lane it held at the click keeps it until then, also if that lead leaves the conductor. The
    manager gives no go.
+8. In a repo that arms the workspace lock (a `.workspace-lock/` folder), a lead takes one owned team for all its
+   lanes (`acquire --owned`), so the lanes take turns instead of each taking the lock. Callboard only reads it and
+   never takes, gives, clears or writes it: a lane's brief names the team its lead holds, `lane_open` prints the
+   lead's own `member add` call for the new lane, `lane_list` gains a Lock column (the team on the lead's row;
+   member or not, and the turn's age, on each lane), and a lane that holds a turn the lead may now free (its session
+   ended, or its ETA and last heartbeat are older than the lock's 30 minute grace) is put in front of the lead like
+   a gone lane. You arm the repo once: the toolkit needs the lock script allowed in the repo's
+   `.claude/settings.local.json`, or each lock call stops at a permission prompt. Callboard writes no settings.
 8. Before you leave the Mac for hours, type `/callboard unattended 8h` (or `/unattended 8h`; a span such as `1h`,
    `45m` or `90m`, or a time such as `17:30`; from 30 minutes to 14 hours; `on`, `on for N h` and `on until HH:MM`
    work too, and a bare `on` is 8 hours), with a manager live, escalation on for everything and check-ins on. A short dialog says
