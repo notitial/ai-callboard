@@ -799,13 +799,13 @@ test('recOk: a missing hash is never accepted', () => {
 })
 
 test('every refusal code of the wording table has text, and the lead sees code and text', () => {
-  const codes = ['rate-limit', 'no-request', 'context-floor', 'not-idle', 'draft-in-box', 'background-work', 'start-done', 'not-empty', 'too-old', 'record-changed', 'wrong-folder', 'not-bound', 'not-eligible', 'brief-file', 'brief-path', 'unknown-lane', 'name-in-use', 'user-named', 'already-bound', 'stale', 'grammar', 'other', 'other-repo', 'brief-chars', 'brief-missing', 'brief-outside', 'bind-turns-mismatch', 'registry-unreadable', 'submit-failed', 'timeout', 'cue-busy', 'report-stale', 'report-unknown', 'report-not-done', 'report-missing', 'report-file', 'report-path', 'report-old', 'report-no-start', 'session-changed', 'session-duplicate', 'background-unknown', 'bad-task', 'brief-path-long', 'brief-exists', 'archive-unsafe', 'brief-write', 'abandoned']
+  const codes = ['rate-limit', 'no-request', 'context-floor', 'not-idle', 'draft-in-box', 'dialog-open', 'background-work', 'start-done', 'not-empty', 'too-old', 'record-changed', 'wrong-folder', 'not-bound', 'not-eligible', 'brief-file', 'brief-path', 'unknown-lane', 'name-in-use', 'user-named', 'already-bound', 'stale', 'grammar', 'other', 'other-repo', 'brief-chars', 'brief-missing', 'brief-outside', 'bind-turns-mismatch', 'registry-unreadable', 'submit-failed', 'timeout', 'cue-busy', 'report-stale', 'report-unknown', 'report-not-done', 'report-missing', 'report-file', 'report-path', 'report-old', 'report-no-start', 'session-changed', 'session-duplicate', 'background-unknown', 'bad-task', 'brief-path-long', 'brief-exists', 'archive-unsafe', 'brief-write', 'abandoned']
   for (const code of codes) {
     assert.equal(c.hasText(code), true, code)
     assert.ok(c.REASON_TEXT[code].length > 10, code)
     assert.equal(c.reasonWhy(code), `${code}: ${c.REASON_TEXT[code]}`)
   }
-  for (const code of ['not-idle', 'draft-in-box', 'rate-limit', 'cue-busy', 'background-work', 'report-stale', 'report-unknown', 'report-not-done', 'report-old', 'session-changed']) assert.match(c.REASON_TEXT[code], /[Rr]etry/, code)
+  for (const code of ['not-idle', 'draft-in-box', 'dialog-open', 'rate-limit', 'cue-busy', 'background-work', 'report-stale', 'report-unknown', 'report-not-done', 'report-old', 'session-changed']) assert.match(c.REASON_TEXT[code], /[Rr]etry/, code)
   assert.match(c.REASON_TEXT['report-stale'], /not newer than the lane's last turn.*sign again/)
   assert.match(c.REASON_TEXT['report-unknown'], /no prompt seen since callboard loaded.*take a prompt and sign again/)
   assert.match(c.REASON_TEXT['session-changed'], /No signal was sent/)
@@ -1193,6 +1193,38 @@ test('inReach: a lead by its one pin, a conductor by any of its pins, a manager 
   assert.deepEqual(reach({ level: 'conductor', pins: ['/w/repo', '/x'], name: '' }), [], 'a conductor that owns nothing reaches nothing')
   assert.deepEqual(reach({ level: 'manager', pins: [], name: '' }), ['R', 'M', 'O'])
   assert.deepEqual(reach({ level: 'nobody' as c.Level, pins: ['/w/repo'], name: '' }), [], 'an unknown level reaches nothing')
+})
+
+test('a manager presence file carries compactingAt only for a manager, an integer; leadFileText writes it only when given', () => {
+  const base = { sid: LEAD, pid: 4242, procStart: 'Tue Oct 27 20:37:50 2026' }
+  const p = (o: Record<string, unknown>) => c.parsePresenceFile(JSON.stringify({ ...base, ...o }), LEAD)
+  assert.deepEqual(p({ level: 'manager', name: 'HARBOR', compactingAt: 5000 }), { ...base, level: 'manager', name: 'HARBOR', compactingAt: 5000 })
+  assert.deepEqual(p({ level: 'manager', name: 'HARBOR' }), { ...base, level: 'manager', name: 'HARBOR' }, 'no stamp, no field')
+  for (const bad of [{ level: 'manager', compactingAt: 1.5 }, { level: 'manager', compactingAt: '5' }, { level: 'manager', compactingAt: -1 }, { level: 'conductor', repos: ['/w/a'], home: '/w/c', compactingAt: 5 }, { repo: '/w/a', compactingAt: 5 }]) assert.equal(p(bad), undefined, JSON.stringify(bad))
+  const m = { ...base, level: 'manager' as const, name: 'HARBOR' }
+  assert.deepEqual(JSON.parse(c.leadFileText(m)!), m)
+  assert.deepEqual(JSON.parse(c.leadFileText({ ...m, compactingAt: 5000 })!), { ...m, compactingAt: 5000 })
+})
+
+test('a stale manager file counts while it compacts: stamped, not from the future, at most the grace old, and never a lead or conductor', () => {
+  const base = { sid: LEAD, pid: 4242, procStart: 'x' }
+  const mgr = (compactingAt?: number): c.PresenceFile => ({ ...base, level: 'manager', ...(compactingAt !== undefined ? { compactingAt } : {}) })
+  const now = 1_000_000_000
+  const stale = now - 60_000
+  assert.equal(c.compactingGraceOk(mgr(stale), stale, now), true)
+  assert.equal(c.compactingGraceOk(mgr(now - c.MANAGER_COMPACT_GRACE_MS), now - 100_000, now), true, 'the last millisecond of the grace')
+  assert.equal(c.compactingGraceOk(mgr(now - c.MANAGER_COMPACT_GRACE_MS - 1), now - 100_000, now), false, 'one millisecond later it is over')
+  assert.equal(c.compactingGraceOk(mgr(), stale, now), false, 'no stamp')
+  assert.equal(c.compactingGraceOk(mgr(now + 1), stale, now), false, 'a stamp from the future')
+  assert.equal(c.compactingGraceOk(mgr(stale), now + 1, now), false, 'a file written in the future')
+  assert.equal(c.compactingGraceOk(mgr(stale), now - c.LEAD_FRESH_MS, now), false, 'a fresh file is not the grace\'s business')
+  assert.equal(c.compactingGraceOk(mgr(stale + 700), stale - 700, now), true, 'the stamp is not compared with the whole-second mtime')
+  assert.equal(c.compactingGraceOk({ ...base, level: 'lead', repo: '/w/a' }, stale, now), false)
+  assert.equal(c.compactingGraceOk({ ...base, level: 'conductor', repos: ['/w/a'], home: '/w/c' }, stale, now), false)
+})
+
+test('the compaction grace ends before presencePrune could remove the file, with the second a stat rounds down by and the freshness window to spare', () => {
+  assert.ok(c.MANAGER_COMPACT_GRACE_MS + 1000 + c.LEAD_FRESH_MS < c.LEAD_PRUNE_MS)
 })
 
 test('a presence file is fresh for 30 seconds and never from the future', () => {
@@ -4112,4 +4144,17 @@ test('laneListText: the Lock column keeps every row the head width in the manage
   assert.ok(text[0].includes('| Conductor |') && text[0].endsWith('| Waiting | Lock |'))
   assert.ok(text.every((r) => r.split('|').length === text[0].split('|').length), 'every row has the head width')
   assert.ok(text.some((r) => r.includes('C2') && r.includes('–')), 'the empty conductor row is drawn')
+})
+
+test('the mod dialog key: header and question of a call with one question; any other shape has none', () => {
+  assert.equal(c.ownDialogKey('Go', 'Give a go?'), '["Go","Give a go?"]')
+  assert.equal(c.questionCallKey({ questions: [{ header: 'Go', question: 'Give a go?', options: [{ label: 'Cancel' }, { label: 'Give go' }] }] }), c.ownDialogKey('Go', 'Give a go?'))
+  // A newline in the header or the question cannot make another dialog's key.
+  assert.notEqual(c.ownDialogKey('Go\nA', 'B'), c.ownDialogKey('Go', 'A\nB'))
+  assert.equal(c.questionCallKey({ questions: [{ header: 'Go', question: 'A?' }, { header: 'Go', question: 'B?' }] }), undefined)
+  assert.equal(c.questionCallKey({ questions: [{ question: 'A?' }] }), undefined)
+  assert.equal(c.questionCallKey({ questions: [{ header: 'Go', question: 5 }] }), undefined)
+  assert.equal(c.questionCallKey({ questions: [] }), undefined)
+  assert.equal(c.questionCallKey(null), undefined)
+  assert.equal(c.questionCallKey({ questions: [null] }), undefined)
 })

@@ -1,8 +1,8 @@
 import { expect, test } from 'claude-code/testing'
-import { NOTE_END, orderText, COMPACT_START_TOAST, COMPACT_CANCELLED_TOAST, mergeCounters, requestExpired, ON_CUE_TTL_MS, RESUME_PER_HOUR, STOPPABLE_BY_NAME, RESTORE_YES, nudgeText, COMPACT_CUT_NOTE } from '../hooks/core'
+import { NOTE_END, orderText, COMPACT_START_TOAST, COMPACT_CANCELLED_TOAST, mergeCounters, requestExpired, ON_CUE_TTL_MS, RESUME_PER_HOUR, STOPPABLE_BY_NAME, RESTORE_YES, nudgeText, COMPACT_CUT_NOTE, compactSkippedToast } from '../hooks/core'
 import { h, GOOD, NO, SID, T0, YES, laneSeed, longTest, resultFiles, seen, submitted, toasts } from './harness'
 import type { Trace } from './harness'
-import { LANES, MIN, NOW, OTHER, REG, REGFILE, RESULT, STATUS_NONE, TURN, allEvents, armNow, ckLead, cue, events, idleFor, lane, leadCall, leadSelfReg, logged, newTrace, nudges, person, renameThroughTick, retireTarget, started, ticks } from './fixtures'
+import { LANES, MIN, NOW, OTHER, REG, REGFILE, RESULT, STATUS_NONE, TURN, allEvents, armNow, ckLead, cue, events, idleFor, lane, leadCall, leadSelfReg, logged, newTrace, nudges, person, renameThroughTick, retireTarget, started, ticks, waitFor } from './fixtures'
 
 test('request_compact is refused for a subagent and for invalid input', async ($, on) => {
   await started($, on, [])
@@ -333,6 +333,24 @@ test('a background-work notice goes out at most 3 times an hour', async ($, on) 
   }
   expect(submitted.filter((t) => t.startsWith('[compact-cue] Compaction did not run (background-work)')).length).toBe(3)
   expect(allEvents(stdins).map((e) => `${e.event}:${e.reason}`)).toContain('notice-capped:background-work')
+})
+
+test('a refused compaction gives a toast, not a notice turn, while a callboard dialog of the session is open', async ($, on) => {
+  await started($, on, [], { clock: true })
+  h.agentsNow = [{ status: 'running' }]
+  let release: (a: string) => void = () => undefined
+  h.askHang = new Promise<string>((r) => (release = r))
+  const n = h.askCount
+  const open = $.command.run(lane('lead', { kind: 'plugin', name: 'x' }))
+  await waitFor(() => h.askCount !== n)
+  await $.tool.call({ ...GOOD, mode: 'now' } as any)
+  await $.turn.complete(TURN as any)
+  await h.clock!.advance(2000)
+  expect(submitted.filter((t) => t.startsWith('[compact-cue] Compaction did not run (background-work)'))).toEqual([])
+  expect(toasts).toContain(compactSkippedToast('background-work'))
+  release(NO)
+  h.askHang = undefined
+  await open
 })
 
 longTest('a compaction that starts but never confirms is cleared after 15 minutes with one notice that says it may have run', async ($, on) => {

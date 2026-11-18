@@ -1498,3 +1498,60 @@ test('manager silent restore: the saved grant is rewritten every 5 minutes while
   await h.clock!.advance(2000)
   await waitFor(() => (h.store.get(MGRKEY) as { savedAt: number }).savedAt === T0 + 2 * MANAGER_REFRESH_MS)
 })
+
+test('manager: another manager\'s file that went stale while it compacts (stamped) is no manager for manager-exists: the compaction grace belongs to the prompt chain alone', async ($, on) => {
+  const stale = JSON.stringify({ sid: OTHERLEAD, pid: 4243, procStart: LEADPS, level: 'manager', name: 'MANAGER', compactingAt: T0 - 60_000 })
+  const r = await mgrAt($, on, [], { sess: { ...MGR_SESS(), ...mgrRow() }, seed: () => leadFiles.set(OTHERMGR, { text: stale, mtimeSec: Math.floor((T0 - 120_000) / 1000) }) })
+  expect(r.text).toBe(MANAGER_ON_TEXT)
+})
+
+// ---- a manager that compacts stamps its presence file: the prompt tier chain keeps it for the compaction's length (writer side; the reader is in answer-tiers.test.ts) ----
+const stamped = () => (JSON.parse(leadFiles.get(SELFPATH)!.text) as { compactingAt?: number }).compactingAt
+
+longTest('manager: its compaction stamps its presence file before the engine compacts; the ticks that resume keep the same stamp; PostCompact takes it off', async ($, on) => {
+  on('classic.PostCompact', () => ({}))
+  await mgrAt($, on, [], { clock: true })
+  expect(stamped()).toBeUndefined()
+  h.compactHangs = true
+  let atCompact: number | undefined
+  h.onCompact = () => void (atCompact = stamped())
+  const before = h.nowMs
+  await $.tool.call({ ...GOOD, mode: 'now' } as any)
+  await $.turn.complete(TURN as any)
+  await h.clock!.advance(2000)
+  expect(seen.compacted).toBe(true)
+  // Written before the engine was asked to compact.
+  expect(atCompact).toBeGreaterThanOrEqual(before)
+  expect(atCompact).toBeLessThanOrEqual(h.nowMs)
+  const mtime = leadFiles.get(SELFPATH)!.mtimeSec!
+  // The compaction holds the tick for the action timeout; the ticks after it rewrite the file with the same stamp (the time the compaction began, not of the write).
+  await h.clock!.advance(70_000)
+  expect(stamped()).toBe(atCompact)
+  expect(leadFiles.get(SELFPATH)!.mtimeSec!).toBeGreaterThan(mtime)
+  await ($ as any).classic.PostCompact({ hook_event_name: 'PostCompact', trigger: 'manual', compact_summary: 's' })
+  await h.clock!.advance(2000)
+  expect(stamped()).toBeUndefined()
+  expect(JSON.parse(leadFiles.get(SELFPATH)!.text)).toEqual({ sid: SID, pid: 4400, procStart: LEADPS, level: 'manager', name: 'MANAGER' })
+})
+
+test('manager: a compaction the engine refuses had a stamp when it was asked and has none by the end of the same tick', async ($, on) => {
+  await mgrAt($, on, [], { clock: true })
+  h.compactThrows = true
+  let atCompact: number | undefined
+  h.onCompact = () => void (atCompact = stamped())
+  await $.tool.call({ ...GOOD, mode: 'now' } as any)
+  await $.turn.complete(TURN as any)
+  await h.clock!.advance(2000)
+  expect(atCompact).toBeDefined()
+  expect(stamped()).toBeUndefined()
+})
+
+test('manager: a session that is no manager writes no stamp for its compaction, and a lead\'s file never carries one', async ($, on) => {
+  await leadAt($, on, [], { clock: true })
+  h.compactHangs = true
+  await $.tool.call({ ...GOOD, mode: 'now' } as any)
+  await $.turn.complete(TURN as any)
+  await h.clock!.advance(4000)
+  expect(seen.compacted).toBe(true)
+  expect(JSON.parse(leadFiles.get(SELFPATH)!.text)).not.toHaveProperty('compactingAt')
+})

@@ -1568,6 +1568,7 @@ export const REASON_TEXT: Record<string, string> = {
   'context-floor': `context is below ${MIN_CONTEXT_TOKENS / 1000}k tokens, so it may not compact.`,
   'not-idle': 'the session is busy or waiting for the person. Retry once idle.',
   'draft-in-box': 'the person has a draft in that prompt box. Retry after it is sent or cleared.',
+  'dialog-open': 'a callboard dialog is open in that session, waiting for the person. Retry after they answer it.',
   'background-work': 'a background agent or shell is still running in the session. Retry once it finishes.',
   'background-unknown': 'the lane could not check for background work. Retry later; lane_terminate asks the person.',
   'report-stale': 'the report is not newer than the lane\'s last turn. It must sign again by appending a done line, then retry.',
@@ -2260,7 +2261,10 @@ export function noticeReach(g: Grant, l: Lane, mySid: string, ownLeadLive: boole
 // sid in it. A file without level is a lead's from before the levels plan, and reads as one for one release.
 export const LEAD_FILE_MAX = 4096
 export const LEAD_FILES_MAX = 64
-const LEAD_FRESH_MS = 30_000
+export const LEAD_FRESH_MS = 30_000
+// How long a manager that is compacting stays a tier of the prompt chain after its file went stale, counted from its compactingAt stamp. It stays under
+// LEAD_PRUNE_MS by more than the second a stat rounds a time down by and LEAD_FRESH_MS, so presencePrune never removes the file inside it.
+export const MANAGER_COMPACT_GRACE_MS = 8 * 60_000
 // How often a running lead rewrites its presence file (well inside LEAD_FRESH_MS, so a tick or two of delay never reads as stale) and how often a session
 // sweeps the folder for files nobody has written for LEAD_PRUNE_MS.
 export const PRESENCE_TOUCH_MS = 10_000
@@ -2269,23 +2273,25 @@ const PRESENCE_NAME_MAX = 64
 export type LeadFile = { sid: string; pid: number; procStart: string; level: 'lead'; repo: string; name?: string }
 // A conductor's file also names its own repo (home), so a lead can find the conductor's list file.
 type ConductorFile = { sid: string; pid: number; procStart: string; level: 'conductor'; repos: string[]; home: string; name?: string }
-export type PresenceFile = LeadFile | ConductorFile | { sid: string; pid: number; procStart: string; level: 'manager'; name?: string }
+export type ManagerFile = { sid: string; pid: number; procStart: string; level: 'manager'; name?: string; compactingAt?: number }
+export type PresenceFile = LeadFile | ConductorFile | ManagerFile
 const presenceNameOk = (n: unknown): n is string => typeof n === 'string' && n.length > 0 && n.length <= PRESENCE_NAME_MAX && /^[\x20-\x7e]+$/.test(n)
 const repoOk = (r: unknown): r is string => typeof r === 'string' && r.length >= 2 && isCleanAbs(r)
 // A lead still writes the four fields of before, so a session on the old mod (256-byte reader) reads exactly what it read before the install.
 // level and name are written, and never trusted from the file: a reader takes the name from the registry row.
 // A non-lead presence file never carries repo (an old reader ignores level and would take it for a lead's).
-// The manager's file carries level and name and never repo; a lead's is unchanged.
+// The manager's file carries level and name and never repo; a lead's is unchanged. While the manager compacts it also carries compactingAt (ms), the time the
+// compaction began, which compactingGraceOk reads and nothing else does.
 // A conductor's carries level, name, repos and home, never repo.
 export function leadFileText(
-  f: { sid: string; pid: number; procStart: string; repo: string } | { sid: string; pid: number; procStart: string; level: 'manager'; name: string } | { sid: string; pid: number; procStart: string; level: 'conductor'; name: string; repos: string[]; home: string },
+  f: { sid: string; pid: number; procStart: string; repo: string } | { sid: string; pid: number; procStart: string; level: 'manager'; name: string; compactingAt?: number } | { sid: string; pid: number; procStart: string; level: 'conductor'; name: string; repos: string[]; home: string },
 ): string | undefined {
   const text =
     'repo' in f
       ? JSON.stringify({ sid: f.sid, pid: f.pid, procStart: f.procStart, repo: f.repo })
       : f.level === 'conductor'
         ? JSON.stringify({ sid: f.sid, pid: f.pid, procStart: f.procStart, level: 'conductor', ...(f.name ? { name: f.name } : {}), repos: f.repos, home: f.home })
-        : JSON.stringify({ sid: f.sid, pid: f.pid, procStart: f.procStart, level: 'manager', name: f.name })
+        : JSON.stringify({ sid: f.sid, pid: f.pid, procStart: f.procStart, level: 'manager', name: f.name, ...(f.compactingAt !== undefined ? { compactingAt: f.compactingAt } : {}) })
   return text.length <= LEAD_FILE_MAX ? text : undefined
 }
 export function parsePresenceFile(text: string, name: string): PresenceFile | undefined {
@@ -2297,11 +2303,12 @@ export function parsePresenceFile(text: string, name: string): PresenceFile | un
     return undefined
   }
   if (!isObj(j)) return undefined
-  const { sid, pid, procStart, level = 'lead', repo, repos, home, name: who } = j
+  const { sid, pid, procStart, level = 'lead', repo, repos, home, name: who, compactingAt } = j
   if (typeof sid !== 'string' || !SID_RE.test(sid) || sid !== name) return undefined
   if (!Number.isInteger(pid) || (pid as number) <= 1 || typeof procStart !== 'string' || procStart.trim() === '' || procStart.length > 64) return undefined
   if (who !== undefined && !presenceNameOk(who)) return undefined
   const base = { sid, pid: pid as number, procStart, ...(who !== undefined ? { name: who as string } : {}) }
+  if (compactingAt !== undefined && (level !== 'manager' || !Number.isInteger(compactingAt) || (compactingAt as number) < 0)) return undefined
   if (level === 'lead') return repoOk(repo) && repos === undefined ? { ...base, level, repo } : undefined
   if (level === 'conductor') {
     if (repo !== undefined || !Array.isArray(repos) || repos.length < 1 || repos.length > CONDUCTOR_REPOS_MAX || !repos.every(repoOk) || new Set(repos).size !== repos.length) return undefined
@@ -2309,10 +2316,15 @@ export function parsePresenceFile(text: string, name: string): PresenceFile | un
     if (!repoOk(home)) return undefined
     return { ...base, level, repos: [...repos], home }
   }
-  if (level === 'manager') return repo === undefined && repos === undefined && home === undefined ? { ...base, level } : undefined
+  if (level === 'manager') return repo === undefined && repos === undefined && home === undefined ? { ...base, level, ...(compactingAt !== undefined ? { compactingAt: compactingAt as number } : {}) } : undefined
   return undefined
 }
 export const leadFileFresh = (now: number, mtimeMs: number): boolean => mtimeMs <= now && now - mtimeMs <= LEAD_FRESH_MS
+// Whether a file that is stale because it is old still counts for a reader that allows for a compaction: a manager's file with a compactingAt stamp that is not
+// in the future and at most MANAGER_COMPACT_GRACE_MS old. The file's mtime only has to be in the past: a stat rounds it down to the second, so it is not compared
+// with the stamp. Every other check of presenceCheck (registry row, pid, start time, claude process) still runs after it.
+export const compactingGraceOk = (lf: PresenceFile, mtimeMs: number, now: number): boolean =>
+  lf.level === 'manager' && lf.compactingAt !== undefined && mtimeMs <= now && now - mtimeMs > LEAD_FRESH_MS && lf.compactingAt <= now && now - lf.compactingAt <= MANAGER_COMPACT_GRACE_MS
 
 // The cross-process lock of one store: a folder made with mkdir, holding an owner file. It is advisory between honest processes.
 export const LOCK_WAIT_MS = 2000
@@ -2734,7 +2746,8 @@ function observeRow(prev: LaneObs | undefined, row: RegEntry | 'gone' | undefine
   return o
 }
 type AttentionCode = 'gone' | 'prompt' | 'quiet' | 'turn' | 'ordered' | 'done'
-export type AttentionItem = { lane: string; code: AttentionCode; since: number }
+// why: set by the engine for a waiting prompt only, from what the ledger or the checking tier's own reads show (checkin-why.ts); never from session text.
+export type AttentionItem = { lane: string; code: AttentionCode; since: number; why?: WhyCode }
 // What the observations say now; gone only after CHECKIN_GONE_OBS observations in a row (3 minutes).
 export function checkinItems(obs: Iterable<[string, LaneObs]>, now: number): AttentionItem[] {
   const out: AttentionItem[] = []
@@ -2774,7 +2787,29 @@ export function promptWaitingToast(what: 'Lane' | 'Lead', names: string[]): stri
 }
 // Said after a check-in that lists a waiting prompt: the check-in reads the registry only, so the prompt may be one no tier is asked about.
 export const CHECKIN_PROMPT_TAIL = ' You cannot answer a waiting prompt that prompt_list does not show: tell the person which session waits.'
-const promptTail = (shown: AttentionItem[]): string => (shown.some((i) => i.code === 'prompt') ? CHECKIN_PROMPT_TAIL : '')
+// Why a waiting prompt is not being answered, as far as the mod observed it at the last check (checkin-why.ts decides; these are the fixed texts). A code is
+// added only with its text. None says a remedy or asks for an action: the tier tells the person which session waits.
+export type WhyCode = 'off-file' | 'stored-off' | 'guard' | 'scope' | 'no-tier' | 'with-person' | 'other-tier' | 'question' | 'not-ask' | 'no-check' | 'hook-failed' | 'no-record'
+export const WHY_TEXT: Record<WhyCode, string> = {
+  'off-file': 'the person\'s OFF file is in place, so no tier is asked',
+  'stored-off': 'the person\'s stored setting reads escalation as off',
+  guard: 'this tier reads the escalation default as blocked',
+  scope: 'the escalation switch is scoped to other sessions',
+  'no-tier': 'no tier was in reach of its ask',
+  'with-person': 'its ask was put to the person in a tier\'s session',
+  'other-tier': 'a request for it is open with another tier',
+  question: 'it is a question that stays the person\'s',
+  'not-ask': 'it was not reported as a permission ask',
+  'no-check': 'its hook saw no tool check for it',
+  'hook-failed': 'its hook failed to raise it',
+  'no-record': 'no escalation record of it was found: it may not be a permission prompt, or escalation does not cover that session',
+}
+// For each shown waiting prompt that has a reason: "`LANE`: text". Lane names only through NAME_RE (the callers filter), the texts fixed.
+const promptWhy = (shown: AttentionItem[]): string => {
+  const parts = shown.flatMap((i) => (i.code === 'prompt' && i.why !== undefined && hasCode(WHY_TEXT, i.why) ? [`\`${i.lane}\`: ${WHY_TEXT[i.why]}`] : []))
+  return parts.length === 0 ? '' : ` What was seen at the last check: ${parts.join('; ')}.`
+}
+const promptTail = (shown: AttentionItem[]): string => (shown.some((i) => i.code === 'prompt') ? `${promptWhy(shown)}${CHECKIN_PROMPT_TAIL}` : '')
 // Each lane name in backticks, so the model reads it as a name.
 const ATTENTION_PART: Record<Exclude<AttentionCode, 'ordered' | 'done'>, string> = {
   gone: 'session gone, report not signed done',
@@ -3633,4 +3668,16 @@ export function parseKeptProof(raw: unknown): KeptProof | undefined {
   const name = (raw as { name?: unknown } | null | undefined)?.name
   if (!b || typeof name !== 'string' || !NAME_RE.test(name)) return undefined
   return { ...b, name }
+}
+
+// ---- the mod's own dialogs, as the permission hook may see them (ADR 0008) ----
+// Each $.ui.ask the mod opens is recorded by its header and question while it is open, so a question call that carries the same two is known for the mod's own
+// dialog: the permission hook passes it on as it stands, never refusing it or raising it as a request.
+export const ownDialogKey = (header: string, question: string): string => JSON.stringify([header, question])
+// The key of a question call (AskUserQuestion input) that holds exactly one question with a string header and question; undefined for any other shape.
+export function questionCallKey(input: unknown): string | undefined {
+  const qs = input && typeof input === 'object' ? (input as { questions?: unknown }).questions : undefined
+  if (!Array.isArray(qs) || qs.length !== 1) return undefined
+  const q = qs[0] as { header?: unknown; question?: unknown } | null
+  return q && typeof q === 'object' && typeof q.header === 'string' && typeof q.question === 'string' ? ownDialogKey(q.header, q.question) : undefined
 }

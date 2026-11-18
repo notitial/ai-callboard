@@ -209,7 +209,7 @@ export const goReadToast = (lane: string | undefined, id: string): string => `${
 // The refusals of go_request and /callboard go, by code.
 export const GO_REFUSE: Record<string, string> = {
   subagent: 'for the main agent only.',
-  unattended: 'unattended mode is on: the person is away, so no go can be given now. Note what waits for them and go on with work that needs no go; when they are back they can type /callboard go themselves.',
+  unattended: 'unattended mode is on, so this tool opens no go dialog: the person is away. Note what waits for a go where they will see it and go on with work that needs none. The person can type /callboard go in this session themselves, without ending the mode.',
   'not-lead': "a go is given in a lead's or conductor's session. A lane, or any session a go only covers, cannot give, widen or extend one.",
   manager: 'the manager gives no go and passes none on.',
   'bad-text': `the text must be 1 to ${GO_TEXT_MAX} bytes of plain text saying what the work is, on at most ${GO_TEXT_LINES} lines with none empty: keep it to two or three lines and put the detail in the brief or the plan. No space or newline at its start or end, no control or invisible characters other than newline and tab, and no line starting with <<< or >>>.`,
