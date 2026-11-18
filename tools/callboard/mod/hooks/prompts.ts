@@ -339,8 +339,14 @@ export type Request = {
   // The asker's permission mode, as the permission event gave it (ADR 0008): only a lane's request in mode `default` may take a provisional answer. Absent: the
   // event carried none, or one that is not a plain word.
   mode?: string
+  // The short id of the unattended window the asker's hook read on when it raised the request (ADR 0008). Absent: raised by day, or while the window could not be
+  // read. Only headStart reads it.
+  u?: string
 }
 export const requestText = (r: Request): string => JSON.stringify(r)
+// The person's head start on a request (ADR 0004, the ladder; ADR 0008): none for a request raised inside an unattended window while that same window is on as
+// the reader reads it, MIN_AGE_MS otherwise. A window that has ended, another window, a read that gave no answer and a request raised by day keep the 30 s.
+export const headStart = (u: string | undefined, win: { state: 'on'; u: string } | { state: 'off' | 'unknown' } | undefined): number => (u !== undefined && win !== undefined && win.state === 'on' && win.u === u ? 0 : MIN_AGE_MS)
 // A permission mode as the event names it: one plain word, else none.
 const MODE_RE = /^[A-Za-z]{1,32}$/
 export const modeOf = (raw: unknown): string | undefined => (typeof raw === 'string' && MODE_RE.test(raw) ? raw : undefined)
@@ -405,8 +411,8 @@ export type ApplyIn = {
   // The standing comment cap for a comment that starts the review command: 'over' or 'unreadable' (a failed read counts as over) drops the decision, so the
   // prompt stays the person's. Absent: the call carries no such body.
   cap?: 'ok' | 'over' | 'unreadable'
-  // The unattended window as it reads at apply (ADR 0008), for a park or a provisional answer: only those need it, so the caller reads it for nothing else.
-  // Absent reads as unknown.
+  // The unattended window as it reads at apply (ADR 0008), for a park, a provisional answer and the head start of a request raised inside a window: only those
+  // need it, so the caller reads it for nothing else. Absent reads as unknown.
   window?: { state: 'on'; u: string } | { state: 'off' } | { state: 'unknown' }
 }
 export type ApplyOut = { ok: true } | { hold: 'early' | 'ledger' | 'lookup' | 'unattended' } | { drop: DropCode }
@@ -442,7 +448,8 @@ export function applyCheck(a: ApplyIn): ApplyOut {
     if (a.window === undefined || a.window.state === 'unknown') return { hold: 'unattended' }
     if (a.window.state !== 'on' || a.window.u !== d.u) return { drop: 'unattended-closed' }
   }
-  if (a.awakeMs < MIN_AGE_MS) return { hold: 'early' }
+  // The person's head start, as the window reads at apply: inside the window the request was raised in there is none.
+  if (a.awakeMs < headStart(req.u, a.window)) return { hold: 'early' }
   return { ok: true }
 }
 
@@ -1026,15 +1033,16 @@ export const topOf = (tiers: Tier[]): Tier | undefined => [...tiers].sort((a, b)
 const WINDOW_OPEN_MS: readonly number[] = [MIN_AGE_MS, 5 * 60_000, 10 * 60_000]
 export const DENY_AFTER_MS = 20 * 60_000
 // When (absolute, from the request's `at`) each eligible tier's window opens. passedAt: when each level passed the request up (its escalate file's `at`).
-export function tierWindows(at: number, tiers: Tier[], passedAt: Partial<Record<TierLevel, number>>): Record<string, number> {
+// head: the person's head start (headStart), which the first window and every pass-up keep; 0 inside the unattended window the request was raised in.
+export function tierWindows(at: number, tiers: Tier[], passedAt: Partial<Record<TierLevel, number>>, head: number = MIN_AGE_MS): Record<string, number> {
   const out: Record<string, number> = {}
   const order = [...tiers].sort((a, b) => TIER_RANK[a.level] - TIER_RANK[b.level])
   order.forEach((t, i) => {
-    let open = WINDOW_OPEN_MS[Math.min(i, WINDOW_OPEN_MS.length - 1)]
+    let open = i === 0 ? head : WINDOW_OPEN_MS[Math.min(i, WINDOW_OPEN_MS.length - 1)]
     // Only the nearest lower tier opens this one: the one just below it, live or (having passed the request up) since gone.
     const known = TIER_LEVELS.filter((l) => TIER_RANK[l] < TIER_RANK[t.level] && (passedAt[l] !== undefined || order.some((o) => o.level === l)))
     const below = known.sort((a, b) => TIER_RANK[b] - TIER_RANK[a])[0]
-    if (below !== undefined && passedAt[below] !== undefined) open = Math.min(open, Math.max(MIN_AGE_MS, passedAt[below]! - at))
+    if (below !== undefined && passedAt[below] !== undefined) open = Math.min(open, Math.max(head, passedAt[below]! - at))
     out[t.sid] = at + open
   })
   return out
@@ -1367,7 +1375,8 @@ export function parseRequest(text: string): Request | undefined {
   if (o.reasonCut !== undefined && (o.reasonCut !== true || o.reason === undefined)) return undefined
   if ((o.lane !== undefined && typeof o.lane !== 'string') || (o.leadName !== undefined && typeof o.leadName !== 'string') || (o.leadSid !== undefined && (typeof o.leadSid !== 'string' || !SID_RE.test(o.leadSid))) || (o.agentType !== undefined && typeof o.agentType !== 'string') || (o.noLead !== undefined && typeof o.noLead !== 'boolean')) return undefined
   if (o.mode !== undefined && modeOf(o.mode) === undefined) return undefined
-  return { id: o.id, sid: o.sid, pid: o.pid as number, procStart: o.procStart, level: o.level, lane: o.lane as string | undefined, leadName: o.leadName as string | undefined, ...(o.leadSid !== undefined ? { leadSid: o.leadSid as string } : {}), ...(o.noLead === true ? { noLead: true } : {}), repo: o.repo, tool: o.tool, agentType: o.agentType as string | undefined, inputHash: o.inputHash, raisedBy: o.raisedBy, ...(o.reason !== undefined ? { reason: o.reason as string } : {}), ...(o.reasonCut === true ? { reasonCut: true } : {}), at: o.at, expiresAt: o.expiresAt, nonce: o.nonce, input: o.input, truncated: o.truncated, ...(o.mode !== undefined ? { mode: o.mode as string } : {}) }
+  if (o.u !== undefined && (typeof o.u !== 'string' || !U_RE.test(o.u))) return undefined
+  return { id: o.id, sid: o.sid, pid: o.pid as number, procStart: o.procStart, level: o.level, lane: o.lane as string | undefined, leadName: o.leadName as string | undefined, ...(o.leadSid !== undefined ? { leadSid: o.leadSid as string } : {}), ...(o.noLead === true ? { noLead: true } : {}), repo: o.repo, tool: o.tool, agentType: o.agentType as string | undefined, inputHash: o.inputHash, raisedBy: o.raisedBy, ...(o.reason !== undefined ? { reason: o.reason as string } : {}), ...(o.reasonCut === true ? { reasonCut: true } : {}), at: o.at, expiresAt: o.expiresAt, nonce: o.nonce, input: o.input, truncated: o.truncated, ...(o.mode !== undefined ? { mode: o.mode as string } : {}), ...(o.u !== undefined ? { u: o.u as string } : {}) }
 }
 // prompt_escalate by position: a tier that is not the top passes the request up, and its right to answer ends. The file is `<id>.escalate-<level>.json`
 // (level: the tier that passed it; sid: that tier's session).

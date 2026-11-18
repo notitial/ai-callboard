@@ -239,6 +239,7 @@ test("the conductor's result texts: a go given, the lead_open tail, the list and
   assert.ok(g.goStatusText([cgo()]).includes(`Go 9a1b2c3d: given in conductor COND (session ${COND}) at ${new Date(T).toISOString()}; ends`))
   assert.ok(g.goStatusText([cgo({ by: { level: 'conductor', sid: COND, name: '', repo: '/r' } })]).includes('given in this conductor (session'))
   assert.equal(g.GO_REFUSE.conductor, undefined)
+  assert.equal(g.GO_REFUSE.unattended, 'unattended mode is on, so this tool opens no go dialog: the person is away. Note what waits for a go where they will see it and go on with work that needs none. The person can type /callboard go in this session themselves, without ending the mode.')
   assert.equal(g.GO_REFUSE['not-lead'], "a go is given in a lead's or conductor's session. A lane, or any session a go only covers, cannot give, widen or extend one.")
   assert.equal(g.GO_REFUSE['too-many'], 'more than 16 leads or 32 lanes for one go.')
   assert.ok(g.GO_USAGE.startsWith("Use /callboard go TEXT in a lead's or conductor's session to give one go"))

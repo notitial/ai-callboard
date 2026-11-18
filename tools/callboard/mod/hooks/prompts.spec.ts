@@ -637,6 +637,33 @@ test('parseDecision: a park and a window mark are read; a mark that is not 8 hex
   assert.equal(p.parseDecision(JSON.stringify({ ...park, answer: { index: 0, label: 'Red' } })), undefined)
 })
 
+test('headStart: no head start only for a request raised inside the window that is on now; by day, ended, another or unread keeps the 30 s', () => {
+  assert.equal(p.headStart(U, { state: 'on', u: U }), 0)
+  assert.equal(p.headStart(undefined, { state: 'on', u: U }), p.MIN_AGE_MS)
+  assert.equal(p.headStart(U, { state: 'on', u: 'bbbbbbbb' }), p.MIN_AGE_MS)
+  assert.equal(p.headStart(U, { state: 'off' }), p.MIN_AGE_MS)
+  assert.equal(p.headStart(U, { state: 'unknown' }), p.MIN_AGE_MS)
+  assert.equal(p.headStart(U, undefined), p.MIN_AGE_MS)
+})
+test('applyCheck: a request raised inside a window is not held early while that window is on; any other window state holds it for 30 s', () => {
+  const req = { ...baseReq, u: U } as unknown as p.Request
+  assert.deepEqual(apply({ req, awakeMs: 0, window: { state: 'on', u: U } }), { ok: true })
+  assert.deepEqual(apply({ req, awakeMs: 0, window: { state: 'on', u: 'bbbbbbbb' } }), { hold: 'early' })
+  assert.deepEqual(apply({ req, awakeMs: 0, window: { state: 'off' } }), { hold: 'early' })
+  assert.deepEqual(apply({ req, awakeMs: 0, window: { state: 'unknown' } }), { hold: 'early' })
+  assert.deepEqual(apply({ req, awakeMs: 0 }), { hold: 'early' })
+  // A request raised by day keeps its 30 s inside a window.
+  assert.deepEqual(apply({ awakeMs: 0, window: { state: 'on', u: U } }), { hold: 'early' })
+  assert.deepEqual(apply({ req, awakeMs: p.MIN_AGE_MS, window: { state: 'off' } }), { ok: true })
+})
+test('parseRequest: the window mark of a request is read when it is 8 hex, and a request with any other mark is none', () => {
+  const r = { id: ID, sid: SID_A, pid: 7, procStart: 'x', level: 'lane', lane: 'API', repo: '/r', tool: 'Bash', inputHash: H, raisedBy: 'rule', at: 1, expiresAt: 2, nonce: 'n1', input: {}, truncated: false }
+  assert.equal(p.parseRequest(JSON.stringify(r))?.u, undefined)
+  assert.equal(p.parseRequest(JSON.stringify({ ...r, u: U }))?.u, U)
+  assert.equal(p.parseRequest(JSON.stringify({ ...r, u: 'nothex!!' })), undefined)
+  assert.equal(p.parseRequest(JSON.stringify({ ...r, u: 5 })), undefined)
+})
+
 test('applyCheck: a park is the manager\'s own, names its window and lands only inside it; a window that cannot be read holds it', () => {
   const park = (o: Partial<p.Decision> = {}) => baseDec({ decision: 'park', by: MGR, u: U, ...o })
   const on = { state: 'on', u: U } as const

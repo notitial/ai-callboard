@@ -172,3 +172,21 @@ Each gets a dated line pointing here when the code that makes it true lands, not
     mark-ready it should not; the person's list shows it, with its why. A mark-ready held at 20 minutes is a repeat when
     asked again, as for any call, so a busy manager can still stall one. A repo whose checks never run on a draft is
     parked, not looped on `Not yet:`.
+- **2026-11-18: the mod's own dialogs pass, and a window's requests get no head start.**
+  - The mod's own dialog (the go dialog that the person's typed `/callboard go` opens, the turn-on dialog, a stop
+    dialog) is not a tier's own question. The engine may show it through the permission hook as a question. Such a
+    call, with exactly one question whose header and text match a dialog that this session's mod has open now, gets
+    no decision from the mod or from any hook beneath it, so only the person answers it. A subagent's question never
+    matches. It gets one log line (`passed own-dialog`) and no row.
+  - This is the likely cause of a go dialog, typed in a window, that closed as cancelled. The log line shows
+    whether the engine routes the mod's dialog that way.
+  - While one of its dialogs is open, the mod submits no turn that could close it. A compaction nudge, a
+    lanes-changed notice and a lead's resume wait until the dialog closes. The notice for a refused compaction
+    becomes a toast for the person, and the session that asked is not told.
+  - A request raised while a window is on carries that window's mark. While the same window is on, the request
+    gives the person no 30-second head start: the first tier is told and may answer at once, a pass-up opens the
+    next tier at once, and the hook applies a decision at its next poll. The person is away, so the head start only
+    delayed every answer. A request raised by day or in another window keeps its 30 seconds. So does every request
+    once its window has ended or cannot be read.
+  - go_request's refusal in a window says that the person can type `/callboard go` in the lead's session
+    themselves, without ending the mode.
