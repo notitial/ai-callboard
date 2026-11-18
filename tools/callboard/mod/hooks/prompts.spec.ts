@@ -764,11 +764,14 @@ test("the manager's review rule: two calls only, the go's list untouched, and th
     'a comment with any other text after the command: park it.',
     '`unknown` reads as not yet',
     'park it, do not deny it `Not yet: `',
+    'a request marked REPEAT is rule 6\'s and is parked:',
   ]) assert.ok(rule.includes(part), part)
   // Nothing a lead or a conductor reads carries it.
   const item: p.ListItem = { id: ID, lane: 'svc-api', tool: 'Bash', repo: '/Users/x/repo', raisedBy: 'rule', ageSec: 40, truncated: false, input: { command: 'ls' } }
   const shown = [p.UNATTENDED_TIER_LINE, p.SPECIFIC_CALLS, p.RUBRIC, p.QUESTION_RUBRIC, p.tierPromptSection('lead'), p.tierPromptSection('conductor'), p.promptListText([item], { on: true, unattended: { tier: 'lower' } }), p.promptListText([item], { on: true })]
   for (const t of shown) assert.ok(!t.includes('claude-review.yml') && !t.includes(p.NOT_YET_PREFIX) && !t.includes(rule))
+  // No clause lets a REPEAT mark be judged afresh: the manager's own `Not yet:` deny never makes one.
+  assert.ok(!rule.includes('except after your own'))
   const manager = p.promptListText([item], { on: true, unattended: { tier: 'manager', never: GO_NEVER_TEXT } })
   assert.equal(manager.split(rule).length, 2)
   assert.ok(p.PROMPT_REFUSE.cap.endsWith('Pass it up with prompt_escalate; the manager, while unattended mode is on, parks it.'))
