@@ -2,7 +2,7 @@ import { expect, test } from 'claude-code/testing'
 import * as prm from '../hooks/prompts'
 import { h, SID, T0, longTest, pfs } from './harness'
 import { APISID, MGR_SESS, lane, logged, mgrAt, ownedBy, putCond } from './fixtures'
-import { APIQ, CNDT, LDIR, MGRT, QASK, QIN, QTEXT, TID, addCondT, addMgrT, answerCall, answerer, askCheck, at, byCond, byMgr, callOf, handDecision, ledgerRows, pcall, putQ, putWindow, readReq, refusal, reqFiles, runRequest, said, stop, win, winShort } from './answer-fixtures'
+import { APIQ, CNDT, LDIR, MGRT, QASK, QIN, QTEXT, TID, addCondT, addMgrT, answerCall, answerer, asConductor, askCheck, at, byCond, byMgr, callOf, handDecision, ledgerRows, pcall, putQ, putWindow, readReq, refusal, reqFiles, runRequest, said, stop, win, winShort } from './answer-fixtures'
 
 // ---- a lead's own question while an unattended window is held (ADR 0008): it rises to the manager alone, which answers it, answers it provisionally or
 // leaves it for the person; what cannot rise is refused, since nobody is there. A window is seeded as the open step writes it (putWindow). ----
@@ -202,4 +202,54 @@ test('window: the manager\'s decision on a lead\'s question is refused while the
   h.pfsFails = (a: string[]) => a[0] === '/usr/bin/grep'
   expect(await call($, {})).toContain(refusal('unattended-unread'))
   h.pfsFails = undefined
+})
+
+// ---- a conductor's own question in a window: the same, as an asker of level conductor; by day it is the person's ----
+// The conductor's side: this session is a conductor, with a live manager unless `mgr` is false; its setup's own calls are allowed, and after it a call asks.
+const conductorAsks = async ($: any, on: any, o: { mgr?: boolean } = {}) => {
+  let setUp = false
+  for (const ev of ['classic.PostToolUse', 'classic.PostToolUseFailure', 'classic.PermissionDenied', 'classic.PermissionRequest'] as const) on(ev, () => ({}))
+  on('tool.check', () => (setUp ? QASK : { decision: 'allow' }))
+  await asConductor($, on, { mgr: o.mgr !== false })
+  setUp = true
+  h.store.set('answering', { scope: 'all', asks: false, asksScope: 'all', savedAt: T0 })
+}
+
+test('window: a conductor\'s own question rises to the manager alone; the manager\'s answer lands with its name, and its park closes it with the question tail', async ($, on) => {
+  await conductorAsks($, on)
+  const u = winShort(putWindow())
+  let req: any
+  expect(await runRequest($, [at(4000, () => { req = readReq(); handDecision(req, ans({ u }), { by: MGRT, u }) })], QCALL.over, QCALL.check)).toEqual(answeredBy('manager MANAGER'))
+  expect(req).toMatchObject({ level: 'conductor', tool: 'AskUserQuestion', u })
+  expect(of('requested')[0]).toMatchObject({ tier: 'manager', u })
+  for (const k of [...pfs.keys()].filter((k) => k.startsWith(LDIR(SID)))) pfs.delete(k)
+  const r = await runRequest($, [at(4000, () => handDecision(readReq(), { decision: 'park', why: 'which repo first: a design choice', by: byMgr, u }, { by: MGRT, u }))], { ...QCALL.over, tool_use_id: 'tu2' }, { ...QCALL.check, tool_use_id: 'tu2' })
+  expect(r).toEqual({ decision: { behavior: 'deny', message: `Parked by the manager MANAGER for the person: which repo first: a design choice${prm.UNATTENDED_QUESTION_PARK_TAIL}` } })
+})
+
+longTest('window: a conductor\'s question nobody decides is closed at 20 minutes with the hold text', async ($, on) => {
+  await conductorAsks($, on)
+  putWindow()
+  expect(await runRequest($, [], QCALL.over, QCALL.check)).toEqual({ decision: { behavior: 'deny', message: prm.UNATTENDED_QUESTION_HOLD_MESSAGE } })
+  expect(kinds()).toEqual(['requested', 'expired-denied held'])
+})
+
+test('window: a conductor\'s question with no manager live is refused at once; by day it raises nothing and stays the person\'s', async ($, on) => {
+  await conductorAsks($, on, { mgr: false })
+  expect(await runRequest($, [], QCALL.over, QCALL.check)).toEqual({})
+  expect(rows()).toEqual([])
+  putWindow()
+  later()
+  expect(await runRequest($, [], { ...QCALL.over, tool_use_id: 'tu2' }, { ...QCALL.check, tool_use_id: 'tu2' })).toEqual(QUESTION_DENIED)
+  expect(kinds()).toEqual(['abandoned no-tier'])
+})
+
+test('window: the manager lists a conductor\'s own question with its own line, and may answer or park it', async ($, on) => {
+  await asManager($, on)
+  putQ(LEADQ({ level: 'conductor' }))
+  const v = putWindow()
+  later()
+  expect(await list($)).toContain("Unattended mode: a conductor's own question, and you are its only tier.")
+  expect(said(await $.tool.call(answerCall({ decision: 'park', why: 'which repo first' })))).toContain(`Recorded: park for ${TID}.`)
+  expect(dec()).toMatchObject({ decision: 'park', u: winShort(v) })
 })

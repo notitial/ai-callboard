@@ -115,10 +115,10 @@ caller.
    what changes; nothing is on until you click Turn on. A span under 30 minutes is refused with the earliest end it
    takes. Keep the manager in auto mode: in any other mode its own permission prompts, its board write included, are
    refused while the window is on (unless a rule already allows them). Restart sessions started before the last callboard update first, so an old lane and
-   an old tier do not relay. While it is on nothing is put to you: no relay. A lead's own
-   question goes to the manager alone, which answers it, answers it provisionally (when the lead is in the default
-   permission mode) or leaves it for you, and one nobody decides is closed at 20 minutes; either way the lead takes
-   the safe default. A conductor's or the manager's own question is refused, and so are the manager's and a
+   an old tier do not relay. While it is on nothing is put to you: no relay. A lead's or a
+   conductor's own question goes to the manager alone, which answers it, answers it provisionally (when the asker is
+   in the default permission mode) or leaves it for you, and one nobody decides is closed at 20 minutes; either way
+   the asker takes the safe default. The manager's own question is refused, and so are the manager's and a
    conductor's own permission prompts. The manager decides what asks, allows only what
    it would allow with you there, and parks what the rules keep for you (the lane is told it waits for you). A lead
    runs at most 4 live lanes and cannot ask for a go, though you can still type `/callboard go` in its session

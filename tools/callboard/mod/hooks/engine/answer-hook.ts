@@ -651,7 +651,7 @@ export async function hereGrantOff($: any, sid: string): Promise<void> {
 }
 
 // Whether the switch is on and this session is a lane or a lead: the cheap first test. The scope (a lane's or a lead's name) is judged once the lead is known.
-async function promptCoverage($: any, sid: string): Promise<{ a: pr.Answering; level: 'lane' | 'lead'; lane?: string; self?: string; lead?: string } | undefined> {
+async function promptCoverage($: any, sid: string): Promise<{ a: pr.Answering; level: 'lane' | 'lead' | 'conductor'; lane?: string; self?: string; lead?: string } | undefined> {
   const a = await answeringNow($)
   if (!a) return undefined
   const b = (await getLane($)).value as Bound | null | undefined
@@ -659,12 +659,22 @@ async function promptCoverage($: any, sid: string): Promise<{ a: pr.Answering; l
   const g = grants.get(sid)
   return g?.level === 'lead' ? { a, level: 'lead', self: g.name } : undefined
 }
+// The same for one ask: a conductor's own question is covered too, as an asker of level conductor, while an unattended window is held (this process's cached
+// read; a read that throws holds only when this process last read the window on). A conductor's permission prompt never is, so it keeps its own path.
+async function askCoverage($: any, sid: string, tool: string): ReturnType<typeof promptCoverage> {
+  const cov = await promptCoverage($, sid)
+  if (cov || tool !== pr.QUESTION_TOOL) return cov
+  const g = grants.get(sid)
+  if (g?.level !== 'conductor' || !(await unattendedHeld($).catch(() => mem.unattendedSure === 'on'))) return undefined
+  const a = await answeringNow($)
+  return a ? { a, level: 'conductor', self: g.name } : undefined
+}
 
 // tool.check only observes: it stores what it saw for an ask in a covered session, and the caller returns the verdict unchanged, every time (F-C).
 async function promptObserve($: any, e: any, r: any): Promise<void> {
   if (r?.decision !== 'ask' || typeof e.tool_use_id !== 'string' || typeof e.agentId === 'string') return
   const sid = await $.session.id()
-  if (!c.SID_RE.test(sid) || !(await promptCoverage($, sid))) return
+  if (!c.SID_RE.test(sid) || !(await askCoverage($, sid, String(e.tool)))) return
   const key = `${sid}\n${pr.joinKey(String(e.tool), await sha($, pr.canonical(e.input)), undefined)}`
   const now = await $.clock.now()
   const old = checks.get(key)
@@ -676,7 +686,7 @@ async function promptObserve($: any, e: any, r: any): Promise<void> {
 }
 
 // The lane's own lead (a live lead of the repo that is not the lane), by sid and name; undefined for a lead's own prompt or when none is live.
-async function promptLeadOf($: any, level: 'lane' | 'lead', sid: string, cwd: string, bound?: string): Promise<{ sid: string; name?: string } | undefined> {
+async function promptLeadOf($: any, level: 'lane' | 'lead' | 'conductor', sid: string, cwd: string, bound?: string): Promise<{ sid: string; name?: string } | undefined> {
   if (level !== 'lane') return undefined
   const live = await registryEntries($)
   if (!live) return undefined
@@ -1019,9 +1029,9 @@ async function promptHook($: any, e: any, nextOnce: (x: any) => Promise<any>, si
   if (!c.SID_RE.test(sid)) return nextOnce(e)
   // A request left without its closing row is retried here as well as on the tick (a no-op while none is owed).
   if (unclosed.size > 0) await promptCloseTick($).catch(() => undefined)
-  // A tier's own question while an unattended window is held. A conductor's or the manager's, and any relay question, is denied before anything is marked, held
-  // or shown: nobody is there to answer it. A lead's own goes on to the manager, unless one of this session's own dialogs is open (the person's dialog wins, and
-  // no request is raised beside it). A read that throws holds only when this process last read the window on, and passes the ask on otherwise.
+  // A tier's own question while an unattended window is held. The manager's, and any relay question, is denied before anything is marked, held or shown:
+  // nobody is there to answer it. A lead's or a conductor's own goes on to the manager, unless one of this session's own dialogs is open (the person's dialog
+  // wins, and no request is raised beside it). A read that throws holds only when this process last read the window on, and passes the ask on otherwise.
   let leadWin = false
   if (String(e.tool_name) === 'AskUserQuestion' && grants.get(sid) !== undefined) {
     let held: boolean
@@ -1031,7 +1041,8 @@ async function promptHook($: any, e: any, nextOnce: (x: any) => Promise<any>, si
       held = mem.unattendedSure === 'on'
     }
     if (held) {
-      if (grants.get(sid)?.level !== 'lead' || relayShorts(e.tool_input).length > 0 || dialogUp(sid)) {
+      const level = grants.get(sid)?.level
+      if ((level !== 'lead' && level !== 'conductor') || relayShorts(e.tool_input).length > 0 || dialogUp(sid)) {
         await logq($, sid, 'refused', 'unattended-question')
         return { decision: { behavior: 'deny', message: pr.TIER_QUESTION_DENY } }
       }
@@ -1039,7 +1050,7 @@ async function promptHook($: any, e: any, nextOnce: (x: any) => Promise<any>, si
     }
   }
   if (!leadWin) return promptAsk($, e, nextOnce, signal, sid, {})
-  // A lead's own question in a window ends with a decision, a click or this deny: one that would otherwise wait for the person (no entry, a shape the mod does
+  // A lead's or a conductor's own question in a window ends with a decision, a click or this deny: one that would otherwise wait for the person (no entry, a shape the mod does
   // not raise, no manager in reach, a wait that ended with no decision, a failure) is refused, since nobody is there. Once the window has ended it is theirs.
   const ctx: { tid?: string } = {}
   let out: any
@@ -1074,8 +1085,8 @@ async function promptAsk($: any, e: any, nextOnce: (x: any) => Promise<any>, sig
     const mine = await promptRelayAsked($, sid, relayShorts(e.tool_input)).catch(() => [])
     return promptRelayHold($, sid, under, signal, mine).catch(() => under)
   }
-  // 1. The switch and the session's kind. The emergency file wins over the switch.
-  const cov = await promptCoverage($, sid)
+  // 1. The switch and the session's kind. The emergency file wins over the switch. A conductor's own question is covered only inside a window (askCoverage).
+  const cov = await askCoverage($, sid, String(e.tool_name))
   if (!cov || (await promptsOff($))) {
     // A manager's or a conductor's own permission prompt is covered by no tier, so inside an unattended window it would wait for the person with no limit: what
     // the chain beneath answers stands, a click that got there first stands, and anything else is denied at once. Escalation surely off ends the window, so the
@@ -1085,8 +1096,9 @@ async function promptAsk($: any, e: any, nextOnce: (x: any) => Promise<any>, sig
     if ((await escalationSure($).catch(() => ({ state: 'unread' as const }))).state === 'off') return nextOnce(e)
     const beneath = await nextOnce(e)
     if ((beneath && typeof beneath === 'object' && Object.keys(beneath).length > 0) || signal.aborted) return beneath
-    await logq($, sid, 'refused', 'unattended-own-prompt')
-    return { decision: { behavior: 'deny' as const, message: pr.TIER_PROMPT_DENY } }
+    const q = String(e.tool_name) === pr.QUESTION_TOOL
+    await logq($, sid, 'refused', q ? 'unattended-question' : 'unattended-own-prompt')
+    return { decision: { behavior: 'deny' as const, message: q ? pr.TIER_QUESTION_DENY : pr.TIER_PROMPT_DENY } }
   }
   const p = await where($)
   if (!p) return nextOnce(e)
@@ -1143,7 +1155,7 @@ async function promptAsk($: any, e: any, nextOnce: (x: any) => Promise<any>, sig
     // The same, with the lead read again: a hold waits for a lead that was away (compacting, restarting) as much as for a tier above it, unless the switch is
     // scoped to that lead (the gate above then left the ask the person's).
     const reachAgain = async () => {
-      const cv = (await promptCoverage($, sid)) ?? cov
+      const cv = (await askCoverage($, sid, tool)) ?? cov
       lead = await promptLeadOf($, cv.level, sid, cwd, cv.lead)
       leadRead = true
       return promptReach($, cv, sid, cwd, tool, lead)
@@ -1164,9 +1176,10 @@ async function promptAsk($: any, e: any, nextOnce: (x: any) => Promise<any>, sig
     // first, so with the scope unset nothing else about the question is read. A lead's own question rises only relay-only (no tier answers it, prompt_answer and
     // applyCheck), only while the switch carries leadAsks and its conductor is live in reach; otherwise it is the person's, in the lead's panel. While an
     // unattended window is held it rises to the manager alone with no leadAsks (the person turned the window on), and what does not rise is refused (promptHook).
+    // A conductor's own question is covered only then, and is treated the same.
     if (tool === pr.QUESTION_TOOL) {
       const asks = pr.coversAsks(cov.a, { lane: cov.lane, lead: lead?.name, self: cov.self })
-      const leadQ = cov.level === 'lead' && (cov.a.leadAsks === true || hold.held) && asks
+      const leadQ = ((cov.level === 'lead' && (cov.a.leadAsks === true || hold.held)) || cov.level === 'conductor') && asks
       if (!asks || (cov.level !== 'lane' && !leadQ)) {
         await ledgerAdd($, { ...base, kind: 'not-judgeable', code: 'question-scope' })
         return beneath
@@ -1214,7 +1227,7 @@ async function promptAsk($: any, e: any, nextOnce: (x: any) => Promise<any>, sig
     if (reach.length === 0 && own && typeof own.pid === 'number' && typeof own.procStart === 'string') {
       // A lead's own prompt or question with nobody above it would wait for the person: inside an unattended window it is denied at once, with no hold. Any
       // other ask holds.
-      if (cov.level === 'lead' && hold.held && !signal.aborted && !doneIds.has(tid as string)) {
+      if (cov.level !== 'lane' && hold.held && !signal.aborted && !doneIds.has(tid as string)) {
         const q = tool === pr.QUESTION_TOOL
         await ledgerAdd($, { ...base, kind: 'abandoned', code: 'no-tier' })
         await logq($, sid, 'refused', q ? 'unattended-question' : 'unattended-own-prompt')
@@ -1308,7 +1321,7 @@ async function promptWait($: any, beneath: any, signal: AbortSignal, w: WaitCtx)
   // The switch is read again at each poll and before an answer is returned: off, an OFF file, or a scope that no longer covers this lane ends the wait.
   const stillOn = async (): Promise<boolean> => {
     if (await promptsOff($)) return false
-    const cv = await promptCoverage($, w.sid)
+    const cv = await askCoverage($, w.sid, w.tool)
     // A question also needs the questions scope: off asks, or a questions scope that no longer covers the lane, ends a waiting question and leaves permission prompts alone.
     // A lead's own question also needs leadAsks still set, or an unattended window still held.
     if (cv !== undefined && w.req.level === 'lead' && w.tool === pr.QUESTION_TOOL && cv.a.leadAsks !== true && !(await unattendedHeld($).catch(() => mem.unattendedSure === 'on'))) return false
@@ -1474,7 +1487,7 @@ async function promptWait($: any, beneath: any, signal: AbortSignal, w: WaitCtx)
     // The one exception is a lead's own question while an unattended window is held: nobody is there, so it is closed with the hold text, and the lead takes the
     // safe default.
     const question = w.tool === pr.QUESTION_TOOL
-    if (!relay && !personSaw && awake >= pr.DENY_AFTER_MS && (!question || (w.req.level === 'lead' && (await unattendedHeld($).catch(() => false)))) && (await statR($, relayPath)) === 'absent') {
+    if (!relay && !personSaw && awake >= pr.DENY_AFTER_MS && (!question || (w.req.level !== 'lane' && (await unattendedHeld($).catch(() => false)))) && (await statR($, relayPath)) === 'absent') {
       const stop = await guards()
       if (stop !== undefined) return stop
       // Inside an unattended window the prompt is held for the person, and the lane is told so; its row names the window.
@@ -1526,7 +1539,7 @@ async function promptApply($: any, w: WaitCtx, d: pr.Decision, awake: number, gr
   const errsBefore = mem.presenceErrors
   if (c.SID_RE.test(d.by.sid) && d.by.sid !== w.sid) {
     const live = await registryEntries($)
-    const cv = await promptCoverage($, w.sid)
+    const cv = await askCoverage($, w.sid, w.tool)
     if (live && cv) {
       const names = new Set(((await $.fs.list(w.dir).catch(() => [])) as { name: string }[]).map((f) => f.name))
       const stand = await promptStand($, w.p, live, cv.a, w.dir, names, w.req).catch(() => undefined)
@@ -1544,7 +1557,7 @@ async function promptApply($: any, w: WaitCtx, d: pr.Decision, awake: number, gr
   const ledger = d.decision === 'answer' && d.answer && lh === undefined ? 'unreadable' : await ledgerHas($, w.p, w.id, w.nonce, { code: d.decision, by: d.by.sid, ...(d.via ? { via: d.via } : {}), ...(d.answer && lh !== undefined ? { opt: String(d.answer.index), lh } : {}), ...(d.u !== undefined ? { u: d.u } : {}), ...(d.provisional ? { prov: 'yes' as const } : {}) })
   // A park or a provisional answer lands only inside the window it was made in, a tier's decision on a lead's own question only inside a window, and a request
   // raised inside a window has no head start while it is on: the window is read for those and for nothing else.
-  const leadOwn = w.req.level === 'lead' && w.tool === pr.QUESTION_TOOL && d.via !== 'person'
+  const leadOwn = w.req.level !== 'lane' && w.tool === pr.QUESTION_TOOL && d.via !== 'person'
   const win = d.decision === 'park' || d.provisional === true || leadOwn || w.req.u !== undefined ? await unattendedNow($, true) : undefined
   const window = win === undefined ? undefined : win.state === 'on' ? ({ state: 'on', u: win.u } as const) : ({ state: win.state } as const)
   // Only a call that carries an `@claude` body, and only once the other checks would let the decision through, reads the cap.

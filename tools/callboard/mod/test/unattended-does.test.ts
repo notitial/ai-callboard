@@ -125,14 +125,13 @@ const PLAIN = { header: 'Plan', question: 'Which way?', options: [{ label: 'A', 
 const ask = ($: any, qs: unknown[], over: Record<string, unknown> = {}) => $.classic.PermissionRequest({ tool_name: 'AskUserQuestion', tool_input: { questions: qs }, ...over } as any)
 const QUESTION_DENIED = { decision: { behavior: 'deny', message: prm.TIER_QUESTION_DENY } }
 for (const [level, setup] of [
-  ['a conductor', async ($: any, on: any) => { await asConductor($, on); putQ(APIREQ) }],
   ['the manager', async ($: any, on: any) => { await asManager($, on); putQ(APIREQ) }],
 ] as const) {
   test(`window: ${level}'s own AskUserQuestion is denied at once, a relay question included, with nothing marked or held; a subagent's passes beneath, and it is asked as before once the window is off`, async ($, on) => {
     beneathHooks(on)
     await setup($, on)
     const dir = LDIR(APISID)
-    const by = { level: level === 'a conductor' ? 'conductor' : 'manager', sid: SID, name: 'X' }
+    const by = { level: 'manager', sid: SID, name: 'X' }
     pfs.set(`${dir}/${TID}.relay.json`, { text: JSON.stringify({ id: TID, short: TID.slice(0, 8), by, at: T0, nonce: 'n-1' }), mtimeSec: T0 / 1000 })
     open()
     expect(await ask($, [PLAIN])).toEqual(QUESTION_DENIED)
@@ -148,12 +147,15 @@ for (const [level, setup] of [
   })
 }
 
-// A lead's own plain question goes on to the manager in a window (unattended-questions.test.ts); its relay question is still denied at once.
-test('window: a lead\'s own relay question is denied at once with nothing marked or held; its plain question goes on, and is refused when nothing can rise', async ($, on) => {
+// A lead's or a conductor's own plain question goes on to the manager in a window (unattended-questions.test.ts); its relay question is still denied at once.
+for (const [level, setup, dir] of [
+  ['lead', async ($: any, on: any) => { await tier($, on); putQ() }, LDIR()],
+  ['conductor', async ($: any, on: any) => { await asConductor($, on); h.store.set('answering', { scope: 'all', asks: false, asksScope: 'all', savedAt: T0 }); putQ(APIREQ) }, LDIR(APISID)],
+] as const)
+test(`window: a ${level}'s own relay question is denied at once with nothing marked or held; its plain question goes on, and is refused when nothing can rise`, async ($, on) => {
   beneathHooks(on)
-  await tier($, on)
-  putQ()
-  pfs.set(`${LDIR()}/${TID}.relay.json`, { text: JSON.stringify({ id: TID, short: TID.slice(0, 8), by: { level: 'lead', sid: SID, name: 'X' }, at: T0, nonce: 'n-1' }), mtimeSec: T0 / 1000 })
+  await setup($, on)
+  pfs.set(`${dir}/${TID}.relay.json`, { text: JSON.stringify({ id: TID, short: TID.slice(0, 8), by: { level, sid: SID, name: 'X' }, at: T0, nonce: 'n-1' }), mtimeSec: T0 / 1000 })
   open()
   expect(await ask($, [relayQ(TID)])).toEqual(QUESTION_DENIED)
   expect([...pfs.keys()].filter((k) => k.endsWith('.asked') || k.includes('/asking/'))).toEqual([])
