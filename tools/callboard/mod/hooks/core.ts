@@ -2657,7 +2657,8 @@ function observeRow(prev: LaneObs | undefined, row: RegEntry | 'gone' | undefine
   return o
 }
 type AttentionCode = 'gone' | 'prompt' | 'quiet' | 'ordered' | 'done'
-export type AttentionItem = { lane: string; code: AttentionCode; since: number }
+// why: set by the engine for a waiting prompt only, from what the ledger or the checking tier's own reads show (checkin-why.ts); never from session text.
+export type AttentionItem = { lane: string; code: AttentionCode; since: number; why?: WhyCode }
 // What the observations say now; gone only after CHECKIN_GONE_OBS observations in a row (3 minutes).
 export function checkinItems(obs: Iterable<[string, LaneObs]>, now: number): AttentionItem[] {
   const out: AttentionItem[] = []
@@ -2696,7 +2697,29 @@ export function promptWaitingToast(what: 'Lane' | 'Lead', names: string[]): stri
 }
 // Said after a check-in that lists a waiting prompt: the check-in reads the registry only, so the prompt may be one no tier is asked about.
 export const CHECKIN_PROMPT_TAIL = ' You cannot answer a waiting prompt that prompt_list does not show: tell the person which session waits.'
-const promptTail = (shown: AttentionItem[]): string => (shown.some((i) => i.code === 'prompt') ? CHECKIN_PROMPT_TAIL : '')
+// Why a waiting prompt is not being answered, as far as the mod observed it at the last check (checkin-why.ts decides; these are the fixed texts). A code is
+// added only with its text. None says a remedy or asks for an action: the tier tells the person which session waits.
+export type WhyCode = 'off-file' | 'stored-off' | 'guard' | 'scope' | 'no-tier' | 'with-person' | 'other-tier' | 'question' | 'not-ask' | 'no-check' | 'hook-failed' | 'no-record'
+export const WHY_TEXT: Record<WhyCode, string> = {
+  'off-file': 'the person\'s OFF file is in place, so no tier is asked',
+  'stored-off': 'the person\'s stored setting reads escalation as off',
+  guard: 'this tier reads the escalation default as blocked',
+  scope: 'the escalation switch is scoped to other sessions',
+  'no-tier': 'no tier was in reach of its ask',
+  'with-person': 'its ask was put to the person in a tier\'s session',
+  'other-tier': 'a request for it is open with another tier',
+  question: 'it is a question that stays the person\'s',
+  'not-ask': 'it was not reported as a permission ask',
+  'no-check': 'its hook saw no tool check for it',
+  'hook-failed': 'its hook failed to raise it',
+  'no-record': 'no escalation record of it was found: it may not be a permission prompt, or escalation does not cover that session',
+}
+// For each shown waiting prompt that has a reason: "`LANE`: text". Lane names only through NAME_RE (the callers filter), the texts fixed.
+const promptWhy = (shown: AttentionItem[]): string => {
+  const parts = shown.flatMap((i) => (i.code === 'prompt' && i.why !== undefined && hasCode(WHY_TEXT, i.why) ? [`\`${i.lane}\`: ${WHY_TEXT[i.why]}`] : []))
+  return parts.length === 0 ? '' : ` What was seen at the last check: ${parts.join('; ')}.`
+}
+const promptTail = (shown: AttentionItem[]): string => (shown.some((i) => i.code === 'prompt') ? `${promptWhy(shown)}${CHECKIN_PROMPT_TAIL}` : '')
 // Each lane name in backticks, so the model reads it as a name.
 const ATTENTION_PART: Record<Exclude<AttentionCode, 'ordered' | 'done'>, string> = {
   gone: 'session gone, report not signed done',

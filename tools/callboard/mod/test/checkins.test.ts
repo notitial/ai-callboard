@@ -1,6 +1,8 @@
 import { expect, test } from 'claude-code/testing'
 import { GOOD, h, NO, PROMPTS_DIR, PS_TABLE, ROOT, SID, T0, leadFiles, longTest, pdirs, pfs, resultFiles, toasts } from './harness'
-import { ANY, APISID, LEADPATH, MGR_SESS, MIN, OTHER, OTHERLEAD, OWN_ROW, PIN, QUIET, RESULT, TURN, bareList, checkins, ckLane, ckLead, ckRow, ckText, cueSession, grantAt, idleFor, lane, leadAt, leadCall, leadFileText, leadReg, leadSelfReg, logged, madeLane, mdBox, mgrAt, midCtx, newTrace, notices, postBeneath, putStore, regAs, sleepFor, started, statusTable, ticks } from './fixtures'
+import { SENT_NOTE } from '../hooks/core'
+import { putLedger, OFF_FILE } from './answer-fixtures'
+import { ANY, APISID, LEADPATH, MGR_SESS, MIN, OTHER, OTHERLEAD, OWN_ROW, PIN, QUIET, RESULT, TURN, bareList, checkins, ckLane, ckLead, ckRow, ckText, CK_GUARD_WHY, CK_NO_RECORD, CK_PROMPT_TAIL, cueSession, grantAt, idleFor, lane, leadAt, leadCall, leadFileText, leadReg, leadSelfReg, logged, madeLane, mdBox, mgrAt, midCtx, newTrace, notices, postBeneath, putStore, regAs, sleepFor, started, statusTable, ticks } from './fixtures'
 
 longTest('check-in: a lane quiet 30 min gets one fixed notice from an idle lead, not before; once per since; again after it worked (seen busy twice)', async ($, on) => {
   const stdins: string[] = []
@@ -86,7 +88,7 @@ test('check-in: a lane waiting on a prompt that the lead holds as a request gets
   expect(checkins()).toEqual([])
   endRequest()
   await idleFor(4 * MIN)
-  expect(checkins()).toEqual([ckText(PROMPT)])
+  expect(checkins()).toEqual([ckText(PROMPT, CK_NO_RECORD)])
   expect(toasts).toEqual([PROMPT_TOAST])
 })
 
@@ -110,7 +112,7 @@ for (const [what, put] of [
     await ckLead($, on, [], WAITING)
     put()
     await idleFor(8 * MIN)
-    expect(checkins()).toEqual([ckText(PROMPT)])
+    expect(checkins()).toEqual([ckText(PROMPT, what === 'with answering off' ? CK_GUARD_WHY : CK_NO_RECORD)])
     expect(toasts).toEqual([PROMPT_TOAST])
   })
 }
@@ -121,7 +123,7 @@ test('check-in: a request left open past its expiresAt holds nothing: the lead i
   await idleFor(20 * MIN)
   expect(checkins()).toEqual([])
   await idleFor(4 * MIN)
-  expect(checkins()).toEqual([ckText(PROMPT)])
+  expect(checkins()).toEqual([ckText(PROMPT, CK_NO_RECORD)])
   expect(toasts).toEqual([PROMPT_TOAST])
 })
 
@@ -135,7 +137,7 @@ longTest('check-in: a request put to the person holds past its expiresAt, as its
   await idleFor(92 * MIN)
   expect(checkins()).toEqual([])
   await idleFor(8 * MIN)
-  expect(checkins()).toEqual([ckText(PROMPT)])
+  expect(checkins()).toEqual([ckText(PROMPT, CK_NO_RECORD)])
 })
 
 test('check-in: a busy lead is not told beside a tool result of a lane waiting on a prompt it holds as a request, until the request ends', async ($, on) => {
@@ -148,7 +150,7 @@ test('check-in: a busy lead is not told beside a tool result of a lane waiting o
   expect(await ckMid($)).toEqual([])
   endRequest()
   await idleFor(2 * MIN)
-  expect(await ckMid($)).toEqual([ckText(PROMPT)])
+  expect(await ckMid($)).toEqual([ckText(PROMPT, CK_NO_RECORD)])
   expect(toasts).toEqual([PROMPT_TOAST])
 })
 
@@ -163,7 +165,7 @@ test('manager check-ins: a lane waiting on a prompt 10 min that the manager hold
   expect(toasts.filter((t) => t === PROMPT_TOAST)).toEqual([PROMPT_TOAST])
   endRequest(APISID)
   await idleFor(4 * MIN)
-  expect(checkins()).toEqual([ckText(PROMPT)])
+  expect(checkins()).toEqual([ckText(PROMPT, CK_NO_RECORD)])
 })
 
 test('check-in: a busy lead is not told in the middle of a turn of a quiet lane, nor of a waiting prompt while check-ins are paused', async ($, on) => {
@@ -381,7 +383,7 @@ longTest('/callboard checkin: only the person pauses (a fixed refusal otherwise)
   expect((await $.command.run(lane('checkin pause'))).text).toBe('Check-ins paused in this session for 60 min.')
   expect(logged(stdins).at(-1)).toBe('checkin-pause:60m:prompt')
   await idleFor(40 * MIN)
-  expect(await status()).toMatch(/^\*\*Callboard status\*\*\n\n\| Role \| State \|\n\|---\|---\|\n\| Lane \| NONE \|\n\| Lead \| ON \|\n\| Conductor \| none: \/callboard lead join \|\n\| Check-ins \| PAUSED for (19|20|21) more min \|\n\| Escalation \| OFF \(default blocked[^\n]*\|\n\| Unattended \| OFF \|$/)
+  expect(await status()).toMatch(/^\*\*Callboard status\*\*\n\n\| Role \| State \|\n\|---\|---\|\n\| Lane \| NONE \|\n\| Lead \| ON \|\n\| Conductor \| none: \/callboard lead join \|\n\| Check-ins \| PAUSED for (19|20|21) more min \|\n\| Escalation \| OFF \(default blocked[^\n]*\|\n\| Prompts \| NO \(escalation is off\) \|\n\| Unattended \| OFF \|$/)
   expect(checkins()).toEqual([])
   expect((await $.command.run(lane('checkin resume'))).text).toBe('Check-ins are on again in this session.')
   expect(await status()).toBe(statusTable(['Lane', 'NONE'], ['Lead', 'ON'], ['Conductor', 'none: /callboard lead join'], ['Check-ins', 'ON']))
@@ -636,4 +638,64 @@ test('manager check-ins: only lanes no live lead reaches are told; a lane a lead
   h.sessions = MGR_SESS({ name: 'MANAGER' })
   await idleFor(24 * MIN)
   expect(checkins()).toEqual([ckText('`LABLANE` (quiet for 30 min, report not signed done)'), ckText(QUIET)])
+})
+
+// ---- the reason a check-in gives for a waiting prompt (checkin-why.ts) ----
+const NO_TIER_WHY = 'no tier was in reach of its ask'
+const ROW = (kind: string, over: Record<string, unknown> = {}, dt = 20_000) => ({ t: new Date(T0 + dt).toISOString(), kind, lane: 'API', repo: `${PIN}/api`, ...over })
+
+test('check-in: the reason for a waiting prompt is the latest ledger row its own lane wrote since the wait began; another lane, another repo and an older prompt are not read', async ($, on) => {
+  await ckLead($, on, [], WAITING)
+  putLedger([ROW('no-tier'), ROW('not-judgeable', { code: 'question-scope', lane: 'OTHER' }, 40_000), ROW('not-judgeable', { code: 'question-scope', repo: '/Users/x/elsewhere' }, 50_000)])
+  await idleFor(8 * MIN)
+  expect(checkins()).toEqual([ckText(PROMPT, NO_TIER_WHY)])
+})
+
+test('check-in: a row from before the wait (the previous prompt) is no reason: with the switch on and no row of this wait it says no record', async ($, on) => {
+  await ckLead($, on, [], WAITING)
+  h.store.set('answering', { scope: 'all', asks: false, savedAt: T0 })
+  putLedger([ROW('no-tier', {}, -60_000)])
+  await idleFor(8 * MIN)
+  expect(checkins()).toEqual([ckText(PROMPT, CK_NO_RECORD)])
+})
+
+test('check-in: the OFF file is the reason, whatever the ledger holds', async ($, on) => {
+  await ckLead($, on, [], WAITING)
+  putLedger([ROW('no-tier')])
+  pfs.set(OFF_FILE, { text: '', mtimeSec: T0 / 1000 })
+  await idleFor(8 * MIN)
+  expect(checkins()).toEqual([ckText(PROMPT, 'the person\'s OFF file is in place, so no tier is asked')])
+})
+
+test('check-in: a row of a kind with no reason (a closed request) gives no reason: the fixed tail stays alone', async ($, on) => {
+  await ckLead($, on, [], WAITING)
+  h.store.set('answering', { scope: 'all', asks: false, savedAt: T0 })
+  putLedger([ROW('returned')])
+  await idleFor(8 * MIN)
+  expect(checkins()).toEqual([`[callboard] Check-in: some lanes may need you. ${PROMPT}. Call lane_list and look at each.${CK_PROMPT_TAIL} ${SENT_NOTE}`])
+})
+
+test('check-in: a request still open with another tier is the reason', async ($, on) => {
+  await ckLead($, on, [], WAITING)
+  h.store.set('answering', { scope: 'all', asks: false, savedAt: T0 })
+  putLedger([ROW('requested', { id: REQ_ID })])
+  await idleFor(8 * MIN)
+  expect(checkins()).toEqual([ckText(PROMPT, 'a request for it is open with another tier')])
+})
+
+test('check-in: a request that was closed by a row with only its id gives no reason: the fixed tail stays alone', async ($, on) => {
+  await ckLead($, on, [], WAITING)
+  h.store.set('answering', { scope: 'all', asks: false, savedAt: T0 })
+  putLedger([ROW('requested', { id: REQ_ID }), { t: new Date(T0 + 60_000).toISOString(), kind: 'abandoned', code: 'swept', id: REQ_ID }])
+  await idleFor(8 * MIN)
+  expect(checkins()).toEqual([`[callboard] Check-in: some lanes may need you. ${PROMPT}. Call lane_list and look at each.${CK_PROMPT_TAIL} ${SENT_NOTE}`])
+})
+
+test('check-in: the text beside a tool result carries the same reason', async ($, on) => {
+  postBeneath(on)
+  await ckLead($, on, [], WAITING)
+  putLedger([ROW('no-tier')])
+  h.sessions = { ...leadSelfReg({ status: 'busy' }), ...ckRow(WAITING) }
+  await idleFor(8 * MIN)
+  expect(await midCtx($)).toEqual([ckText(PROMPT, NO_TIER_WHY)])
 })
