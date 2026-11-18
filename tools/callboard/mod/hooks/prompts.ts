@@ -44,6 +44,9 @@ export const pollFor = (withPerson: boolean): number => (withPerson ? PERSON_POL
 // request once a tier is in reach (ADR 0011). A tier away for a compaction or a restart is back well within the hold.
 export const RISE_HOLD_MS = 30 * 60_000
 export const RISE_REACH_MS = 30_000
+// An ask raised by a lead whose saved grant is still being restored holds beside its dialog for at most RESTORE_HOLD_MS of awake time, then goes on as a lead's ask or,
+// with the restore not done, stays the person's (ADR 0011). A restore lands within seconds of the first tick; one slower than this ends the hold with a row.
+export const RESTORE_HOLD_MS = 2 * 60_000
 // The hold's next step, from its awake time and the awake time of its last read of the reach: end it, read the reach, or wait one more poll.
 export const riseStep = (awake: number, reachAt: number): 'end' | 'reach' | 'wait' => (awake >= RISE_HOLD_MS ? 'end' : awake - reachAt >= RISE_REACH_MS ? 'reach' : 'wait')
 

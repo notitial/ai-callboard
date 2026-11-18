@@ -35,6 +35,7 @@ import {
   doneHold,
   leadSavedAt,
   leadRestorePending,
+  leadRestoring,
   conductorApproved,
   conductorSavedAt,
   conductorRestorePending,
@@ -536,74 +537,84 @@ async function leadRestoreTry($: any, me: string, hint: c.LeadHint): Promise<str
   // reopened panel may come a moment after session.start).
   if (!(await interactive($, me))) return dropped() ? undefined : 'not-interactive'
   if (dropped()) return
-  let cwd: unknown
+  // From here the session is one that will be made lead: an ask it raises waits for that (promptCoverage `pending`), and the tick starts no second try.
+  const began = await $.clock.now()
+  leadRestoring.set(me, began)
   try {
-    cwd = await withTimeout($, sessionRoot($), c.ENGINE_CALL_TIMEOUT_MS)
-  } catch {
-    return 'cwd-unreadable'
-  }
-  if (dropped()) return
-  if (cwd === 'timeout' || typeof cwd !== 'string') return 'cwd-unreadable'
-  if (cwd !== hint.pin) {
-    // A check that could not be made is tried again; a definite no ends the saved grant, its goes and `here`, as for any other folder.
-    const p = await where($)
-    const m = p ? await moveCheck($, hint, cwd, homeOf(p), p.uid) : { again: 'cwd-unreadable' }
-    if (dropped()) return
-    // The question waits for an idle turn: the old folder's goes and conductor tie end now, as at any restore in another folder (`here` stays for the move).
-    if (m === 'match') {
-      void goGrantorOff($, me).catch(() => undefined)
-      await ownerLeave($, me, 'off').catch(() => undefined)
-      return { move: cwd }
-    }
-    if ('again' in m) return m.again
-    void goGrantorOff($, me).catch(() => undefined)
-    await $.store.delete(`${c.LEAD_HINT_PREFIX}${me}`)
-    void hereGrantOff($, me).catch(() => undefined)
-    return void (await end(m.no, 'wrong-folder', hint.pin))
-  }
-  // A lane is never a lead too (the rebind refuses a lead in turn); a read that does not answer counts as a binding.
-  const held = await withTimeout($, getLane($), c.ENGINE_CALL_TIMEOUT_MS)
-  if (dropped()) return
-  if (held === 'timeout' || held?.value != null || laneBinding.has(me)) return void (await end('lane-holder', held === 'timeout' ? 'lane-check-slow' : undefined))
-  // The person granted lead meanwhile: that grant stands.
-  if (leadBusy(me)) return
-  leadGranting.add(me)
-  try {
-    // The same second-lead check as /callboard lead. A refusal ends the try, keeps the key and tells the person. An unreadable session list or a
-    // check that does not answer is tried again from the tick, as a cwd read is; the person is told once the tries run out (leadRestore).
-    const named = await withTimeout($, secondLeadNo($, me, hint.pin), c.ENGINE_CALL_TIMEOUT_MS)
-    if (dropped()) return
-    if (named === 'timeout') return 'lead-check-slow'
-    // A reopened panel's name can land in the registry a few ticks after session.start: a lead with no name yet beside another lead is tried again.
-    if (named === 'registry-unreadable' || named === 'lead-needs-name') return named
-    if (named !== undefined) {
-      await reject(named)
-      return void toast($, c.leadNotRestoredToast(named))
-    }
-    let set: unknown
-    try {
-      set = await withTimeout($, leadToolsOnce($, me), c.ENGINE_CALL_TIMEOUT_MS)
-    } catch {
-      return void (await end('tools'))
-    }
-    // An off or a Cancel while the tools were registering: nothing is granted, and nothing is tried again.
-    if (dropped()) return
-    if (set === 'timeout') return 'tools-timeout'
-    grants.set(me, c.leadGrant(hint.pin))
-    // The token saved before for this pin stands until a read of the folder says otherwise (leadRepoIdSave, below).
-    if (hint.repoId !== undefined) leadRepoId.set(me, { pin: hint.pin, id: hint.repoId })
+    return await (async (): Promise<string | { move: string } | undefined> => {
+      let cwd: unknown
+      try {
+        cwd = await withTimeout($, sessionRoot($), c.ENGINE_CALL_TIMEOUT_MS)
+      } catch {
+        return 'cwd-unreadable'
+      }
+      if (dropped()) return
+      if (cwd === 'timeout' || typeof cwd !== 'string') return 'cwd-unreadable'
+      if (cwd !== hint.pin) {
+        // A check that could not be made is tried again; a definite no ends the saved grant, its goes and `here`, as for any other folder.
+        const p = await where($)
+        const m = p ? await moveCheck($, hint, cwd, homeOf(p), p.uid) : { again: 'cwd-unreadable' }
+        if (dropped()) return
+        // The question waits for an idle turn: the old folder's goes and conductor tie end now, as at any restore in another folder (`here` stays for the move).
+        if (m === 'match') {
+          void goGrantorOff($, me).catch(() => undefined)
+          await ownerLeave($, me, 'off').catch(() => undefined)
+          return { move: cwd }
+        }
+        if ('again' in m) return m.again
+        void goGrantorOff($, me).catch(() => undefined)
+        await $.store.delete(`${c.LEAD_HINT_PREFIX}${me}`)
+        void hereGrantOff($, me).catch(() => undefined)
+        return void (await end(m.no, 'wrong-folder', hint.pin))
+      }
+      // A lane is never a lead too (the rebind refuses a lead in turn); a read that does not answer counts as a binding.
+      const held = await withTimeout($, getLane($), c.ENGINE_CALL_TIMEOUT_MS)
+      if (dropped()) return
+      if (held === 'timeout' || held?.value != null || laneBinding.has(me)) return void (await end('lane-holder', held === 'timeout' ? 'lane-check-slow' : undefined))
+      // The person granted lead meanwhile: that grant stands.
+      if (leadBusy(me)) return
+      leadGranting.add(me)
+      try {
+        // The same second-lead check as /callboard lead. A refusal ends the try, keeps the key and tells the person. An unreadable session list or a
+        // check that does not answer is tried again from the tick, as a cwd read is; the person is told once the tries run out (leadRestore).
+        const named = await withTimeout($, secondLeadNo($, me, hint.pin), c.ENGINE_CALL_TIMEOUT_MS)
+        if (dropped()) return
+        if (named === 'timeout') return 'lead-check-slow'
+        // A reopened panel's name can land in the registry a few ticks after session.start: a lead with no name yet beside another lead is tried again.
+        if (named === 'registry-unreadable' || named === 'lead-needs-name') return named
+        if (named !== undefined) {
+          await reject(named)
+          return void toast($, c.leadNotRestoredToast(named))
+        }
+        let set: unknown
+        try {
+          set = await withTimeout($, leadToolsOnce($, me), c.ENGINE_CALL_TIMEOUT_MS)
+        } catch {
+          return void (await end('tools'))
+        }
+        // An off or a Cancel while the tools were registering: nothing is granted, and nothing is tried again.
+        if (dropped()) return
+        if (set === 'timeout') return 'tools-timeout'
+        grants.set(me, c.leadGrant(hint.pin))
+        // The token saved before for this pin stands until a read of the folder says otherwise (leadRepoIdSave, below).
+        if (hint.repoId !== undefined) leadRepoId.set(me, { pin: hint.pin, id: hint.repoId })
+      } finally {
+        leadGranting.delete(me)
+      }
+      await levelSave($, me, LEAD, hint.pin)
+      // An off or a Cancel during the save: no note, log or toast says lead is on.
+      if (dropped()) return
+      briefed.set(me, LEAD.noteKey(hint.pin))
+      await log($, me, 'lead-restored')
+      toast($, c.leadRestoredToast(hint.pin))
+      await nameGrant($, me)
+      // The grant is made: a failure here is logged, not told as a restore that failed.
+      await leadRepoIdSave($, me, hint.pin).catch(logFail($, me, 'lead-repo-id'))
+    })()
   } finally {
-    leadGranting.delete(me)
+    // A try that ran past the marker's minute may have been followed by another: only its own marker goes.
+    if (leadRestoring.get(me) === began) leadRestoring.delete(me)
   }
-  await levelSave($, me, LEAD, hint.pin)
-  // An off or a Cancel during the save: no note, log or toast says lead is on.
-  if (dropped()) return
-  briefed.set(me, LEAD.noteKey(hint.pin))
-  await log($, me, 'lead-restored')
-  toast($, c.leadRestoredToast(hint.pin))
-  await nameGrant($, me)
-  // The grant is made: a failure here is logged, not told as a restore that failed.
-  await leadRepoIdSave($, me, hint.pin).catch(logFail($, me, 'lead-repo-id'))
 }
 
 // The pin's repo token after a grant (the person's, a conductor's offer, a restore): read, or minted when there is none, and saved with the grant. A check that
@@ -637,7 +648,9 @@ export async function leadRestore($: any, me: string, hint: c.LeadHint, tries: n
     else if (again !== 'not-interactive') toast($, c.notRestoredToast('lead', again))
     return
   }
-  leadRestorePending.set(me, { hint, tries })
+  // Once a try has passed the person's-session check the restore stays live: a later try that misses the check once does not end the hold.
+  const live = again !== 'not-interactive' || leadRestorePending.get(me)?.live === true
+  leadRestorePending.set(me, { hint, tries, ...(live ? { live: true } : {}) })
 }
 
 export const regEntry = (r: RegRow): c.RegEntry => ({ sessionId: r.j.sessionId as string, name: r.j.name, nameSource: r.j.nameSource, entrypoint: r.j.entrypoint, cwd: r.j.cwd, pid: String(r.j.pid) === r.pid ? r.j.pid : undefined, procStart: r.j.procStart, startedAt: r.j.startedAt, status: r.j.status, statusUpdatedAt: r.j.statusUpdatedAt, waitingFor: r.j.waitingFor })
