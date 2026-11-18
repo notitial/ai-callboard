@@ -399,9 +399,9 @@ export function parseDecision(text: string): Decision | undefined {
 // the default permission mode.
 export const PROVISIONAL_ASKERS: readonly Request['level'][] = ['lane', 'lead', 'conductor']
 export const provisionalAllowed = (req: Pick<Request, 'level' | 'mode'>): boolean => PROVISIONAL_ASKERS.includes(req.level) && req.mode === 'default'
-// Whose question the manager may leave for the person inside an unattended window (a park of a question): a tier's own. A lane's question it cannot settle
-// stays open in the lane's panel.
-export const QUESTION_PARK_ASKERS: readonly Request['level'][] = ['lead', 'conductor']
+// Whose question the manager may leave for the person inside an unattended window (a park of a question): a lane's, and a lead's or a conductor's own. The
+// asker then takes the safe default and goes on.
+export const QUESTION_PARK_ASKERS: readonly Request['level'][] = ['lane', 'lead', 'conductor']
 export const questionParkAllowed = (req: Pick<Request, 'level'>): boolean => QUESTION_PARK_ASKERS.includes(req.level)
 
 export type ApplyIn = {
@@ -1003,7 +1003,7 @@ export function unattendedQuestion(until: string, manager: string, lanes: { lead
   const live = lanes === undefined ? 'could not be read' : shown.length === 0 ? 'none' : `${shown.map((l) => `${l.lead} ${l.n}`).join(', ')}${more}`
   return [
     `Turn on unattended mode on this Mac until ${until}? /callboard unattended off ends it.`,
-    `No prompt or question is passed on to you. The manager ${NAME_RE.test(manager) ? manager : 'MANAGER'} decides what asks: it allows only what it would allow with you here, and parks what the rules keep for you (the risk list, a merge, a push to main). A lane's question it cannot settle stays in its panel or, in default mode, may get the most cautious option, marked provisional for you to review.`,
+    `No prompt or question is passed on to you. The manager ${NAME_RE.test(manager) ? manager : 'MANAGER'} decides what asks: it allows only what it would allow with you here, and parks what the rules keep for you (the risk list, a merge, a push to main). A lane's question it cannot settle it leaves for you (the lane takes the safe default) or, in default mode, gives it the most cautious option, marked provisional for you to review.`,
     "A lead's or a conductor's own question goes to the manager, which answers it or leaves it for you. The manager's own is refused.",
     'Only calls that ask are seen: a lane in auto or bypass mode, or a call an allow rule lets through, raises nothing to park. One nobody answers is held for you after 20 minutes.',
     `Live lanes now: ${live}. A lead runs at most ${UNATTENDED_LIVE_LANES} live lanes and cannot ask for a go. Restart sessions started before the last callboard update first.`,
@@ -1535,7 +1535,7 @@ function promptListBody(items: ListItem[], o: { on: boolean; hint?: string; youn
 // away: the unattended window is held (ADR 0008), so no line offers the person: `manager` for the manager, `lower` for a lead or conductor. `here` then
 // counts for nothing, and a tier with one above it passes up as always. relayOnly: a lead's own question, which no tier answers by day. provisional: for the
 // manager's line of a question while away, whether its request may take a provisional answer (provisionalAllowed). tierOwn: for that line, the question is a
-// lead's or a conductor's own, which the manager may also leave for the person.
+// lead's or a conductor's own, and the manager is its only tier.
 export function turnLine(o: { relay?: { level: string; name: string }; top: boolean; above?: { level: string; name: string }; opensInSec?: number; question?: boolean; here?: boolean; away?: 'manager' | 'lower'; relayOnly?: boolean; provisional?: boolean; tierOwn?: 'lead' | 'conductor' }): string {
   const who = (t: { level: string; name: string }): string => `the ${word(t.level, 'tier')}${t.name === '' ? '' : ` ${word(t.name, '(odd name)')}`}`
   if (o.relay) return `With the person: ${who(o.relay)} is asking them. Nothing for you to do; no tier answers it now.`
@@ -1549,7 +1549,7 @@ export function turnLine(o: { relay?: { level: string; name: string }; top: bool
       ? o.question
         ? o.tierOwn !== undefined
           ? `Unattended mode: a ${o.tierOwn}'s own question, and you are its only tier. Answer it with an offered option by the question rubric, or leave it for the person with decision \`park\` (rule 5 below). Nothing is put to them. ${provLine}`
-          : `Unattended mode: answer it with an offered option by the question rubric, or leave it open for the person. Nothing is put to them. ${provLine}`
+          : `Unattended mode: answer it with an offered option by the question rubric, or leave it for the person with decision \`park\` (rule 5 below). Nothing is put to them. ${provLine}`
         : 'Unattended mode: allow, deny or park it by the rubric and the unattended rules below. Nothing is put to the person.'
       : o.question
         ? "Unattended mode: you are the top tier for this question and the person is not asked. Answer it with an offered option by the rubric if you can; otherwise leave it, and it stays open in the lane's panel."
@@ -1584,7 +1584,7 @@ export const unattendedBlock = (never: string, until?: string): string =>
     `2. What the rubric sends to the person (rule 3, rule 4, everything it tells you to surface, a \`setting\`, \`plugin\` or \`ceiling\` ask, a plan-mode exit you may not allow) and anything on this list, whatever go covers the lane, except the two review calls named after rule 6: ${never} **Park** it: \`prompt_answer\`, decision \`park\`, why: one line for the person saying what waits. Never deny it with another way to reach it, and never suggest one.`,
     '3. Anything else you would have passed up: deny it with a reason the lane can act on (a narrower way inside its brief that does less; never the same effect by another tool, path or a route with no prompt; never an approval, a merge, a push or a dispatch), or park it. If unsure which, park.',
     "4. A call you can't see whole or understand: the cleaner-command deny, as always.",
-    "5. A question: answer it by the question rubric. One it leaves to the person may get its most cautious offered option (the easiest to undo, the one that does least, touching nothing on the risk list) with `provisional: true`, when its line says its asker may take one: the asker is told the answer is provisional and the person reviews it. A lead's or a conductor's own question shows here too, and you are its only tier: one that asks for approval or a go, is on the risk list, is a design choice the person kept, offers only options that are hard to undo, or that you are unsure of, **leave it for the person** with decision `park` and a why that names the question in a few words (that line is what the person reads); the asker takes the safe default and goes on. A lane's question you cannot settle: leave it unanswered; it stays open in the lane's panel and the person's list shows it. Never answer one that asks for approval or a go, or one on the risk list, provisionally or not, and never deny a question.",
+    "5. A question: answer it by the question rubric. One it leaves to the person may get its most cautious offered option (the easiest to undo, the one that does least, touching nothing on the risk list) with `provisional: true`, when its line says its asker may take one: the asker is told the answer is provisional and the person reviews it. A lead's or a conductor's own question shows here too, and you are its only tier. A question, a lane's or a tier's own, that asks for approval or a go, is on the risk list, is a design choice the person kept, offers only options that are hard to undo, or that you are unsure of: **leave it for the person** with decision `park` and a why that names the question in a few words (that line is what the person reads); the asker takes the safe default and goes on. Never answer one that asks for approval or a go, or one on the risk list, provisionally or not, and never deny a question.",
     '6. A request marked REPEAT that reaches the same effect as the call denied, parked or held before: park it.',
     REVIEW_RUNS_RULE,
     'A check-in about a prompt that `prompt_list` does not show: you cannot answer it and cannot tell the person now; note the lane for their return.',
@@ -1594,14 +1594,14 @@ export const unattendedBlock = (never: string, until?: string): string =>
 // The same for a lead or a conductor: one line.
 export const UNATTENDED_TIER_LINE = '**Unattended mode is on.** The person is away and is not asked: `prompt_escalate` passes a request up to the next tier as always, and puts none to the person. A request you leave as the top tier is held for them at 20 minutes; a question stays open in the lane\'s panel. Your own `AskUserQuestion` goes to the manager alone, which answers it or leaves it for the person: then take the safe default, note it, and go on.'
 export const PROMPT_REFUSE: Record<string, string> = {
-  'bad-input': "the arguments are not what the tool takes (id, decision allow or deny, or answer for a question, or park in unattended mode, for a lead's own question too, and a one-line why of at most 200 characters; provisional, a boolean, only with answer).",
+  'bad-input': "the arguments are not what the tool takes (id, decision allow or deny, or answer for a question, or park in unattended mode, for a question too, and a one-line why of at most 200 characters; provisional, a boolean, only with answer).",
   unattended: 'unattended mode is on, so nothing is put to the person. Decide it by the rubric and the unattended rules in prompt_list: allow, deny or park it.',
   'unattended-no-manager': 'unattended mode is on, so nothing is put to the person. Answer it by the rubric if you can; otherwise leave it: a prompt is held for the person at 20 minutes, and a question stays open in the lane\'s panel.',
-  'park-not-allowed': "only the manager may park a prompt or a lead's or a conductor's own question, and only while unattended mode is on.",
+  'park-not-allowed': 'only the manager may park a prompt or a question, and only while unattended mode is on.',
   'unattended-unread': 'the unattended window cannot be read right now, so a park or a provisional answer cannot be recorded. Try again in a minute.',
   'provisional-not-allowed': "only the manager may give a provisional answer, only to a lane's question or a tier's own, and only while unattended mode is on.",
-  'provisional-mode': "a provisional answer goes only to an asker whose request records the default permission mode, and this one's does not. Answer it by the question rubric, or leave it (a lane's stays open in its panel; a tier's own the manager may park).",
-  'question-answer-only': "a question takes only decision `answer` (with `option`, the number shown in prompt_list); you may not allow or deny it, and only a lead's or a conductor's own question may be parked, by the manager in unattended mode. Pass it up with prompt_escalate if you cannot settle it.",
+  'provisional-mode': "a provisional answer goes only to an asker whose request records the default permission mode, and this one's does not. Answer it by the question rubric, or leave it for the person with decision `park`.",
+  'question-answer-only': "a question takes only decision `answer` (with `option`, the number shown in prompt_list); you may not allow or deny it, and only the manager may park it, in unattended mode. Pass it up with prompt_escalate if you cannot settle it.",
   'bad-answer': 'the option is not one the question offers, or the answer text does not match that option\'s label as prompt_list showed it. Use the number shown.',
   'relay-only': 'that question is a lead\'s own: no tier answers it (in unattended mode only the manager does). If you are the top tier, call prompt_escalate to put it to the person; otherwise prompt_escalate passes it up.',
   'truncated-question': 'you have not seen all of that question, so it cannot be answered or put to the person here: tell the person, in your own words, that the lane asks a question in its panel.',

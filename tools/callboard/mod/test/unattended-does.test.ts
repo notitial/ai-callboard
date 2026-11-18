@@ -359,7 +359,7 @@ longTest('window: a lane\'s prompt with no tier in reach is not denied: it holds
 })
 
 // ---- park ----
-test('window: park is refused from a lead; from the manager it is refused outside a window, while the window cannot be read, on a question and before 30 s', async ($, on) => {
+test('window: park is refused from a lead; from the manager it is refused outside a window, while the window cannot be read and before 30 s; a lane\'s question takes it', async ($, on) => {
   await asManager($, on)
   putQ(APIREQ)
   const park = async (over: Record<string, unknown> = {}) => said(await $.tool.call(answerCall({ decision: 'park', why: 'a merge waits for you', ...over })))
@@ -371,11 +371,12 @@ test('window: park is refused from a lead; from the manager it is refused outsid
   expect(await park()).toContain(refusal('unattended-unread'))
   h.pfsFails = undefined
   later()
-  putQ({ ...APIREQ, id: TID2, tool: 'AskUserQuestion', input: QIN })
-  expect(await park({ id: TID2 })).toContain(refusal('question-answer-only'))
   putQ({ ...APIREQ, id: TID3, at: h.nowMs })
   expect(await park({ id: TID3 })).toContain(refusal('window'))
   expect([...pfs.keys()].filter((k) => k.endsWith('.decision.json'))).toEqual([])
+  // A lane's question takes a park too: the manager leaves it for the person, and the lane is told to take the safe default.
+  putQ({ ...APIREQ, id: TID2, tool: 'AskUserQuestion', input: QIN })
+  expect(await park({ id: TID2 })).toContain(`Recorded: park for ${TID2}. It closes the question for the person's return once the question has been open 30 seconds: the lane is told`)
   expect(await park()).toContain('Recorded: park')
   expect(apiDec().u).toBe(winShort(v))
 })

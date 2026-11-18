@@ -623,9 +623,9 @@ test('an unattended window in the tier texts: no turn line offers the person, he
   ]
   for (const l of lines) assert.ok(!/put it to (the person|them)|The person said they are here/.test(l), l)
   assert.equal(lines[0], 'Unattended mode: allow, deny or park it by the rubric and the unattended rules below. Nothing is put to the person.')
-  assert.equal(lines[1], 'Unattended mode: answer it with an offered option by the question rubric, or leave it open for the person. Nothing is put to them. Its lane is not recorded in the default permission mode, so it takes no provisional answer.')
+  assert.equal(lines[1], 'Unattended mode: answer it with an offered option by the question rubric, or leave it for the person with decision `park` (rule 5 below). Nothing is put to them. Its lane is not recorded in the default permission mode, so it takes no provisional answer.')
   // A provisional answer is offered only for a lane's question whose request records the default mode.
-  assert.equal(p.turnLine({ top: true, away: 'manager', question: true, provisional: true }), 'Unattended mode: answer it with an offered option by the question rubric, or leave it open for the person. Nothing is put to them. Its lane is in the default permission mode, so one the rubric leaves to the person may take a provisional answer.')
+  assert.equal(p.turnLine({ top: true, away: 'manager', question: true, provisional: true }), 'Unattended mode: answer it with an offered option by the question rubric, or leave it for the person with decision `park` (rule 5 below). Nothing is put to them. Its lane is in the default permission mode, so one the rubric leaves to the person may take a provisional answer.')
   assert.ok(!p.turnLine({ top: true, away: 'lower', question: true, provisional: true }).includes('provisional'))
   assert.ok(!p.turnLine({ top: true, away: 'manager', provisional: true }).includes('provisional'))
   assert.equal(lines[2], 'Unattended mode: you are the top tier for this prompt and the person is not asked. Answer it by the rubric if you can; otherwise leave it, and it is held for the person at 20 minutes.')
@@ -639,9 +639,9 @@ test('an unattended window in the tier texts: no turn line offers the person, he
   assert.ok(p.turnLine({ relay: { level: 'lead', name: 'LEAD' }, top: true, away: 'manager' }).startsWith('With the person: the lead LEAD is asking them.'))
   for (const code of ['unattended', 'unattended-no-manager', 'park-not-allowed', 'unattended-unread', 'provisional-not-allowed', 'provisional-mode']) assert.ok((p.PROMPT_REFUSE[code] ?? '').length > 10, code)
   assert.ok(p.PROMPT_REFUSE['unattended-unread'].includes('a park or a provisional answer cannot be recorded'))
-  assert.ok(p.PROMPT_REFUSE['provisional-mode'].includes('records the default permission mode') && p.PROMPT_REFUSE['provisional-mode'].includes("a tier's own the manager may park"))
-  assert.ok(p.PROMPT_REFUSE['park-not-allowed'].includes("or a lead's or a conductor's own question") && p.PROMPT_REFUSE['relay-only'].includes('in unattended mode only the manager does'))
-  assert.ok(p.PROMPT_REFUSE['question-answer-only'].includes("only a lead's or a conductor's own question may be parked, by the manager in unattended mode"))
+  assert.ok(p.PROMPT_REFUSE['provisional-mode'].includes('records the default permission mode') && p.PROMPT_REFUSE['provisional-mode'].includes('leave it for the person with decision `park`'))
+  assert.ok(p.PROMPT_REFUSE['park-not-allowed'].includes('park a prompt or a question') && p.PROMPT_REFUSE['relay-only'].includes('in unattended mode only the manager does'))
+  assert.ok(p.PROMPT_REFUSE['question-answer-only'].includes('only the manager may park it, in unattended mode'))
   // The manager's line for a lead's own question in a window: it may answer it or park it, and a provisional answer follows the lead's recorded mode.
   assert.equal(p.turnLine({ top: true, away: 'manager', question: true, tierOwn: 'conductor' }).split('.')[0], "Unattended mode: a conductor's own question, and you are its only tier")
   assert.equal(p.turnLine({ top: true, away: 'manager', question: true, tierOwn: 'lead' }), "Unattended mode: a lead's own question, and you are its only tier. Answer it with an offered option by the question rubric, or leave it for the person with decision `park` (rule 5 below). Nothing is put to them. Its lead is not recorded in the default permission mode, so it takes no provisional answer.")
