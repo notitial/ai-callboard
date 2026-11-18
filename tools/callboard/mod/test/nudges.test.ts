@@ -1,8 +1,8 @@
 import { expect, test } from 'claude-code/testing'
 import { nudgeText, compactResumeText, OFF_NOTHING } from '../hooks/core'
-import { h, GOOD, PS_TABLE, YES, laneSeed, longTest, psCalls, resultFiles, seen, submitted, toolDefs, toolDesc } from './harness'
+import { h, GOOD, NO, PS_TABLE, YES, laneSeed, longTest, psCalls, resultFiles, seen, submitted, toolDefs, toolDesc } from './harness'
 import type { Trace } from './harness'
-import { LEAD_LANES, MIN, NOT_ENABLED, NOW, OWN_ROW, REG, REGFILE, RESULT, SELF_PS, TURN, cue, lane, lead, leadAt, leadCall, logged, midCtx, newTrace, nudges, person, postBeneath, renameThroughTick, retireTarget, tickTwice, ticks, advanceQuiet } from './fixtures'
+import { LEAD_LANES, MIN, NOT_ENABLED, NOW, OWN_ROW, REG, REGFILE, RESULT, SELF_PS, TURN, cue, lane, lead, leadAt, leadCall, logged, midCtx, newTrace, nudges, person, postBeneath, renameThroughTick, retireTarget, tickTwice, ticks, advanceQuiet, waitFor } from './fixtures'
 
 test('a compact cue with no request nudges an idle lane: held nudged, and the tick sends one nudge after the cue is answered, in the same tick', async ($, on) => {
   const stdins: string[] = []
@@ -97,6 +97,24 @@ test('a person session is nudged at 300k tokens, not at 299k; the turn end recor
   await ticks(1)
   expect(nudges()).toEqual([nudgeText('idle')])
   expect(logged(stdins)).toContain('nudged:idle')
+})
+
+test('a nudge due while a callboard dialog of the session is open stays due, and goes out once the dialog closes', async ($, on) => {
+  await person($, on)
+  let release: (a: string) => void = () => undefined
+  h.askHang = new Promise<string>((r) => (release = r))
+  const n = h.askCount
+  const open = $.command.run(lane('lead', { kind: 'plugin', name: 'x' }))
+  await waitFor(() => h.askCount !== n)
+  h.tokensNow = 300_000
+  await $.turn.complete(TURN as any)
+  await ticks(3)
+  expect(nudges()).toEqual([])
+  release(NO)
+  h.askHang = undefined
+  await open
+  await ticks(1)
+  expect(nudges()).toEqual([nudgeText('idle')])
 })
 
 for (const [what, setup] of [

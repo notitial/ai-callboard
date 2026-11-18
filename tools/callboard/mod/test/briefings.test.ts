@@ -211,6 +211,24 @@ test('the lead is told once when the lane list of its repo changes: the first lo
   expect(notices()).toBe(2)
 })
 
+test('a lanes-changed notice stays owed while a callboard dialog of the lead is open, and goes out once it closes', async ($, on) => {
+  await leadAt($, on, [], { clock: true })
+  let release: (a: string) => void = () => undefined
+  h.askHang = new Promise<string>((r) => (release = r))
+  const n = h.askCount
+  const open = $.command.run(lane('off', { kind: 'plugin', name: 'x' }))
+  await waitFor(() => h.askCount !== n)
+  storeFiles.set(STOREFILE, storeText(7))
+  await tickTwice()
+  await tickTwice()
+  expect(notices()).toBe(0)
+  release(NO)
+  h.askHang = undefined
+  await open
+  await tickTwice()
+  expect(notices()).toBe(1)
+})
+
 test('a lane list that is already there when the lead is granted is the baseline and gets no notice', async ($, on) => {
   await started($, on, [], { clock: true })
   h.sessions = leadSelfReg()

@@ -1,11 +1,11 @@
 import { expect, test } from 'claude-code/testing'
 import { LEADS_CHANGED_NOTE, LEADS_CHANGED_TEXT } from '../hooks/core'
 import { LEADRECDIR, PROMPTS_DIR, PS_TABLE, SID, T0, extraStat, h, leadFiles, longTest, pdirs, pfs, submitted, toasts } from './harness'
-import { APISID, CSESS, LEADPATH, LEADPS, LEADSID, MIN, OTHERLEAD, PIN, TURN, bindOwner, ckLane, ckTail, condOn, idleFor, lane, leadFileText, leadReg, listed, midCtx, ownedBy, postBeneath, putLeadRecs, putStore, ticks, leadRecsJson, waitFor } from './fixtures'
+import { APISID, CSESS, LEADPATH, LEADPS, LEADSID, MIN, OTHERLEAD, PIN, TURN, bindOwner, ckLane, ckTail, CK_NO_RECORD, condOn, idleFor, lane, leadFileText, leadReg, listed, midCtx, ownedBy, postBeneath, putLeadRecs, putStore, ticks, leadRecsJson, waitFor } from './fixtures'
 
 // An owning conductor's check-ins on its leads and the leads-changed notice (the lead's own: checkins.test.ts, lead.test.ts).
 const THEIRS = '7a1b2c3d-0000-4000-8000-123456789abc'
-const leadCk = (parts: string) => `[callboard] Check-in: some of your leads may need you. ${parts}. ${ckTail(parts)}`
+const leadCk = (parts: string, why?: string) => `[callboard] Check-in: some of your leads may need you. ${parts}. ${ckTail(parts, why)}`
 const LEAD_QUIET = '`LEAD` (quiet for 30 min with no live lane, report not signed done)'
 const leadCheckins = () => submitted.filter((t) => t.startsWith('[callboard] Check-in: some of your leads'))
 const anyCheckins = () => submitted.filter((t) => t.startsWith('[callboard] Check-in:'))
@@ -92,7 +92,7 @@ test('lead check-in: an owned lead waiting on a prompt that the conductor holds 
   expect(toasts.filter((t) => t.includes('waiting on a prompt'))).toEqual(['Lead LEAD: waiting on a prompt for over 5 min.'])
   pfs.set(`${PROMPTS_DIR}/${LEADSID}/${id}.done`, { text: '', mtimeSec: h.nowMs / 1000 })
   await idleFor(4 * MIN)
-  expect(leadCheckins()).toEqual([leadCk('`LEAD` (waiting on a prompt for over 5 min)')])
+  expect(leadCheckins()).toEqual([leadCk('`LEAD` (waiting on a prompt for over 5 min)', CK_NO_RECORD)])
 })
 
 longTest('lead check-in: an owned lead whose session is gone is told', async ($, on) => {

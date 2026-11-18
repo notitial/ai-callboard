@@ -799,13 +799,13 @@ test('recOk: a missing hash is never accepted', () => {
 })
 
 test('every refusal code of the wording table has text, and the lead sees code and text', () => {
-  const codes = ['rate-limit', 'no-request', 'context-floor', 'not-idle', 'draft-in-box', 'background-work', 'start-done', 'not-empty', 'too-old', 'record-changed', 'wrong-folder', 'not-bound', 'not-eligible', 'brief-file', 'brief-path', 'unknown-lane', 'name-in-use', 'user-named', 'already-bound', 'stale', 'grammar', 'other', 'other-repo', 'brief-chars', 'brief-missing', 'brief-outside', 'bind-turns-mismatch', 'registry-unreadable', 'submit-failed', 'timeout', 'cue-busy', 'report-stale', 'report-unknown', 'report-not-done', 'report-missing', 'report-file', 'report-path', 'report-old', 'report-no-start', 'session-changed', 'session-duplicate', 'background-unknown', 'bad-task', 'brief-path-long', 'brief-exists', 'archive-unsafe', 'brief-write', 'abandoned']
+  const codes = ['rate-limit', 'no-request', 'context-floor', 'not-idle', 'draft-in-box', 'dialog-open', 'background-work', 'start-done', 'not-empty', 'too-old', 'record-changed', 'wrong-folder', 'not-bound', 'not-eligible', 'brief-file', 'brief-path', 'unknown-lane', 'name-in-use', 'user-named', 'already-bound', 'stale', 'grammar', 'other', 'other-repo', 'brief-chars', 'brief-missing', 'brief-outside', 'bind-turns-mismatch', 'registry-unreadable', 'submit-failed', 'timeout', 'cue-busy', 'report-stale', 'report-unknown', 'report-not-done', 'report-missing', 'report-file', 'report-path', 'report-old', 'report-no-start', 'session-changed', 'session-duplicate', 'background-unknown', 'bad-task', 'brief-path-long', 'brief-exists', 'archive-unsafe', 'brief-write', 'abandoned']
   for (const code of codes) {
     assert.equal(c.hasText(code), true, code)
     assert.ok(c.REASON_TEXT[code].length > 10, code)
     assert.equal(c.reasonWhy(code), `${code}: ${c.REASON_TEXT[code]}`)
   }
-  for (const code of ['not-idle', 'draft-in-box', 'rate-limit', 'cue-busy', 'background-work', 'report-stale', 'report-unknown', 'report-not-done', 'report-old', 'session-changed']) assert.match(c.REASON_TEXT[code], /[Rr]etry/, code)
+  for (const code of ['not-idle', 'draft-in-box', 'dialog-open', 'rate-limit', 'cue-busy', 'background-work', 'report-stale', 'report-unknown', 'report-not-done', 'report-old', 'session-changed']) assert.match(c.REASON_TEXT[code], /[Rr]etry/, code)
   assert.match(c.REASON_TEXT['report-stale'], /not newer than the lane's last turn.*sign again/)
   assert.match(c.REASON_TEXT['report-unknown'], /no prompt seen since callboard loaded.*take a prompt and sign again/)
   assert.match(c.REASON_TEXT['session-changed'], /No signal was sent/)
@@ -4026,4 +4026,17 @@ test('terminateOwnedText: the refusal names the conductor and the lane, says not
   assert.ok(t.includes('ask your conductor `CONDX` by message to force stop lane `svc-api`'))
   assert.ok(t.includes('the person confirms in its session. Nothing was stopped.'))
   assert.ok(c.terminateOwnedText('svc-api').includes('ask your conductor by message'))
+})
+
+test('the mod dialog key: header and question of a call with one question; any other shape has none', () => {
+  assert.equal(c.ownDialogKey('Go', 'Give a go?'), '["Go","Give a go?"]')
+  assert.equal(c.questionCallKey({ questions: [{ header: 'Go', question: 'Give a go?', options: [{ label: 'Cancel' }, { label: 'Give go' }] }] }), c.ownDialogKey('Go', 'Give a go?'))
+  // A newline in the header or the question cannot make another dialog's key.
+  assert.notEqual(c.ownDialogKey('Go\nA', 'B'), c.ownDialogKey('Go', 'A\nB'))
+  assert.equal(c.questionCallKey({ questions: [{ header: 'Go', question: 'A?' }, { header: 'Go', question: 'B?' }] }), undefined)
+  assert.equal(c.questionCallKey({ questions: [{ question: 'A?' }] }), undefined)
+  assert.equal(c.questionCallKey({ questions: [{ header: 'Go', question: 5 }] }), undefined)
+  assert.equal(c.questionCallKey({ questions: [] }), undefined)
+  assert.equal(c.questionCallKey(null), undefined)
+  assert.equal(c.questionCallKey({ questions: [null] }), undefined)
 })

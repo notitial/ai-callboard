@@ -2,8 +2,8 @@ import { expect, test } from 'claude-code/testing'
 import * as prm from '../hooks/prompts'
 import { leadBriefing, nudgeText, SENT_NOTE } from '../hooks/core'
 import { h, GOOD, PROMPTS_DIR, ROOT, SID, T0, leadFiles, longTest, pfs, psDead, submitted, toolDefs } from './harness'
-import { APISID, APP2, ckLane, COMPOSE, LEADPATH, LEADPS, LEADSID, MGR_SESS, OTHER, PIN, SVC, TURN, condOn, leadFileText, leadReg, logged, mgrAt, midCtx, ownReg, ownTurn, postBeneath, putStore, storeJson, tickTwice, ticks, advanceQuiet } from './fixtures'
-import { APIQ, CNDT, LANESID, LDIR, LEAD2, MGRT, OFF_FILE, PCOMMENT, PDIR, THASH, TID, TID2, addCondT, addMgrT, answerCall, answered, answerer, asConductor, askCheck, at, byCond, byMgr, decFile, decideBy, driveClock, handDecision, hookKinds, leadLive, ledgerRows, pcall, putFile, putFileAt, putLedger, putQ, putRelayT, readReq, refusal, reqFiles, retRow, rowKinds, runRequest, said, startReq, stop, tier, tierSessions, waitingRow } from './answer-fixtures'
+import { APISID, APP2, ckLane, COMPOSE, LEADPATH, LEADPS, LEADSID, MGR_SESS, OTHER, PIN, SVC, TURN, condOn, lane, leadFileText, leadReg, logged, mgrAt, midCtx, ownReg, ownTurn, postBeneath, putStore, storeJson, tickTwice, ticks, advanceQuiet } from './fixtures'
+import { APIQ, CNDT, LANESID, LDIR, LEAD2, MGRT, OFF_FILE, PCOMMENT, PDIR, THASH, TID, TID2, addCondT, addMgrT, answerCall, answered, answerer, asConductor, askCheck, at, byCond, byMgr, decFile, decideBy, driveClock, handDecision, hookKinds, leadLive, ledgerRows, pcall, putFile, putFileAt, putLedger, putQ, putRelayT, putWindow, readReq, refusal, reqFiles, retRow, rowKinds, runRequest, said, startReq, stop, tier, tierSessions, waitingRow, winShort } from './answer-fixtures'
 
 test('the lead is resolved record first: a record that names a lead is reached by the live lead of that name only, whatever lead the binding holds', async ($, on) => {
   await answerer($, on, [])
@@ -1011,6 +1011,71 @@ test('head start: a busy lead gets no mid-turn notice for a request younger than
   expect(await midCtx($)).toEqual([])
   await ticks(3)
   expect(await midCtx($)).toEqual([prm.PROMPT_NOTICE_TEXT])
+})
+
+// ---- the head start inside an unattended window (ADR 0008): a request raised in a window, while that window is on, gives the person none ----
+const NO_HEAD = 'lands within a few seconds (this unattended window gives the person no head start)'
+test('head start: a request raised in the unattended window that is on is listed, answered and passed up at once, and the answer says it lands within seconds', async ($, on) => {
+  await tier($, on)
+  tierFixtures('mgr')
+  const v = putWindow()
+  putQ({ at: T0, u: winShort(v) })
+  putQ({ at: T0, id: TID2, u: winShort(v) })
+  const t = said(await $.tool.call(pcall('prompt_list')))
+  expect(t).toContain(TID)
+  expect(t).not.toContain('still the person')
+  expect(said(await $.tool.call(answerCall()))).toContain(NO_HEAD)
+  expect(decFile()).toBeDefined()
+  expect(said(await $.tool.call(pcall('prompt_escalate', { id: TID2, why: 'x' })))).toContain('Passed up')
+})
+
+test('head start: inside a window a request raised by day, or in another window, keeps its 30 s: counted, refused, and the answer at 30 s lands once it has been open 30 seconds', async ($, on) => {
+  await tier($, on)
+  const v = putWindow()
+  putQ({ at: T0 })
+  putQ({ at: T0, id: TID2, u: winShort(v).replace(/^./, (x) => (x === 'a' ? 'b' : 'a')) })
+  expect(said(await $.tool.call(pcall('prompt_list')))).toBe(prm.promptListText([], { on: true, young: 2 }))
+  expect(said(await $.tool.call(answerCall()))).toContain(refusal('window'))
+  expect(said(await $.tool.call(answerCall({ id: TID2 })))).toContain(refusal('window'))
+  h.nowMs = T0 + 30_000
+  const r = said(await $.tool.call(answerCall()))
+  expect(r).toContain('Recorded: allow')
+  expect(r).not.toContain(NO_HEAD)
+})
+
+test('head start: a request raised in a window and seen by a tier while it was on gets its 30 s back once the window ends', async ($, on) => {
+  await tier($, on)
+  tierFixtures('mgr')
+  const v = putWindow()
+  putQ({ at: T0, u: winShort(v) })
+  expect(said(await $.tool.call(pcall('prompt_list')))).toContain(TID)
+  await $.command.run(lane('unattended off'))
+  h.nowMs = T0 + 11_000
+  expect(said(await $.tool.call(pcall('prompt_list')))).toBe(prm.promptListText([], { on: true, young: 1 }))
+  expect(said(await $.tool.call(pcall('prompt_escalate', { id: TID, why: 'x' })))).toContain(refusal('window'))
+  expect(said(await $.tool.call(answerCall()))).toContain(refusal('window'))
+  expect(pfs.has(`${LDIR()}/${TID}.escalate-lead.json`)).toBe(false)
+  h.nowMs = T0 + 30_000
+  expect(said(await $.tool.call(pcall('prompt_escalate', { id: TID, why: 'x' })))).toContain('Passed up')
+})
+
+test('prompts hook: a request raised in a window carries the window, and a tier\'s answer lands at the first poll after it, not at 30 s', async ($, on) => {
+  await answerer($, on, [])
+  const v = putWindow()
+  let marked: unknown
+  const r = await runRequest($, [at(4000, () => { marked = readReq().u; handDecision(readReq()) })])
+  expect(r).toEqual({ decision: { behavior: 'allow' } })
+  expect(marked).toBe(winShort(v))
+  expect(h.nowMs - T0).toBeLessThan(prm.MIN_AGE_MS)
+})
+
+test('prompts hook: a request raised by day carries no window, and its answer still waits out the 30 s', async ($, on) => {
+  await answerer($, on, [])
+  let marked: unknown = 'unread'
+  const r = await runRequest($, [at(4000, () => { marked = readReq().u; handDecision(readReq()) })])
+  expect(r).toEqual({ decision: { behavior: 'allow' } })
+  expect(marked).toBeUndefined()
+  expect(h.nowMs - T0).toBeGreaterThanOrEqual(prm.MIN_AGE_MS)
 })
 
 test('head start: a conductor with a lead and a manager live may not pass up before its own window, so the manager is not opened early', async ($, on) => {

@@ -19,6 +19,7 @@ import {
   laneObs,
   leadObs,
   attnTold,
+  attnWhy,
   attnCapped,
   attnMid,
   attnToasted,
@@ -119,7 +120,8 @@ import { ownerLeave, ownerRename, leadNameHeld } from './lead-records.ts'
 import { goGrantorOff } from './go.ts'
 import { hereGrantOff } from './answer-hook.ts'
 import { toolText } from '../tool-text.ts'
-import { promptHeldSids } from './answer-tiers.ts'
+import { promptHeldSids, promptWhy } from './answer-tiers.ts'
+import type { WhyAsk } from './answer-tiers.ts'
 import { epochOf, heldNo, levelBrief, levelSave } from './levels.ts'
 import { usageDrop, usageSweep } from './usage.ts'
 import { repoIdFor, moveCheck } from './repo-id.ts'
@@ -383,6 +385,7 @@ export function leadDrop($: any, sid: string): Promise<boolean> {
   laneObs.delete(sid)
   leadObs.delete(sid)
   attnTold.delete(sid)
+  attnWhy.delete(sid)
   attnCapped.delete(sid)
   attnMid.delete(sid)
   attnToasted.delete(sid)
@@ -984,7 +987,8 @@ export async function watchTick($: any, sid: string) {
     return log($, sid, 'notice-capped', w.kind === 'leads' ? 'leads-changed' : 'lanes-changed')
   }
   if ((await idleCheck($, sid)) !== undefined) return
-  if (mem.submits !== submitsAt) return
+  // A turn submitted while a callboard dialog of this session is open could close it before the person answers: the change stays owed.
+  if (mem.submits !== submitsAt || dialogOpen.has(sid)) return
   const before = w.told
   const seenBefore = w.seen
   // The notice is the telling: seen moves with told, so the lane_list the lead makes in answer carries no footer for the same change.
@@ -1212,6 +1216,34 @@ function promptToast($: any, sid: string, prompts: c.AttentionItem[], all: c.Att
   for (const i of fresh) toasted.add(c.checkinKey(i))
   if (text !== undefined) toast($, text)
 }
+// The reason a check-in gives for a waiting prompt (c.WhyCode): read once per check-in key, when the prompt first goes out, and kept: 10 minutes when it was found, 5
+// when nothing could be told (a read that failed). A key that leaves the observation leaves the memory. Set on the item itself, so the text beside a tool result
+// (attnMid keeps the same items) carries it. `ask` names what the ledger and the registry know of the lane or lead; undefined: no reason is asked for it.
+const WHY_KEEP_MS = 10 * 60_000
+const WHY_RETRY_MS = 5 * 60_000
+async function attachWhy($: any, sid: string, items: c.AttentionItem[], all: c.AttentionItem[], now: number, ask: (lane: string) => Omit<WhyAsk, 'key'> | undefined) {
+  const cache = attnWhy.get(sid) ?? new Map<string, { why?: c.WhyCode; tried: number }>()
+  attnWhy.set(sid, cache)
+  const keys = new Set(all.map(c.checkinKey))
+  for (const k of cache.keys()) if (!keys.has(k)) cache.delete(k)
+  const asks: WhyAsk[] = []
+  for (const i of items) {
+    if (i.code !== 'prompt') continue
+    const k = c.checkinKey(i)
+    const e = cache.get(k)
+    if (e && e.tried <= now && now - e.tried < (e.why !== undefined ? WHY_KEEP_MS : WHY_RETRY_MS)) continue
+    const a = ask(i.lane)
+    if (a) asks.push({ key: k, ...a })
+  }
+  if (asks.length > 0) {
+    const found = await promptWhy($, asks)
+    for (const a of asks) cache.set(a.key, { ...(found?.get(a.key) !== undefined ? { why: found.get(a.key) } : {}), tried: now })
+  }
+  for (const i of items) {
+    const w = i.code === 'prompt' ? cache.get(c.checkinKey(i))?.why : undefined
+    if (w !== undefined) i.why = w
+  }
+}
 export async function checkinTick($: any, sid: string, submitsAtStart: number) {
   if (grants.get(sid)?.level === 'conductor') return conductorCheckin($, sid, submitsAtStart)
   const now = await $.clock.now()
@@ -1262,6 +1294,14 @@ export async function checkinTick($: any, sid: string, submitsAtStart: number) {
   const { told, owed } = owedItems(sid, items, c.checkinSkipHeld(items, held, (l) => obs.get(l)?.sid))
   const gate = owed.length === 0 ? 'off' : await checkinGates($, sid, now)
   const due = gate === 'off' ? [] : c.checkinDueItems(owed, gate === 'all')
+  if (due.length > 0) {
+    await attachWhy($, sid, owed, items, now, (lane) => {
+      const l = base.lanes.find((x) => x.name === lane)
+      const at = obs.get(lane)?.at
+      return l && at !== undefined ? { names: [l.name], dirs: [l.folder, ...(l.repo ? [l.repo] : [])], scopeNames: [...(l.leadName !== undefined ? [l.leadName] : []), ...(base.g.level === 'lead' ? [base.g.name] : [])], scopeKnown: l.leadName !== undefined || base.g.level === 'lead', at } : undefined
+    })
+    if (epochOf(sid) !== ep) return
+  }
   // The manager is told only of lanes no live lead reaches, by leadHere's rule (a lane naming its lead: a live
   // lead of its repo with that registry name; a legacy lane: any live lead of its repo). The leads of a repo are read at most once per evaluation. A lane a lead
   // reaches is left untold, so it is told once its lead is gone. The filter runs right after the timing gates, before the notice's own gate
@@ -1356,6 +1396,17 @@ async function conductorCheckin($: any, sid: string, submitsAtStart: number) {
   const { owed: all } = owedItems(sid, items, c.checkinSkipHeld(items, held, (l) => obs.get(l)?.sid))
   const gate = all.length === 0 ? 'off' : await checkinGates($, sid, now)
   const due = gate === 'off' ? [] : c.checkinDueItems(all, gate === 'all')
+  if (due.length > 0) {
+    const regRows = base.live.map((r) => r.j)
+    await attachWhy($, sid, all, items, now, (lane) => {
+      const at = obs.get(lane)?.at
+      const r = repos.get(lane)
+      if (at === undefined || !r) return undefined
+      const reg = c.leadNameOf(regRows, r.sid)
+      return { names: [lane, ...(reg ? [reg] : [])], dirs: [r.repo], scopeNames: [], scopeKnown: true, at }
+    })
+    if (epochOf(sid) !== ep) return
+  }
   // The gate reads wait: an off or a re-grant meanwhile has cleared this grant's memory.
   if (epochOf(sid) !== ep) return
   promptToast($, sid, items, items, 'Lead')

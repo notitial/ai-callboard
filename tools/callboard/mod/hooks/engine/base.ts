@@ -1,7 +1,7 @@
 // The process calls (every external binary), the log, the person-facing dialogs and toasts, the private-file reads and the one sender of the mod's own fixed turns.
 // Trust rules held here: a dialog answer is the person's own click or a failure; a file read checks owner, mode, link count and size before and after; submitOwn counts each own text.
 import * as c from '../core.ts'
-import { own, lastLogged, unrealOwn, dialogOpen, mem } from '../mem.ts'
+import { own, lastLogged, unrealOwn, dialogOpen, ownAsks, mem } from '../mem.ts'
 
 const ID = '/usr/bin/id'
 export const STAT = '/usr/bin/stat'
@@ -218,12 +218,38 @@ export async function submitOwn($: any, text: string, real = true) {
 // The own text a main-loop turn.start carries (see c.OWN_FRAME_HEAD): one submitted and not yet counted down, as it stands or framed.
 export const ownTextOf = (startText: unknown): string | undefined => c.ownTextOf(startText, own.keys())
 
+// The engine dialog, recorded in ownAsks by its header and question from before $.ui.ask is called until it returns, so the permission hook passes such a question
+// on as it stands and never refuses or raises it (ADR 0008). A dialog still on screen after its caller's time limit stays recorded until it ends. A session id that
+// cannot be read records nothing, and the dialog opens as before.
+export async function uiAsk($: any, question: string, o: { options: string[]; header: string }): Promise<unknown> {
+  let sid: string | undefined
+  try {
+    sid = String(await $.session.id())
+  } catch {}
+  const key = c.ownDialogKey(o.header, question)
+  const m = sid === undefined ? undefined : (ownAsks.get(sid) ?? new Map<string, number>())
+  if (sid !== undefined && m !== undefined) {
+    ownAsks.set(sid, m)
+    m.set(key, (m.get(key) ?? 0) + 1)
+  }
+  try {
+    return await $.ui.ask(question, o)
+  } finally {
+    if (sid !== undefined && m !== undefined) {
+      const n = (m.get(key) ?? 1) - 1
+      if (n > 0) m.set(key, n)
+      else m.delete(key)
+      if (m.size === 0 && ownAsks.get(sid) === m) ownAsks.delete(sid)
+    }
+  }
+}
+
 // 'error' covers a failed dialog and any answer that is neither button; 'timed-out' a question nobody answered in time. Neither is
 // a decision, and every caller treats them alike: only 'no' clears anything. The engine dialog stays on screen (no cancel call); a late click is ignored.
 export type Asked = 'yes' | 'no' | 'error' | 'timed-out'
 export async function ask($: any, question: string, yes: string, no: string, header: string): Promise<Asked> {
   try {
-    const a = await withTimeout($, $.ui.ask(question, { options: [yes, no], header }) as Promise<string>, ASK_TIMEOUT_MS)
+    const a = await withTimeout($, uiAsk($, question, { options: [yes, no], header }) as Promise<string>, ASK_TIMEOUT_MS)
     return a === 'timeout' ? 'timed-out' : a === yes ? 'yes' : a === no ? 'no' : 'error'
   } catch {
     return 'error'
@@ -291,7 +317,7 @@ export async function askLimited(
   if (dialogOpen.has(sid)) return 'busy'
   dialogOpen.add(sid)
   try {
-    const asked = Promise.resolve($.ui.ask(question, { options: [o.no, o.yes], header: o.header })) as Promise<unknown>
+    const asked = uiAsk($, question, { options: [o.no, o.yes], header: o.header })
     const a = await withTimeout($, asked.then((x) => ({ x })), o.ms)
     if (a === 'timeout') {
       asked.then((x) => (x === o.yes ? toast($, o.late) : undefined)).catch(() => undefined)
@@ -317,7 +343,7 @@ export async function pickFrom($: any, question: string, labels: string[], heade
   for (let page = 0; ; page++) {
     const options = c.pickOptions(labels, page, extra)
     try {
-      const a = await withTimeout($, Promise.resolve($.ui.ask(question, { options, header })).then((x: unknown) => ({ x })), ASK_TIMEOUT_MS)
+      const a = await withTimeout($, uiAsk($, question, { options, header }).then((x: unknown) => ({ x })), ASK_TIMEOUT_MS)
       if (a === 'timeout') return 'timed-out'
       if (a.x === c.LEAD_MORE && options.includes(c.LEAD_MORE)) continue
       if (extra !== undefined && a.x === extra) return { extra: true }
