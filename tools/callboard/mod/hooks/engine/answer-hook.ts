@@ -2,7 +2,7 @@
 // Trust rules held here: no decision without a ledger row; the relay reads only the person's own answer.
 import * as c from '../core.ts'
 import * as pr from '../prompts.ts'
-import { grants, checks, openReqs, doneIds, unclosed, askingSids, relayAskedTurn, relayHolds, hereGone, mem } from '../mem.ts'
+import { grants, leadRestorePending, checks, openReqs, doneIds, unclosed, askingSids, relayAskedTurn, relayHolds, hereGone, ownAsks, mem } from '../mem.ts'
 import { run, MKDIR, dirOk, INSTALL, TEE, MV, rmF, where, facts, sha, statR, readSmallR, pause, RMDIR, realR, toast, withTimeout, GREP, logq } from './base.ts'
 import { registryEntries, registryOf } from './store.ts'
 import { leadsFor, homeOf, presenceCheck } from './grants.ts'
@@ -660,6 +660,26 @@ async function promptCoverage($: any, sid: string): Promise<{ a: pr.Answering; l
   return g?.level === 'lead' ? { a, level: 'lead', self: g.name } : undefined
 }
 
+// What the hook sees for this session, for /callboard status: whether an ask raised here would be judged by the tiers, and the first check that says no. It reads
+// what the hook reads (the OFF file first, then the switch, then the scope against the lane, its live lead's name, or the lead's own), so the line shows what the
+// hook decides next to the "Escalation" line, which shows only the switch.
+export async function promptCoverageText($: any, sid: string): Promise<string | undefined> {
+  const b = (await getLane($)).value as Bound | null | undefined
+  const g = grants.get(sid)
+  const lane = b && typeof b.name === 'string' ? b : undefined
+  if (!lane && g?.level !== 'lead' && !leadRestorePending.has(sid)) return undefined
+  if (await promptsOff($)) return 'NO (the OFF file exists)'
+  const a = await answeringNow($)
+  if (!a) return 'NO (escalation is off)'
+  if (lane) {
+    const plain = a.scope === undefined || a.scope === 'all' || a.scope === lane.name
+    const lead = plain ? undefined : await promptLeadOf($, 'lane', sid, String(await sessionRoot($).catch(() => '')), typeof lane.lead === 'string' ? lane.lead : undefined).catch(() => undefined)
+    return pr.covers(a, { lane: lane.name, lead: lead?.name }) ? 'YES (lane)' : 'NO (the switch is scoped to other sessions)'
+  }
+  if (g?.level === 'lead') return pr.covers(a, { self: g.name }) ? 'YES (lead)' : 'NO (the switch is scoped to other sessions)'
+  return 'NO (the lead grant is not restored yet)'
+}
+
 // tool.check only observes: it stores what it saw for an ask in a covered session, and the caller returns the verdict unchanged, every time (F-C).
 async function promptObserve($: any, e: any, r: any): Promise<void> {
   if (r?.decision !== 'ask' || typeof e.tool_use_id !== 'string' || typeof e.agentId === 'string') return
@@ -1219,7 +1239,9 @@ async function promptHook($: any, e: any, nextOnce: (x: any) => Promise<any>, si
     const reason = pr.capReason(entry.facts.reason)
     // The asker's permission mode, from the event itself (ADR 0008): only a lane's request in `default` mode may take a provisional answer.
     const mode = pr.modeOf(e.permission_mode)
-    const req: pr.Request = { id, sid, pid: own.pid, procStart: own.procStart, level: cov.level, lane: cov.lane ?? cov.self, ...(leadName ? { leadName } : {}), ...(leadSid ? { leadSid } : {}), ...(cov.level === 'lane' && lead === undefined ? { noLead: true } : {}), repo: cwd, tool, inputHash: hash, raisedBy: judged.raisedBy, ...(reason !== undefined ? { reason: reason.text, ...(reason.cut ? { reasonCut: true } : {}) } : {}), at: rose ?? started, expiresAt: (rose ?? started) + pr.EXPIRES_MS, nonce, input: capped.input, truncated: capped.truncated, ...(mode !== undefined ? { mode } : {}) }
+    // The window the request is raised in, only when the read said on (an end time is given for that state alone): the person has no head start on it (pr.headStart).
+    const reqU = hold.until !== undefined ? hold.u : undefined
+    const req: pr.Request = { id, sid, pid: own.pid, procStart: own.procStart, level: cov.level, lane: cov.lane ?? cov.self, ...(leadName ? { leadName } : {}), ...(leadSid ? { leadSid } : {}), ...(cov.level === 'lane' && lead === undefined ? { noLead: true } : {}), repo: cwd, tool, inputHash: hash, raisedBy: judged.raisedBy, ...(reason !== undefined ? { reason: reason.text, ...(reason.cut ? { reasonCut: true } : {}) } : {}), at: rose ?? started, expiresAt: (rose ?? started) + pr.EXPIRES_MS, nonce, input: capped.input, truncated: capped.truncated, ...(mode !== undefined ? { mode } : {}), ...(reqU !== undefined ? { u: reqU } : {}) }
     const text = pr.requestText(req)
     if (new TextEncoder().encode(text).length > pr.REQUEST_MAX || !(await promptPut($, `${dir}/${id}.request.json`, text))) {
       await ledgerAdd($, { ...base, kind: 'abandoned', code: 'hook-failed' })
@@ -1507,8 +1529,9 @@ async function promptApply($: any, w: WaitCtx, d: pr.Decision, awake: number, gr
   // A question's answer binds to its row by option and label hash; a hash that cannot be made is an unreadable ledger (held for the next poll), not a drop.
   const lh = d.decision === 'answer' && d.answer ? await labelHash($, w.id, d.answer.label).catch(() => undefined) : undefined
   const ledger = d.decision === 'answer' && d.answer && lh === undefined ? 'unreadable' : await ledgerHas($, w.p, w.id, w.nonce, { code: d.decision, by: d.by.sid, ...(d.via ? { via: d.via } : {}), ...(d.answer && lh !== undefined ? { opt: String(d.answer.index), lh } : {}), ...(d.u !== undefined ? { u: d.u } : {}), ...(d.provisional ? { prov: 'yes' as const } : {}) })
-  // A park or a provisional answer lands only inside the window it was made in, so the window is read for those and for nothing else.
-  const win = d.decision === 'park' || d.provisional === true ? await unattendedNow($, true) : undefined
+  // A park or a provisional answer lands only inside the window it was made in, and a request raised inside a window has no head start while it is on: the
+  // window is read for those and for nothing else.
+  const win = d.decision === 'park' || d.provisional === true || w.req.u !== undefined ? await unattendedNow($, true) : undefined
   const window = win === undefined ? undefined : win.state === 'on' ? ({ state: 'on', u: win.u } as const) : ({ state: win.state } as const)
   // Only a call that carries an `@claude` body, and only once the other checks would let the decision through, reads the cap.
   const cap = w.cap && ledger === 'found' && d.decision === 'allow' && d.via !== 'person' ? await capOf($, w.p, w.cap) : undefined
@@ -1764,6 +1787,23 @@ export async function toolCheck($: any, e: any, next: any) {
 }
 
 export async function permissionRequest($: any, e: any, next: any) {
+  // The mod's own dialog ($.ui.ask), if the engine shows it through this hook as a question: one whose header and question match a dialog of this session that
+  // is open now gets no decision, before anything here could refuse it (an unattended window refuses a tier's own question) or raise it as a request, and the
+  // hooks beneath are not asked, so only the person answers it. Nothing is written for it but the log line. A subagent's question is never the mod's dialog.
+  const sub = (e as { agent_id?: unknown }).agent_id
+  if (String(e.tool_name) === pr.QUESTION_TOOL && !(typeof sub === 'string' && sub !== '')) {
+    const key = c.questionCallKey(e.tool_input)
+    let sid: unknown
+    if (key !== undefined) {
+      try {
+        sid = await $.session.id()
+      } catch {}
+    }
+    if (key !== undefined && typeof sid === 'string' && (ownAsks.get(sid)?.get(key) ?? 0) > 0) {
+      await logq($, sid, 'passed', 'own-dialog')
+      return {}
+    }
+  }
   // The dialog of a subagent's ask is shown only after the hooks return, so a wait would hide it from the person and its ask cannot rise: the chain beneath at
   // once, with no request file and no wait. Where the main session's own call could rise (the switch covers this session and a tier is in reach) and nothing
   // beneath answered, the ask is denied with a fixed message that tells the main session to run the call itself; the row first, and no row, no denial.

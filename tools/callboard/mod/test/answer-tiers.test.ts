@@ -1,9 +1,9 @@
 import { expect, test } from 'claude-code/testing'
 import * as prm from '../hooks/prompts'
 import { leadBriefing, nudgeText, SENT_NOTE } from '../hooks/core'
-import { h, GOOD, PROMPTS_DIR, ROOT, SID, T0, leadFiles, longTest, pfs, submitted, toolDefs } from './harness'
-import { APISID, APP2, COMPOSE, LEADPATH, LEADPS, LEADSID, MGR_SESS, OTHER, PIN, SVC, TURN, condOn, leadFileText, leadReg, logged, mgrAt, midCtx, ownReg, ownTurn, postBeneath, putStore, storeJson, tickTwice, ticks, advanceQuiet } from './fixtures'
-import { APIQ, CNDT, LANESID, LDIR, LEAD2, MGRT, OFF_FILE, PCOMMENT, PDIR, THASH, TID, TID2, addCondT, addMgrT, answerCall, answered, answerer, asConductor, askCheck, at, byCond, byMgr, decFile, decideBy, driveClock, handDecision, hookKinds, leadLive, ledgerRows, pcall, putFile, putFileAt, putLedger, putQ, putRelayT, readReq, refusal, reqFiles, retRow, rowKinds, runRequest, said, startReq, stop, tier, tierSessions, waitingRow } from './answer-fixtures'
+import { h, GOOD, PROMPTS_DIR, ROOT, SID, T0, leadFiles, longTest, pfs, psDead, submitted, toolDefs } from './harness'
+import { APISID, APP2, ckLane, COMPOSE, LEADPATH, LEADPS, LEADSID, MGR_SESS, OTHER, PIN, SVC, TURN, condOn, lane, leadFileText, leadReg, logged, mgrAt, midCtx, ownReg, ownTurn, postBeneath, putStore, storeJson, tickTwice, ticks, advanceQuiet } from './fixtures'
+import { APIQ, CNDT, LANESID, LDIR, LEAD2, MGRT, OFF_FILE, PCOMMENT, PDIR, THASH, TID, TID2, addCondT, addMgrT, answerCall, answered, answerer, asConductor, askCheck, at, byCond, byMgr, decFile, decideBy, driveClock, handDecision, hookKinds, leadLive, ledgerRows, pcall, putFile, putFileAt, putLedger, putQ, putRelayT, putWindow, readReq, refusal, reqFiles, retRow, rowKinds, runRequest, said, startReq, stop, tier, tierSessions, waitingRow, winShort } from './answer-fixtures'
 
 test('the lead is resolved record first: a record that names a lead is reached by the live lead of that name only, whatever lead the binding holds', async ($, on) => {
   await answerer($, on, [])
@@ -1013,6 +1013,71 @@ test('head start: a busy lead gets no mid-turn notice for a request younger than
   expect(await midCtx($)).toEqual([prm.PROMPT_NOTICE_TEXT])
 })
 
+// ---- the head start inside an unattended window (ADR 0008): a request raised in a window, while that window is on, gives the person none ----
+const NO_HEAD = 'lands within a few seconds (this unattended window gives the person no head start)'
+test('head start: a request raised in the unattended window that is on is listed, answered and passed up at once, and the answer says it lands within seconds', async ($, on) => {
+  await tier($, on)
+  tierFixtures('mgr')
+  const v = putWindow()
+  putQ({ at: T0, u: winShort(v) })
+  putQ({ at: T0, id: TID2, u: winShort(v) })
+  const t = said(await $.tool.call(pcall('prompt_list')))
+  expect(t).toContain(TID)
+  expect(t).not.toContain('still the person')
+  expect(said(await $.tool.call(answerCall()))).toContain(NO_HEAD)
+  expect(decFile()).toBeDefined()
+  expect(said(await $.tool.call(pcall('prompt_escalate', { id: TID2, why: 'x' })))).toContain('Passed up')
+})
+
+test('head start: inside a window a request raised by day, or in another window, keeps its 30 s: counted, refused, and the answer at 30 s lands once it has been open 30 seconds', async ($, on) => {
+  await tier($, on)
+  const v = putWindow()
+  putQ({ at: T0 })
+  putQ({ at: T0, id: TID2, u: winShort(v).replace(/^./, (x) => (x === 'a' ? 'b' : 'a')) })
+  expect(said(await $.tool.call(pcall('prompt_list')))).toBe(prm.promptListText([], { on: true, young: 2 }))
+  expect(said(await $.tool.call(answerCall()))).toContain(refusal('window'))
+  expect(said(await $.tool.call(answerCall({ id: TID2 })))).toContain(refusal('window'))
+  h.nowMs = T0 + 30_000
+  const r = said(await $.tool.call(answerCall()))
+  expect(r).toContain('Recorded: allow')
+  expect(r).not.toContain(NO_HEAD)
+})
+
+test('head start: a request raised in a window and seen by a tier while it was on gets its 30 s back once the window ends', async ($, on) => {
+  await tier($, on)
+  tierFixtures('mgr')
+  const v = putWindow()
+  putQ({ at: T0, u: winShort(v) })
+  expect(said(await $.tool.call(pcall('prompt_list')))).toContain(TID)
+  await $.command.run(lane('unattended off'))
+  h.nowMs = T0 + 11_000
+  expect(said(await $.tool.call(pcall('prompt_list')))).toBe(prm.promptListText([], { on: true, young: 1 }))
+  expect(said(await $.tool.call(pcall('prompt_escalate', { id: TID, why: 'x' })))).toContain(refusal('window'))
+  expect(said(await $.tool.call(answerCall()))).toContain(refusal('window'))
+  expect(pfs.has(`${LDIR()}/${TID}.escalate-lead.json`)).toBe(false)
+  h.nowMs = T0 + 30_000
+  expect(said(await $.tool.call(pcall('prompt_escalate', { id: TID, why: 'x' })))).toContain('Passed up')
+})
+
+test('prompts hook: a request raised in a window carries the window, and a tier\'s answer lands at the first poll after it, not at 30 s', async ($, on) => {
+  await answerer($, on, [])
+  const v = putWindow()
+  let marked: unknown
+  const r = await runRequest($, [at(4000, () => { marked = readReq().u; handDecision(readReq()) })])
+  expect(r).toEqual({ decision: { behavior: 'allow' } })
+  expect(marked).toBe(winShort(v))
+  expect(h.nowMs - T0).toBeLessThan(prm.MIN_AGE_MS)
+})
+
+test('prompts hook: a request raised by day carries no window, and its answer still waits out the 30 s', async ($, on) => {
+  await answerer($, on, [])
+  let marked: unknown = 'unread'
+  const r = await runRequest($, [at(4000, () => { marked = readReq().u; handDecision(readReq()) })])
+  expect(r).toEqual({ decision: { behavior: 'allow' } })
+  expect(marked).toBeUndefined()
+  expect(h.nowMs - T0).toBeGreaterThanOrEqual(prm.MIN_AGE_MS)
+})
+
 test('head start: a conductor with a lead and a manager live may not pass up before its own window, so the manager is not opened early', async ($, on) => {
   await asConductor($, on, { lead: true, mgr: true })
   putQ({ ...APIQ, at: T0 - 70_000 })
@@ -1020,4 +1085,101 @@ test('head start: a conductor with a lead and a manager live may not pass up bef
   expect(said(await $.tool.call(pcall('prompt_escalate', { id: TID, why: 'x' })))).toContain(refusal('window'))
   expect(pfs.has(`${LDIR(APISID)}/${TID}.escalate-conductor.json`)).toBe(false)
   expect(ledgerRows().filter((x) => x.kind === 'escalated')).toEqual([])
+})
+
+// ---- a manager that is compacting stays a tier of the chain: its stamped file counts for the chain's read and for no other reader ----
+const MGR_FILE = `${ROOT}/leads/${MGRT}.json`
+// The manager's presence file as a compaction left it: written `ageMs` ago, with the stamp `stampAgeMs` old (or none, or a stamp from the future when negative).
+const mgrFileAged = (ageMs: number, stampAgeMs?: number, over: Record<string, unknown> = {}) =>
+  leadFiles.set(MGR_FILE, {
+    text: JSON.stringify({ sid: MGRT, pid: 4243, procStart: LEADPS, level: 'manager', name: 'MANAGER', ...(stampAgeMs !== undefined ? { compactingAt: h.nowMs - stampAgeMs } : {}), ...over }),
+    mtimeSec: Math.floor((h.nowMs - ageMs) / 1000),
+  })
+const aboveLine = async ($: any) => turnOf(said(await $.tool.call(pcall('prompt_list'))))
+
+test('prompts tools: a manager that went stale while compacting (stamped, within 8 minutes) is still above the lead: prompt_list says so and prompt_escalate passes up', async ($, on) => {
+  await tier($, on)
+  tierFixtures('mgr')
+  putQ()
+  // A clock inside the second: the file's mtime reads rounded down to the second, so the stamp is later than it.
+  h.nowMs = T0 + 700
+  mgrFileAged(5 * 60_000, 5 * 60_000)
+  expect(await aboveLine($)).toContain('The manager MANAGER is above you.')
+  expect(said(await $.tool.call(pcall('prompt_escalate', { id: TID, why: 'beyond the rubric' })))).toContain(`Passed up: ${TID} goes to the next tier`)
+  expect(pfs.has(`${LDIR()}/${TID}.relay.json`)).toBe(false)
+})
+
+test('prompts tools: the same stale manager file with no stamp, a stamp past 8 minutes, a stamp from the future, or a bad stamp is not above the lead (it is the top tier)', async ($, on) => {
+  await tier($, on)
+  tierFixtures('mgr')
+  putQ()
+  for (const [age, stamp, over] of [
+    [5 * 60_000, undefined, {}],
+    [9 * 60_000, 9 * 60_000, {}],
+    [5 * 60_000, -60_000, {}],
+    [5 * 60_000, 5 * 60_000, { compactingAt: 'x' }],
+    [5 * 60_000, 5 * 60_000, { level: 'conductor' }],
+    // Inside the listing's window but with a stamp older than the grace: the stamp's own bound ends it.
+    [2 * 60_000, 9 * 60_000, {}],
+  ] as [number, number | undefined, Record<string, unknown>][]) {
+    mgrFileAged(age, stamp, over)
+    expect(await aboveLine($)).not.toContain('The manager MANAGER is above you.')
+  }
+})
+
+test('prompts tools: a stamped stale manager whose registry row is gone, whose process is gone, replaced by another start time, or not claude is not above the lead', async ($, on) => {
+  await tier($, on)
+  tierFixtures('mgr')
+  putQ()
+  const above = 'The manager MANAGER is above you.'
+  mgrFileAged(5 * 60_000, 5 * 60_000)
+  expect(await aboveLine($)).toContain(above)
+  // The process is gone.
+  psDead.add('4243')
+  expect(await aboveLine($)).not.toContain(above)
+  psDead.delete('4243')
+  expect(await aboveLine($)).toContain(above)
+  // The pid now has another start time than the file names.
+  mgrFileAged(5 * 60_000, 5 * 60_000, { procStart: 'Mon Jan  1 00:00:00 2001' })
+  expect(await aboveLine($)).not.toContain(above)
+  // The pid is some other program.
+  mgrFileAged(5 * 60_000, 5 * 60_000)
+  const claudeArgs = h.psArgsOut
+  h.psArgsOut = '/usr/bin/vim notes.txt\n'
+  expect(await aboveLine($)).not.toContain(above)
+  h.psArgsOut = claudeArgs
+  expect(await aboveLine($)).toContain(above)
+  // The registry has no row for the manager any more.
+  h.sessions = Object.fromEntries(Object.entries(h.sessions).filter(([k]) => !k.includes('4243')))
+  h.extraRows = Object.fromEntries(Object.entries(h.extraRows ?? {}).filter(([k]) => !k.includes('4243')))
+  expect(await aboveLine($)).not.toContain(above)
+})
+
+test('prompts tools: a fresh manager is not pushed out of the listing by 70 stale presence files that sort before it', async ($, on) => {
+  await tier($, on)
+  tierFixtures('mgr')
+  putQ()
+  for (let i = 0; i < 70; i++) leadFiles.set(`${ROOT}/leads/1000${String(i).padStart(4, '0')}-0000-4000-8000-123456789abc.json`, { text: leadFileText(), mtimeSec: Math.floor((h.nowMs - 120_000) / 1000) })
+  expect(await aboveLine($)).toContain('The manager MANAGER is above you.')
+})
+
+test('prompts hook: an ask whose only tier is the manager, stale while it compacts, is a request at once (no no-tier hold), and its decision applies', async ($, on) => {
+  await answerer($, on, [])
+  leadFiles.delete(LEADPATH)
+  addMgrT()
+  mgrFileAged(5 * 60_000, 5 * 60_000)
+  const r = await runRequest($, [at(4000, () => decideBy(byMgr))])
+  expect(r).toEqual({ decision: { behavior: 'allow' } })
+  expect(rowKinds()).toEqual(['requested', 'answered allow', 'returned allow'])
+  expect(ledgerRows()[0].tier).toBe('manager')
+})
+
+test('prompts tools: a stale stamped manager is above for the prompt chain only: lane_list shows no manager above the lead, and a manager stale with no stamp is the same', async ($, on) => {
+  await tier($, on)
+  tierFixtures('mgr')
+  putStore([ckLane({ sid: APISID, leadName: 'LEAD' })])
+  // A fresh manager file shows above the lead; the same file stale and stamped does not.
+  expect(said(await $.tool.call({ tool: 'mcp__callboard__lane_list' } as any))).toContain('manager MANAGER')
+  mgrFileAged(5 * 60_000, 5 * 60_000)
+  expect(said(await $.tool.call({ tool: 'mcp__callboard__lane_list' } as any))).not.toContain('manager MANAGER')
 })

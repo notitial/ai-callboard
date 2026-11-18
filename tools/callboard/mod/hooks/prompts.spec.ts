@@ -637,6 +637,33 @@ test('parseDecision: a park and a window mark are read; a mark that is not 8 hex
   assert.equal(p.parseDecision(JSON.stringify({ ...park, answer: { index: 0, label: 'Red' } })), undefined)
 })
 
+test('headStart: no head start only for a request raised inside the window that is on now; by day, ended, another or unread keeps the 30 s', () => {
+  assert.equal(p.headStart(U, { state: 'on', u: U }), 0)
+  assert.equal(p.headStart(undefined, { state: 'on', u: U }), p.MIN_AGE_MS)
+  assert.equal(p.headStart(U, { state: 'on', u: 'bbbbbbbb' }), p.MIN_AGE_MS)
+  assert.equal(p.headStart(U, { state: 'off' }), p.MIN_AGE_MS)
+  assert.equal(p.headStart(U, { state: 'unknown' }), p.MIN_AGE_MS)
+  assert.equal(p.headStart(U, undefined), p.MIN_AGE_MS)
+})
+test('applyCheck: a request raised inside a window is not held early while that window is on; any other window state holds it for 30 s', () => {
+  const req = { ...baseReq, u: U } as unknown as p.Request
+  assert.deepEqual(apply({ req, awakeMs: 0, window: { state: 'on', u: U } }), { ok: true })
+  assert.deepEqual(apply({ req, awakeMs: 0, window: { state: 'on', u: 'bbbbbbbb' } }), { hold: 'early' })
+  assert.deepEqual(apply({ req, awakeMs: 0, window: { state: 'off' } }), { hold: 'early' })
+  assert.deepEqual(apply({ req, awakeMs: 0, window: { state: 'unknown' } }), { hold: 'early' })
+  assert.deepEqual(apply({ req, awakeMs: 0 }), { hold: 'early' })
+  // A request raised by day keeps its 30 s inside a window.
+  assert.deepEqual(apply({ awakeMs: 0, window: { state: 'on', u: U } }), { hold: 'early' })
+  assert.deepEqual(apply({ req, awakeMs: p.MIN_AGE_MS, window: { state: 'off' } }), { ok: true })
+})
+test('parseRequest: the window mark of a request is read when it is 8 hex, and a request with any other mark is none', () => {
+  const r = { id: ID, sid: SID_A, pid: 7, procStart: 'x', level: 'lane', lane: 'API', repo: '/r', tool: 'Bash', inputHash: H, raisedBy: 'rule', at: 1, expiresAt: 2, nonce: 'n1', input: {}, truncated: false }
+  assert.equal(p.parseRequest(JSON.stringify(r))?.u, undefined)
+  assert.equal(p.parseRequest(JSON.stringify({ ...r, u: U }))?.u, U)
+  assert.equal(p.parseRequest(JSON.stringify({ ...r, u: 'nothex!!' })), undefined)
+  assert.equal(p.parseRequest(JSON.stringify({ ...r, u: 5 })), undefined)
+})
+
 test('applyCheck: a park is the manager\'s own, names its window and lands only inside it; a window that cannot be read holds it', () => {
   const park = (o: Partial<p.Decision> = {}) => baseDec({ decision: 'park', by: MGR, u: U, ...o })
   const on = { state: 'on', u: U } as const
@@ -723,6 +750,58 @@ test('repeatOf: the same lane, repo and pattern closed by a deny, a park or the 
   const item: p.ListItem = { id: ID, lane: 'svc-api', tool: 'Bash', repo, raisedBy: 'rule', ageSec: 40, truncated: false, input: q.input, repeat: true }
   assert.ok(p.promptListText([item], { on: true }).includes(`\n${p.REPEAT_LINE}\n`))
   assert.ok(!p.promptListText([{ ...item, repeat: undefined }], { on: true }).includes('REPEAT'))
+})
+
+test("repeatOf: the manager's `Not yet:` deny of a mark-ready is no repeat; the prefix counts for no other tool, tier or closing", () => {
+  const repo = '/Users/x/repo'
+  const tool = 'mcp__github__update_pull_request'
+  const input = { owner: 'o', repo: 'r', pullNumber: 3, draft: false }
+  const q = { id: ID, lane: 'svc-api', repo, tool, input }
+  const pattern = p.patternOf(tool, input, repo)
+  const row = (o: Partial<p.LedgerRow> = {}): p.LedgerRow => ({ t: 'x', kind: 'returned', code: 'deny', id: SID_A, lane: 'svc-api', repo, tool, pattern, tier: 'manager', u: U, why: `${p.NOT_YET_PREFIX}checks pending on abc1234`, ...o })
+  assert.equal(p.repeatOf([row()], U, q), false)
+  assert.equal(p.repeatOf([row({ why: 'checks pending on abc1234' })], U, q), true)
+  assert.equal(p.repeatOf([row({ tier: 'lead' })], U, q), true)
+  assert.equal(p.repeatOf([row({ code: 'park' })], U, q), true)
+  assert.equal(p.repeatOf([row({ kind: 'expired-denied', code: 'held' })], U, q), true)
+  const push = { id: ID, lane: 'svc-api', repo, tool: 'Bash', input: { command: 'git push origin main' } }
+  assert.equal(p.repeatOf([row({ tool: 'Bash', pattern: 'git' })], U, push), true)
+  // A `Not yet:` deny does not shield a later ordinary deny of the same request pattern.
+  assert.equal(p.repeatOf([row({ why: 'a title edit is not in the brief' })], U, q), true)
+  assert.ok(p.isNotYet(`${p.NOT_YET_PREFIX}x`) && !p.isNotYet('x Not yet: ') && p.NOT_YET_PREFIX === 'Not yet: ')
+})
+
+test("the manager's review rule: two calls only, the go's list untouched, and the exception is the manager's alone", () => {
+  const block = p.unattendedBlock(GO_NEVER_TEXT)
+  assert.ok(block.includes('except the two review calls named after rule 6: a merge;'))
+  // The go's own list still holds "anything that pays": the exception is the block's, not the go's.
+  assert.ok(block.includes('anything that pays, or reads or sends personal data or secrets;'))
+  const rule = p.REVIEW_RUNS_RULE
+  assert.ok(block.includes(`\n6. A request marked REPEAT that reaches the same effect as the call denied, parked or held before: park it.\n${rule}\nA check-in`))
+  for (const part of [
+    "**The repo's own Claude review.** This overrides rule 1, rule 2's \"anything that pays\" and the rubric's paragraph on a guard's ask, for two calls only; every other paid call stays parked.",
+    'default branch has `.github/workflows/claude-review.yml`',
+    'whose input is exactly the owner, repo, pull number and `draft` false',
+    'checks are present on the head and none is pending or failed',
+    "the head holds main's current tip",
+    'no changed file of the PR is under `.github/` or is `.claude/commands/claude-pr-review.md`',
+    `deny with a why that starts \`${p.NOT_YET_PREFIX}\``,
+    'whose body is exactly `@claude review` or `@claude review --comments`',
+    'past 2 `--comments` and 1 full review per PR: park it then.',
+    'a comment with any other text after the command: park it.',
+    '`unknown` reads as not yet',
+    'park it, do not deny it `Not yet: `',
+    'a request marked REPEAT is rule 6\'s and is parked:',
+  ]) assert.ok(rule.includes(part), part)
+  // Nothing a lead or a conductor reads carries it.
+  const item: p.ListItem = { id: ID, lane: 'svc-api', tool: 'Bash', repo: '/Users/x/repo', raisedBy: 'rule', ageSec: 40, truncated: false, input: { command: 'ls' } }
+  const shown = [p.UNATTENDED_TIER_LINE, p.SPECIFIC_CALLS, p.RUBRIC, p.QUESTION_RUBRIC, p.tierPromptSection('lead'), p.tierPromptSection('conductor'), p.promptListText([item], { on: true, unattended: { tier: 'lower' } }), p.promptListText([item], { on: true })]
+  for (const t of shown) assert.ok(!t.includes('claude-review.yml') && !t.includes(p.NOT_YET_PREFIX) && !t.includes(rule))
+  // No clause lets a REPEAT mark be judged afresh: the manager's own `Not yet:` deny never makes one.
+  assert.ok(!rule.includes('except after your own'))
+  const manager = p.promptListText([item], { on: true, unattended: { tier: 'manager', never: GO_NEVER_TEXT } })
+  assert.equal(manager.split(rule).length, 2)
+  assert.ok(p.PROMPT_REFUSE.cap.endsWith('Pass it up with prompt_escalate; the manager, while unattended mode is on, parks it.'))
 })
 
 test('the lane texts of a window: each keeps its whole tail after a 200-character why and the longest name; the cleaner-command deny keeps its own', () => {

@@ -58,7 +58,8 @@ caller.
    session and starts it with the brief. In a terminal you start a `claude` yourself, type `/callboard lane NAME`,
    and the lead prompts it from then on.
 3. The lanes work. When a lane waits on a permission prompt, the dialog stays in front of you; with escalation on,
-   the lead (then the conductor, then the manager) may answer it, never in your first 30 seconds, and your click
+   the lead (then the conductor, then the manager) may answer it, never in your first 30 seconds (in an unattended window, step 8, a prompt
+   raised in it gives no such 30 seconds), and your click
    normally wins (a Yes that lands in a short gap can be missed: ADR 0004). Merges, force pushes, pushes to main or production and destructive deletes are always passed up
    to you. Every ask that `tool.check` reports for a lane's or a lead's own call rises this way, whatever raised it
    (a rule, a hook or guard, a setting, a plugin) and whatever the tool, a plan-mode exit included: the tier sees what raised it and
@@ -86,7 +87,9 @@ caller.
    in front of the manager after 10 minutes, also right after the Mac wakes (the other check-ins then wait 30
    minutes, this one does not); a prompt a tier already holds as a request was told by that request's
    own notice, so its check-in is skipped, and it comes back if the request ends (answered, withdrawn, denied) or
-   runs past its time with the lane still waiting. You get one toast per wait in each window that watches the
+   runs past its time with the lane still waiting. The check-in also says, per lane, what the mod saw for that prompt
+   (the OFF file, no tier in reach, a question that stays yours, or that no escalation record of it was found), so a
+   switch that reads on but does nothing shows itself. You get one toast per wait in each window that watches the
    lane, held or not. That alert lets no one answer the prompt: it only says that one is waiting.
 4. A lane, lead or conductor that waits on a pull request registers it with `pr_watch` and is told when checks finish, reviews arrive
    or the PR is mergeable, merged or closed. A merge is still yours.
@@ -117,12 +120,23 @@ caller.
    conductor's or the manager's own question is refused, and so are the manager's and a conductor's own permission
    prompts. The manager decides what asks, allows only what
    it would allow with you there, and parks what the rules keep for you (the lane is told it waits for you). A lead
-   runs at most 4 live lanes and cannot ask for a go. With no live manager a prompt nobody answers is held for you
+   runs at most 4 live lanes and cannot ask for a go, though you can still type `/callboard go` in its session
+   yourself. A prompt raised while the window is on may be answered at once, with no 30 seconds for you. A callboard
+   dialog of your own stays open: it is not refused as a tier's question. With no live manager a prompt nobody answers is held for you
    at 20 minutes. When you are back, tell the manager in its session (it ends the window and gives you the counts),
    or type `/callboard unattended off` anywhere; `/callboard unattended` lists what was parked, held or decided.
    When a window ends, the process that ended it shows a toast with the counts, and `/callboard status` and the
    manager's prompt list say that its list is unread until you run `/callboard unattended`, which then lists every
    window since you last read it ([ADR 0008](../../docs/adr/0008-unattended-mode.md)).
+9. In a repo that arms the workspace lock (a `.workspace-lock/` folder), a lead takes one owned team for all its
+   lanes (`acquire --owned`), so the lanes take turns instead of each taking the lock. Callboard only reads it and
+   never takes, gives, clears or writes it: a lane's brief names the team its lead holds, `lane_open` prints the
+   lead's own `member add` call for the new lane, `lane_list` gains a Lock column (the team on the lead's row;
+   member or not, and the turn's age, on each lane), and a lane that holds a turn the lead may now free (its session
+   ended, or its ETA and last heartbeat are older than the lock's 30 minute grace) is put in front of the lead like
+   a gone lane. You arm the repo once: the toolkit needs the lock script allowed in the repo's
+   `.claude/settings.local.json`, or each lock call stops at a permission prompt. Callboard writes no settings. The lock's
+   files must not be group- or world-writable (umask 022, the default), or callboard shows `?` for them.
 
 A lead that you leave idle is told when a lane needs it (its session is gone, it waits on a prompt, it went
 quiet without signing), unless you pause that with `/callboard checkin pause` (an hour, or the time you give;
@@ -265,7 +279,7 @@ Under `~/.claude/callboard/` (folders 0700, files 0600; nothing in a repo is tru
 |---|---|
 | `lanes/` | One lane store per repo, named by a hash of the repo's real path |
 | `lead-records/` | Which conductor owns which lead |
-| `leads/` | Short-lived presence files of live leads, conductors and the manager |
+| `leads/` | Short-lived presence files of live leads, conductors and the manager; a manager's carries `compactingAt` while the mod compacts it, which keeps it a tier of the prompt chain for up to 8 minutes |
 | `cue/`, `result/` | The one-line cues a mod acts on, and its answers |
 | `open/`, `offers/` | Requests for the panels extension; a conductor's offer of a new lead |
 | `log/` | One log per session: what the mod did and why it refused. First place to look |
@@ -299,7 +313,8 @@ says to. The session's log in `~/.claude/callboard/log/` has the same code and w
 
 Other symptoms:
 
-- **Nothing happens after a prompt.** Check `/callboard status` and `lanes`; escalation reads `ON (default)` only
+- **Nothing happens after a prompt.** Check `/callboard status` (in a lane or lead its "Prompts" line says whether the
+  hook covers that session, and what fails first) and `lanes`; escalation reads `ON (default)` only
   while the protected-paths hook and its `.protected-checkout` markers are in place (`docs/setup.md`). The hook
   counts only as ai-toolkit's wrapped entry, exactly as `docs/setup.md` shows it: a bare path to the hook (an
   install from before the wrapper), another command or an extra field reads as not wired, until ai-toolkit's

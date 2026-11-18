@@ -2,6 +2,7 @@
 // Trust rules held here: a tier answers only a request in its reach, and not one it passed up; a notice is not an approval.
 import * as c from '../core.ts'
 import * as pr from '../prompts.ts'
+import { WHY_ROW_MARGIN_MS, whyOf } from '../checkin-why.ts'
 import {
   windowsSeen,
   promptTold,
@@ -27,6 +28,8 @@ import {
   ledgerAdd,
   PROMPT_DIRS_MAX,
   answeringNow,
+  escalationNow,
+  escalationSure,
   promptsOff,
   promptNewId,
   ledgerRowsFor,
@@ -109,7 +112,8 @@ export async function promptReachTiers($: any, live: RegRow[], a: pr.Answering, 
   if (pr.requestCovered(a, q, { lane: q.level === 'lane' ? q.lane : undefined, lead: q.leadName, self: q.level === 'lead' ? q.lane : undefined })) {
     const o = typeof recs === 'string' ? undefined : await ownerLive($, live, q.sid, q.repo, pr.tierLead(q), recs, q.level === 'lead' ? q.sid : undefined).catch(() => undefined)
     if (o) tiers.push({ level: 'conductor', sid: o.sid, name: o.name ?? '' })
-    for (const m of await managersLive($, live, q.sid).catch(() => [])) if (m.unverified !== true && m.name !== undefined) tiers.push({ level: 'manager', sid: m.sid, name: m.name })
+    // A manager that is compacting stays a tier (its file's compactingAt, within c.MANAGER_COMPACT_GRACE_MS): no other reader of managersLive allows for it.
+    for (const m of await managersLive($, live, q.sid, { grace: true }).catch(() => [])) if (m.unverified !== true && m.name !== undefined) tiers.push({ level: 'manager', sid: m.sid, name: m.name })
   }
   return tiers
 }
@@ -121,6 +125,13 @@ export async function promptReachTiers($: any, live: RegRow[], a: pr.Answering, 
 // a lower tier passes up and never relays in its own session meanwhile. An asking mark with no open dialog behind it (left by a turn that ended oddly) does not
 // keep the top.
 type Stand = { tiers: pr.Tier[]; active: pr.Tier[]; top?: pr.Tier; passed: Partial<Record<pr.TierLevel, number>>; relay?: pr.Relay; windows: Record<string, number> }
+// The person's head start on a request as this process reads the window (cached): none inside the window the request was raised in (pr.headStart). A request
+// raised by day reads no window.
+export async function promptHead($: any, q: pr.Request): Promise<number> {
+  if (q.u === undefined) return pr.MIN_AGE_MS
+  const w = await unattendedNow($).catch(() => undefined)
+  return pr.headStart(q.u, w === undefined ? undefined : w.state === 'on' ? { state: 'on', u: w.u } : { state: w.state })
+}
 export async function promptStand($: any, p: { uid: number; root: string }, live: RegRow[], a: pr.Answering, dir: string, names: Set<string>, q: pr.Request, recs?: LeadRecs | string): Promise<Stand> {
   const tiers = await promptReachTiers($, live, a, q, q.noLead === true, recs)
   const passed: Partial<Record<pr.TierLevel, number>> = {}
@@ -142,14 +153,16 @@ export async function promptStand($: any, p: { uid: number; root: string }, live
   const active = tiers.filter((t) => passed[t.level] === undefined && !asking.has(t.sid))
   // The slots follow every live tier in reach, one that has passed the request up included: it is still there, so a tier above keeps its own slot (the manager's 10 minutes).
   const reps = pr.TIER_LEVELS.flatMap((l) => tiers.filter((t) => t.level === l).slice(0, 1))
-  const opens = pr.tierWindows(q.at, reps, passed)
+  const head = await promptHead($, q)
+  const opens = pr.tierWindows(q.at, reps, passed, head)
   // A tier's window never moves later for a request: a lower tier that goes live after the request would push the slots above it back, and a higher tier already
-  // told to act would be refused with `window`. The earliest time computed for the tier stays (memory only; a reload starts over, the same as a fresh request).
+  // told to act would be refused with `window`. The earliest time computed for the tier stays (memory only; a reload starts over, the same as a fresh request),
+  // but never before the head start as it reads now: a slot kept from inside the window the request was raised in gives way to the 30 s once that window ends.
   const seen = windowsSeen.get(q.id) ?? {}
   if (!windowsSeen.has(q.id) && windowsSeen.size >= WINDOWS_SEEN_MAX) windowsSeen.delete(windowsSeen.keys().next().value as string)
   windowsSeen.set(q.id, seen)
   const windows: Record<string, number> = {}
-  for (const t of active) windows[t.sid] = seen[t.sid] = Math.min(seen[t.sid] ?? Infinity, opens[reps.find((r) => r.level === t.level)!.sid])
+  for (const t of active) windows[t.sid] = Math.max(q.at + head, (seen[t.sid] = Math.min(seen[t.sid] ?? Infinity, opens[reps.find((r) => r.level === t.level)!.sid])))
   // A row waiting on a dialog, as the other readers judge it (status waiting with waitingFor set). A stale mark beside some other dialog of that tier holds the
   // top only until that tier's turn ends, which clears its mark.
   const rowWaiting = (sid: string) => live.some((r) => r.j.sessionId === sid && r.j.status === 'waiting' && (r.j.waitingFor ?? null) !== null)
@@ -158,9 +171,9 @@ export async function promptStand($: any, p: { uid: number; root: string }, live
 }
 const WINDOWS_SEEN_MAX = 512
 
-// Whether a tier's window for a request has not opened. Every window is at least the 30-second minimum after the request (`tierWindows`), the first tier's included:
-// no tier is told, can list, answer, relay or pass up before then, so the person's first 30 seconds are theirs alone (the hook still holds what lands for 30 s awake).
-// A window that is missing or not a number reads as shut.
+// Whether a tier's window for a request has not opened. Every window is at least the person's head start after the request (`tierWindows`), the first tier's
+// included: no tier is told, can list, answer, relay or pass up before then, so the person's first 30 seconds are theirs alone (the hook still holds what lands
+// for 30 s awake). Inside the unattended window a request was raised in there is no head start (promptHead). A window that is missing or not a number reads as shut.
 const promptWindowShut = (s: Stand, sid: string, now: number): boolean => !(now >= s.windows[sid])
 
 // The tier's own context for the three tools: the lead steps every lead tool shares, the switch, the OFF file.
@@ -256,7 +269,7 @@ export async function promptHeldSids($: any, sid: string, waiting: ReadonlySet<s
     const recs = await loadLeadRecords($)
     const held = new Set<string>()
     await promptRequests($, p, async (q, names, dir) => {
-      if (!waiting.has(q.sid) || held.has(q.sid) || names.has(`${q.id}.done`) || names.has(`${q.id}.decision.json`) || q.sid === sid || !(now >= q.at + pr.MIN_AGE_MS)) return false
+      if (!waiting.has(q.sid) || held.has(q.sid) || names.has(`${q.id}.done`) || names.has(`${q.id}.decision.json`) || q.sid === sid || !(now >= q.at + (await promptHead($, q)))) return false
       const stand = await promptStand($, p, live, answering, dir, names, q, recs)
       const self = stand.tiers.find((x) => x.sid === sid)
       if (!self || stand.passed[self.level] !== undefined || !stand.active.some((x) => x.sid === sid)) return false
@@ -265,6 +278,55 @@ export async function promptHeldSids($: any, sid: string, waiting: ReadonlySet<s
       return false
     })
     return held
+  } catch {
+    return undefined
+  }
+}
+
+// One waiting prompt a check-in asks a reason for: key (its checkinKey); the names its ledger rows may carry for it (the lane's or lead's record name, the registry
+// name), the folders its rows' repo may be (a row's repo is the session's root: the lane's folder or its repo, or a folder inside); at: the registry's status time.
+export type WhyAsk = { key: string; names: readonly string[]; dirs: readonly string[]; scopeNames: readonly string[]; scopeKnown: boolean; at: number }
+// The reason for each asked prompt (checkin-why.ts): the OFF file, what the session's own hook wrote in the ledger, and, with no row, the tier's own reading of the
+// switch. A key with no observed reason is left out. undefined: nothing could be read (no home, ledger unreadable for all): the check-in keeps its tail.
+export async function promptWhy($: any, asks: readonly WhyAsk[]): Promise<Map<string, c.WhyCode> | undefined> {
+  try {
+    if (asks.length === 0) return new Map()
+    const p = await where($)
+    if (!p) return undefined
+    // One read of the OFF file and the stored switch: only a stat that succeeded and showed a file is the person's OFF file; a read that failed gives no reason.
+    const sure = await escalationSure($)
+    const offFile = sure.state === 'off' && sure.which === 'file'
+    const rows = offFile ? [] : await ledgerRowsFor($, p, '"lane":"')
+    const now = await $.clock.now()
+    let view: Parameters<typeof whyOf>[0]['view']
+    if (!offFile && rows !== 'unreadable') {
+      const esc = await escalationNow($)
+      // `guard` only for a default the guard blocked, not for a ledger that did not answer.
+      view = { storedOff: sure.state === 'off' && sure.which === 'stored', guard: esc.source === 'guard' && Object.values(pr.GUARD_WHY).includes(esc.why as string), ...(esc.a ? { scope: esc.a.scope } : {}) }
+    }
+    const out = new Map<string, c.WhyCode>()
+    for (const a of asks) {
+      let mine = rows === 'unreadable' ? undefined : rows.filter((r) => typeof r.lane === 'string' && a.names.includes(r.lane) && typeof r.repo === 'string' && a.dirs.some((d) => r.repo === d || c.within(d, r.repo as string)))
+      // The rows that end a request carry its id and no lane: the rows of each open request's id are read too, so a request that has ended is not called open.
+      if (mine && !offFile) {
+        // Only the requests of this wait (rows from the window the reason is read in), the newest first: an earlier prompt's requests are not looked up.
+        const since = a.at - WHY_ROW_MARGIN_MS
+        const open = mine.flatMap((r) => (typeof r.id === 'string' && c.SID_RE.test(r.id) && (r.kind === 'requested' || r.kind === 'escalated' || r.kind === 'relayed') && Date.parse(r.t) >= since ? [{ id: r.id, t: Date.parse(r.t) }] : []))
+        const ids = [...new Set(open.sort((x, y) => y.t - x.t).map((x) => x.id))].slice(0, 3)
+        for (const id of ids) {
+          const closers = await ledgerRowsFor($, p, `"id":"${id}"`)
+          if (closers === 'unreadable') {
+            mine = undefined
+            break
+          }
+          mine.push(...closers)
+        }
+      }
+      const why = whyOf({ offFile, rows: mine, at: a.at, now, view: view && !a.scopeKnown ? { ...view, scope: undefined } : view, names: [...a.names, ...a.scopeNames] })
+      // With the OFF file or the stored switch unread, "no record" would be a guess: only a reason the rows gave is told.
+      if (why !== undefined && !(why === 'no-record' && sure.state === 'unread')) out.set(a.key, why)
+    }
+    return out
   } catch {
     return undefined
   }
@@ -298,7 +360,7 @@ async function promptListTool($: any, e: unknown): Promise<{ result: string } | 
       const self = stand.tiers.find((x) => x.sid === sid)
       // Not in reach, passed up, or blocked in its own question: not this tier's to see.
       if (!self || stand.passed[self.level] !== undefined || !stand.active.some((x) => x.sid === sid)) return false
-      if (!(now >= q.at + pr.MIN_AGE_MS)) {
+      if (!(now >= q.at + (await promptHead($, q)))) {
         young++
         return false
       }
@@ -417,13 +479,16 @@ async function promptAnswerTool($: any, e: any, answer: boolean): Promise<{ resu
       return refuse('write-failed')
     }
     if (decision === 'deny' && pr.isUnclear(why)) await ledgerAdd($, { ...row, kind: 'deny-unclear', code: 'deny', by: sid })
-    if (decision === 'park') return { result: `Recorded: park for ${id}. It closes the prompt for the person's return once the prompt has been open 30 seconds: the lane is told to stop this item and note it as waiting for the person, and the person's list shows your one line. It is yours, not the person's, and carries no approval for anything else.` }
-    if (pick && prov) return { result: `Recorded: provisional answer ${pick.index + 1} for ${id}. It lands once the question has been open 30 seconds and only while this unattended window is on, as the offered label with "(answered by …, provisional …)" after it, which tells the lane to take only reversible steps on it. The person reviews it later. It is yours, not the person's, and carries no approval for anything else.` }
-    if (pick) return { result: `Recorded: answer ${pick.index + 1} for ${id}. The card stays open in front of the person and their click wins; your answer lands once the question has been open 30 seconds, as the offered label with "(answered by …)" after it. It is yours, not the person's, and carries no approval for anything else.` }
-    return { result: `Recorded: ${decision} for ${id}. The dialog stays open in front of the person and their click wins; your answer lands once the prompt has been open 30 seconds. It is yours, not the person's, and carries no approval for anything else.` }
+    // When it lands: after the person's head start, or within a few seconds inside the unattended window the request was raised in.
+    const soon = (await promptHead($, q)) === 0
+    const lands = (what: string) => (soon ? 'within a few seconds (this unattended window gives the person no head start)' : `once the ${what} has been open 30 seconds`)
+    if (decision === 'park') return { result: `Recorded: park for ${id}. It closes the prompt for the person's return ${lands('prompt')}: the lane is told to stop this item and note it as waiting for the person, and the person's list shows your one line. It is yours, not the person's, and carries no approval for anything else.` }
+    if (pick && prov) return { result: `Recorded: provisional answer ${pick.index + 1} for ${id}. It lands ${lands('question')} and only while this unattended window is on, as the offered label with "(answered by …, provisional …)" after it, which tells the lane to take only reversible steps on it. The person reviews it later. It is yours, not the person's, and carries no approval for anything else.` }
+    if (pick) return { result: `Recorded: answer ${pick.index + 1} for ${id}. The card stays open in front of the person and their click wins; your answer lands ${lands('question')}, as the offered label with "(answered by …)" after it. It is yours, not the person's, and carries no approval for anything else.` }
+    return { result: `Recorded: ${decision} for ${id}. The dialog stays open in front of the person and their click wins; your answer lands ${lands('prompt')}. It is yours, not the person's, and carries no approval for anything else.` }
   }
-  // Escalation. Not the top tier, and not the session the person said they are in: pass it up, and the next tier's window opens at once (the 30 seconds still
-  // bind). A tier passes a request up only once its own window has opened, like an answer or a relay, so the person's first 30 seconds are never skipped.
+  // Escalation. Not the top tier, and not the session the person said they are in: pass it up, and the next tier's window opens at once (the person's head start
+  // still binds). A tier passes a request up only once its own window has opened, like an answer or a relay, so that head start is never skipped.
   // While an unattended window is held the person is not asked: `here` counts for nothing, so a tier below the top passes up as always.
   const hold = await unattendedHold($)
   const top = self.level === stand.top?.level

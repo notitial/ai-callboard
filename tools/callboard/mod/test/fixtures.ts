@@ -1,7 +1,7 @@
 import { expect } from 'claude-code/testing'
 import { conductorFileText, folderName, keptKey, leadRecordText, JOIN_NONE, LANES_CHANGED_TEXT, LANES_CHANGED_NOTE, LEADS_CHANGED_NOTE, reboundToast, KEEPALIVE_TEXT, SENT_NOTE } from '../hooks/core'
 import type { LeadRec } from '../hooks/core'
-import { h, AUTO_OWN, GOOD, LANESDIR, LEADRECDIR, NO, PS_TABLE, ROOT, SID, T0, TOOL, YES, condFiles, engine, extraStat, fakeSha, laneSeed, leadFiles, quiet, repoKey, resultFiles, storeFiles, submitted } from './harness'
+import { h, AUTO_OWN, GOOD, LANESDIR, LEADRECDIR, NO, PS_TABLE, ROOT, SID, T0, TOOL, YES, condFiles, engine, extraStat, fakeSha, gitFiles, laneSeed, leadFiles, quiet, repoKey, resultFiles, storeFiles, submitted } from './harness'
 import type { Trace } from './harness'
 
 export const TURN = { answer: 'ok', durationMs: 1, isAborted: false, turnId: 't1', reason: 'answer' } as const
@@ -18,7 +18,11 @@ export const statusText = async ($: any) => (await $.command.run(lane('status'))
 // The /callboard status text: a bold header, then a Role and State table with one row per [role, state]. Written here apart from the mod's own renderer, so a test checks the bytes.
 // The test machine has no protected-paths hook wired, so the default escalation is blocked and the table ends on that row (a test that wires the guard builds its own).
 export const ESCALATION_BLOCKED = 'OFF (default blocked: the protected-paths hook is not wired in ~/.claude/settings.json)'
-export const statusTable = (...rows: [string, string][]) => ['**Callboard status**', '', '| Role | State |', '|---|---|', ...[...rows, ['Escalation', ESCALATION_BLOCKED], ['Unattended', 'OFF']].map(([role, state]) => `| ${role} | ${state} |`)].join('\n')
+// A lane or a lead also gets the "Prompts" line, which says no here: the harness's escalation is off (its default is blocked).
+export const statusTable = (...rows: [string, string][]) => {
+  const covered = rows.some(([role, state]) => (role === 'Lane' && state !== 'NONE') || (role === 'Lead' && state === 'ON'))
+  return ['**Callboard status**', '', '| Role | State |', '|---|---|', ...[...rows, ['Escalation', ESCALATION_BLOCKED], ...(covered ? [['Prompts', 'NO (escalation is off)']] : []), ['Unattended', 'OFF']].map(([role, state]) => `| ${role} | ${state} |`)].join('\n')
+}
 // The status of a session with no lane and no lead.
 export const STATUS_NONE = statusTable(['Lane', 'NONE'], ['Lead', 'OFF'])
 // What lane_list and /callboard lanes say with no lanes at all: a one-column table with one row.
@@ -475,8 +479,16 @@ export const madeLane = (name: string, leadName?: string) => ({ name, folder: SV
 // ---- lead check-ins, /callboard checkin, the waiting column ----
 // A check-in that lists a waiting prompt says who can answer it.
 export const CK_PROMPT_TAIL = ' You cannot answer a waiting prompt that prompt_list does not show: tell the person which session waits.'
-export const ckTail = (parts: string) => `Call lane_list and look at each.${parts.includes('waiting on a prompt') ? CK_PROMPT_TAIL : ''} ${SENT_NOTE}`
-export const ckText = (parts: string) => `[callboard] Check-in: some lanes may need you. ${parts}. ${ckTail(parts)}`
+// What a waiting prompt shows as its reason in the harness: no ledger row for it and no guard, so the tier reads the escalation default as blocked.
+export const CK_GUARD_WHY = 'this tier reads the escalation default as blocked'
+// With the switch on and no ledger row for the lane (the harness writes none for a request file it puts in place), the reason is no record.
+export const CK_NO_RECORD = 'no escalation record of it was found: it may not be a permission prompt, or escalation does not cover that session'
+const ckWhy = (parts: string, why: string) => {
+  const lanes = [...parts.matchAll(/`([^`]+)` \(waiting on a prompt/g)].map((m) => m[1])
+  return lanes.length === 0 ? '' : ` What was seen at the last check: ${lanes.map((l) => `\`${l}\`: ${why}`).join('; ')}.`
+}
+export const ckTail = (parts: string, why = CK_GUARD_WHY) => `Call lane_list and look at each.${parts.includes('waiting on a prompt') ? `${ckWhy(parts, why)}${CK_PROMPT_TAIL}` : ''} ${SENT_NOTE}`
+export const ckText = (parts: string, why = CK_GUARD_WHY) => `[callboard] Check-in: some lanes may need you. ${parts}. ${ckTail(parts, why)}`
 export const QUIET = '`API` (quiet for 30 min, report not signed done)'
 export const checkins = () => submitted.filter((t) => t.startsWith('[callboard] Check-in:'))
 export const ckLane = (extra: Record<string, unknown> = {}) => ({ name: 'API', folder: `${PIN}/api`, brief: `${PIN}/api/BRIEF.md`, createdAt: 1, sid: OTHER, ...extra })
@@ -639,4 +651,42 @@ export function ownedBy(conductorSid: string, o: { name?: string; leadSid?: stri
   bindOwner(leadSid, conductorSid, name, repo)
   // A lead other than this session keeps its saved lead grant: the start sweep drops the binding of a session that has none.
   if (leadSid !== SID) h.store.set(`lead:${leadSid}`, { pin: repo, savedAt: T0 })
+}
+
+
+// ---- the workspace lock's owned team (ai-toolkit) in a repo: the files the mod reads, in the stat and head maps ----
+const lockFile = (path: string, text: string, mode = '644') => {
+  extraStat.set(path, `501 ${mode} 1 Regular File 5 ${text.length} 1700000000\n`)
+  gitFiles.set(path, text)
+}
+const lockDir = (path: string) => extraStat.set(path, '501 755 3 Directory 5 96 1700000000\n')
+export const isoAt = (ms: number) => new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z')
+const secs = (ms: number) => `${Math.floor(ms / 1000)}\n`
+export type LockSet = {
+  kind?: string
+  owner?: string
+  slug?: string
+  members?: string[]
+  // The turn's files: times in ms (taken_at is written as ISO text, eta_epoch and heartbeat_epoch as epoch seconds); ended adds ended/<sid>; taken overrides the taken_at text.
+  turn?: { sid: string; takenAt?: number; etaAt?: number; beatAt?: number; ended?: boolean; taken?: string }
+  mode?: string
+}
+export function lockSet(repo: string, o: LockSet = {}) {
+  const root = `${repo}/.workspace-lock`
+  const dir = `${root}/lock.d`
+  lockDir(root)
+  lockDir(dir)
+  lockFile(`${dir}/kind`, o.kind ?? 'owned\n', o.mode)
+  lockFile(`${dir}/owner`, `${o.owner ?? SID}\n`, o.mode)
+  lockFile(`${dir}/holder`, `${o.slug ?? 'lead-app'}\n`, o.mode)
+  for (const m of o.members ?? []) lockFile(`${dir}/members/${m}`, secs(T0), o.mode)
+  const t = o.turn
+  if (t) {
+    lockDir(`${dir}/turn.d`)
+    lockFile(`${dir}/turn.d/sid`, `${t.sid}\n`)
+    lockFile(`${dir}/turn.d/eta_epoch`, secs(t.etaAt ?? T0))
+    lockFile(`${dir}/turn.d/heartbeat_epoch`, secs(t.beatAt ?? T0))
+    lockFile(`${dir}/turn.d/taken_at`, t.taken ?? `${isoAt(t.takenAt ?? T0)}\n`)
+    if (t.ended) lockFile(`${dir}/ended/${t.sid}`, `${secs(T0).trim()} test\n`)
+  }
 }

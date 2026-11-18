@@ -86,6 +86,9 @@ export const restoredOnce = new Set<string>()
 
 // One callboard question per session at a time: a second request while one is open is refused, not queued.
 export const dialogOpen = new Set<string>()
+// The mod's own dialogs open now, per session: c.ownDialogKey of each, counted (plain `ask` dialogs can overlap). Recorded before $.ui.ask is called and taken out
+// when it returns, so the permission hook knows such a dialog for the mod's own (ADR 0008).
+export const ownAsks = new Map<string, Map<string, number>>()
 // Per lead, what the ceiling an unattended window puts on live lanes counts beside its live lanes (core.openedUnbound): the sessions its lane_open opened in
 // this process, an open under way, and a session a rename or an unpark is binding now, each with the time it was taken.
 export const laneOpened = new Map<string, Map<string, number>>()
@@ -119,8 +122,10 @@ export const presenceTouchedAt = new Map<string, number>()
 export const badStoreSeen = new Map<string, string>()
 
 export const presenceErrs = new Map<string, { n: number; at: number }>()
-// What a conductor's cached presence text was made from (its repo, name and pins).
+// What a conductor's or the manager's cached presence text was made from (a conductor's repo, name and pins; the manager's compaction stamp).
 export const conductorPresenceKey = new Map<string, string>()
+// When the manager's compaction began (ms), per session, while one runs. It is in memory only: a restart drops the presence file with it.
+export const presenceCompacting = new Map<string, number>()
 
 // The lead grant ends: the tools stay declared and refuse, the presence file goes, the lane-list watch stops.
 // Bumped by every leadDrop. A lead restore or a save of the grant that awaited across a drop sees the change and does nothing more, so an
@@ -256,6 +261,8 @@ export const laneObs = new Map<string, Map<string, c.LaneObs>>()
 export const leadObs = new Map<string, Map<string, c.LaneObs>>()
 export const obsAt = new Map<string, number>()
 export const attnTold = new Map<string, Set<string>>()
+// The reason a check-in gave for a waiting prompt, by check-in key, read once and kept (tried: when); gone with the key (checkin-why.ts).
+export const attnWhy = new Map<string, Map<string, { why?: c.WhyCode; tried: number }>>()
 export const attnCapped = new Set<string>()
 // The waiting prompts the last observation left owed (at: its time), for the hook that tells a busy session in the middle of its turn (checkinMidTurn).
 export const attnMid = new Map<string, { at: number; items: c.AttentionItem[]; render: (items: c.AttentionItem[]) => string | undefined; label: string }>()
