@@ -691,6 +691,15 @@ test('check-in: a request that was closed by a row with only its id gives no rea
   expect(checkins()).toEqual([`[callboard] Check-in: some lanes may need you. ${PROMPT}. Call lane_list and look at each.${CK_PROMPT_TAIL} ${SENT_NOTE}`])
 })
 
+test('check-in: a lane with earlier requests this month still has its current request\'s closing row read', async ($, on) => {
+  await ckLead($, on, [], WAITING)
+  h.store.set('answering', { scope: 'all', asks: false, savedAt: T0 })
+  const old = ['a', 'b', 'c', 'd'].map((x, i) => ROW('relayed', { id: `7a1b2c3d-0000-4000-8000-12345678900${x === 'a' ? 1 : i}` }, -600_000 - i * 1000))
+  putLedger([...old, ROW('relayed', { id: REQ_ID }), { t: new Date(T0 + 60_000).toISOString(), kind: 'relay-left', id: REQ_ID }])
+  await idleFor(8 * MIN)
+  expect(checkins()).toEqual([`[callboard] Check-in: some lanes may need you. ${PROMPT}. Call lane_list and look at each.${CK_PROMPT_TAIL} ${SENT_NOTE}`])
+})
+
 test('check-in: the text beside a tool result carries the same reason', async ($, on) => {
   postBeneath(on)
   await ckLead($, on, [], WAITING)

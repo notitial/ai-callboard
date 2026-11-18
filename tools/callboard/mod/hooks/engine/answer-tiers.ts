@@ -2,7 +2,7 @@
 // Trust rules held here: a tier answers only a request in its reach, and not one it passed up; a notice is not an approval.
 import * as c from '../core.ts'
 import * as pr from '../prompts.ts'
-import { whyOf } from '../checkin-why.ts'
+import { WHY_ROW_MARGIN_MS, whyOf } from '../checkin-why.ts'
 import {
   windowsSeen,
   promptTold,
@@ -299,7 +299,10 @@ export async function promptWhy($: any, asks: readonly WhyAsk[]): Promise<Map<st
       let mine = rows === 'unreadable' ? undefined : rows.filter((r) => typeof r.lane === 'string' && a.names.includes(r.lane) && typeof r.repo === 'string' && a.dirs.some((d) => r.repo === d || c.within(d, r.repo as string)))
       // The rows that end a request carry its id and no lane: the rows of each open request's id are read too, so a request that has ended is not called open.
       if (mine && !offFile) {
-        const ids = [...new Set(mine.flatMap((r) => (typeof r.id === 'string' && c.SID_RE.test(r.id) && (r.kind === 'requested' || r.kind === 'escalated' || r.kind === 'relayed') ? [r.id] : [])))].slice(0, 3)
+        // Only the requests of this wait (rows from the window the reason is read in), the newest first: an earlier prompt's requests are not looked up.
+        const since = a.at - WHY_ROW_MARGIN_MS
+        const open = mine.flatMap((r) => (typeof r.id === 'string' && c.SID_RE.test(r.id) && (r.kind === 'requested' || r.kind === 'escalated' || r.kind === 'relayed') && Date.parse(r.t) >= since ? [{ id: r.id, t: Date.parse(r.t) }] : []))
+        const ids = [...new Set(open.sort((x, y) => y.t - x.t).map((x) => x.id))].slice(0, 3)
         for (const id of ids) {
           const closers = await ledgerRowsFor($, p, `"id":"${id}"`)
           if (closers === 'unreadable') {
