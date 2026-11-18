@@ -1768,9 +1768,10 @@ export async function toolCheck($: any, e: any, next: any) {
 
 export async function permissionRequest($: any, e: any, next: any) {
   // The mod's own dialog ($.ui.ask), if the engine shows it through this hook as a question: one whose header and question match a dialog of this session that
-  // is open now is passed on as it stands, before anything here could refuse it (an unattended window refuses a tier's own question) or raise it as a request.
-  // It is never a tier's to answer, and nothing is written for it but the log line.
-  if (String(e.tool_name) === pr.QUESTION_TOOL) {
+  // is open now gets no decision, before anything here could refuse it (an unattended window refuses a tier's own question) or raise it as a request, and the
+  // hooks beneath are not asked, so only the person answers it. Nothing is written for it but the log line. A subagent's question is never the mod's dialog.
+  const sub = (e as { agent_id?: unknown }).agent_id
+  if (String(e.tool_name) === pr.QUESTION_TOOL && !(typeof sub === 'string' && sub !== '')) {
     const key = c.questionCallKey(e.tool_input)
     let sid: unknown
     if (key !== undefined) {
@@ -1780,7 +1781,7 @@ export async function permissionRequest($: any, e: any, next: any) {
     }
     if (key !== undefined && typeof sid === 'string' && (ownAsks.get(sid)?.get(key) ?? 0) > 0) {
       await logq($, sid, 'passed', 'own-dialog')
-      return next(e)
+      return {}
     }
   }
   // The dialog of a subagent's ask is shown only after the hooks return, so a wait would hide it from the person and its ask cannot rise: the chain beneath at

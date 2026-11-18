@@ -3559,7 +3559,7 @@ export function parseKeptProof(raw: unknown): KeptProof | undefined {
 // ---- the mod's own dialogs, as the permission hook may see them (ADR 0008) ----
 // Each $.ui.ask the mod opens is recorded by its header and question while it is open, so a question call that carries the same two is known for the mod's own
 // dialog: the permission hook passes it on as it stands, never refusing it or raising it as a request.
-export const ownDialogKey = (header: string, question: string): string => `${header}\n${question}`
+export const ownDialogKey = (header: string, question: string): string => JSON.stringify([header, question])
 // The key of a question call (AskUserQuestion input) that holds exactly one question with a string header and question; undefined for any other shape.
 export function questionCallKey(input: unknown): string | undefined {
   const qs = input && typeof input === 'object' ? (input as { questions?: unknown }).questions : undefined

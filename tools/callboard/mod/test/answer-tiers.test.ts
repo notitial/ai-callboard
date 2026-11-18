@@ -2,7 +2,7 @@ import { expect, test } from 'claude-code/testing'
 import * as prm from '../hooks/prompts'
 import { leadBriefing, nudgeText, SENT_NOTE } from '../hooks/core'
 import { h, GOOD, PROMPTS_DIR, ROOT, SID, T0, leadFiles, longTest, pfs, submitted, toolDefs } from './harness'
-import { APISID, APP2, COMPOSE, LEADPATH, LEADPS, LEADSID, MGR_SESS, OTHER, PIN, SVC, TURN, condOn, leadFileText, leadReg, logged, mgrAt, midCtx, ownReg, ownTurn, postBeneath, putStore, storeJson, tickTwice, ticks, advanceQuiet } from './fixtures'
+import { APISID, APP2, COMPOSE, LEADPATH, LEADPS, LEADSID, MGR_SESS, OTHER, PIN, SVC, TURN, condOn, lane, leadFileText, leadReg, logged, mgrAt, midCtx, ownReg, ownTurn, postBeneath, putStore, storeJson, tickTwice, ticks, advanceQuiet } from './fixtures'
 import { APIQ, CNDT, LANESID, LDIR, LEAD2, MGRT, OFF_FILE, PCOMMENT, PDIR, THASH, TID, TID2, addCondT, addMgrT, answerCall, answered, answerer, asConductor, askCheck, at, byCond, byMgr, decFile, decideBy, driveClock, handDecision, hookKinds, leadLive, ledgerRows, pcall, putFile, putFileAt, putLedger, putQ, putRelayT, putWindow, readReq, refusal, reqFiles, retRow, rowKinds, runRequest, said, startReq, stop, tier, tierSessions, waitingRow, winShort } from './answer-fixtures'
 
 test('the lead is resolved record first: a record that names a lead is reached by the live lead of that name only, whatever lead the binding holds', async ($, on) => {
@@ -1041,6 +1041,22 @@ test('head start: inside a window a request raised by day, or in another window,
   const r = said(await $.tool.call(answerCall()))
   expect(r).toContain('Recorded: allow')
   expect(r).not.toContain(NO_HEAD)
+})
+
+test('head start: a request raised in a window and seen by a tier while it was on gets its 30 s back once the window ends', async ($, on) => {
+  await tier($, on)
+  tierFixtures('mgr')
+  const v = putWindow()
+  putQ({ at: T0, u: winShort(v) })
+  expect(said(await $.tool.call(pcall('prompt_list')))).toContain(TID)
+  await $.command.run(lane('unattended off'))
+  h.nowMs = T0 + 11_000
+  expect(said(await $.tool.call(pcall('prompt_list')))).toBe(prm.promptListText([], { on: true, young: 1 }))
+  expect(said(await $.tool.call(pcall('prompt_escalate', { id: TID, why: 'x' })))).toContain(refusal('window'))
+  expect(said(await $.tool.call(answerCall()))).toContain(refusal('window'))
+  expect(pfs.has(`${LDIR()}/${TID}.escalate-lead.json`)).toBe(false)
+  h.nowMs = T0 + 30_000
+  expect(said(await $.tool.call(pcall('prompt_escalate', { id: TID, why: 'x' })))).toContain('Passed up')
 })
 
 test('prompts hook: a request raised in a window carries the window, and a tier\'s answer lands at the first poll after it, not at 30 s', async ($, on) => {

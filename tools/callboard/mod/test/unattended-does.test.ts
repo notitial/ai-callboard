@@ -195,8 +195,11 @@ const holdDialog = () => {
 const GO_WORK = 'Build the API: the schema change in api/db.'
 // The question the mocked engine was last shown, as the permission hook would see it.
 const shownQ = () => ({ ...PLAIN, header: h.lastHeader, question: h.lastQuestion })
+// A hook beneath that refuses every question, as a settings hook might: the mod's own dialog never reaches it.
+const BENEATH_DENY = { decision: { behavior: 'deny', message: 'a settings hook said no' } }
 const goLead = async ($: any, on: any, stdins: string[]) => {
-  beneathHooks(on)
+  for (const ev of ['classic.PostToolUse', 'classic.PostToolUseFailure', 'classic.PermissionDenied'] as const) on(ev, () => ({}))
+  on('classic.PermissionRequest', () => BENEATH_DENY)
   await leadAt($, on, stdins, { clock: true, sess: { ...leadSelfReg(), ...ckRow() }, seed: () => putStore([ckLane()]) })
   await waitFor(() => h.liveHeadAsked !== undefined)
   wireGuard()
@@ -215,7 +218,11 @@ test('window: a lead\'s go dialog, open, passes the permission hook as it stands
   open()
   const release = holdDialog()
   const typed = (await typedGo($)).done
-  expect((await ask($, [shownQ()])) ?? {}).toEqual({})
+  // A subagent's question with the same text is not the dialog: it goes beneath as any subagent's does, with no pass.
+  expect(await ask($, [shownQ()], { agent_id: 'a1' })).toEqual(BENEATH_DENY)
+  expect(logged(stdins)).not.toContain('passed:own-dialog')
+  // The dialog gets no decision here or beneath: only the person answers it.
+  expect(await ask($, [shownQ()])).toEqual({})
   expect(logged(stdins)).toContain('passed:own-dialog')
   expect(await ask($, [{ ...shownQ(), header: 'Plan' }])).toEqual(QUESTION_DENIED)
   expect(await ask($, [{ ...shownQ(), question: `${h.lastQuestion} ` }])).toEqual(QUESTION_DENIED)

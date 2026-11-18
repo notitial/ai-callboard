@@ -3997,8 +3997,10 @@ test('terminateOwnedText: the refusal names the conductor and the lane, says not
 })
 
 test('the mod dialog key: header and question of a call with one question; any other shape has none', () => {
-  assert.equal(c.ownDialogKey('Go', 'Give a go?'), 'Go\nGive a go?')
-  assert.equal(c.questionCallKey({ questions: [{ header: 'Go', question: 'Give a go?', options: [{ label: 'Cancel' }, { label: 'Give go' }] }] }), 'Go\nGive a go?')
+  assert.equal(c.ownDialogKey('Go', 'Give a go?'), '["Go","Give a go?"]')
+  assert.equal(c.questionCallKey({ questions: [{ header: 'Go', question: 'Give a go?', options: [{ label: 'Cancel' }, { label: 'Give go' }] }] }), c.ownDialogKey('Go', 'Give a go?'))
+  // A newline in the header or the question cannot make another dialog's key.
+  assert.notEqual(c.ownDialogKey('Go\nA', 'B'), c.ownDialogKey('Go', 'A\nB'))
   assert.equal(c.questionCallKey({ questions: [{ header: 'Go', question: 'A?' }, { header: 'Go', question: 'B?' }] }), undefined)
   assert.equal(c.questionCallKey({ questions: [{ question: 'A?' }] }), undefined)
   assert.equal(c.questionCallKey({ questions: [{ header: 'Go', question: 5 }] }), undefined)

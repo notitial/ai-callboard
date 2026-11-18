@@ -149,14 +149,16 @@ export async function promptStand($: any, p: { uid: number; root: string }, live
   const active = tiers.filter((t) => passed[t.level] === undefined && !asking.has(t.sid))
   // The slots follow every live tier in reach, one that has passed the request up included: it is still there, so a tier above keeps its own slot (the manager's 10 minutes).
   const reps = pr.TIER_LEVELS.flatMap((l) => tiers.filter((t) => t.level === l).slice(0, 1))
-  const opens = pr.tierWindows(q.at, reps, passed, await promptHead($, q))
+  const head = await promptHead($, q)
+  const opens = pr.tierWindows(q.at, reps, passed, head)
   // A tier's window never moves later for a request: a lower tier that goes live after the request would push the slots above it back, and a higher tier already
-  // told to act would be refused with `window`. The earliest time computed for the tier stays (memory only; a reload starts over, the same as a fresh request).
+  // told to act would be refused with `window`. The earliest time computed for the tier stays (memory only; a reload starts over, the same as a fresh request),
+  // but never before the head start as it reads now: a slot kept from inside the window the request was raised in gives way to the 30 s once that window ends.
   const seen = windowsSeen.get(q.id) ?? {}
   if (!windowsSeen.has(q.id) && windowsSeen.size >= WINDOWS_SEEN_MAX) windowsSeen.delete(windowsSeen.keys().next().value as string)
   windowsSeen.set(q.id, seen)
   const windows: Record<string, number> = {}
-  for (const t of active) windows[t.sid] = seen[t.sid] = Math.min(seen[t.sid] ?? Infinity, opens[reps.find((r) => r.level === t.level)!.sid])
+  for (const t of active) windows[t.sid] = Math.max(q.at + head, (seen[t.sid] = Math.min(seen[t.sid] ?? Infinity, opens[reps.find((r) => r.level === t.level)!.sid])))
   // A row waiting on a dialog, as the other readers judge it (status waiting with waitingFor set). A stale mark beside some other dialog of that tier holds the
   // top only until that tier's turn ends, which clears its mark.
   const rowWaiting = (sid: string) => live.some((r) => r.j.sessionId === sid && r.j.status === 'waiting' && (r.j.waitingFor ?? null) !== null)
