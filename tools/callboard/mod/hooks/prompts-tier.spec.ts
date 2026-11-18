@@ -298,6 +298,21 @@ test('tierWindows: a pass-up opens the next tier at once, never before 30 s; an 
   assert.deepEqual(w({ lead: at + 45_000, conductor: at + 80_000 }), [30_000, 45_000, 80_000])
   assert.deepEqual(w({ lead: at + 400_000 }), [30_000, 300_000, 600_000])
 })
+test('tierWindows: with no head start the first tier opens at the request and a pass-up opens the next at once; the 5 and 10 minutes stand', () => {
+  const at = 1_000_000
+  const ts = [tr('lead', SID_A), tr('conductor', SID_B), tr('manager', SID_C)]
+  const w = (passed: Partial<Record<p.TierLevel, number>>, head?: number) => {
+    const r = p.tierWindows(at, ts, passed, head)
+    return [r[SID_A] - at, r[SID_B] - at, r[SID_C] - at]
+  }
+  assert.deepEqual(w({}, 0), [0, 300_000, 600_000])
+  assert.deepEqual(w({ lead: at + 5_000 }, 0), [0, 5_000, 600_000])
+  assert.deepEqual(w({ lead: at + 5_000, conductor: at + 6_000 }, 0), [0, 5_000, 6_000])
+  assert.deepEqual(w({ lead: at + 5_000 }), [30_000, 30_000, 600_000])
+  assert.deepEqual(w({}, p.MIN_AGE_MS), w({}))
+  const m = p.tierWindows(at, [tr('manager', SID_C)], {}, 0)
+  assert.equal(m[SID_C], at)
+})
 const RID = '2a1b2c3d-0000-4000-8000-123456789abc'
 const relayOf = (over: Record<string, unknown> = {}) => ({ id: RID, short: p.shortOf(RID), by: { level: 'manager', sid: SID_C, name: 'MANAGER' }, at: 5, nonce: 'n-1', ...over }) as any
 test('relay file: exact shape, the short id is the first eight characters of the id, the tier is a real level', () => {

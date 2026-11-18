@@ -3995,3 +3995,14 @@ test('terminateOwnedText: the refusal names the conductor and the lane, says not
   assert.ok(t.includes('the person confirms in its session. Nothing was stopped.'))
   assert.ok(c.terminateOwnedText('svc-api').includes('ask your conductor by message'))
 })
+
+test('the mod dialog key: header and question of a call with one question; any other shape has none', () => {
+  assert.equal(c.ownDialogKey('Go', 'Give a go?'), 'Go\nGive a go?')
+  assert.equal(c.questionCallKey({ questions: [{ header: 'Go', question: 'Give a go?', options: [{ label: 'Cancel' }, { label: 'Give go' }] }] }), 'Go\nGive a go?')
+  assert.equal(c.questionCallKey({ questions: [{ header: 'Go', question: 'A?' }, { header: 'Go', question: 'B?' }] }), undefined)
+  assert.equal(c.questionCallKey({ questions: [{ question: 'A?' }] }), undefined)
+  assert.equal(c.questionCallKey({ questions: [{ header: 'Go', question: 5 }] }), undefined)
+  assert.equal(c.questionCallKey({ questions: [] }), undefined)
+  assert.equal(c.questionCallKey(null), undefined)
+  assert.equal(c.questionCallKey({ questions: [null] }), undefined)
+})

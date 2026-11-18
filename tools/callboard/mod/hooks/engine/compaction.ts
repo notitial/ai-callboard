@@ -336,6 +336,8 @@ export async function nudgeTick($: any, sid: string) {
   const ct = await counts($)
   if (kind === 'lead' && (ct.lastNudgeMs ?? 0) >= due.at) return drop('nudge-limit')
   if (!c.nudgeAllowed(ct, now, kind === 'working', due.again === true || kind === 'lead')) return drop('nudge-limit')
+  // A turn submitted while a callboard dialog of this session is open could close it before the person answers: the nudge stays due for a later tick.
+  if (dialogOpen.has(sid)) return
   if ((await setNudgeDue($, null, { ifVersion: read.version })).isSet === false) return
   await bump($, (ct) => ({ ...ct, lastNudgeMs: now, lastNudgeKind: kind!, nudgeTimes: c.pushRecent(ct.nudgeTimes ?? [], now) }))
   await setNudgedAt($, now)
@@ -640,8 +642,9 @@ export async function failRequest($: any, sid: string, reason: string, notice: b
   if (ifVersion === undefined) await setRequest($, null)
   else if ((await setRequest($, null, { ifVersion })).isSet === false) return log($, sid, 'dropped', 'changed-meanwhile')
   await log($, sid, 'refused', reason)
-  // No notice turn goes to the session for these (the person is at it, or the refusal is final): a toast says that the request ended and why.
-  if (!notice) return void toast($, c.compactSkippedToast(reason))
+  // No notice turn goes to the session for these (the person is at it, or the refusal is final), nor while a callboard dialog of this session is open (a turn
+  // could close it before the person answers): a toast says that the request ended and why.
+  if (!notice || dialogOpen.has(sid)) return void toast($, c.compactSkippedToast(reason))
   const now = await $.clock.now()
   const times = noticeTimes.get(sid) ?? []
   if (!c.noticeAllowed(times, now)) return log($, sid, 'notice-capped', reason)
