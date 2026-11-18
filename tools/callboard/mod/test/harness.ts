@@ -446,6 +446,7 @@ export const h = {
   leadMvDelayMs: 0,
   compactHangs: false,
   compactThrows: false,
+  onCompact: undefined as (() => void) | undefined,
   submitHangs: false,
   // Run once inside the next prompt submit, before it succeeds or fails (the engine runs the prompt hooks there); a store call that throws at once.
   submitHook: undefined,
@@ -513,6 +514,7 @@ function resetSession() {
   h.draftNow = ''
   h.compactHangs = false
   h.compactThrows = false
+  h.onCompact = undefined
   h.submitHangs = false
   h.submitHook = undefined
   h.tokensNow = 150_000
@@ -808,6 +810,7 @@ export function engine(on0: any, argvSeen: string[][], stdins: string[] = [], cl
       // The manager's /color, run from a timer.
       colorRuns.push(e.args)
     } else {
+      h.onCompact?.()
       if (h.compactThrows) throw new Error('refused')
       seen.compacted = true
       if (h.compactHangs) return new Promise(() => undefined)

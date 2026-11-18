@@ -8,6 +8,7 @@ import {
   leadGranting,
   presenceText,
   presenceTouchedAt,
+  presenceCompacting,
   conductorHome,
   conductorPresenceKey,
   presenceErrs,
@@ -278,12 +279,14 @@ export function presenceTouch($: any, sid: string): Promise<boolean | void> {
           return false
         }
       }
-      const key = d.key?.(g, home)
+      // The manager's cached text is made from its compaction stamp too, so it is rebuilt whenever the stamp changes (a touch already in flight cannot cache a stale one).
+      const stamp = g.level === 'manager' ? presenceCompacting.get(sid) : undefined
+      const key = g.level === 'manager' ? String(stamp ?? '') : d.key?.(g, home)
       let text = presenceText.get(sid)
       if (text === undefined || (key !== undefined && conductorPresenceKey.get(sid) !== key)) {
         const me = await presenceSelf($, sid)
         if (!me) return false
-        text = c.leadFileText({ sid, ...me, ...d.fields(g, home) } as Parameters<typeof c.leadFileText>[0]) ?? ''
+        text = c.leadFileText({ sid, ...me, ...d.fields(g, home), ...(stamp !== undefined ? { compactingAt: stamp } : {}) } as Parameters<typeof c.leadFileText>[0]) ?? ''
         // The grant may have ended while the registry was read: its file is not written.
         if (grants.get(sid) !== g) return false
         presenceText.set(sid, text)
@@ -331,6 +334,7 @@ export function presenceDue(sid: string, now: number): boolean {
 }
 export function presenceDrop($: any, sid: string) {
   presenceText.delete(sid)
+  presenceCompacting.delete(sid)
   presenceTouchedAt.delete(sid)
   presenceErrs.delete(sid)
   conductorPresenceKey.delete(sid)
@@ -338,6 +342,23 @@ export function presenceDrop($: any, sid: string) {
     const p = await where($)
     if (p) await run($, [RM, '-f', '--', `${p.root}/leads/${sid}.json`])
   })
+}
+
+// The manager's compaction stamp (compactingAt in its presence file), for the prompt tier chain: on, just before the mod starts the manager's compaction, writes the
+// file with the time now, so a manager whose tick is held through the compaction stays a tier for c.MANAGER_COMPACT_GRACE_MS; a failed write is logged and the
+// compaction goes on without it. off, where the compaction ends (cmpClear), drops the stamp in memory at once and leaves the file's rewrite to a touch in the queue,
+// so the PostCompact hook waits for no file work. Nothing for a session that holds no manager grant.
+export async function compactingMark($: any, sid: string, on: boolean) {
+  if (grants.get(sid)?.level !== 'manager') return
+  if (!on) {
+    if (presenceCompacting.delete(sid)) void presenceTouch($, sid).catch(() => undefined)
+    return
+  }
+  const at = await $.clock.now()
+  // The grant may have ended while the clock was read: no stamp is kept for a session that holds none.
+  if (grants.get(sid)?.level !== 'manager') return
+  presenceCompacting.set(sid, at)
+  if ((await presenceTouch($, sid).catch(() => false)) !== true) await log($, sid, 'error', 'compact-presence')
 }
 
 // Resolves true when the saved grant is gone, false when its delete failed (the off and Cancel replies then say lead may come back after a restart).
@@ -638,12 +659,13 @@ async function presenceFileOk($: any, p: { uid: number; root: string }, live: Re
 // The same checks, saying how a file failed them: 'no' for a clear no (gone, not a plain file of ours, stale, another level, no
 // registry row, a dead pid, another start time, not claude), 'error' for a check that could not be made (a read that failed or kept changing, a ps that failed).
 // A trust check (presenceFileOk) takes both as no; manager-exists and a manager's stop count 'error' as a file that holds (fail closed).
-export async function presenceCheck($: any, p: { uid: number; root: string }, live: RegRow[], sid: string, want: (f: c.PresenceFile) => boolean): Promise<c.PresenceFile | 'no' | 'error'> {
-  const r = await presenceRead($, p, live, sid, want)
+// grace: a manager's file that went stale during a compaction it stamped (c.compactingGraceOk) still counts; only the prompt tier chain asks for it.
+export async function presenceCheck($: any, p: { uid: number; root: string }, live: RegRow[], sid: string, want: (f: c.PresenceFile) => boolean, grace = false): Promise<c.PresenceFile | 'no' | 'error'> {
+  const r = await presenceRead($, p, live, sid, want, grace)
   if (r === 'error') mem.presenceErrors++
   return r
 }
-async function presenceRead($: any, p: { uid: number; root: string }, live: RegRow[], sid: string, want: (f: c.PresenceFile) => boolean): Promise<c.PresenceFile | 'no' | 'error'> {
+async function presenceRead($: any, p: { uid: number; root: string }, live: RegRow[], sid: string, want: (f: c.PresenceFile) => boolean, grace: boolean): Promise<c.PresenceFile | 'no' | 'error'> {
   const path = `${p.root}/leads/${sid}.json`
   // A lead rewrites its file by renaming a new one into place: a read that met the swap gets one more try.
   let f = await readSmallR($, path, p.uid, c.LEAD_FILE_MAX)
@@ -651,9 +673,13 @@ async function presenceRead($: any, p: { uid: number; root: string }, live: RegR
   // One more read before a failed or changing read counts as 'error', so a passing failure is not a check that failed.
   if (f.state === 'failed' || f.state === 'changed') f = await readSmallR($, path, p.uid, c.LEAD_FILE_MAX)
   if (f.state === 'failed' || f.state === 'changed') return 'error'
-  if (f.state !== 'ok' || !c.leadFileFresh(await $.clock.now(), f.mtimeMs)) return 'no'
+  if (f.state !== 'ok') return 'no'
+  const now = await $.clock.now()
+  const fresh = c.leadFileFresh(now, f.mtimeMs)
+  if (!fresh && !grace) return 'no'
   const lf = c.parsePresenceFile(f.text, sid)
   if (!lf || !want(lf)) return 'no'
+  if (!fresh && !c.compactingGraceOk(lf, f.mtimeMs, now)) return 'no'
   const reg = live.find((e) => e.pid === String(lf.pid) && e.j.sessionId === sid && c.sameStart(e.j.procStart, lf.procStart) && String(e.j.pid) === e.pid)
   if (!reg) return 'no'
   const start = await psOne($, lf.pid, 'lstart=')
@@ -666,10 +692,17 @@ async function presenceRead($: any, p: { uid: number; root: string }, live: RegR
   return lf
 }
 // The fresh presence file names, cut to the fresh ones before the cap (as leadsFor). strict: a list that throws throws, not "none".
-async function freshPresence($: any, p: { root: string }, strict = false): Promise<string[]> {
+// wide: the cut is the compaction grace (and the second a stat rounds down by) instead of 30 s, so a manager's stamped file, stale by then, is listed. The files
+// between the two cuts are leads and conductors that went away and are not pruned yet (ten minutes); each costs one read and is no manager. The cap is the same,
+// and the fresh files come first, so a pile of stale ones never pushes a live manager (or lead) out of it.
+async function freshPresence($: any, p: { root: string }, strict = false, wide = false): Promise<string[]> {
   const now = await $.clock.now()
   const list = (await (strict ? $.fs.list(`${p.root}/leads`) : $.fs.list(`${p.root}/leads`).catch(() => []))) as { name: string; mtimeMs?: number }[]
-  return list.filter((f) => f.name.endsWith('.json') && c.SID_RE.test(f.name.slice(0, -5)) && typeof f.mtimeMs === 'number' && c.leadFileFresh(now, f.mtimeMs)).map((f) => f.name.slice(0, -5)).sort().slice(0, c.LEAD_FILES_MAX)
+  const within = wide ? c.MANAGER_COMPACT_GRACE_MS + 1000 : c.LEAD_FRESH_MS
+  const kept = list.filter((f) => f.name.endsWith('.json') && c.SID_RE.test(f.name.slice(0, -5)) && typeof f.mtimeMs === 'number' && f.mtimeMs <= now && now - f.mtimeMs <= within)
+  const names = (fs: typeof kept) => fs.map((f) => f.name.slice(0, -5)).sort()
+  const fresh = (f: { mtimeMs?: number }) => c.leadFileFresh(now, f.mtimeMs as number)
+  return [...names(kept.filter(fresh)), ...names(kept.filter((f) => !fresh(f)))].slice(0, c.LEAD_FILES_MAX)
 }
 // Every live manager file of another session, each with its registry name if that is a reserved one (c.managerNameOf). manager-exists counts
 // every such file, whatever its name; a lead takes a compact cue only while one with a reserved name is live.
@@ -677,8 +710,10 @@ async function freshPresence($: any, p: { root: string }, strict = false): Promi
 // (fail closed); managerTrusted never does.
 // A leads folder that is there but fails its checks, or whose list throws, is one unverified manager (manager-exists counts it); a missing
 // folder is none.
-export async function managersLive($: any, live: RegRow[], except: string): Promise<{ sid: string; name?: string; unverified?: true }[]> {
-  const d = await presenceNames($)
+// opts.grace: also a manager that is compacting (its file stamped, c.compactingGraceOk); the prompt tier chain's read, nobody else's.
+export async function managersLive($: any, live: RegRow[], except: string, opts: { grace?: boolean } = {}): Promise<{ sid: string; name?: string; unverified?: true }[]> {
+  const grace = opts.grace === true
+  const d = await presenceNames($, grace)
   if (d === 'none') return []
   if (d === 'error') return [{ sid: '', unverified: true }]
   const p = d.p
@@ -686,7 +721,7 @@ export async function managersLive($: any, live: RegRow[], except: string): Prom
   const out: { sid: string; name?: string; unverified?: true }[] = []
   for (const s of d.names) {
     if (s === except) continue
-    const r = await presenceCheck($, p, live, s, (f) => f.level === 'manager')
+    const r = await presenceCheck($, p, live, s, (f) => f.level === 'manager', grace)
     if (r === 'error') out.push({ sid: s, unverified: true })
     else if (r !== 'no') out.push({ sid: s, name: c.managerNameOf(rows, s) })
   }
@@ -747,7 +782,7 @@ export async function presenceHeld($: any, live: RegRow[], sid: string): Promise
 }
 // The fresh presence file names for a check that fails closed: 'none' when the callboard or leads folder is not there,
 // 'error' when one is there but fails dirOk's rules, its stat could not be made, or the list throws.
-async function presenceNames($: any): Promise<{ p: { uid: number; root: string }; names: string[] } | 'none' | 'error'> {
+async function presenceNames($: any, wide = false): Promise<{ p: { uid: number; root: string }; names: string[] } | 'none' | 'error'> {
   const p = await where($)
   if (!p) return 'error'
   for (const dir of [p.root, `${p.root}/leads`]) {
@@ -756,7 +791,7 @@ async function presenceNames($: any): Promise<{ p: { uid: number; root: string }
     if (f === 'error' || f.kind !== 'dir' || f.uid !== p.uid || f.mode !== 0o700) return 'error'
   }
   try {
-    return { p, names: await freshPresence($, p, true) }
+    return { p, names: await freshPresence($, p, true, wide) }
   } catch {
     return 'error'
   }

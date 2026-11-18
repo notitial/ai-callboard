@@ -119,8 +119,10 @@ export const presenceTouchedAt = new Map<string, number>()
 export const badStoreSeen = new Map<string, string>()
 
 export const presenceErrs = new Map<string, { n: number; at: number }>()
-// What a conductor's cached presence text was made from (its repo, name and pins).
+// What a conductor's or the manager's cached presence text was made from (a conductor's repo, name and pins; the manager's compaction stamp).
 export const conductorPresenceKey = new Map<string, string>()
+// When the manager's compaction began (ms), per session, while one runs. It is in memory only: a restart drops the presence file with it.
+export const presenceCompacting = new Map<string, number>()
 
 // The lead grant ends: the tools stay declared and refuse, the presence file goes, the lane-list watch stops.
 // Bumped by every leadDrop. A lead restore or a save of the grant that awaited across a drop sees the change and does nothing more, so an

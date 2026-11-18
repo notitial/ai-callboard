@@ -265,7 +265,7 @@ Under `~/.claude/callboard/` (folders 0700, files 0600; nothing in a repo is tru
 |---|---|
 | `lanes/` | One lane store per repo, named by a hash of the repo's real path |
 | `lead-records/` | Which conductor owns which lead |
-| `leads/` | Short-lived presence files of live leads, conductors and the manager |
+| `leads/` | Short-lived presence files of live leads, conductors and the manager; a manager's carries `compactingAt` while the mod compacts it, which keeps it a tier of the prompt chain for up to 8 minutes |
 | `cue/`, `result/` | The one-line cues a mod acts on, and its answers |
 | `open/`, `offers/` | Requests for the panels extension; a conductor's offer of a new lead |
 | `log/` | One log per session: what the mod did and why it refused. First place to look |
