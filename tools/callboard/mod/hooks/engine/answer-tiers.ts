@@ -2,6 +2,7 @@
 // Trust rules held here: a tier answers only a request in its reach, and not one it passed up; a notice is not an approval.
 import * as c from '../core.ts'
 import * as pr from '../prompts.ts'
+import { WHY_ROW_MARGIN_MS, whyOf } from '../checkin-why.ts'
 import {
   windowsSeen,
   promptTold,
@@ -27,6 +28,8 @@ import {
   ledgerAdd,
   PROMPT_DIRS_MAX,
   answeringNow,
+  escalationNow,
+  escalationSure,
   promptsOff,
   promptNewId,
   ledgerRowsFor,
@@ -274,6 +277,55 @@ export async function promptHeldSids($: any, sid: string, waiting: ReadonlySet<s
       return false
     })
     return held
+  } catch {
+    return undefined
+  }
+}
+
+// One waiting prompt a check-in asks a reason for: key (its checkinKey); the names its ledger rows may carry for it (the lane's or lead's record name, the registry
+// name), the folders its rows' repo may be (a row's repo is the session's root: the lane's folder or its repo, or a folder inside); at: the registry's status time.
+export type WhyAsk = { key: string; names: readonly string[]; dirs: readonly string[]; scopeNames: readonly string[]; scopeKnown: boolean; at: number }
+// The reason for each asked prompt (checkin-why.ts): the OFF file, what the session's own hook wrote in the ledger, and, with no row, the tier's own reading of the
+// switch. A key with no observed reason is left out. undefined: nothing could be read (no home, ledger unreadable for all): the check-in keeps its tail.
+export async function promptWhy($: any, asks: readonly WhyAsk[]): Promise<Map<string, c.WhyCode> | undefined> {
+  try {
+    if (asks.length === 0) return new Map()
+    const p = await where($)
+    if (!p) return undefined
+    // One read of the OFF file and the stored switch: only a stat that succeeded and showed a file is the person's OFF file; a read that failed gives no reason.
+    const sure = await escalationSure($)
+    const offFile = sure.state === 'off' && sure.which === 'file'
+    const rows = offFile ? [] : await ledgerRowsFor($, p, '"lane":"')
+    const now = await $.clock.now()
+    let view: Parameters<typeof whyOf>[0]['view']
+    if (!offFile && rows !== 'unreadable') {
+      const esc = await escalationNow($)
+      // `guard` only for a default the guard blocked, not for a ledger that did not answer.
+      view = { storedOff: sure.state === 'off' && sure.which === 'stored', guard: esc.source === 'guard' && Object.values(pr.GUARD_WHY).includes(esc.why as string), ...(esc.a ? { scope: esc.a.scope } : {}) }
+    }
+    const out = new Map<string, c.WhyCode>()
+    for (const a of asks) {
+      let mine = rows === 'unreadable' ? undefined : rows.filter((r) => typeof r.lane === 'string' && a.names.includes(r.lane) && typeof r.repo === 'string' && a.dirs.some((d) => r.repo === d || c.within(d, r.repo as string)))
+      // The rows that end a request carry its id and no lane: the rows of each open request's id are read too, so a request that has ended is not called open.
+      if (mine && !offFile) {
+        // Only the requests of this wait (rows from the window the reason is read in), the newest first: an earlier prompt's requests are not looked up.
+        const since = a.at - WHY_ROW_MARGIN_MS
+        const open = mine.flatMap((r) => (typeof r.id === 'string' && c.SID_RE.test(r.id) && (r.kind === 'requested' || r.kind === 'escalated' || r.kind === 'relayed') && Date.parse(r.t) >= since ? [{ id: r.id, t: Date.parse(r.t) }] : []))
+        const ids = [...new Set(open.sort((x, y) => y.t - x.t).map((x) => x.id))].slice(0, 3)
+        for (const id of ids) {
+          const closers = await ledgerRowsFor($, p, `"id":"${id}"`)
+          if (closers === 'unreadable') {
+            mine = undefined
+            break
+          }
+          mine.push(...closers)
+        }
+      }
+      const why = whyOf({ offFile, rows: mine, at: a.at, now, view: view && !a.scopeKnown ? { ...view, scope: undefined } : view, names: [...a.names, ...a.scopeNames] })
+      // With the OFF file or the stored switch unread, "no record" would be a guess: only a reason the rows gave is told.
+      if (why !== undefined && !(why === 'no-record' && sure.state === 'unread')) out.set(a.key, why)
+    }
+    return out
   } catch {
     return undefined
   }

@@ -259,6 +259,8 @@ export const laneObs = new Map<string, Map<string, c.LaneObs>>()
 export const leadObs = new Map<string, Map<string, c.LaneObs>>()
 export const obsAt = new Map<string, number>()
 export const attnTold = new Map<string, Set<string>>()
+// The reason a check-in gave for a waiting prompt, by check-in key, read once and kept (tried: when); gone with the key (checkin-why.ts).
+export const attnWhy = new Map<string, Map<string, { why?: c.WhyCode; tried: number }>>()
 export const attnCapped = new Set<string>()
 // The waiting prompts the last observation left owed (at: its time), for the hook that tells a busy session in the middle of its turn (checkinMidTurn).
 export const attnMid = new Map<string, { at: number; items: c.AttentionItem[]; render: (items: c.AttentionItem[]) => string | undefined; label: string }>()
