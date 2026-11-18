@@ -1466,7 +1466,7 @@ export async function laneOpenCall($: any, e: any, next: any) {
     if ('deny' in r) return r
     await log($, sid, 'opened', prep.lane.name)
     // The owner's own call that makes the lane a member of its lock team (never run by the mod). The panel is open already: a failed read only drops the sentence.
-    const team = await lockTeam($, prep.lane.repo ?? '').catch(() => undefined)
+    const team = prep.lane.repo === undefined ? undefined : await lockTeam($, prep.lane.repo).catch(() => undefined)
     const tail = team !== undefined && team !== 'error' && team.owner === sid ? c.lockOpenTail(team.slug, r.sid, sid) : ''
     return { result: `lane ${prep.lane.name}: panel opened as session ${r.sid}. Next: lane_rename with sid ${r.sid}, then lane_start.${tail}` }
   })

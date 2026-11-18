@@ -12,17 +12,20 @@ async function folderState($: any, path: string, uid: number): Promise<'ok' | 'a
   return f.kind === 'dir' && f.uid === uid ? 'ok' : 'error'
 }
 
-// The text of a small value file, 'absent' when there is none, 'error' when it is there and not trustworthy or not readable.
-async function valueFile($: any, path: string, uid: number): Promise<string | 'absent' | 'error'> {
-  const f = await statR($, path)
-  if (f === 'absent' || f === 'error') return f
+// The text of a small value file, 'error' when it is missing, not trustworthy or not readable. optional: a missing file is 'absent' (one more stat) instead.
+async function valueFile($: any, path: string, uid: number, optional = false): Promise<string | 'absent' | 'error'> {
+  if (optional) {
+    const f = await statR($, path)
+    if (f === 'absent' || f === 'error') return f
+  }
   const r = await readSmallR($, path, uid, FILE_MAX, true)
   return r.state === 'ok' ? r.text : 'error'
 }
 
 // <repo>/.workspace-lock/lock.d: undefined when there is no owned team (no lock, an open or solo lock), 'error' when something is there and a check fails.
 // A lock folder above the repo, or one WORKSPACE_LOCK_DIR moves elsewhere, is not seen.
-export async function lockTeam($: any, repo: string): Promise<c.LockTeam | undefined | 'error'> {
+// ownerSidWanted: the caller needs the turn only when this session owns the team; any other owner's team is returned without its turn (the turn files are not read).
+export async function lockTeam($: any, repo: string, ownerSidWanted?: string): Promise<c.LockTeam | undefined | 'error'> {
   try {
     const p = await where($)
     if (!p) return 'error'
@@ -34,17 +37,18 @@ export async function lockTeam($: any, repo: string): Promise<c.LockTeam | undef
     const d = await folderState($, dir, p.uid)
     if (d === 'absent') return undefined
     if (d === 'error') return 'error'
-    const kind = await valueFile($, `${dir}/kind`, p.uid)
+    const kind = await valueFile($, `${dir}/kind`, p.uid, true)
     if (kind === 'absent') return undefined
     if (kind === 'error') return 'error'
     if (kind.split('\n')[0].trim() !== 'owned') return undefined
     const owner = await valueFile($, `${dir}/owner`, p.uid)
     const holder = await valueFile($, `${dir}/holder`, p.uid)
-    if (owner === 'absent' || owner === 'error' || holder === 'absent' || holder === 'error') return 'error'
+    if (owner === 'error' || holder === 'error' || owner === 'absent' || holder === 'absent') return 'error'
     const slug = c.lockSlugOf(holder)
     const ownerSid = c.lockSidOf(owner)
     if (slug === undefined || ownerSid === undefined) return 'error'
     const team: c.LockTeam = { slug, owner: ownerSid }
+    if (ownerSidWanted !== undefined && ownerSid !== ownerSidWanted) return team
     const turnDir = await folderState($, `${dir}/turn.d`, p.uid)
     if (turnDir === 'absent') return team
     if (turnDir === 'error') return { ...team, turn: 'error' }

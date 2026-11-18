@@ -2648,7 +2648,7 @@ const lockAge = (now: number, at: number): string => (at > now ? '?' : now - at 
 export function lockHeadCell(v: LockView | undefined, leadSid: string | undefined, laneSids: ReadonlySet<string>, now: number): string {
   if (v === undefined || v === 'error' || leadSid === undefined || v.team.owner !== leadSid) return ''
   const t = v.team.turn
-  const turn = t === undefined ? '' : t === 'error' ? ' · turn ?' : t.sid === leadSid ? ` · turn ${lockAge(now, t.takenAt)}` : laneSids.has(t.sid) ? '' : ` · turn ${t.sid.slice(0, 8)}`
+  const turn = t === undefined ? '' : t === 'error' ? ' · turn ?' : t.sid === leadSid ? ` · turn ${lockAge(now, t.takenAt)}` : laneSids.has(t.sid) ? '' : ` · turn ${t.sid.slice(0, 8)} ${lockAge(now, t.takenAt)}`
   return `team ${mdEscape(v.team.slug)}${turn}`
 }
 // The Lock cell of a lane row: member or not, and how long it has held the turn; `?` when a read failed or the lane's session is not known.

@@ -4084,7 +4084,7 @@ test('laneListText: the Lock column appears only when a listed repo has an owned
   // A turn held by a session no lane names is shown on the owner's row; a turn the owner holds, too.
   const stray = { ...team, turn: { ...(team.turn as c.LockTurn), sid: '8a1b2c3d-0000-4000-8000-123456789abc' } }
   const strayRows = rows(c.laneListText([A], LEADROW, now, { level: 'lead', name: 'LEAD', self: LK_LEAD, lock: new Map([['/w/repo', { team: stray, member: new Map() }]]) }))
-  assert.ok(strayRows[2].endsWith('| team lead-x · turn 8a1b2c3d |'))
+  assert.ok(strayRows[2].endsWith('| team lead-x · turn 8a1b2c3d 7m |'))
   const own = { ...team, turn: { ...(team.turn as c.LockTurn), sid: LK_LEAD } }
   assert.ok(rows(c.laneListText([A], LEADROW, now, { level: 'lead', name: 'LEAD', self: LK_LEAD, lock: new Map([['/w/repo', { team: own, member: new Map() }]]) }))[2].endsWith('| team lead-x · turn 7m |'))
   // Another lead's row in an armed repo has no team cell.
@@ -4100,4 +4100,16 @@ test('checkinItems: a turn the owner may free is one item with the turn since, n
   assert.deepEqual(c.checkinItems([['API', gone]], 10_000).map((i) => i.code), ['gone', 'turn'])
   assert.match(c.checkinText([{ lane: 'API', code: 'turn', since: 4000 }])!, /`API` \(holds the workspace turn past its ETA and grace; as the owner you can free it with turn give --force \(--check first; the person may be asked\)\)\./)
   assert.equal(c.leadCheckinText([{ lane: 'API', code: 'turn', since: 4000 }]), undefined)
+})
+
+test('laneListText: the Lock column keeps every row the head width in the manager view, boxed by conductor, with an empty conductor row', () => {
+  const lane: c.Lane = { name: 'A', folder: '/w/repo', brief: '/w/repo/.archive/A/BRIEF.md', repo: '/w/repo', leadName: 'LEAD', leadSid: LK_LEAD, sid: LK_LANE }
+  const team: c.LockTeam = { slug: 'lead-x', owner: LK_LEAD }
+  const lock = new Map<string, c.LockView>([['/w/repo', { team, member: new Map([[LK_LANE, true]]) }]])
+  const rows = (text: string) => text.split('\n').filter((l) => l.startsWith('|'))
+  const view = { level: 'manager' as const, name: 'M', conductors: [{ name: 'C1', repos: ['/w/repo'], sid: LK_OTHER }, { name: 'C2', repos: ['/w/none'] }], lock }
+  const text = rows(c.laneListText([lane], [{ sessionId: LK_LEAD, name: 'LEAD', cwd: '/w/repo' }], 0, view))
+  assert.ok(text[0].includes('| Conductor |') && text[0].endsWith('| Waiting | Lock |'))
+  assert.ok(text.every((r) => r.split('|').length === text[0].split('|').length), 'every row has the head width')
+  assert.ok(text.some((r) => r.includes('C2') && r.includes('–')), 'the empty conductor row is drawn')
 })

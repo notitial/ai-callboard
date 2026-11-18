@@ -1220,16 +1220,16 @@ export async function checkinTick($: any, sid: string, submitsAtStart: number) {
   }
   // The workspace lock's owned team, when this lead owns it: a lane that holds a turn the owner may now free (ended, or past its ETA and grace) is owed a notice.
   // A read that fails keeps what was seen of the lane, so a flaky read neither tells again nor drops the told mark; no team, or no turn, clears it.
-  const pin = base.g.level === 'lead' ? pinOf(sid) : undefined
-  const team = pin === undefined ? undefined : await lockTeam($, pin)
-  if (team !== undefined) {
+  const pin = base.g.level === 'lead' && obs.size > 0 ? pinOf(sid) : undefined
+  if (pin !== undefined) {
+    const team = await lockTeam($, pin, sid)
     for (const [name, o] of obs) {
       const lane = base.lanes.find((l) => l.name === name)
       const was = prev.get(name)?.turn
       delete o.turn
-      if (team === 'error' || (team.owner === sid && team.turn === 'error')) {
+      if (team === 'error' || (team !== undefined && team.owner === sid && team.turn === 'error')) {
         if (was !== undefined) o.turn = was
-      } else if (team.owner === sid && team.turn !== undefined && (o.sid ?? lane?.sid) === team.turn.sid && c.lockTurnFreeable(team.turn, now)) {
+      } else if (team !== undefined && team.owner === sid && team.turn !== undefined && (o.sid ?? lane?.sid) === team.turn.sid && c.lockTurnFreeable(team.turn, now)) {
         o.turn = { since: team.turn.takenAt }
       }
     }
