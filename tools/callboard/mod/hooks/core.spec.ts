@@ -1195,6 +1195,38 @@ test('inReach: a lead by its one pin, a conductor by any of its pins, a manager 
   assert.deepEqual(reach({ level: 'nobody' as c.Level, pins: ['/w/repo'], name: '' }), [], 'an unknown level reaches nothing')
 })
 
+test('a manager presence file carries compactingAt only for a manager, an integer; leadFileText writes it only when given', () => {
+  const base = { sid: LEAD, pid: 4242, procStart: 'Tue Oct 27 20:37:50 2026' }
+  const p = (o: Record<string, unknown>) => c.parsePresenceFile(JSON.stringify({ ...base, ...o }), LEAD)
+  assert.deepEqual(p({ level: 'manager', name: 'HARBOR', compactingAt: 5000 }), { ...base, level: 'manager', name: 'HARBOR', compactingAt: 5000 })
+  assert.deepEqual(p({ level: 'manager', name: 'HARBOR' }), { ...base, level: 'manager', name: 'HARBOR' }, 'no stamp, no field')
+  for (const bad of [{ level: 'manager', compactingAt: 1.5 }, { level: 'manager', compactingAt: '5' }, { level: 'manager', compactingAt: -1 }, { level: 'conductor', repos: ['/w/a'], home: '/w/c', compactingAt: 5 }, { repo: '/w/a', compactingAt: 5 }]) assert.equal(p(bad), undefined, JSON.stringify(bad))
+  const m = { ...base, level: 'manager' as const, name: 'HARBOR' }
+  assert.deepEqual(JSON.parse(c.leadFileText(m)!), m)
+  assert.deepEqual(JSON.parse(c.leadFileText({ ...m, compactingAt: 5000 })!), { ...m, compactingAt: 5000 })
+})
+
+test('a stale manager file counts while it compacts: stamped, not from the future, at most the grace old, and never a lead or conductor', () => {
+  const base = { sid: LEAD, pid: 4242, procStart: 'x' }
+  const mgr = (compactingAt?: number): c.PresenceFile => ({ ...base, level: 'manager', ...(compactingAt !== undefined ? { compactingAt } : {}) })
+  const now = 1_000_000_000
+  const stale = now - 60_000
+  assert.equal(c.compactingGraceOk(mgr(stale), stale, now), true)
+  assert.equal(c.compactingGraceOk(mgr(now - c.MANAGER_COMPACT_GRACE_MS), now - 100_000, now), true, 'the last millisecond of the grace')
+  assert.equal(c.compactingGraceOk(mgr(now - c.MANAGER_COMPACT_GRACE_MS - 1), now - 100_000, now), false, 'one millisecond later it is over')
+  assert.equal(c.compactingGraceOk(mgr(), stale, now), false, 'no stamp')
+  assert.equal(c.compactingGraceOk(mgr(now + 1), stale, now), false, 'a stamp from the future')
+  assert.equal(c.compactingGraceOk(mgr(stale), now + 1, now), false, 'a file written in the future')
+  assert.equal(c.compactingGraceOk(mgr(stale), now - c.LEAD_FRESH_MS, now), false, 'a fresh file is not the grace\'s business')
+  assert.equal(c.compactingGraceOk(mgr(stale + 700), stale - 700, now), true, 'the stamp is not compared with the whole-second mtime')
+  assert.equal(c.compactingGraceOk({ ...base, level: 'lead', repo: '/w/a' }, stale, now), false)
+  assert.equal(c.compactingGraceOk({ ...base, level: 'conductor', repos: ['/w/a'], home: '/w/c' }, stale, now), false)
+})
+
+test('the compaction grace ends before presencePrune could remove the file, with the second a stat rounds down by and the freshness window to spare', () => {
+  assert.ok(c.MANAGER_COMPACT_GRACE_MS + 1000 + c.LEAD_FRESH_MS < c.LEAD_PRUNE_MS)
+})
+
 test('a presence file is fresh for 30 seconds and never from the future', () => {
   assert.equal(c.leadFileFresh(100_000, 100_000), true)
   assert.equal(c.leadFileFresh(100_000, 70_000), true)

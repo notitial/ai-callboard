@@ -112,7 +112,8 @@ export async function promptReachTiers($: any, live: RegRow[], a: pr.Answering, 
   if (pr.requestCovered(a, q, { lane: q.level === 'lane' ? q.lane : undefined, lead: q.leadName, self: q.level === 'lead' ? q.lane : undefined })) {
     const o = typeof recs === 'string' ? undefined : await ownerLive($, live, q.sid, q.repo, pr.tierLead(q), recs, q.level === 'lead' ? q.sid : undefined).catch(() => undefined)
     if (o) tiers.push({ level: 'conductor', sid: o.sid, name: o.name ?? '' })
-    for (const m of await managersLive($, live, q.sid).catch(() => [])) if (m.unverified !== true && m.name !== undefined) tiers.push({ level: 'manager', sid: m.sid, name: m.name })
+    // A manager that is compacting stays a tier (its file's compactingAt, within c.MANAGER_COMPACT_GRACE_MS): no other reader of managersLive allows for it.
+    for (const m of await managersLive($, live, q.sid, { grace: true }).catch(() => [])) if (m.unverified !== true && m.name !== undefined) tiers.push({ level: 'manager', sid: m.sid, name: m.name })
   }
   return tiers
 }

@@ -2260,7 +2260,10 @@ export function noticeReach(g: Grant, l: Lane, mySid: string, ownLeadLive: boole
 // sid in it. A file without level is a lead's from before the levels plan, and reads as one for one release.
 export const LEAD_FILE_MAX = 4096
 export const LEAD_FILES_MAX = 64
-const LEAD_FRESH_MS = 30_000
+export const LEAD_FRESH_MS = 30_000
+// How long a manager that is compacting stays a tier of the prompt chain after its file went stale, counted from its compactingAt stamp. It stays under
+// LEAD_PRUNE_MS by more than the second a stat rounds a time down by and LEAD_FRESH_MS, so presencePrune never removes the file inside it.
+export const MANAGER_COMPACT_GRACE_MS = 8 * 60_000
 // How often a running lead rewrites its presence file (well inside LEAD_FRESH_MS, so a tick or two of delay never reads as stale) and how often a session
 // sweeps the folder for files nobody has written for LEAD_PRUNE_MS.
 export const PRESENCE_TOUCH_MS = 10_000
@@ -2269,23 +2272,25 @@ const PRESENCE_NAME_MAX = 64
 export type LeadFile = { sid: string; pid: number; procStart: string; level: 'lead'; repo: string; name?: string }
 // A conductor's file also names its own repo (home), so a lead can find the conductor's list file.
 type ConductorFile = { sid: string; pid: number; procStart: string; level: 'conductor'; repos: string[]; home: string; name?: string }
-export type PresenceFile = LeadFile | ConductorFile | { sid: string; pid: number; procStart: string; level: 'manager'; name?: string }
+export type ManagerFile = { sid: string; pid: number; procStart: string; level: 'manager'; name?: string; compactingAt?: number }
+export type PresenceFile = LeadFile | ConductorFile | ManagerFile
 const presenceNameOk = (n: unknown): n is string => typeof n === 'string' && n.length > 0 && n.length <= PRESENCE_NAME_MAX && /^[\x20-\x7e]+$/.test(n)
 const repoOk = (r: unknown): r is string => typeof r === 'string' && r.length >= 2 && isCleanAbs(r)
 // A lead still writes the four fields of before, so a session on the old mod (256-byte reader) reads exactly what it read before the install.
 // level and name are written, and never trusted from the file: a reader takes the name from the registry row.
 // A non-lead presence file never carries repo (an old reader ignores level and would take it for a lead's).
-// The manager's file carries level and name and never repo; a lead's is unchanged.
+// The manager's file carries level and name and never repo; a lead's is unchanged. While the manager compacts it also carries compactingAt (ms), the time the
+// compaction began, which compactingGraceOk reads and nothing else does.
 // A conductor's carries level, name, repos and home, never repo.
 export function leadFileText(
-  f: { sid: string; pid: number; procStart: string; repo: string } | { sid: string; pid: number; procStart: string; level: 'manager'; name: string } | { sid: string; pid: number; procStart: string; level: 'conductor'; name: string; repos: string[]; home: string },
+  f: { sid: string; pid: number; procStart: string; repo: string } | { sid: string; pid: number; procStart: string; level: 'manager'; name: string; compactingAt?: number } | { sid: string; pid: number; procStart: string; level: 'conductor'; name: string; repos: string[]; home: string },
 ): string | undefined {
   const text =
     'repo' in f
       ? JSON.stringify({ sid: f.sid, pid: f.pid, procStart: f.procStart, repo: f.repo })
       : f.level === 'conductor'
         ? JSON.stringify({ sid: f.sid, pid: f.pid, procStart: f.procStart, level: 'conductor', ...(f.name ? { name: f.name } : {}), repos: f.repos, home: f.home })
-        : JSON.stringify({ sid: f.sid, pid: f.pid, procStart: f.procStart, level: 'manager', name: f.name })
+        : JSON.stringify({ sid: f.sid, pid: f.pid, procStart: f.procStart, level: 'manager', name: f.name, ...(f.compactingAt !== undefined ? { compactingAt: f.compactingAt } : {}) })
   return text.length <= LEAD_FILE_MAX ? text : undefined
 }
 export function parsePresenceFile(text: string, name: string): PresenceFile | undefined {
@@ -2297,11 +2302,12 @@ export function parsePresenceFile(text: string, name: string): PresenceFile | un
     return undefined
   }
   if (!isObj(j)) return undefined
-  const { sid, pid, procStart, level = 'lead', repo, repos, home, name: who } = j
+  const { sid, pid, procStart, level = 'lead', repo, repos, home, name: who, compactingAt } = j
   if (typeof sid !== 'string' || !SID_RE.test(sid) || sid !== name) return undefined
   if (!Number.isInteger(pid) || (pid as number) <= 1 || typeof procStart !== 'string' || procStart.trim() === '' || procStart.length > 64) return undefined
   if (who !== undefined && !presenceNameOk(who)) return undefined
   const base = { sid, pid: pid as number, procStart, ...(who !== undefined ? { name: who as string } : {}) }
+  if (compactingAt !== undefined && (level !== 'manager' || !Number.isInteger(compactingAt) || (compactingAt as number) < 0)) return undefined
   if (level === 'lead') return repoOk(repo) && repos === undefined ? { ...base, level, repo } : undefined
   if (level === 'conductor') {
     if (repo !== undefined || !Array.isArray(repos) || repos.length < 1 || repos.length > CONDUCTOR_REPOS_MAX || !repos.every(repoOk) || new Set(repos).size !== repos.length) return undefined
@@ -2309,10 +2315,15 @@ export function parsePresenceFile(text: string, name: string): PresenceFile | un
     if (!repoOk(home)) return undefined
     return { ...base, level, repos: [...repos], home }
   }
-  if (level === 'manager') return repo === undefined && repos === undefined && home === undefined ? { ...base, level } : undefined
+  if (level === 'manager') return repo === undefined && repos === undefined && home === undefined ? { ...base, level, ...(compactingAt !== undefined ? { compactingAt: compactingAt as number } : {}) } : undefined
   return undefined
 }
 export const leadFileFresh = (now: number, mtimeMs: number): boolean => mtimeMs <= now && now - mtimeMs <= LEAD_FRESH_MS
+// Whether a file that is stale because it is old still counts for a reader that allows for a compaction: a manager's file with a compactingAt stamp that is not
+// in the future and at most MANAGER_COMPACT_GRACE_MS old. The file's mtime only has to be in the past: a stat rounds it down to the second, so it is not compared
+// with the stamp. Every other check of presenceCheck (registry row, pid, start time, claude process) still runs after it.
+export const compactingGraceOk = (lf: PresenceFile, mtimeMs: number, now: number): boolean =>
+  lf.level === 'manager' && lf.compactingAt !== undefined && mtimeMs <= now && now - mtimeMs > LEAD_FRESH_MS && lf.compactingAt <= now && now - lf.compactingAt <= MANAGER_COMPACT_GRACE_MS
 
 // The cross-process lock of one store: a folder made with mkdir, holding an owner file. It is advisory between honest processes.
 export const LOCK_WAIT_MS = 2000
