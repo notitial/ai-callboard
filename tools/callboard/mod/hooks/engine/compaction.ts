@@ -46,7 +46,7 @@ import {
 } from './base.ts'
 import { registryOf, idleCheck, regOnce, loadLanes, registryEntries, noAnswer } from './store.ts'
 import type { Reg, Answer } from './store.ts'
-import { homeOf, LEAD_RESTORE_TRIES, regEntry, cfgGet, leadBusy, checkinMidTurn, managerRestoreWake, conductorRestoreWake } from './grants.ts'
+import { homeOf, LEAD_RESTORE_TRIES, regEntry, cfgGet, leadBusy, checkinMidTurn, managerRestoreWake, conductorRestoreWake, compactingMark } from './grants.ts'
 import { reportLaneOf, reportTargetOf, reportStat, retireReportCheck, sessionRoot, undoLate, detach, keepLaneFacts, briefLane } from './lanes.ts'
 import type { Bound } from './lanes.ts'
 import { ensureTimer } from './tick.ts'
@@ -167,6 +167,8 @@ export async function pruneHints($: any, me: string) {
 
 export function cmpClear($: any, sid: string) {
   cmpMarked.delete(sid)
+  // The manager's compaction stamp ends where the compaction's mark does; not awaited, so PostCompact is not held by it.
+  void compactingMark($, sid, false).catch(() => undefined)
   // Bounded: a store that does not answer must not hold up PostCompact or the tick.
   return withTimeout($, Promise.resolve($.store.delete(`${c.CMP_PREFIX}${sid}`)).catch(logFail($, sid, 'cmp-clear')), c.ENGINE_CALL_TIMEOUT_MS)
 }
@@ -691,6 +693,8 @@ export async function doCompact($: any, sid: string, req: Request, fromCue: bool
   cmpMarked.add(sid)
   const markAt = await $.clock.now()
   await withTimeout($, Promise.resolve($.store.set(`${c.CMP_PREFIX}${sid}`, { at: markAt })).catch(logFail($, sid, 'cmp-mark')), c.ENGINE_CALL_TIMEOUT_MS)
+  // A manager's presence file is stamped before the compaction can hold its tick, so the prompt tier chain keeps it for the compaction's length (c.MANAGER_COMPACT_GRACE_MS).
+  await withTimeout($, compactingMark($, sid, true).catch(logFail($, sid, 'compact-presence')), c.ENGINE_CALL_TIMEOUT_MS)
   // A compaction runs far longer than the lead waits: `ok` means it began; its end is in the log (`compacted`).
   await answer('ok')
   await log($, sid, 'compacting', req.mode)
@@ -699,6 +703,7 @@ export async function doCompact($: any, sid: string, req: Request, fromCue: bool
   try {
     await $.command.run({ command: 'compact', args: req.focus })
   } catch {
+    void compactingMark($, sid, false).catch(() => undefined)
     // The engine refused the command: the lane did not compact, so the order stands (its stamp goes back while it is still fresh).
     if (spent !== null && c.orderFresh(spent, await $.clock.now())) await orderStamp($, sid, spent, true).catch(() => undefined)
     await failRequest($, sid, 'rejected', true)

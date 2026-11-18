@@ -502,8 +502,9 @@ export async function prNoticeTick($: any, sid: string, submitsAtStart: number) 
   await log($, sid, 'pr-notice', sent === 'ok' ? 'idle' : 'unconfirmed')
 }
 
-// pr_watch { owner, repo, number }: a bound lane's main agent adds one PR to its tracker, or renews one. A new PR gets its first look here, which only
-// records the starting point; a renewal keeps what was last seen and runs nothing.
+// pr_watch { owner, repo, number }: the main agent of a bound lane, a lead or a conductor adds one PR to its tracker, or renews one. A new PR gets its first
+// look here, which only records the starting point; a renewal keeps what was last seen and runs nothing. A lead's or a conductor's notes come to its own
+// session only: its tracker has no lead, so nothing is copied up, and no other session polls it.
 export async function prWatchCall($: any, e: any, next: any) {
   const sid = await $.session.id()
   ensureTimer($)
@@ -513,7 +514,10 @@ export async function prWatchCall($: any, e: any, next: any) {
   }
   if ((e as { agentId?: string }).agentId !== undefined) return deny('subagent')
   const bound = (await getLane($)).value as { name?: unknown } | null | undefined
-  const lane = bound && typeof bound.name === 'string' && c.NAME_RE.test(bound.name) ? bound.name : undefined
+  const g = grants.get(sid)
+  const level = g?.level === 'lead' || g?.level === 'conductor' ? g.level : undefined
+  const laneName = bound && typeof bound.name === 'string' && c.NAME_RE.test(bound.name) ? bound.name : undefined
+  const lane = laneName ?? (level === undefined ? undefined : c.NAME_RE.test(g!.name) ? g!.name : level)
   if (lane === undefined || typeof sid !== 'string' || !c.SID_RE.test(sid)) return deny('not-lane')
   const ref = pw.parseWatchInput(e)
   if (!ref) return deny('input')
@@ -525,7 +529,8 @@ export async function prWatchCall($: any, e: any, next: any) {
     const t = await ownTracker($, p, sid)
     // A tracker file that could not be read is never replaced by a new one.
     if (t === 'unread') return deny('write')
-    const lead = laneBrief.get(sid)?.lead?.sid ?? t?.lead
+    // Only a lane has a lead above it: a tracker left from before the session became a lead or a conductor does not carry its old lead over.
+    const lead = laneName !== undefined ? (laneBrief.get(sid)?.lead?.sid ?? t?.lead) : undefined
     const base: pw.Tracker = { v: 1, sid, lane, ...(lead !== undefined && lead !== sid ? { lead } : {}), prs: t?.prs ?? [] }
     const had = base.prs.find((x) => pw.sameRef(x, ref))
     let prs: pw.Tracked[]

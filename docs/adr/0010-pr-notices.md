@@ -1,6 +1,6 @@
 # 10. PR notices for lanes
 
-**Status:** proposed
+**Status:** proposed, amended
 **Date:** 2026-11-15
 
 Scope: the callboard mod watches the pull requests a lane names and tells the lane, and its lead, when one changes.
@@ -235,6 +235,16 @@ turn: at most 8 note lines, then one line with the count of the rest.
   from a cue or model text" gains the one exception named here.
 - **ADR 0002, Consequences (new surface):** the `prs/` folder.
 - **ADR 0004:** the ledger's kinds gain `pr-watch` and `pr-notice`.
+
+## Amendments
+
+- **2026-11-18: a lead and a conductor may register a PR too.** `pr_watch` takes the main agent of a session that holds
+  a lead or a conductor grant, as well as a bound lane's. Its tracker is its own, labelled with its grant's name (the
+  word `lead` or `conductor` when the name is no plain word), and has no lead above it: its notes come to its own
+  session only, nothing is copied up, and no other session polls it. Every other rule stands: the grammar, the first
+  look, the 8 PRs and 30 new registrations an hour, the 20 minutes, the notes and the wake rules. The manager and a
+  session with no grant are refused, as a subagent is. A tracker whose session is gone is removed a day after it was
+  last written, by a lead's hourly look at the folder, like any tracker nobody polls.
 
 ## Probes
 

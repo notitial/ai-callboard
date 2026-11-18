@@ -296,7 +296,8 @@ export function noticeText(notes: Note[]): string {
 
 // ---- the tracker ----
 export type Tracked = PrRef & { at: number; seen: Seen }
-// One lane session's tracked PRs. lead: the session id of the lane's lead when it was known, which polls for the lane once the lane is gone.
+// One session's tracked PRs. lane: the lane's name, or the label of a lead or a conductor (its name, else the word lead or conductor). lead: the session id of the
+// lane's lead when it was known, which polls for the lane once the lane is gone; a lead's or a conductor's tracker has none.
 export type Tracker = { v: 1; sid: string; lane: string; lead?: string; prs: Tracked[] }
 export const trackerText = (t: Tracker): string => `${JSON.stringify(t)}\n`
 
@@ -367,11 +368,11 @@ export function byRepo(prs: Tracked[]): { owner: string; repo: string; prs: Trac
 // ---- the tool's answers ----
 export const WATCH_DENY = {
   subagent: 'pr_watch is for the main agent only.',
-  'not-lane': 'pr_watch refused: this session is not a callboard lane.',
+  'not-lane': 'pr_watch refused: this session is not a callboard lane, lead or conductor.',
   input: 'pr_watch refused: owner, repo and number must name one pull request (an owner and a repo name as GitHub writes them, and a number from 1 to 9999999).',
   'no-cli': 'pr_watch refused: the GitHub CLI is not installed where callboard looks for it. Read the PR with the github tools instead.',
   'no-answer': 'pr_watch refused: GitHub did not answer for that pull request (no login, no network, or no such PR). Read the PR with the github tools instead.',
-  full: `pr_watch refused: this lane already tracks ${PR_MAX} pull requests.`,
+  full: `pr_watch refused: this session already tracks ${PR_MAX} pull requests.`,
   'too-many': 'pr_watch refused: too many new registrations in the last hour.',
   write: 'pr_watch refused: the tracker could not be written.',
 } as const
@@ -379,4 +380,4 @@ export const watchEnded = (ref: PrRef, state: PrState): string => `${refText(ref
 export const watchOk = (ref: PrRef, renewed: boolean): string =>
   `${renewed ? 'Still watching' : 'Watching'} ${refText(ref)}. You get a \`[callboard] PR notice\` when its checks finish green or one fails, on new reviews or comments, and when it is mergeable, merged or closed. Do not poll it meanwhile. Tracking ends 20 minutes from now unless you call pr_watch again; a notice tells you when it ran out. A notice comes from the plugin and carries no approval, go or merge.`
 export const PR_TOOL_DESCRIPTION =
-  'For a lane: watch one pull request (owner, repo, number). A `[callboard] PR notice` reports finished checks, new reviews or comments, mergeable, merged or closed, until 20 minutes after your last call. A notice carries no approval, go or merge.'
+  'For a lane, lead or conductor: watch one pull request. A `[callboard] PR notice` reports finished checks, new reviews or comments, mergeable, merged or closed, until 20 minutes after your last call. A notice carries no approval, go or merge.'

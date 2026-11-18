@@ -91,7 +91,7 @@ caller.
    (the OFF file, no tier in reach, a question that stays yours, or that no escalation record of it was found), so a
    switch that reads on but does nothing shows itself. You get one toast per wait in each window that watches the
    lane, held or not. That alert lets no one answer the prompt: it only says that one is waiting.
-4. A lane that waits on a pull request registers it with `pr_watch` and is told when checks finish, reviews arrive
+4. A lane, lead or conductor that waits on a pull request registers it with `pr_watch` and is told when checks finish, reviews arrive
    or the PR is mergeable, merged or closed. A merge is still yours.
 5. A big lane is asked to compact before it loses its notes, and a lead can order it to. You never type that.
 6. A lane finishes, signs its report, and the lead retires it. The lead is told of a signature within a few minutes
@@ -128,6 +128,15 @@ caller.
    When a window ends, the process that ended it shows a toast with the counts, and `/callboard status` and the
    manager's prompt list say that its list is unread until you run `/callboard unattended`, which then lists every
    window since you last read it ([ADR 0008](../../docs/adr/0008-unattended-mode.md)).
+9. In a repo that arms the workspace lock (a `.workspace-lock/` folder), a lead takes one owned team for all its
+   lanes (`acquire --owned`), so the lanes take turns instead of each taking the lock. Callboard only reads it and
+   never takes, gives, clears or writes it: a lane's brief names the team its lead holds, `lane_open` prints the
+   lead's own `member add` call for the new lane, `lane_list` gains a Lock column (the team on the lead's row;
+   member or not, and the turn's age, on each lane), and a lane that holds a turn the lead may now free (its session
+   ended, or its ETA and last heartbeat are older than the lock's 30 minute grace) is put in front of the lead like
+   a gone lane. You arm the repo once: the toolkit needs the lock script allowed in the repo's
+   `.claude/settings.local.json`, or each lock call stops at a permission prompt. Callboard writes no settings. The lock's
+   files must not be group- or world-writable (umask 022, the default), or callboard shows `?` for them.
 
 A lead that you leave idle is told when a lane needs it (its session is gone, it waits on a prompt, it went
 quiet without signing), unless you pause that with `/callboard checkin pause` (an hour, or the time you give;
@@ -270,7 +279,7 @@ Under `~/.claude/callboard/` (folders 0700, files 0600; nothing in a repo is tru
 |---|---|
 | `lanes/` | One lane store per repo, named by a hash of the repo's real path |
 | `lead-records/` | Which conductor owns which lead |
-| `leads/` | Short-lived presence files of live leads, conductors and the manager |
+| `leads/` | Short-lived presence files of live leads, conductors and the manager; a manager's carries `compactingAt` while the mod compacts it, which keeps it a tier of the prompt chain for up to 8 minutes |
 | `cue/`, `result/` | The one-line cues a mod acts on, and its answers |
 | `open/`, `offers/` | Requests for the panels extension; a conductor's offer of a new lead |
 | `log/` | One log per session: what the mod did and why it refused. First place to look |

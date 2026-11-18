@@ -196,6 +196,20 @@ scoped to one lead (an older stored value: `/callboard escalation` writes `all`)
 found, so with the lead away the ask stays the person's, with no hold, as before. Inside an unattended window a
 lead's own prompt with no tier is still denied at once (ADR 0008), with no hold.*
 
+*2026-11-18: a manager that is compacting stays in the chain.* The person's words: the manager is the top and nothing
+goes beyond it, so it must never drop out. A manager counted as a tier only while its presence file was at most 30
+seconds old, and the mod's own compaction holds its tick for longer, so after 30 seconds a lower tier became the top.
+Now the manager's mod writes the time the compaction began into its own presence file (`compactingAt`) just before it
+starts one, and takes it off where the compaction's mark ends (PostCompact, a refused command, the tick). The chain's one
+read (`promptReachTiers`, the asker's and every tier's) lists a manager whose file is stale only because of that stamp,
+for at most 8 minutes from the stamp and only while the process checks still pass: the registry row, the pid and start
+time, and a `claude` process. A dead, replaced or forged manager still drops out at once, and past 8 minutes it drops out
+as before (the file is pruned at 10). No other reader takes it: cues, `lane_list`, the manager-exists check and the
+unattended turn-on keep the 30 seconds. An ask that finds only the compacting manager is a request from the start, not
+a held `no-tier` dialog. A request a lead had passed up when the manager leaves after 8 minutes waits for it or for
+the 20-minute deny, as it did after any dropout. A compaction the mod did not start does not hold the tick and is not
+stamped.
+
 *2026-11-17: a lead's own question.* It was the person's in the lead's panel (ADR 0004). The person wants never to have
 to open a lead while a conductor is live. While the lead's conductor is live and in reach, a lead's own
 single-choice question with two to four options becomes a request that no tier answers or denies: `prompt_answer`

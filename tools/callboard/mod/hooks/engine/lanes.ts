@@ -2,6 +2,7 @@
 // Trust rules held here: a session is a lane or a lead, never both; a stop is re-checked after the click and right before the signal (idle, signed report, pid and start time).
 import type { Request } from '../../types'
 import * as c from '../core.ts'
+import { lockTeam, lockViews } from './lock-team.ts'
 import {
   laneBrief,
   laneBriefed,
@@ -1055,7 +1056,10 @@ export async function laneTable($: any, sid: string) {
   const above = base.g.level === 'manager' ? undefined : await layerAbove($, base.live, sid, base.g.level === 'lead')
   // The manager's list groups the leads by the conductor their record names.
   const records = base.g.level === 'manager' ? await recordViews($).catch(() => undefined) : undefined
-  const text = c.laneListText(lanes, entries, now, { level: base.g.level, name: base.g.name, self: sid, conductors, leads, usage, above, ...(records ? { records } : {}) })
+  // The lock column: each listed repo's owned workspace lock team, and whether each lane's session is a member (a live row's id, else the record's).
+  const laneSid = (l: c.Lane) => { const one = c.laneSession(entries, l, ''); return one.ok ? one.entry.sessionId : l.sid }
+  const lock = await lockViews($, [...lanes.map((l) => l.repo ?? ''), ...leads.map((x) => x.repo)].filter((r) => r !== ''), (repo) => lanes.filter((l) => (l.repo ?? '') === repo).flatMap((l) => laneSid(l) ?? [])).catch(() => new Map<string, c.LockView>())
+  const text = c.laneListText(lanes, entries, now, { level: base.g.level, name: base.g.name, self: sid, conductors, leads, usage, above, ...(records ? { records } : {}), ...(lock.size > 0 ? { lock } : {}) })
   return { text }
 }
 
@@ -1343,6 +1347,9 @@ export async function laneCreateCall($: any, e: any, next: any) {
     const a = e as { name?: unknown; task?: unknown; folder?: unknown; model?: unknown }
     // The hourly limit is read fresh, so a change the person just made holds for this call.
     const perHour = (await cfgGet($, sid, true)).lanesPerHour
+    // The owned workspace lock team this lead holds, read once here (the store edit below holds the store lock and can retry): its slug goes into the brief.
+    const team = await lockTeam($, pin)
+    const teamSlug = team !== undefined && team !== 'error' && team.owner === sid ? team.slug : undefined
     let made: c.Lane | undefined
     const w = await ownWrite($, sid, () => editStore(
       $,
@@ -1376,7 +1383,7 @@ export async function laneCreateCall($: any, e: any, next: any) {
         const df = await facts($, r.lane.folder)
         if (!df || df.kind !== 'dir' || df.uid !== p.uid || (await real($, r.lane.folder)) !== r.lane.folder) return { no: 'folder-bad', why: 'folder-bad: the folder must exist and be its own real path.' }
         // The brief is written only once every other check has passed; a store-changed retry writes the same text again. The checks below run after the write.
-        const wb = await writeBrief($, p.uid, r.lane.brief, c.briefHead(r.lane.name), c.briefText(r.lane.name, a.task as string))
+        const wb = await writeBrief($, p.uid, r.lane.brief, c.briefHead(r.lane.name), c.briefText(r.lane.name, a.task as string, teamSlug))
         if (wb) return { no: wb, why: c.reasonWhy(wb) }
         const bf = await facts($, r.lane.brief)
         if (!bf || bf.kind !== 'file' || bf.nlink !== 1 || bf.uid !== p.uid || (await real($, r.lane.brief)) !== r.lane.brief) return { no: 'brief-missing', why: c.reasonWhy('brief-missing') }
@@ -1458,7 +1465,10 @@ export async function laneOpenCall($: any, e: any, next: any) {
     }
     if ('deny' in r) return r
     await log($, sid, 'opened', prep.lane.name)
-    return { result: `lane ${prep.lane.name}: panel opened as session ${r.sid}. Next: lane_rename with sid ${r.sid}, then lane_start.` }
+    // The owner's own call that makes the lane a member of its lock team (never run by the mod). The panel is open already: a failed read only drops the sentence.
+    const team = prep.lane.repo === undefined ? undefined : await lockTeam($, prep.lane.repo).catch(() => undefined)
+    const tail = team !== undefined && team !== 'error' && team.owner === sid ? c.lockOpenTail(team.slug, r.sid, sid) : ''
+    return { result: `lane ${prep.lane.name}: panel opened as session ${r.sid}. Next: lane_rename with sid ${r.sid}, then lane_start.${tail}` }
   })
 }
 
