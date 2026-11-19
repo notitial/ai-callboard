@@ -42,7 +42,7 @@ async function selfName($: any, me: Sid, v: View): Promise<void> {
   mem.selfNamed = true
   await ran($, 'rename', row.name, 10_000)
 }
-// What the cue asks of this session: rename it, start it on its own row's brief (naming it first when its name differs, and on its row's model), or resume it.
+// What the cue asks of this session: rename it, start it on its own row's brief (naming it first when its name differs, and on its row's model and effort), or resume it.
 async function act($: any, me: Sid, v: View, cue: Cue): Promise<CueResult> {
   const refused = (code: string): CueResult => ({ id: cue.id, outcome: 'refused', code })
   const row = v.table[me]

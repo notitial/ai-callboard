@@ -103,7 +103,7 @@ test('a pop-up whose ask closed elsewhere is named once in a toast while it stay
   assert.equal(boss.h.toasts.length, 1)
   assert.match(boss.h.toasts[0]!, /^The pop-up for .+'s ask is out of date/)
 })
-test('his own click on a pop-up names nothing out of date', async () => {
+test('his own click on a pop-up names nothing out of date, even when it lands while the tick reads the ask', async () => {
   const f = tiers()
   const boss = peer(f, 'sid-boss')
   f.h.sleepMoves = false
@@ -113,9 +113,20 @@ test('his own click on a pop-up names nothing out of date', async () => {
   boss.h.askAnswer = () => new Promise((r) => (click = r))
   await tickRelay(boss)
   await settle()
-  click('Allow')
+  const list = boss.$.fs.list
+  let release: () => void = () => undefined
+  boss.$.fs.list = async (d: string) => {
+    if (!d.endsWith('/asks')) return list(d)
+    boss.$.fs.list = list
+    await new Promise<void>((r) => (release = r))
+    return list(d)
+  }
+  const t = tickRelay(boss)
   await settle()
-  await tickRelay(boss)
+  click('Allow')
+  for (let i = 0; i < 20 && (await readAnswer(f.$, 'aa11bb22cc')) === undefined; i++) await settle()
+  release()
+  await t
   await tickRelay(boss)
   assert.equal((await readAnswer(f.$, 'aa11bb22cc'))?.by, 'PERSON')
   assert.deepEqual(boss.h.toasts, [])
