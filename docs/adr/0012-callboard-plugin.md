@@ -92,8 +92,11 @@ not an ask is what the person starts themselves, such as creating a lead or a la
 not requests to a tier: a tier never answers them, and none of them works while they are away.
 
 **Unattended mode, final shape.** The behaviour is the one of a day with the person at their desk. Two reads of the one
-flag remain: the person's dialog is not opened (no relay pop-up, no `go_request`), and a subagent's ask is denied with
-"run it yourself" while the flag is on, as it is when a lead is above the session. Everything else is the manager's
+flag remain. The first is in the one place that opens the person's dialog: while it is on, none opens (no relay pop-up,
+and `go_request` is refused at once, since its dialog would not run). The second is a subagent's dialog: it is not an
+ask, so nothing times it out, and left alone it would sit on the person's screen for as long as they are away. While the
+flag is on it is denied with "run it yourself", as it is when a lead is above the session, and the main session's own
+ask rises to the manager and closes at 15 minutes like any other. Everything else is the manager's
 instructions: because every blocking ask rises to the manager and the person is away, the manager closes an ask it may
 not or cannot decide by replying to it at once (a deny, or an answer, with a note that the person is away and the session
 must not ask them), and it never asks them. The 15-minute close stays the backstop for an ask nobody answers. There is no
@@ -117,9 +120,16 @@ turning it off is the person's typed command.
   line on a lead restarting under a new session id is marked out of date there.
 - Nothing crosses the switch: the plugin starts with new state, and going back to the mod finds its own state as it was.
 
-## Open question
+## Open questions
 
-Can an eligible lead decide an ask the guard raised? The core records what raised an ask (a rule, a hook, a setting, a
+**A dialog that is not an ask.** The engine's permission check reports a verdict for each dialog. With the person-only
+case gone, a dialog whose verdict is not "ask" (a plan-mode exit, and possibly a prompt the engine forces) is an ordinary
+ask that a lead or the manager may allow, and the manager's rubric decides it; the mod kept such prompts for the person.
+Which dialogs carry a verdict other than "ask" is not confirmed from the repo. If one of them should stay the person's,
+the remedy is a refusal of `allow` for that verdict, not a second path. Decide it after the switch has run on real
+sessions.
+
+**A guard's ask.** Can an eligible lead decide an ask the guard raised? The core records what raised an ask (a rule, a hook, a setting, a
 plugin, an organisation ceiling, or the GitHub guard) and shows it to the tier, but it does not use it to decide who may
 answer, because callboard must not judge. So today a lead can allow a pull-request call that ai-toolkit's GitHub guard
 asked the person about. The alternative is that an ask raised by a guard rises only to the manager, which is a carve-out
