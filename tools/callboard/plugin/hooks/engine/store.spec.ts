@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { HOME, MIN, T0, V2, fake } from '../../test/fake.ts'
-import { locked, personDialog, readText, windowNow, writeFile } from './io.ts'
+import { createExcl, locked, personDialog, readText, windowNow, writeFile } from './io.ts'
 import { getView, listGoes, readRegistry, updateTable } from './store.ts'
 import { usageFlush, usageRead } from './usage.ts'
 import { mem, staleView } from './mem.ts'
@@ -199,4 +199,31 @@ test('personDialog reads the window anew: a window turned on within the 10 s a r
   f.h.files.set(`${V2}/unattended.json`, JSON.stringify({ start: T0, end: T0 + 60 * MIN, readAt: T0 }))
   assert.deepEqual(await personDialog(f.$, spec), { no: 'unattended' })
   assert.equal(f.h.asked.length, 0)
+})
+
+test('the state folder is private and a new file lands by a temporary name and a rename', async () => {
+  const f = fake()
+  const p = `${V2}/new/file.json`
+  assert.equal(await writeFile(f.$, p, '{"a":1}'), true)
+  assert.equal(f.h.modes.get(V2), '700')
+  assert.equal(f.h.files.get(p), '{"a":1}')
+  const mv = f.h.runs.find((r) => r.argv[0] === '/bin/mv' && r.argv.at(-1) === p)
+  assert.match(mv?.argv.at(-2) ?? '', new RegExp(`^${p.replace(/[.\\/]/g, '\\$&')}\\.[a-z0-9]{10}\\.tmp$`))
+  assert.deepEqual([...f.h.files.keys()].filter((k) => k.endsWith('.tmp')), [])
+})
+test('createExcl: the first writer wins, the second finds it there, and no temporary file is left', async () => {
+  const f = fake()
+  const p = `${V2}/asks/a1b2c3d4.answer`
+  assert.equal(await createExcl(f.$, p, 'first'), 'ok')
+  assert.equal(await createExcl(f.$, p, 'second'), 'exists')
+  assert.equal(f.h.files.get(p), 'first')
+  assert.deepEqual([...f.h.files.keys()].filter((k) => k.endsWith('.tmp')), [])
+})
+test('a read that never returns (a pipe put where a file was) is given up after 3 s as a failed read', async () => {
+  const f = fake()
+  const p = `${V2}/asks/a1b2c3d4.json`
+  f.h.files.set(p, '{}')
+  f.h.hung.add(p)
+  f.h.sleepDone = true
+  assert.equal(await readText(f.$, p, 100), undefined)
 })

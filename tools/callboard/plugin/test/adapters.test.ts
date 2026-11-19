@@ -67,10 +67,19 @@ test('the keepalive: at the configured 30 minutes after a turn ends, one ping is
   await clock.advance(10 * MIN)
   expect(f.h.submitted.filter((t) => t.includes('keepalive:')).length).toBe(1)
 })
-test('a tool of a later step still refuses not-built, whatever the caller', async ($, on) => {
+test('a tool with no body yet refuses not-built, whatever the caller', async ($, on) => {
   const f = fake()
   own(f)
   engine(on, f)
   await start($)
-  for (const name of ['lane_list', 'prompt_list', 'go_status']) expect((await $.tool.call({ tool: `mcp__callboard__${name}` } as any)).deny).toBe('callboard: not-built')
+  for (const name of ['lane_list', 'lane_open']) expect((await $.tool.call({ tool: `mcp__callboard__${name}` } as any)).deny).toBe('callboard: not-built')
+})
+test('the ask tools are wired: a lead\'s prompt_list answers and go_status says the guard is missing', async ($, on) => {
+  const f = fake()
+  own(f)
+  f.table({ 'sid-me': { name: 'me', folder: '/w/me', lead: { repos: [] } } })
+  engine(on, f)
+  await start($)
+  expect((await $.tool.call({ tool: 'mcp__callboard__prompt_list' } as any)).result).toContain('No asks are waiting')
+  expect((await $.tool.call({ tool: 'mcp__callboard__go_status' } as any)).result).toContain('guard')
 })

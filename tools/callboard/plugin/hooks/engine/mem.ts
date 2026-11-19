@@ -1,6 +1,7 @@
 // The module memory the engine files share, and the one $.state key. `claude plugin validate` reads a key in the file that calls $.state with it, so the key is declared
 // here and every other file goes through getUp and patchUp. Memory holds caches and counters of this process only: a restart loses them and nothing is decided on a lost one.
-import type { Config, Folder, Sid, View, WindowReading } from '../core/model.ts'
+import type { Ask, AskLogRow, Config, Folder, Sid, View, WindowReading } from '../core/model.ts'
+import type { CheckFacts, Open } from '../core/asks.ts'
 import type { Counters, Req } from '../core/upkeep.ts'
 import type { PrNote } from '../core/pr.ts'
 
@@ -62,6 +63,16 @@ const fresh = () => ({
   usageAt: 0,
   usageOwed: false,
   dirs: new Set<string>(),
+  // The ask hook: what tool.check saw for a call (the join, 60 s), the tool calls known to have ended, this process's own registry file, and the asks every step shares.
+  checks: new Map<string, { toolUseId: string; at: number; dup: boolean; approver: unknown; facts: CheckFacts }>(),
+  done: new Set<string>(),
+  ownPid: undefined as number | undefined,
+  asks: undefined as { at: number; open: { ask: Ask; st: Open }[]; log: AskLogRow[] } | undefined,
+  told: new Set<string>(),
+  relayed: new Set<string>(),
+  sweepAt: 0,
+  tidyAt: 0,
+  guard: undefined as { at: number; ok: boolean } | undefined,
 })
 export const mem = fresh()
 // The reading of the machine is kept but read again at the next use; the last good table stays its fallback.

@@ -2,12 +2,16 @@
 // string comes from `T`. Trust rules held here: text a session wrote (an ask's input, a name, a folder) is escaped before it reaches a text (`<` and invisible characters
 // become escapes, so nothing closes a frame, hides text or reorders it); an input whose printed form had to be cut is reported cut, so no session may allow it.
 import { capBytes } from './core/asks.ts'
-import type { Ask, AskLogRow, Capability, Decision, Sid, StopVerb } from './core/model.ts'
+import type { Ask, AskLogRow, Capability, Decision, Question, Sid, StopVerb } from './core/model.ts'
 import { PERSON } from './core/model.ts'
 import type { RefuseCode, StatusRow, UiColumn, UiState } from './core/msg.ts'
 import { escBlock, escCell, T } from './texts.ts'
 
 export const PRINT_CAP = 32 * 1024
+const two = (n: number): string => String(n).padStart(2, '0')
+// A time as the person reads it: the clock, and the date with it.
+export const clock = (t: number): string => `${two(new Date(t).getHours())}:${two(new Date(t).getMinutes())}`
+export const stamp = (t: number): string => `${new Date(t).getFullYear()}-${two(new Date(t).getMonth() + 1)}-${two(new Date(t).getDate())} ${clock(t)}`
 export const RULES_CAP = 8 * 1024
 // The text as printed: escaped, then cut to `max` bytes. cut: what is shown is not the whole.
 export const printed = (s: string, max: number): { text: string; cut: boolean } => capBytes(escBlock(s), max)
@@ -36,16 +40,16 @@ export function lanesTable(rows: readonly LaneRow[]): string {
 // ---- prompt_list: the standing rules first, then the asks ----
 // asker: the asker's name. cutIds: asks whose input had to be cut to print; the adapter stores that on the ask (`cut`), so `decide` refuses an allow of it.
 export type AskView = { ask: Ask; asker: string; ageMin: number; yours: boolean }
-export function promptList(rules: string | null, asks: readonly AskView[]): { text: string; cutIds: string[] } {
-  const r = rules === null ? undefined : printed(rules, RULES_CAP)
+export function promptList(rules: string | null | undefined, asks: readonly AskView[]): { text: string; cutIds: string[] } {
+  const r = rules === null || rules === undefined ? undefined : printed(rules, RULES_CAP)
   const cutIds: string[] = []
   const blocks = asks.map(({ ask: a, asker, ageMin, yours }) => {
     const p = printed(a.input, PRINT_CAP)
     if (p.cut && !a.cut) cutIds.push(a.id)
     return T['ui.ask']({ id: a.id, asker, tool: a.tool, ageMin, raisedBy: a.raisedBy, yours, personOnly: a.personOnly, input: p.text, cut: a.cut || p.cut, question: a.question })
   })
-  const head = r === undefined ? T['ui.rules.none']({}) : T['ui.rules']({ rules: r.text, cut: r.cut })
-  return { text: [head, ...(blocks.length > 0 ? blocks : [T['ui.asks.none']({})])].join('\n\n'), cutIds }
+  const head = rules === undefined ? [] : [r === undefined ? T['ui.rules.none']({}) : T['ui.rules']({ rules: r.text, cut: r.cut })]
+  return { text: [...head, ...(blocks.length > 0 ? blocks : [T['ui.asks.none']({})])].join('\n\n'), cutIds }
 }
 
 // ---- the lists for the person ----
@@ -67,14 +71,14 @@ const yesNo = (): { label: string }[] => [{ label: T['dialog.yes']({}) }, { labe
 export const goDialog = (giver: string, text: string, end: string): DialogSpec => ({ header: T['dialog.go.header']({}), question: T['dialog.go.question']({ giver, text, end }), options: yesNo() })
 export const stopDialog = (name: string, verb: StopVerb): DialogSpec => ({ header: T['dialog.stop.header']({}), question: T['dialog.stop.question']({ name, verb }), options: yesNo() })
 // The relay pop-up: an input not shown whole (cut, or too large to print) gets Deny only, as `decide` refuses its allow. `cut` is that finding: the adapter stores it on the
-// ask, as it stores promptList's cutIds, so no other path allows the input.
-export function relayDialog(asker: string, tool: string, input: string, cut: boolean): DialogSpec & { cut: boolean } {
+// ask, as it stores promptList's cutIds, so no other path allows the input. A question offers its own options (a click on one is that answer) in place of Allow.
+export function relayDialog(asker: string, tool: string, input: string, cut: boolean, q?: Question): DialogSpec & { cut: boolean } {
   const p = printed(input, PRINT_CAP)
   const whole = !cut && !p.cut
   return {
     header: T['dialog.relay.header']({ asker }),
     question: T['dialog.relay.question']({ asker, tool, input: p.text, cut: !whole }),
-    options: [...(whole ? [{ label: T['dialog.allow']({}) }] : []), { label: T['dialog.deny']({}) }],
+    options: [...(whole ? (q === undefined ? [{ label: T['dialog.allow']({}) }] : q.options.map((o) => ({ label: o.label }))) : []), { label: T['dialog.deny']({}) }],
     cut: !whole,
   }
 }

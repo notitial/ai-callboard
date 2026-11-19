@@ -158,6 +158,7 @@ export type Fixed = {
   'go.status': { covers: { giver: string; text: string; end: string }[] }
   'go.none': E
   'go.requested': { text: string; end: string }
+  'go.noGuard': E // the protected-paths guard is not in place, so no go counts
 
   // Toasts.
   'toast.refused': { tool: string; code: RefuseCode }

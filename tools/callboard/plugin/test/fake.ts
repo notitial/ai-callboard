@@ -1,6 +1,6 @@
 // A fake of the engine's `$` for the engine specs and the kit tests: an in-memory file system, the few host programs the adapters run, a clock the test moves, the session, the state, the
 // prompt box and the UI.
-import { resetMem } from '../hooks/engine/mem.ts'
+import { mem, resetMem } from '../hooks/engine/mem.ts'
 
 export const HOME = '/Users/x'
 export const V2 = `${HOME}/.claude/callboard/v2`
@@ -24,6 +24,7 @@ export function fake(o: { sid?: string } = {}) {
     asked: [] as { question: string; options: string[]; header: string }[],
     askAnswer: (() => Promise.resolve('Yes')) as (q: string) => Promise<unknown>,
     sleepDone: false,
+    sleepMoves: false,
     draft: '',
     usage: { context: { tokens: 0 }, cost: { usd: 1.5 }, rateLimits: [{ kind: 'five_hour', percentUsed: 12 }, { kind: 'seven_day', percentUsed: 40 }] } as unknown,
     agents: [] as { status: string }[],
@@ -40,10 +41,10 @@ export function fake(o: { sid?: string } = {}) {
     every: undefined as undefined | (() => unknown),
     submitFails: false,
     unreadable: new Set<string>(),
+    hung: new Set<string>(),
     kinds: new Map<string, string>(),
     undeletable: new Set<string>(),
-    kinds: new Map<string, string>(),
-    undeletable: new Set<string>(),
+    onSleep: undefined as undefined | (() => unknown),
   }
   const parent = (p: string) => p.slice(0, p.lastIndexOf('/'))
   const under = (dir: string) => {
@@ -97,7 +98,18 @@ export function fake(o: { sid?: string } = {}) {
       return ok()
     }
     if (cmd === '/bin/ps') return h.psFails ? bad : ok(h.ps)
-    if (cmd === '/bin/sleep' || cmd === '/usr/bin/find') return ok()
+    if (cmd === '/bin/ln') {
+      const [from, to] = paths
+      if (!h.files.has(from) || h.files.has(to)) return bad
+      h.files.set(to, h.files.get(from)!)
+      return ok()
+    }
+    if (cmd === '/bin/sleep') {
+      if (h.sleepMoves) h.now += Number(paths[0]) * 1000
+      await h.onSleep?.()
+      return ok()
+    }
+    if (cmd === '/usr/bin/find') return ok()
     if (cmd === '/bin/realpath') return h.real.has(paths[0]) ? ok(`${h.real.get(paths[0])}\n`) : h.dirs.has(paths[0]) || paths[0] === h.root ? ok(`${paths[0]}\n`) : bad
     if (cmd === h.ghBin) return h.ghOut ?? bad
     return bad
@@ -108,6 +120,7 @@ export function fake(o: { sid?: string } = {}) {
     session: { id: async () => h.sid, usage: async () => h.usage, root: async () => h.root },
     fs: {
       read: async (p: string, o: { offset?: number; length?: number } = {}) => {
+        if (h.hung.has(p)) return new Promise<string>(() => undefined)
         const t = h.files.get(p)
         if (t === undefined || h.unreadable.has(p)) throw new Error('EIO')
         return t.slice(o.offset ?? 0, o.length === undefined ? undefined : (o.offset ?? 0) + o.length)
@@ -118,7 +131,6 @@ export function fake(o: { sid?: string } = {}) {
         return [...under(d)].map(([name, kind]) => ({ name, kind: h.kinds.get(`${d}/${name}`) ?? kind }))
       },
       stat: async (p: string) => {
-        if (h.kinds.has(p)) return { kind: h.kinds.get(p), size: 0, mtimeMs: h.now }
         if (h.kinds.has(p)) return { kind: h.kinds.get(p), size: 0, mtimeMs: h.now }
         if (h.files.has(p)) return { kind: 'file', size: h.files.get(p)!.length, mtimeMs: h.mtimes.get(p) ?? h.now }
         if (h.dirs.has(p)) return { kind: 'dir', size: 0, mtimeMs: h.mtimes.get(p) ?? h.now }
@@ -163,4 +175,35 @@ export function fake(o: { sid?: string } = {}) {
   const table = (t: unknown) => void h.files.set(`${V2}/sessions.json`, JSON.stringify(t))
   const file = (name: string) => h.files.get(`${V2}/${name}`)
   return { $: $ as any, h, seed, table, file, parent, idle: () => setStatus('idle') }
+}
+
+// A second session on the same machine: one file system, clock and process list with `f`, its own session id, toasts and dialogs. Make every peer before the first call: a fake resets the
+// module memory.
+export function peer(f: ReturnType<typeof fake>, sid: string) {
+  const g = fake({ sid })
+  for (const k of ['files', 'dirs', 'modes', 'mtimes'] as const) (g.h as any)[k] = f.h[k]
+  for (const k of ['now', 'ps', 'psFails'] as const) Object.defineProperty(g.h, k, { get: () => f.h[k], set: (x) => void ((f.h as any)[k] = x) })
+  return g
+}
+// One call made as a peer while another session's loop waits: the caches of one process (the asks, the told marks) and the row it found for itself are put back after it.
+export async function as<T>(fn: () => Promise<T>): Promise<T> {
+  const own = mem.ownPid
+  mem.asks = undefined
+  mem.told.clear()
+  try {
+    return await fn()
+  } finally {
+    mem.ownPid = own
+  }
+}
+// The machine of the ask specs: a lane (`sid-me`) under a lead, the manager `BOSS`, the lane waiting on a prompt, and the lane's sleeps moving the clock.
+export function tiers() {
+  const f = fake()
+  f.seed({ sid: 'sid-me', pid: 10, name: 'lane', cwd: '/w/me', kind: 'interactive', status: 'waiting', waitingFor: 'permission', statusUpdatedAt: T0 })
+  f.seed({ sid: 'sid-lead', pid: 11, name: 'lead', cwd: '/w/lead', kind: 'interactive' })
+  f.seed({ sid: 'sid-boss', pid: 12, name: 'BOSS', cwd: '/w/boss', kind: 'interactive' })
+  f.h.files.set(`${HOME}/.claude/callboard/manager-name`, 'BOSS\n')
+  f.table({ 'sid-me': { name: 'lane', folder: '/w/me', under: 'sid-lead' }, 'sid-lead': { name: 'lead', folder: '/w/lead', lead: { repos: [] } } })
+  f.h.sleepMoves = true
+  return f
 }

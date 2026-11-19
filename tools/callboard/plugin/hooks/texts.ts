@@ -278,6 +278,7 @@ const fixed: { [K in keyof Fixed]: (p: Fixed[K]) => string } = {
     ].join('\n'),
   'go.none': () => "No go of the person's covers this session. Risk-list work needs the person's own go: ask them once, with one AskUserQuestion.",
   'go.requested': (p) => `The go dialog is open in the person's session until ${p.end}. Their click records a go for this work, and go_status then lists it; nothing else is a go:\n${escBlock(p.text)}`,
+  'go.noGuard': () => 'No go counts while the protected-paths guard is missing from the settings. Tell the person.',
 
   'toast.refused': (p) => `${esc(p.tool)} refused (${p.code}).`,
   'toast.askClosed': () => 'That ask is closed; your click wrote nothing.',

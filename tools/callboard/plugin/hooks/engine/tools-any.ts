@@ -14,6 +14,8 @@ export function notBuilt() {
 // The words of a decision: its message id and parameters through the one texts table.
 export const say = (d: Say): string => (T[d.msg] as (p: unknown) => string)(d.p)
 export const deny = (d: Decision) => ({ deny: say(d) })
+// A call made by a subagent: the engine stamps its agent id.
+export const isSub = (e: any): boolean => (typeof e?.agentId === 'string' && e.agentId !== '') || (typeof e?.agent_id === 'string' && e.agent_id !== '')
 
 // `/callboard rest` and the `rest` tool: this session is left alone for this idle gap. A real turn that starts ends it (turnStart).
 export async function restSet($: any, sid: string, via: 'command' | 'tool'): Promise<boolean> {
@@ -29,6 +31,6 @@ export async function restSet($: any, sid: string, via: 'command' | 'tool'): Pro
 // A subagent is refused: the rest is the session's, and its call would rest the parent.
 export async function restCall($: any, e: any, _next: any) {
   const sid = await $.session.id()
-  if (e.agentId !== undefined) return deny(refusal('refuse', 'bad-input', { tool: 'rest', detail: 'subagent' }))
+  if (isSub(e)) return deny(refusal('refuse', 'bad-input', { tool: 'rest', detail: 'subagent' }))
   return (await restSet($, sid, 'tool')) ? { result: T['cmd.rest']({}) } : deny(refusal('refuse', 'bad-input', { tool: 'rest', detail: 'unsaved' }))
 }
