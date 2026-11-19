@@ -22,6 +22,8 @@ test('a go covers only its giver and the sessions under the giver now, until its
   assert.ok(['sid-a', 'sid-l1', 'sid-loose'].every((s) => covers(inManager, s, v, NOW)))
   const inLead: Go = { ...inManager, giver: 'sid-a' }
   assert.ok(covers(inLead, 'sid-l1', v, NOW) && !covers(inLead, 'sid-loose', v, NOW) && !covers(inLead, M, v, NOW))
+  // An end further off than a go may run is no go.
+  assert.ok(!covers({ ...inManager, end: NOW + 25 * 3_600_000 }, 'sid-a', v, NOW))
   // The lead gone: its go covers nobody under it meanwhile.
   assert.ok(!covers(inLead, 'sid-l1', liveView([reg(M, MANAGER), reg('sid-l1', 'L1')], table, MANAGER), NOW))
 })

@@ -41,6 +41,7 @@ export type RefuseCode =
   | 'go-declined'
   | 'cue-held'
   | 'cue-refused'
+  | 'cue-stale'
 
 // The command forms. One help row each: `help.<name>`.
 export type CommandName = 'status' | 'lanes' | 'help' | 'lead' | 'lead-off' | 'off' | 'on' | 'go' | 'go-off' | 'unattended' | 'config' | 'rest'

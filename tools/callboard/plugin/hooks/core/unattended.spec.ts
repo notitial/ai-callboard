@@ -13,9 +13,15 @@ test('the span: Nm, Nh and HH:MM, between 30 minutes and 14 hours from now; anyt
   assert.equal(parseSpan('29m', NOW).op, 'short')
   assert.equal(parseSpan('15h', NOW).op, 'long')
   for (const bad of ['8', 'tomorrow', '25:00', 'on', '-1h']) assert.deepEqual(parseSpan(bad, NOW), { op: 'bad' })
-  const until = parseSpan('23:59', NOW)
-  if (until.op === 'on') assert.ok(until.end - NOW >= WINDOW_MIN_MS && until.end - NOW <= WINDOW_MAX_MS && new Date(until.end).getMinutes() === 59)
-  else assert.ok(until.op === 'short' || until.op === 'long')
+  // HH:MM is the next such local time, from a pinned local 22:00.
+  const ten = new Date(NOW)
+  ten.setHours(22, 0, 0, 0)
+  const t = ten.getTime()
+  const local = (h: number, m: number, day = 0) => new Date(ten.getFullYear(), ten.getMonth(), ten.getDate() + day, h, m).getTime()
+  assert.deepEqual(parseSpan('23:30', t), { op: 'on', end: local(23, 30) })
+  assert.deepEqual(parseSpan('06:15', t), { op: 'on', end: local(6, 15, 1) })
+  assert.deepEqual(parseSpan('22:10', t), { op: 'short', earliest: t + WINDOW_MIN_MS })
+  assert.deepEqual(parseSpan('21:00', t), { op: 'long', latest: t + WINDOW_MAX_MS })
 })
 
 test('the window file: on only inside its span; no file is off; a failed read keeps the last good reading until it ends, and with none is unknown', () => {

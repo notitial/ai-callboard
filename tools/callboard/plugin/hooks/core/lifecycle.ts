@@ -1,8 +1,8 @@
 // A child's life: its state, what each verb of a parent does to it, the cue between them, the signed report, and the table's own upkeep (names, gone, expiry). Pure.
-// Trust rules held here: a verb acts only on a descendant of the caller now; a force stop opens the person's dialog and is refused while unattended; a retire of a live
-// child needs its report signed by its own session id; a cue is acted on only when its sender is above the child now.
+// Trust rules held here: a verb acts only on a descendant of the caller now; a force stop opens the person's dialog only while the window is read off; a lead's row is never removed by a verb; a retire of a live
+// child needs its report signed by its own session id; a cue is acted on only when its sender is above the child now and it is under CUE_MAX_AGE_MS old.
 import type { Cue, CueResult, CueVerb, Decision, Folder, RegistryRow, Sid, StopVerb, Table, View, WindowReading } from './model.ts'
-import { CUE_VERBS, capRefusal, liveness, mayActOn, nameOf, nameRefusal, refusal } from './model.ts'
+import { CUE_VERBS, capRefusal, liveness, mayActOn, nameOf, nameRefusal, parent, refusal } from './model.ts'
 import type { RefuseCode, UiState } from './msg.ts'
 
 export const IDLE_MS = 30_000
@@ -11,6 +11,7 @@ export const LANE_ROW_KEEP_MS = 24 * 3_600_000
 export const PARKED_ROW_KEEP_MS = 28 * 24 * 3_600_000
 // The key of a row between lane_create and the opened panel's session id.
 export const NEW_KEY = 'new:'
+export const CUE_MAX_AGE_MS = 120_000
 
 // The report path is fixed when the row is made, from the name at that time: a rename never moves it.
 export const reportPath = (folder: Folder, name: string): string => `${folder}/.archive/${name}/REPORT.md`
@@ -48,9 +49,10 @@ export function verbPlan(verb: Verb, v: View, actor: Sid, key: string, x: { sign
   const l = live(v, key)
   if (l === 'unknown') return no('unknown-liveness')
   if (l === 'no') {
-    if (verb === 'retire' || verb === 'terminate') return stopped('remove')
+    // A lead's row holds its grant and repos: no verb of another session removes it.
+    if (verb === 'retire' || verb === 'terminate') return v.table[key]?.lead !== undefined ? no('is-lead') : stopped('remove')
     if (verb !== 'unpark' || v.table[key]?.parked === undefined) return no('no-live-session')
-    return capRefusal(v, actor) !== undefined ? no('cap') : { act: 'reopen', msg: 'lane.unparked', p: { name, sid: key } }
+    return capRefusal(v, parent(v, key)) !== undefined ? no('cap') : { act: 'reopen', msg: 'lane.unparked', p: { name, sid: key } }
   }
   if (verb === 'unpark') return no('has-live-session')
   if (verb === 'rename') {
@@ -58,7 +60,8 @@ export function verbPlan(verb: Verb, v: View, actor: Sid, key: string, x: { sign
     if (bad !== undefined) return no(bad)
   }
   if ((CUE_VERBS as readonly string[]).includes(verb)) return { act: 'cue', msg: 'lane.cued', p: { verb: verb as CueVerb, name } }
-  if (verb === 'terminate') return x.win.state === 'on' ? no('unattended') : stopped('stop', true)
+  // The force stop's dialog is for the person: it opens only when the window is read off, never on an unknown reading.
+  if (verb === 'terminate') return x.win.state !== 'off' ? no('unattended') : stopped('stop', true)
   if (verb === 'retire' && !x.signed) return no('report-unsigned')
   return idleFor(v.rows === 'unknown' ? undefined : v.rows.get(key), x.now) >= IDLE_MS ? stopped('stop') : no('not-idle')
 }
@@ -75,8 +78,9 @@ export function parseResult(raw: unknown): CueResult | undefined {
   if (!isStr(r.id) || !['ok', 'refused', 'held'].includes(r.outcome as string)) return undefined
   return { id: r.id, outcome: r.outcome!, ...(isStr(r.code) ? { code: r.code } : {}) }
 }
-// The child's answer to a cue: refused unless the sender is above it now, held while a turn runs (the parent tries again).
-export function cueAnswer(v: View, self: Sid, cue: Cue, busy: boolean): CueResult {
+// The child's answer to a cue: refused when stale or unless the sender is above it now, held while a turn runs (the parent tries again).
+export function cueAnswer(v: View, self: Sid, cue: Cue, busy: boolean, now: number): CueResult {
+  if (now - cue.at > CUE_MAX_AGE_MS) return { id: cue.id, outcome: 'refused', code: 'cue-stale' }
   if (!mayActOn(v, cue.from, self)) return { id: cue.id, outcome: 'refused', code: 'not-a-parent' }
   return busy ? { id: cue.id, outcome: 'held' } : { id: cue.id, outcome: 'ok' }
 }
@@ -89,7 +93,7 @@ export function cueReply(r: CueResult | undefined, verb: CueVerb, name: string):
 // ---- the table's own upkeep, run inside every write of it ----
 // The name is copied from the registry; a session read as no on two reads GONE_AFTER_MS apart (noSince: when this process first read it so) and not parked gets
 // goneAt, cleared when it comes back. Expiry is by what the row holds: a plain lane row 24 h after goneAt, a parked one 28 days after parking; a row with `lead` or
-// `off` never expires by time. Nothing is decided on an unknown read.
+// `off`, or one a live session carries, never expires by time. Nothing is decided on an unknown read.
 export function tidy(t: Table, v: View, noSince: (key: string) => number | undefined, now: number): Table {
   if (v.rows === 'unknown') return t
   const out: Table = {}
@@ -98,7 +102,7 @@ export function tidy(t: Table, v: View, noSince: (key: string) => number | undef
     const row = { ...r, ...(reg?.name ? { name: reg.name } : {}) }
     if (reg !== undefined) delete row.goneAt
     else if (row.goneAt === undefined && row.parked === undefined && (noSince(k) ?? now) <= now - GONE_AFTER_MS) row.goneAt = now
-    const kept = row.lead !== undefined || row.off === true
+    const kept = reg !== undefined || row.lead !== undefined || row.off === true
     const expired = !kept && (row.parked !== undefined ? now - row.parked >= PARKED_ROW_KEEP_MS : row.goneAt !== undefined && now - row.goneAt >= LANE_ROW_KEEP_MS)
     if (!expired) out[k] = row
   }

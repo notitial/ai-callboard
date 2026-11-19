@@ -1,5 +1,5 @@
 // Notices: the one table of who is told what (RECEIVES), the events a session computes each tick from its own reading of the sessions under it now, and where a PR
-// note goes. Pure. Trust rules held here: events follow current relationships, never a stored recipient; a gone row routes nothing but its own `gone`; the manager
+// note goes. Pure. Trust rules held here: events follow current relationships, never a stored recipient; a gone row routes nothing but its own `gone` or `done`; the manager
 // is told only of asks and expired asks; a session with neither capability is told nothing.
 import type { AskLogRow, Notice, Receives, Sid, View } from './model.ts'
 import { PERSON, capability, children, descendants, isOff, liveness, parent } from './model.ts'
@@ -47,7 +47,7 @@ export function notices(x: NoticeIn): Notice[] {
     const waiting = reg.status === 'waiting' && !!reg.waitingFor && !x.asking.has(s)
     if ((quiet || waiting) && x.now - reg.statusAt >= (quiet ? QUIET_MS : WAITING_MS)) all.push({ kind: quiet ? 'quiet' : 'waiting', key: `${quiet ? 'quiet' : 'waiting'}:${s}:${reg.statusAt}`, about: s })
   }
-  return all.filter((n) => r.kinds.includes(n.kind) && scope.has(n.about) && (n.kind === 'gone' || x.v.table[n.about]?.goneAt === undefined))
+  return all.filter((n) => r.kinds.includes(n.kind) && scope.has(n.about) && (n.kind === 'gone' || n.kind === 'done' || x.v.table[n.about]?.goneAt === undefined))
 }
 
 // Where a PR note goes: the registrant while it is live; else its parent while the registrant's row is not gone, when that parent is a lead (the manager is woken

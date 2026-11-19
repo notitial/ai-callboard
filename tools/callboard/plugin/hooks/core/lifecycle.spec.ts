@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { IDLE_MS, LANE_ROW_KEEP_MS, PARKED_ROW_KEEP_MS, childState, cueAnswer, cueReply, parseCue, reportPath, signedBy, tidy, verbPlan } from './lifecycle.ts'
+import { CUE_MAX_AGE_MS, IDLE_MS, LANE_ROW_KEEP_MS, PARKED_ROW_KEEP_MS, childState, cueAnswer, cueReply, parseCue, reportPath, signedBy, tidy, verbPlan } from './lifecycle.ts'
 import type { Verb } from './lifecycle.ts'
 import { MAX_LIVE_CHILDREN, liveView, mayActOn } from './model.ts'
 import type { Table } from './model.ts'
@@ -24,12 +24,16 @@ test('a verb acts only on a descendant of the caller now; nothing acts on an unk
   for (const verb of VERBS) assert.equal(verbPlan(verb, liveView('unknown', lanes, MANAGER), A, L1, { signed: true, win: WINDOWS[0], now: NOW }).msg, 'refuse.unknown-liveness')
 })
 
-test('park, resume and retire open no dialog; a force stop opens one and is refused while unattended', () => {
+test('park, resume and retire open no dialog; a force stop opens one only while the window is read off; a lead\'s row is never removed', () => {
   assert.equal(plan('resume').act, 'cue')
   assert.deepEqual([plan('park').act, plan('park').dialog], ['stop', undefined])
   assert.deepEqual([plan('retire', undefined, { signed: true }).act, plan('retire', undefined, { signed: true }).dialog], ['stop', undefined])
   assert.deepEqual([plan('terminate').act, plan('terminate').dialog], ['stop', true])
   assert.equal(plan('terminate', undefined, { win: WINDOWS[2] }).msg, 'refuse.unattended')
+  assert.equal(plan('terminate', undefined, { win: WINDOWS[1] }).msg, 'refuse.unattended')
+  // A gone lead's row holds its grant and repos: the manager above it cannot remove it.
+  const leadGone = liveView([reg(M, MANAGER)], lanes, MANAGER)
+  for (const verb of ['retire', 'terminate'] as const) assert.equal(verbPlan(verb, leadGone, M, A, { signed: true, win: WINDOWS[0], now: NOW }).msg, 'refuse.is-lead')
   // A row no live session carries is removed with no dialog, in a window too.
   assert.equal(plan('terminate', view(null), { win: WINDOWS[2] }).act, 'remove')
 })
@@ -51,7 +55,13 @@ test('unpark reopens a parked child under the cap; the other verbs need a live s
   const full: Table = { ...parked }
   const others = Array.from({ length: MAX_LIVE_CHILDREN }, (_, i) => `sid-o${i}`)
   for (const o of others) full[o] = { name: o, folder: '/', under: A }
-  assert.equal(verbPlan('unpark', liveView([reg(A, 'A'), ...others.map((o) => reg(o, o))], full, MANAGER), A, L1, { signed: false, win: WINDOWS[0], now: NOW }).msg, 'refuse.cap')
+  const fullView = liveView([reg(M, MANAGER), reg(A, 'A'), ...others.map((o) => reg(o, o))], full, MANAGER)
+  // The cap is the child's lead's, whoever acts: the manager above that lead meets it too.
+  for (const actor of [A, M]) assert.equal(verbPlan('unpark', fullView, actor, L1, { signed: false, win: WINDOWS[0], now: NOW }).msg, 'refuse.cap')
+  // The manager's own children (loose sessions) are not capped.
+  const loose: Table = { 'sid-p': { name: 'p', folder: '/Users/x/repo', parked: NOW - 1 } }
+  for (const o of others) loose[o] = { name: o, folder: '/Users/x/repo' }
+  assert.equal(verbPlan('unpark', liveView([reg(M, MANAGER), ...others.map((o) => reg(o, o))], loose, MANAGER), M, 'sid-p', { signed: false, win: WINDOWS[0], now: NOW }).act, 'reopen')
   assert.equal(plan('rename', undefined, { name: MANAGER }).msg, 'refuse.name-reserved')
 })
 
@@ -65,11 +75,12 @@ test('the state lane_list shows', () => {
   assert.equal(childState(liveView('unknown', lanes, MANAGER), L1, false, NOW), 'unknown')
 })
 
-test('the cue: acted on only when its sender is above the child now; held while a turn runs', () => {
+test('the cue: acted on only when its sender is above the child now and it is fresh; held while a turn runs', () => {
   const cue = parseCue({ id: 'c', verb: 'start', from: A, at: NOW, brief: 'b' })!
-  assert.equal(cueAnswer(view({}), L1, cue, false).outcome, 'ok')
-  assert.equal(cueAnswer(view({}), L1, cue, true).outcome, 'held')
-  assert.deepEqual(cueAnswer(view({}), L1, { ...cue, from: 'sid-other' }, false), { id: 'c', outcome: 'refused', code: 'not-a-parent' })
+  assert.equal(cueAnswer(view({}), L1, cue, false, NOW + CUE_MAX_AGE_MS).outcome, 'ok')
+  assert.equal(cueAnswer(view({}), L1, cue, true, NOW).outcome, 'held')
+  assert.deepEqual(cueAnswer(view({}), L1, cue, false, NOW + CUE_MAX_AGE_MS + 1), { id: 'c', outcome: 'refused', code: 'cue-stale' })
+  assert.deepEqual(cueAnswer(view({}), L1, { ...cue, from: 'sid-other' }, false, NOW), { id: 'c', outcome: 'refused', code: 'not-a-parent' })
   assert.equal(parseCue({ id: 'c', verb: 'terminate', from: A, at: NOW }), undefined)
   assert.equal(cueReply(undefined, 'start', 'L1').msg, 'refuse.cue-refused')
   assert.equal(cueReply({ id: 'c', outcome: 'held' }, 'start', 'L1').msg, 'refuse.cue-held')
@@ -83,6 +94,8 @@ test('the table\'s upkeep: gone after two reads 30 s apart, back clears it; a pl
   assert.equal(gone[L1].goneAt, NOW)
   assert.equal(gone[A].name, 'renamed-lead')
   assert.equal(gone['sid-parked'], undefined)
+  // A parked row whose session came back is kept, however old the parking.
+  assert.ok(tidy(t, liveView([reg(M, MANAGER), reg('sid-parked', 'p')], t, MANAGER), () => undefined, NOW)['sid-parked'])
   assert.equal(tidy(gone, liveView([reg(L1, 'L1')], gone, MANAGER), () => undefined, NOW + 1)[L1].goneAt, undefined)
   // The laptop shut three days: the lead's row keeps its capability and allowlist; the plain lane row is removed.
   const later = NOW + 3 * 24 * 3_600_000
@@ -94,4 +107,16 @@ test('the table\'s upkeep: gone after two reads 30 s apart, back clears it; a pl
   // A rename never moves the report path; an unknown read changes nothing.
   assert.equal(tidy(t, liveView([reg(L1, 'renamed')], t, MANAGER), () => undefined, NOW)[L1].report, '/Users/x/repo/.archive/L1/REPORT.md')
   assert.equal(tidy(t, liveView('unknown', t, MANAGER), () => 0, NOW), t)
+})
+
+test('the upkeep in every world: an unknown read changes nothing; a lead row, an off row and a row a live session carries are never dropped', () => {
+  forAll(300, (r, w) => {
+    const now = NOW + Math.floor(r() * 40 * 86_400_000)
+    const out = tidy(w.table, w.v, () => (r() < 0.5 ? undefined : now - 60_000), now)
+    if (w.v.rows === 'unknown') return assert.equal(out, w.table)
+    for (const [k, row] of Object.entries(w.table)) {
+      if (row.lead !== undefined || row.off || w.v.rows.has(k)) assert.ok(out[k], `${k} dropped`)
+      if (w.v.rows.has(k)) assert.equal(out[k].goneAt, undefined)
+    }
+  })
 })

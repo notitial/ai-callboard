@@ -102,6 +102,10 @@ test('create and adopt: only a lead, only inside its allowlist, only a loose ses
   assert.equal(mayCreate(v, M, 'n', '/Users/x/repo'), 'not-lead')
   assert.equal(mayCreate(v, A, 'n', '/Users/x/repository'), 'folder-outside')
   assert.equal(mayCreate(v, A, 'n', '/Users/x/other/deep'), undefined)
+  for (const odd of ['/Users/x/repo/../etc', '/Users/x/repo/./sub', '/Users/x/repo//sub', 'Users/x/repo', '/Users/x/repo/']) assert.equal(mayCreate(v, A, 'n', odd), 'folder-outside', odd)
+  // An empty or root entry in a lead's repos contains nothing.
+  const wide = liveView(rows, { ...table, [A]: { ...table[A], lead: { repos: ['/', ''] } } }, MANAGER)
+  assert.equal(mayCreate(wide, A, 'n', '/Users/x/elsewhere'), 'folder-outside')
   assert.equal(mayCreate(v, A, MANAGER, '/Users/x/repo'), 'name-reserved')
   assert.equal(mayCreate(v, A, 'MANAGER', '/Users/x/repo'), 'name-reserved')
   assert.equal(mayCreate(v, A, 'L1', '/Users/x/repo'), 'name-taken')

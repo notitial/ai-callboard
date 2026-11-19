@@ -26,7 +26,7 @@ test('RECEIVES is the only source of event kinds, about sessions in scope now; a
     for (const n of ns) {
       assert.ok(RECEIVES[cap].kinds.includes(n.kind), `${cap} got ${n.kind}`)
       assert.ok(scope.includes(n.about), `${me} told about ${n.about}, not under it`)
-      if (w.table[n.about]?.goneAt !== undefined) assert.equal(n.kind, 'gone')
+      if (w.table[n.about]?.goneAt !== undefined) assert.ok(n.kind === 'gone' || n.kind === 'done', `a gone row routed ${n.kind}`)
     }
   })
 })
@@ -51,12 +51,12 @@ test('a lane adopted by another lead: its signed report goes to the new lead onl
   assert.deepEqual(kinds({ v: liveView([reg(M, MANAGER), reg(A, 'A'), reg(L1, 'L1')], demoted, MANAGER), signed: new Set([L1]) }), [])
 })
 
-test('gone, waiting and quiet: gone once per process and never after done; waiting only with no open ask; each keyed by its start', () => {
+test('gone, waiting and quiet: gone once per process, a signed lane that went told as done; waiting only with no open ask; each keyed by its start', () => {
   const goneRow = { ...lanes, [L1]: { ...lanes[L1], goneAt: NOW - 1000 } }
   const v = liveView([reg(M, MANAGER), reg(A, 'A')], goneRow, MANAGER)
   assert.deepEqual(notices(base({ v })).map((n) => n.key), [`gone:${L1}:${NOW - 1000}`])
   assert.deepEqual(kinds({ v, since: NOW }), [])
-  assert.deepEqual(kinds({ v, signed: new Set([L1]) }), [])
+  assert.deepEqual(kinds({ v, signed: new Set([L1]) }), ['done'])
   assert.deepEqual(kinds({ v: liveView([reg(A, 'A')], { ...goneRow, 'new:L2': { name: 'L2', folder: '/', under: A, goneAt: NOW } }, MANAGER) }), ['gone'])
   const waiting = (x: object) => liveView([reg(M, MANAGER), reg(A, 'A'), reg(L1, 'L1', { status: 'waiting', waitingFor: 'trust', statusAt: NOW - WAITING_MS, ...x })], lanes, MANAGER)
   assert.deepEqual(kinds({ v: waiting({}) }), ['waiting'])

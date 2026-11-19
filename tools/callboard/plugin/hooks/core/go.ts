@@ -23,8 +23,8 @@ export function parseGo(raw: unknown): Go | undefined {
   if (g === null || typeof g !== 'object' || typeof g.id !== 'string' || typeof g.giver !== 'string' || !Number.isFinite(g.end) || !goTextOk(g.text)) return undefined
   return { id: g.id, giver: g.giver, text: g.text, end: g.end as number }
 }
-// The giver is the reader or above it now, and the go has not ended. A giver that is gone is nobody's ancestor, so its go covers no one meanwhile.
-export const covers = (g: Go, reader: Sid, v: View, now: number): boolean => now < g.end && (g.giver === reader || ancestors(v, reader).includes(g.giver))
+// The giver is the reader or above it now, and the go has not ended; an end further off than GO_HOURS is no go. A giver that is gone is nobody's ancestor, so its go covers no one meanwhile.
+export const covers = (g: Go, reader: Sid, v: View, now: number): boolean => now < g.end && g.end - now <= GO_HOURS * 3_600_000 && (g.giver === reader || ancestors(v, reader).includes(g.giver))
 
 // `/callboard go TEXT` and `/callboard go off [ID]`.
 export function goCommand(args: string): { op: 'give'; text: string } | { op: 'off'; id?: string } | 'bad' {

@@ -57,7 +57,8 @@ test('the timeline: hidden 30 s by day, the parent at once in a window, the mana
   assert.deepEqual(open({ now: NOW + HEAD_START_MS }).eligible, [A])
   assert.deepEqual(open({ now: NOW, win: ON }).eligible, [A])
   assert.deepEqual(open({ ask: ask({ awake: MANAGER_AT_MS }) }).eligible, [A, M])
-  assert.deepEqual(open({ ups: [up(A)] }).eligible, [A, M])
+  // The escalator steps aside: it and every session below it leave the ask.
+  assert.deepEqual(open({ ups: [up(A)] }).eligible, [M])
   // An escalation by the manager, or by a session no longer above the asker, counts from where that session stands.
   assert.deepEqual(open({ ups: [up(LOOSE)] }).eligible, [A])
   const past = open({ ups: [up(A), up(M)] })
@@ -75,7 +76,7 @@ test('a loose session\'s ask while unattended (the 8 h wait): the manager owns i
   const shut = stage({ ...x, v: alone, held: NO_MANAGER_HOLD_MS })
   assert.ok(!shut.open && shut.msg === 'ask.leftForPerson' && shut.p.parent === PERSON)
   // By day the same ask with no manager is the person's dialog, closed only at 15 minutes.
-  assert.ok(stage({ ...x, v: alone, win: OFF, held: NO_MANAGER_HOLD_MS * 10, ask: ask({ asker: LOOSE, awake: EXPIRE_MS - 1 }) }).open)
+  assert.ok(stage({ ...x, v: alone, win: OFF, now: NOW + HEAD_START_MS, held: NO_MANAGER_HOLD_MS * 10, ask: ask({ asker: LOOSE, awake: EXPIRE_MS - 1 }) }).open)
 })
 
 test('a manager restart while unattended: the person\'s asks are not closed during the hold, and a failed registry read closes nothing', () => {
@@ -92,7 +93,7 @@ test('a lead that restarts does not take an ask back from the manager; a busy pa
   assert.deepEqual(open({ ups: [up(M, 'told')] }).eligible.sort(), [A, M].sort())
   const busy = liveView([reg(M, MANAGER, { status: 'waiting', waitingFor: 'question' }), reg(A, 'A', { status: 'compacting' }), reg(L1, 'L1')], lanes, MANAGER)
   const s = open({ v: busy, ups: [up(A)] })
-  assert.deepEqual(s.eligible, [A, M])
+  assert.deepEqual(s.eligible, [M])
   assert.equal(s.toPerson, false, 'the lead was treated as the top while the manager sat in a question')
 })
 
@@ -115,7 +116,12 @@ test('decide: the answer must name this ask and come from the person or an eligi
   assert.equal(decide(a({ by: M }), ask(), s, all, {}).act, 'ignore')
   assert.equal(decide(a({ by: L1 }), ask(), s, all, {}).act, 'ignore')
   assert.equal(decide(a({}), ask({ cut: true }), s, all, {}).msg, 'refuse.input-cut')
-  assert.equal(decide(a({ by: PERSON }), ask({ cut: true }), s, all, {}).act, 'allow')
+  // The person decides only an ask that has reached them, and a cut input binds them too.
+  const mine = open({ ups: [up(A), up(M)] })
+  assert.equal(decide(a({ by: PERSON }), ask(), s, all, {}).act, 'ignore')
+  assert.equal(decide(a({ by: PERSON }), ask(), mine, all, {}).act, 'allow')
+  assert.equal(decide(a({ by: PERSON }), ask({ cut: true }), mine, all, {}).msg, 'refuse.input-cut')
+  assert.equal(decide(a({ by: PERSON, decision: 'deny' }), ask({ cut: true }), mine, all, {}).act, 'deny')
   assert.deepEqual(decide(a({ decision: 'deny', note: 'no' }), ask(), s, all, {}), { act: 'deny', msg: 'ask.denyText', p: { by: 'A', note: 'no' } })
   const live = { questions: [{ question: 'Which?', header: 'Pick', options: [{ label: ' Yes ' }, { label: 'No' }] }] }
   const q = ask({ tool: 'AskUserQuestion' })

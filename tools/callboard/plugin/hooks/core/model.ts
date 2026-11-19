@@ -206,10 +206,13 @@ export function nameRefusal(v: View, name: string, self?: string): RefuseCode | 
   return taken.includes(name) ? 'name-taken' : undefined
 }
 export const liveChildren = (v: View, p: Sid): number => children(v, p).filter((c) => liveness(v, c) === 'yes' && v.table[c]?.parked === undefined).length
-export const capRefusal = (v: View, p: Sid): RefuseCode | undefined => (liveChildren(v, p) >= MAX_LIVE_CHILDREN ? 'cap' : undefined)
+// The cap binds a lead's own children; the manager's (the loose sessions) and the person's are not counted.
+export const capRefusal = (v: View, p: string): RefuseCode | undefined => (isLead(v, p) && liveChildren(v, p) >= MAX_LIVE_CHILDREN ? 'cap' : undefined)
 // A lead's allowlist: its own folder always, and the repos his typed `/callboard lead PATH…` added. Folders are real paths, resolved by the adapter.
 const allowlist = (v: View, s: Sid): Folder[] | undefined => (isLead(v, s) ? [v.table[s].folder, ...v.table[s].lead!.repos] : undefined)
-export const inside = (folder: Folder, repos: readonly Folder[]): boolean => repos.some((r) => folder === r || folder.startsWith(r.endsWith('/') ? r : `${r}/`))
+// Only an absolute path with no empty, `.` or `..` segment counts, on either side: the root and a relative path are inside nothing and contain nothing.
+const plain = (f: Folder): boolean => f.startsWith('/') && f.split('/').slice(1).every((s) => s !== '' && s !== '.' && s !== '..')
+export const inside = (folder: Folder, repos: readonly Folder[]): boolean => plain(folder) && repos.some((r) => plain(r) && (folder === r || folder.startsWith(`${r}/`)))
 
 export function mayCreate(v: View, actor: Sid, name: string, folder: Folder): RefuseCode | undefined {
   const repos = allowlist(v, actor)
