@@ -59,6 +59,7 @@ const fresh = () => ({
   toasted: new Set<string>(),
   logged: '',
   parentTools: false,
+  selfNamed: false,
   dialogs: new Set<string>(),
   usageAt: 0,
   usageOwed: false,

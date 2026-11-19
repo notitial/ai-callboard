@@ -101,7 +101,7 @@ test('lane_create writes the brief with the lead named and the row `new:NAME`; t
   const brief = f.h.files.get('/w/repo/new/.archive/NEW/BRIEF.md')!
   assert.match(brief, /Written by its lead lead\./)
   assert.match(brief, /do the thing/)
-  assert.deepEqual(table(f)['new:NEW'], { name: 'NEW', folder: '/w/repo/new', report: '/w/repo/new/.archive/NEW/REPORT.md', under: 'sid-me', brief: '/w/repo/new/.archive/NEW/BRIEF.md' })
+  assert.deepEqual(table(f)['new:NEW'], { name: 'NEW', folder: '/w/repo/new', report: '/w/repo/new/.archive/NEW/REPORT.md', under: 'sid-me', brief: '/w/repo/new/.archive/NEW/BRIEF.md', model: 'sonnet' })
   assert.match(text(await laneCreateCall(f.$, { name: 'NEW', folder: '/w/repo/new', brief: 'again' }, next)), /already has that name/)
   assert.match(text(await laneCreateCall(f.$, { name: 'OUT', folder: '/w/other', brief: 'b' }, next)), /not inside your allowlist/)
   assert.match(text(await laneCreateCall(f.$, { name: '../x', folder: '/w/repo/new', brief: 'b' }, next)), /a name is 1 to 40/)
@@ -413,4 +413,68 @@ test('a loose session\'s pr_watch works; a lead polling a lane whose row is gone
   await prTick(f.$, 'sid-me', await getView(f.$, true))
   assert.equal(prClaim(), undefined)
   assert.equal(f.h.files.has(`${V2}/prs/sid-gone.json`), false)
+})
+
+// The kid's registry row, changed in place.
+const kidReg = (f: F, x: object) => {
+  for (const [p, t] of [...f.h.files]) if (p.endsWith('/sessions/20.json')) f.h.files.set(p, JSON.stringify({ ...JSON.parse(t), ...x }))
+}
+
+test('a new lane is known by its own name: its panel, named by Claude, renames itself to the lane at its first quiet tick, and lane_start finds it by the lane name', async () => {
+  const f = world()
+  await laneCreateCall(f.$, { name: 'NEW', folder: '/w/repo/new', brief: 'b' }, next)
+  f.seed({ sid: 'sid-new', pid: 30, name: 'ai-manager-ef', nameSource: 'auto', cwd: '/w/repo/new', kind: 'interactive', statusUpdatedAt: T0 - MIN })
+  window(f, (req) => (req.op === 'open' ? { ok: true, sid: 'sid-new' } : undefined))
+  assert.match(text(await laneOpenCall(f.$, { lane: 'NEW' }, next)), /`NEW` opened as session `sid-new`/)
+  f.h.sid = 'sid-new'
+  mem.view = undefined
+  await cueTick(f.$, 'sid-new', await getView(f.$, true), T0)
+  assert.deepEqual(f.h.compactRuns, ['rename NEW'])
+  await cueTick(f.$, 'sid-new', await getView(f.$, true), T0)
+  assert.deepEqual(f.h.compactRuns, ['rename NEW'])
+  f.h.sid = 'sid-me'
+  mem.view = undefined
+  asChild(f, 'sid-new')
+  assert.match(text(await cueVerbCall(f.$, { lane: 'NEW' }, next, 'start')), /`NEW` accepted start/)
+  assert.match(f.h.submitted.at(-1)!, /^\[callboard\] You are lane `NEW` of `lead`\./)
+  assert.match(text(await laneListCall(f.$, {}, next)), /\| NEW \|/)
+})
+
+test('lane_create takes a model, sonnet by default, and the lane switches to it at its start; any other model is refused by name; a model that cannot be set refuses the start', async () => {
+  const f = world()
+  assert.match(text(await laneCreateCall(f.$, { name: 'OP', folder: '/w/repo/new', brief: 'b', model: 'gpt' }, next)), /model must be one of opus, sonnet, haiku, fable\./)
+  assert.equal(table(f)['new:OP'], undefined)
+  await laneCreateCall(f.$, { name: 'OP', folder: '/w/repo/new', brief: 'b', model: 'opus' }, next)
+  assert.equal(table(f)['new:OP'].model, 'opus')
+  f.table({ ...table(f), 'sid-kid': { ...table(f)['sid-kid'], model: 'haiku' } })
+  asChild(f, 'sid-kid')
+  assert.match(text(await cueVerbCall(f.$, { lane: 'kid' }, next, 'start')), /accepted start/)
+  assert.deepEqual(f.h.compactRuns, ['model haiku'])
+  const g = world()
+  g.table({ ...table(g), 'sid-kid': { ...table(g)['sid-kid'], model: 'opus' } })
+  g.$.command.run = async (c: { command: string }) => {
+    if (c.command === 'model') throw new Error('no such command')
+  }
+  asChild(g, 'sid-kid')
+  assert.match(text(await cueVerbCall(g.$, { lane: 'kid' }, next, 'start')), /the lane refused \(model-failed\)/)
+  assert.equal(g.h.submitted.length, 0)
+})
+
+test('lane_create names why it refuses: an existing brief, a link on the way, a folder that is not absolute, an empty brief', async () => {
+  const f = world()
+  f.h.files.set('/w/repo/new/.archive/OLD/BRIEF.md', 'older work')
+  assert.match(text(await laneCreateCall(f.$, { name: 'OLD', folder: '/w/repo/new', brief: 'b' }, next)), /\.archive\/OLD\/BRIEF\.md exists already in that folder\. Pick another name\./)
+  f.h.real.set('/w/repo/new/.archive', '/w/elsewhere/.archive')
+  assert.match(text(await laneCreateCall(f.$, { name: 'LINK', folder: '/w/repo/new', brief: 'b' }, next)), /is a link, which callboard does not follow/)
+  assert.match(text(await laneCreateCall(f.$, { name: 'Y', folder: 'repo/new', brief: 'b' }, next)), /folder must be an absolute path that exists/)
+  assert.match(text(await laneCreateCall(f.$, { name: 'Y', folder: '/w/repo/new', brief: '' }, next)), /brief must be 1 to 16384 characters/)
+})
+
+test('a lane that signed done retires right after its turn ends; a park at that moment says to wait 30 seconds', async () => {
+  const f = world()
+  kidReg(f, { statusUpdatedAt: T0 })
+  killer(f)
+  assert.match(text(await stopVerbCall(f.$, { lane: 'kid' }, next, 'park')), /not idle yet\. Retry once its turn has ended and it has been quiet for 30 seconds\./)
+  f.h.files.set(KID_REPORT, 'notes\nstatus: done sid-kid\n')
+  assert.match(text(await stopVerbCall(f.$, { lane: 'kid' }, next, 'retire')), /retired and its row removed/)
 })

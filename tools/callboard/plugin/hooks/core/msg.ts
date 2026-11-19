@@ -6,7 +6,6 @@ import type { PrNote } from './pr.ts'
 
 // The codes a refusal carries. One id per code: `refuse.<code>`.
 export type RefuseCode =
-  | 'not-built'
   | 'bad-input'
   | 'bad-origin' // a command that widens what a session may do, run by anything but his own typed turn
   | 'no-capability' // the caller is neither a lead nor the manager

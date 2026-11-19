@@ -121,6 +121,10 @@ EXT_DIR="$(ls -d "$HOME"/.vscode/extensions/anthropic.claude-code-* | sort -V | 
   conversation. The folder is found from the session's transcript (`projects/<folder>/<session id>.jsonl` under Claude's
   config folder, from the `CLAUDE_CONFIG_DIR` of the VS Code process, not from the `claudeCode.environmentVariables` setting), as no saved panel state names it. With no transcript yet, a one-folder window, a folder that is a
   sub-folder of a window folder or a very long path, the panel starts in the first folder as before.
+- The fourth piece is the group command, optional in the same way (the marker's `groups` field): it adds the command
+  `callboard assign group`, which the panels extension calls to file a lead's session in the Session Manager group Lead
+  and a lane's in Lanes, from the plugin's session table (a group of that name in any letter case, such as LEAD, is the
+  same one; a missing one is created). Each session is filed once, so one you move out of its group stays out.
 - An install patched by an older version of the script (before the panel look or the restore fix, say) shows `outdated` with a
   line saying what differs, or the old warning that a piece is not in. The check compares the installed file with what the current script
   builds from the backup original. `--update` (or `/patch-vs-claude`, which runs it) rebuilds the patch from the backup and
@@ -146,13 +150,14 @@ EXT_DIR="$(ls -d "$HOME"/.vscode/extensions/anthropic.claude-code-* | sort -V | 
   file beside it. Without the patch, open one VS Code window per repo and use callboard as before. If a patched open
   does not bring up its panel, it fails as the usual open timeout, once.
 
-### Optional: the Explorer lane view
+### Optional: the lane view
 
-The panels extension adds a tree, Callboard Lanes, at the bottom of the Explorer: one row per callboard session the
+The panels extension adds a tree, Callboard Lanes, in Claude Code's Session Manager below its session list (when that
+list is on; otherwise at the bottom of the Explorer): one row per callboard session in this window's folders that the
 plugin's session table and the old lane stores know, with its folder and state (live, working, waiting, parked, closed,
 gone), a lane under the lead that owns it. A click reopens the session in its own folder, so a parked or closed lane
-comes back with its conversation, even in a window whose first folder is another one when the patch above is in
-(without it, a folder outside the window's first folder gets the usual refusal as a warning). Below the lanes, one group
+comes back with its conversation. With the patch above every folder of the window is listed; without it, only its first
+folder, the one a panel can open in. Below the lanes, one group
 per window folder lists its newest saved chats, and a click opens one the same way. The view reads names and times only
 and refreshes every 3 seconds while it is visible. Nothing is needed for it beyond the extension, and a session marked
 off is left out.
@@ -236,7 +241,9 @@ cp ~/.claude/settings.json "$BAK" && /usr/bin/python3 -I -c "import os,re,sys;p=
 ```
 
 Then restart every session, VS Code windows included (a reload is not enough: the plugin list is read when a session
-starts). Start the manager session and name it with the manager's name from the file (`/rename`). Each lead then takes
+starts). A conversation kept open across the switch, or resumed into it, can keep the mod's tool definitions: a call
+with the mod's arguments (`lane_create` with name, task and model, say) is then refused as input not valid. A new
+session has the plugin's. Start the manager session and name it with the manager's name from the file (`/rename`). Each lead then takes
 its lanes back by name with `lane_adopt`, and you give goes again as needed (`/callboard go TEXT`, or a lead's
 `go_request`).
 

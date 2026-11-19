@@ -16,7 +16,8 @@ const AWAKE_GAP_CAP_MS = 10_000
 export const awakeAdd = (awake: number, gapMs: number): number => awake + (Number.isFinite(gapMs) ? Math.min(Math.max(gapMs, 0), AWAKE_GAP_CAP_MS) : 0)
 
 export type StageIn = { ask: Ask; now: number; ups: readonly UpMark[]; v: View }
-// reach: how many sessions of the chain the ask has reached (0: hidden). toPerson: its next owner is past the chain. relay: by day the manager's pop-up shows it.
+// reach: how many sessions of the chain the ask has reached (0: hidden). toPerson: it has reached past the chain, so the person's click counts. relay: the manager's
+// pop-up may show it (personDialog opens none while unattended). top: what ends the chain, the person or unknown.
 export type Open = { open: true; reach: number; eligible: Sid[]; toPerson: boolean; relay: boolean; top: Person | 'unknown' }
 export type Stage = Open | ({ open: false } & Decision<'deny'>)
 

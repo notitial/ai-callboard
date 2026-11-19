@@ -12,7 +12,7 @@ const { pidAlive } = require('./reserved.js')
 const { claudePatched } = require('./claude-patch.js')
 const { createFolderBadge } = require('./folder-badge.js')
 const { createGroups } = require('./groups.js')
-const { createLaneView } = require('./lane-view.js')
+const { createLaneView, readTable } = require('./lane-view.js')
 
 const CLAUDE = path.join(os.homedir(), '.claude')
 const SESSIONS = path.join(CLAUDE, 'sessions')
@@ -75,8 +75,9 @@ function activate(context) {
   } catch {
     // no folder item
   }
+  const tablePath = path.join(CLAUDE, 'callboard', 'v2', 'sessions.json')
   try {
-    context.subscriptions.push(createLaneView({ vscode, registry, lanes, loadLanes, tablePath: path.join(CLAUDE, 'callboard', 'v2', 'sessions.json'), projectsDir: path.join(CLAUDE, 'projects'), workspaceFolders: windowFolders }))
+    context.subscriptions.push(createLaneView({ vscode, registry, lanes, loadLanes, tablePath, projectsDir: path.join(CLAUDE, 'projects'), workspaceFolders: windowFolders }))
   } catch {
     // no lane list
   }
@@ -85,6 +86,7 @@ function activate(context) {
   const groups = createGroups({ vscode, registry, state: context.workspaceState, workspaceFolders: windowFolders,
     loadLanes: () => allLanes({ storeDir: path.join(CLAUDE, 'callboard', 'lanes') }),
     loadLeads: () => allLeads({ recordDir: path.join(CLAUDE, 'callboard', 'lead-records') }),
+    loadTable: () => readTable(tablePath),
   })
   const groupTick = setInterval(() => groups.tick(), groups.TICK_MS)
   context.subscriptions.push({ dispose: () => clearInterval(groupTick) })

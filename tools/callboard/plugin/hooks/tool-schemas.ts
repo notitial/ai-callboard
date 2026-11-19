@@ -1,6 +1,7 @@
 // The 18 tools: who is given each, and its input schema. `cap` is 'any' for the tools every session gets and 'parent' for the thirteen a session gets only when it
 // holds the lead capability or is the manager. Data only: the tool descriptions are texts (`tool.<name>`).
 import type { ToolName } from './core/model.ts'
+import { LANE_MODELS } from './core/model.ts'
 
 type Schema = { type: 'object'; properties: Record<string, unknown>; required?: string[] }
 const text = { type: 'string' }
@@ -16,7 +17,7 @@ export const TOOL_SCHEMAS: Record<ToolName, { cap: 'any' | 'parent'; input: Sche
   lane_terminate: { cap: 'parent', input: lane },
   lane_unpark: { cap: 'parent', input: lane },
   lane_list: { cap: 'parent', input: none },
-  lane_create: { cap: 'parent', input: { type: 'object', properties: { name: text, folder: text, brief: text }, required: ['name', 'folder', 'brief'] } },
+  lane_create: { cap: 'parent', input: { type: 'object', properties: { name: text, folder: text, brief: text, model: { type: 'string', enum: [...LANE_MODELS] } }, required: ['name', 'folder', 'brief'] } },
   lane_open: { cap: 'parent', input: lane },
   lane_adopt: { cap: 'parent', input: { type: 'object', properties: { name: text }, required: ['name'] } },
   prompt_list: { cap: 'parent', input: none },

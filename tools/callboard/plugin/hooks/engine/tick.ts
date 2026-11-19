@@ -3,7 +3,7 @@
 // from the sessions under this one now each time it is sent, a key is spent only when the turn carrying it starts, and nothing is sent unless the session is quiet.
 import type { Notice, Row, Sid, ToolName, View } from '../core/model.ts'
 import { PERSON, TOOLS, capability, children, nameOf, parent } from '../core/model.ts'
-import { signedBy, tidy } from '../core/lifecycle.ts'
+import { tidy } from '../core/lifecycle.ts'
 import { sweep } from '../core/asks.ts'
 import { notices } from '../core/notices.ts'
 import { SLEEP_GAP_MS } from '../core/upkeep.ts'
@@ -18,7 +18,7 @@ import { relayTick } from './relay.ts'
 import { askOpen, getView, logAsk, readAsks, rmAsk, tidyAsks, tidyAskLogs, updateTable } from './store.ts'
 import { isSub, say } from './tools-any.ts'
 import { openAsks } from './tools-ask.ts'
-import { idle, keepaliveTick, midNudge, nudgeTick, requestTick } from './upkeep.ts'
+import { idle, keepaliveTick, midNudge, nudgeTick, requestTick, signedNow } from './upkeep.ts'
 import { usageDrop, usageFlush, usageSweep } from './usage.ts'
 
 // ---- what a session is given: the five tools every session has at its start, the thirteen when it holds a capability (and, once, from the tick or from `/callboard lead`) ----
@@ -112,14 +112,6 @@ async function tableTick($: any, v: View, now: number): Promise<void> {
   for (const k of Object.keys(v.table)) v.rows.has(k) ? mem.noSince.delete(k) : mem.noSince.has(k) || mem.noSince.set(k, now)
   const next = (t: typeof v.table) => tidy(t, v, (k) => mem.noSince.get(k), now)
   if (JSON.stringify(next(v.table)) !== JSON.stringify(v.table)) await updateTable($, next)
-}
-// Whether a session's report's last line is signed by its own id. The report path is the row's, inside the row's own folder.
-export async function signedNow($: any, k: Sid, r: Row | undefined): Promise<boolean> {
-  if (r?.report === undefined || !r.report.startsWith(`${r.folder}/.archive/`) || r.report.includes('..')) return false
-  const st = (await $.fs.stat(r.report).catch(() => undefined)) as { size: number; kind?: string } | undefined
-  const size = st?.kind === 'file' ? st.size : undefined
-  const t = size === undefined ? undefined : await $.fs.read(r.report, { offset: Math.max(0, size - 1024), length: 1024 }).catch(() => undefined)
-  return typeof t === 'string' && signedBy(t, k)
 }
 // Every 30 s: the sessions, this one and its children, whose report is signed.
 async function signedTick($: any, v: View, me: Sid, now: number): Promise<void> {

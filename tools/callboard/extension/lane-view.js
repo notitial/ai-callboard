@@ -1,7 +1,7 @@
 'use strict'
-// "Callboard Lanes", a tree in the Explorer that lists every callboard session the records know, whether or not its panel is open, grouped under the lead that
-// owns it, and below them each workspace folder's saved Claude conversations. A click reopens the session in its own folder through lanes.reopen, which keeps
-// its own refusals (a folder this window does not serve). Sources: the plugin's session table (v2/sessions.json), the lane stores (allLanes) and the live
+// "Callboard Lanes", a tree that lists the callboard sessions the records know in this window's workspace folders, whether or not their panel is open, grouped
+// under the lead that owns them, and below them each workspace folder's saved Claude conversations. It sits in Claude Code's Session Manager when that list is
+// on, else in the Explorer (package.json: one view id each, the same tree). A click reopens the session in its own folder through lanes.reopen. Sources: the plugin's session table (v2/sessions.json), the lane stores (allLanes) and the live
 // registry rows, and for the conversations only the file names and times under <claude dir>/projects/<folder>: no transcript is opened.
 // VS Code access is injected, so the view can be tested with fakes.
 const fs = require('node:fs')
@@ -15,7 +15,9 @@ const GONE_MS = 7 * 86400000
 const NAME_LIMIT = 200
 const STAT_BATCH = 64
 const OPEN = 'callboardPanels.openLane'
-const ICON = { live: 'circle-filled', working: 'sync~spin', waiting: 'bell', parked: 'debug-pause', closed: 'circle-outline', gone: 'circle-slash' }
+const VIEWS = ['callboardLanes', 'callboardLanesSidebar']
+const ICON = { live: 'circle-filled', working: 'sync~spin', waiting: 'circle-filled', parked: 'debug-pause', closed: 'circle-outline', gone: 'circle-slash' }
+const COLOR = { waiting: 'charts.orange' }
 
 const finite = (x) => (Number.isFinite(x) ? x : undefined)
 const ago = (ms) => (ms < 60000 ? 'now' : ms < 3600000 ? `${Math.floor(ms / 60000)}m` : ms < 86400000 ? `${Math.floor(ms / 3600000)}h` : `${Math.floor(ms / 86400000)}d`)
@@ -79,12 +81,21 @@ function createLaneView({ vscode, registry, lanes, loadLanes, tablePath, project
     const rows = await registry.list()
     // A read that could not see every row would show live sessions as closed for one tick; the last list stays.
     if (rows.complete === false) return
-    const entries = buildEntries({ table: await readTable(tablePath), lanes: await loadLanes().catch(() => []), rows, now: now(), alive })
+    // Only what a click here can open: the sessions of this window's served folders (lanes.reopen refuses any other).
+    const served = workspaceFolders()
+    const entries = buildEntries({ table: await readTable(tablePath), lanes: await loadLanes().catch(() => []), rows, now: now(), alive }).filter((e) => served.includes(e.folder))
     const names = new Map(rows.filter((r) => typeof r.name === 'string').map((r) => [r.sessionId, r.name]))
     for (const e of entries) names.set(e.sid, e.name)
     const nodes = new Map(entries.map((e) => [e.sid, { kind: 'lane', ...e, kids: [] }]))
     const top = []
-    for (const n of nodes.values()) (nodes.get(n.leadSid)?.kids ?? top).push(n)
+    // A lead chain that comes back to the node (a broken table) puts it at the top, so every node is shown once.
+    const cyclic = (n) => {
+      const seen = new Set([n.sid])
+      let p = n.leadSid
+      while (p !== undefined && !seen.has(p)) p = (seen.add(p), nodes.get(p)?.leadSid)
+      return p === n.sid
+    }
+    for (const n of nodes.values()) (cyclic(n) ? top : (nodes.get(n.leadSid)?.kids ?? top)).push(n)
     if (now() - chatsAt >= CHATS_MS) {
       chats = new Map(await Promise.all(workspaceFolders().map(async (f) => [f, await recentChats(projectsDir, f)])))
       chatsAt = now()
@@ -130,18 +141,18 @@ function createLaneView({ vscode, registry, lanes, loadLanes, tablePath, project
       const item = new vscode.TreeItem(node.name || node.sid.slice(0, 8), node.kids?.length ? kinds.Expanded : kinds.None)
       item.id = chat ? `chat:${node.folder}:${node.sid}` : `lane:${node.sid}`
       item.description = chat ? node.age : `${base} · ${node.state}`
-      item.iconPath = new vscode.ThemeIcon(chat ? 'comment' : ICON[node.state])
+      item.iconPath = chat ? new vscode.ThemeIcon('comment') : new vscode.ThemeIcon(ICON[node.state], COLOR[node.state] && new vscode.ThemeColor(COLOR[node.state]))
       item.tooltip = [node.name ?? node.sid, chat ? undefined : node.state, node.lead && `lead ${node.lead}`, node.folder, node.age && `last activity ${node.age}${node.age === 'now' ? '' : ' ago'}`].filter(Boolean).join('\n')
       item.command = { command: OPEN, title: 'Open', arguments: [node.sid, node.folder] }
       return item
     },
   }
 
-  const view = vscode.window.createTreeView('callboardLanes', { treeDataProvider: provider })
-  const subs = [view, vscode.commands.registerCommand(OPEN, open), changed]
-  if (view.onDidChangeVisibility) subs.push(view.onDidChangeVisibility(() => void refresh()))
+  const views = VIEWS.map((id) => vscode.window.createTreeView(id, { treeDataProvider: provider }))
+  const subs = [...views, vscode.commands.registerCommand(OPEN, open), changed]
+  for (const view of views) if (view.onDidChangeVisibility) subs.push(view.onDidChangeVisibility(() => void refresh()))
   // A collapsed or hidden view is not read.
-  const timer = setInterval(() => (view.visible === false ? undefined : void refresh()), REFRESH_MS)
+  const timer = setInterval(() => (views.every((v) => v.visible === false) ? undefined : void refresh()), REFRESH_MS)
   timer.unref?.()
   return { refresh, dispose: () => { clearInterval(timer); for (const s of subs) s.dispose() } }
 }

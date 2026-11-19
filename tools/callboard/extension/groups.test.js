@@ -9,7 +9,7 @@ const B = '/w/b'
 const row = (n, cwd, extra = {}) => ({ sessionId: S(n), cwd, entrypoint: 'claude-vscode', ...extra })
 
 // A fake VS Code and state: `commands` are the ids that exist, `calls` records every assign, `failing` makes the command throw.
-function world({ commands = [COMMAND], rows = [], lanes = [], leads = [], folders = [A], done = [], failing = false, failOn = 0, failSid, refuse = [], loadError = false, alive = () => true } = {}) {
+function world({ commands = [COMMAND], rows = [], lanes = [], leads = [], table = {}, folders = [A], done = [], failing = false, failOn = 0, failSid, refuse = [], loadError = false, alive = () => true } = {}) {
   const w = { calls: [], store: { done: [...done] }, updates: 0, listed: 0, looked: 0 }
   const vscode = {
     commands: {
@@ -24,7 +24,7 @@ function world({ commands = [COMMAND], rows = [], lanes = [], leads = [], folder
   }
   const state = { get: (k, d) => (k === 'callboard.groups.done' ? w.store.done : d), update: async (k, v) => { assert.equal(k, 'callboard.groups.done'); w.store.done = v; w.updates++ } }
   const registry = { list: async () => { w.listed++; return rows } }
-  w.groups = createGroups({ vscode, registry, state, loadLanes: async () => { if (loadError) throw new Error('bad store'); return lanes }, loadLeads: async () => leads, workspaceFolders: () => folders, alive })
+  w.groups = createGroups({ vscode, registry, state, loadLanes: async () => { if (loadError) throw new Error('bad store'); return lanes }, loadLeads: async () => leads, loadTable: async () => table, workspaceFolders: () => folders, alive })
   return w
 }
 
@@ -127,4 +127,12 @@ test('once the command is seen it is not looked up again', async () => {
   await w.groups.tick()
   await w.groups.tick()
   assert.equal(w.looked, 1)
+})
+
+test('under the plugin the session table decides: a row with lead to Lead, a row under a lead to Lanes; a loose or off row is not filed, a new: row has no session to file; the table wins over a store', async () => {
+  const table = { [S(1)]: { name: 'BEDROCK', folder: A, lead: { repos: [] } }, [S(2)]: { name: 'LAB', folder: A, under: S(1) }, [S(3)]: { name: 'LOOSE', folder: A }, [S(4)]: { name: 'OFF', folder: A, under: S(1), off: true }, 'new:X': { name: 'X', folder: A, under: S(1) } }
+  assert.deepEqual([...groupsFor([{ sid: S(1) }], [], table)], [[S(1), 'Lead'], [S(2), 'Lanes'], ['new:X', 'Lanes']])
+  const w = world({ rows: [1, 2, 3, 4].map((n) => row(n, A)), table })
+  await w.groups.tick()
+  assert.deepEqual(w.calls, [[S(1), 'Lead'], [S(2), 'Lanes']])
 })

@@ -1,7 +1,8 @@
 // request_compact, the compaction itself, PostCompact, the turn marks, and the keepalive and nudge sends: the adapter over core/upkeep.ts. Trust rules held here: a session compacts only
 // itself (its request carries the session id it was made in, and the tool is the main agent's); nothing is sent to a session that is not an interactive one, idle with an empty prompt box;
 // at most one text is submitted per tick; a ping or a nudge is not work and moves no stop clock.
-import type { Sid, View } from '../core/model.ts'
+import type { Row, Sid, View } from '../core/model.ts'
+import { signedBy } from '../core/lifecycle.ts'
 import { isOff, refusal } from '../core/model.ts'
 import type { NudgeAct, ReqEvent } from '../core/upkeep.ts'
 import { compactPlan, keepalive, pushRecent, reqExpired, reqStep, sizeNudge, validateRequest } from '../core/upkeep.ts'
@@ -65,6 +66,16 @@ async function recordNudge($: any, sid: Sid, now: number): Promise<void> {
   if (up.req === null && up.due === null && interactive(await getView($), sid) && sizeNudge(await tokensOf($), await cfgNow($), up.counters, now, again) !== undefined)
     await patchUp($, (u) => ({ ...u, due: { at: now, ...(again ? { again: true as const } : {}) } }))
 }
+// Whether a session's report's last line is signed by its own id. The report path is the row's, inside the row's own folder.
+export async function signedNow($: any, k: Sid, r: Row | undefined): Promise<boolean> {
+  if (r?.report === undefined || !r.report.startsWith(`${r.folder}/.archive/`) || r.report.includes('..')) return false
+  const st = (await $.fs.stat(r.report).catch(() => undefined)) as { size: number; kind?: string } | undefined
+  const size = st?.kind === 'file' ? st.size : undefined
+  const t = size === undefined ? undefined : await $.fs.read(r.report, { offset: Math.max(0, size - 1024), length: 1024 }).catch(() => undefined)
+  return typeof t === 'string' && signedBy(t, k)
+}
+// A turn's end: the nudge it leaves due is recorded, unless the turn signed the session's report. The signed set the nudge and the keepalive read is refreshed only
+// every 30 s (tick.ts), so a lane's signing turn is marked here, at once: nothing callboard sends gives a signed lane a new turn.
 export async function turnComplete($: any, e: any, next: any) {
   if (!isSub(e)) {
     try {
@@ -74,7 +85,9 @@ export async function turnComplete($: any, e: any, next: any) {
       const answered = e.reason === 'answer'
       if (!answered) mem.mid = false
       await patchUp($, (u) => ({ ...u, turnEnd: now, ...(kind === undefined ? { realEnd: now } : {}), req: stepReq(u, answered ? 'turn-answer' : 'turn-other', now) }))
-      if (kind !== 'ping' && answered) await recordNudge($, (await $.session.id()) as Sid, now)
+      const sid = (await $.session.id()) as Sid
+      if (await signedNow($, sid, (await getView($)).table[sid])) mem.signed.set.add(sid)
+      else if (kind !== 'ping' && answered) await recordNudge($, sid, now)
     } catch {
       await log($, await $.session.id(), 'error', 'turn-end').catch(() => undefined)
     }
