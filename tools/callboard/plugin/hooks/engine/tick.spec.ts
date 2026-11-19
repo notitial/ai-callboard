@@ -281,3 +281,18 @@ test('a PR tracker is kept while the session is off, and a manager clears the tr
   await tick(m)
   assert.equal(m.h.files.has(`${V2}/prs/sid-dead.json`), false)
 })
+test('a report that is not a plain file is not read, so a lane cannot stall its lead\'s tick; the waiting text is cut', async () => {
+  const f = lead({ 'sid-kid': kid({ report: '/w/kid/.archive/kid/REPORT.md', goneAt: T0 - 1000 }) })
+  f.h.files.set('/w/kid/.archive/kid/REPORT.md', 'status: done sid-kid\n')
+  f.h.kinds.set('/w/kid/.archive/kid/REPORT.md', 'fifo')
+  await start(f)
+  mem.since = T0 - MIN
+  await tick(f)
+  assert.match(f.h.submitted[0], /is gone/)
+  const w = lead({ 'sid-kid': kid() })
+  w.seed({ sid: 'sid-kid', pid: 11, name: 'kid', status: 'waiting', waitingFor: 'x'.repeat(500), statusUpdatedAt: T0 - 10 * MIN })
+  await start(w)
+  mem.since = T0 - MIN
+  await tick(w)
+  assert.ok(w.h.submitted[0].length < 600)
+})

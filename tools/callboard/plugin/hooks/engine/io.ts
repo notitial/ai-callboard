@@ -13,8 +13,9 @@ const RM = '/bin/rm'
 export function run($: any, argv: string[], o: Record<string, unknown> = {}): Promise<{ exitCode: number; stdout: string; stderr: string; isStdoutTruncated?: boolean }> {
   return $.process.run(argv, { timeoutMs: 5000, ...o })
 }
-export function rm($: any, paths: string[]): Promise<unknown> {
-  return run($, [RM, '-rf', '--', ...paths]).catch(() => undefined)
+// true: `rm` exited 0.
+export function rm($: any, paths: string[]): Promise<boolean> {
+  return run($, [RM, '-rf', '--', ...paths]).then((r) => r.exitCode === 0, () => false)
 }
 // A wait inside one hook goes through a host process, never $.clock.sleep, which counts against the hook's own 10 s. false: the process failed.
 export async function pause($: any, ms: number): Promise<boolean> {
@@ -54,6 +55,7 @@ async function ensureDir($: any, d: string): Promise<void> {
 // At most `max` bytes of a file; undefined for no file, a failed read or a longer file.
 export async function readText($: any, p: string, max = 65_536): Promise<string | undefined> {
   try {
+    if ((await $.fs.stat(p)).kind !== 'file') return undefined
     const t = await $.fs.read(p, { length: max + 1 })
     return typeof t === 'string' && t.length <= max ? t : undefined
   } catch {
@@ -65,14 +67,17 @@ export async function writeFile($: any, p: string, text: string): Promise<boolea
   const tmp = `${p}.${Math.random().toString(36).slice(2, 10)}.tmp`
   try {
     await ensureDir($, p.slice(0, p.lastIndexOf('/')))
+    const st = await $.fs.stat(p).catch(() => undefined)
+    if (st !== undefined && st.kind !== 'file') return false
     await $.fs.write(tmp, text)
+    await run($, ['/bin/chmod', '600', tmp])
     if ((await run($, [MV, '-f', '--', tmp, p])).exitCode === 0) return true
   } catch {}
   await rm($, [tmp])
   return false
 }
-// One writer at a time: a lock folder made by `mkdir` that holds its owner's token, removed only by that owner. One 10 s old is moved aside by whoever gets there first (a move
-// that finds nothing fails), so a stale lock has one breaker. undefined: the lock was not got.
+// One writer at a time: a lock folder made by `mkdir` that holds its owner's token, removed only by that owner. One 10 s old is moved aside by a waiter (a move that finds
+// nothing fails), so a stale lock is normally broken once; two waiters that both saw it stale can still both break it. undefined: the lock was not got.
 export async function locked<T>($: any, name: string, f: () => Promise<T>): Promise<T | undefined> {
   const dir = await path($, `${name}.lock`)
   const token = Math.random().toString(36).slice(2)
@@ -133,10 +138,10 @@ export const ownTextOf = (startText: unknown): string | undefined =>
   typeof startText === 'string' ? [...mem.own.keys()].filter((t) => startText.includes(t)).sort((a, b) => b.length - a.length)[0] : undefined
 
 // ---- the window, and the person's dialog ----
-// The window as this process reads it, kept 10 s; a failed read keeps the last good one (readWindow). The file is written by his typed command only.
-export async function windowNow($: any): Promise<WindowReading> {
+// The window as this process reads it, kept 10 s unless `fresh` (a dialog reads it anew); a failed read keeps the last good one (readWindow). The file is written by his typed command only.
+export async function windowNow($: any, fresh = false): Promise<WindowReading> {
   const now = await $.clock.now()
-  if (mem.win !== undefined && now - mem.win.at < 10_000) return mem.win.w
+  if (!fresh && mem.win !== undefined && now - mem.win.at < 10_000) return mem.win.w
   const p = await path($, 'unattended.json')
   let raw: unknown = 'unreadable'
   if (p !== undefined) {
@@ -155,7 +160,7 @@ export async function windowNow($: any): Promise<WindowReading> {
 // The one dialog helper: it opens only while the window reads off, one at a time in this session, and records the open dialog's header and question until it ends (a pop-up
 // left on screen after its time limit stays recorded). Only the label a dialog offered is an answer; any other result is a reason.
 export async function personDialog($: any, spec: DialogSpec, ms = 90_000): Promise<{ label: string } | { no: 'unattended' | 'busy' | 'timeout' | 'error' }> {
-  if ((await windowNow($)).state !== 'off') return { no: 'unattended' }
+  if ((await windowNow($, true)).state !== 'off') return { no: 'unattended' }
   const key = `${spec.header}\n${spec.question}`
   if (mem.dialogs.size > 0) return { no: 'busy' }
   mem.dialogs.add(key)

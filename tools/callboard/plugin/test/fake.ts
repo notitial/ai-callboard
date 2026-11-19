@@ -40,6 +40,10 @@ export function fake(o: { sid?: string } = {}) {
     every: undefined as undefined | (() => unknown),
     submitFails: false,
     unreadable: new Set<string>(),
+    kinds: new Map<string, string>(),
+    undeletable: new Set<string>(),
+    kinds: new Map<string, string>(),
+    undeletable: new Set<string>(),
   }
   const parent = (p: string) => p.slice(0, p.lastIndexOf('/'))
   const under = (dir: string) => {
@@ -80,6 +84,7 @@ export function fake(o: { sid?: string } = {}) {
     }
     if (cmd === '/bin/rm') {
       for (const p of paths) {
+        if (h.undeletable.has(p)) return bad
         h.files.delete(p)
         h.dirs.delete(p)
         for (const f of [...h.files.keys()]) if (f.startsWith(`${p}/`)) h.files.delete(f)
@@ -110,9 +115,11 @@ export function fake(o: { sid?: string } = {}) {
       write: async (p: string, t: string) => void h.files.set(p, t),
       list: async (d: string) => {
         if (!h.dirs.has(d) && under(d).size === 0) throw new Error('ENOENT')
-        return [...under(d)].map(([name, kind]) => ({ name, kind }))
+        return [...under(d)].map(([name, kind]) => ({ name, kind: h.kinds.get(`${d}/${name}`) ?? kind }))
       },
       stat: async (p: string) => {
+        if (h.kinds.has(p)) return { kind: h.kinds.get(p), size: 0, mtimeMs: h.now }
+        if (h.kinds.has(p)) return { kind: h.kinds.get(p), size: 0, mtimeMs: h.now }
         if (h.files.has(p)) return { kind: 'file', size: h.files.get(p)!.length, mtimeMs: h.mtimes.get(p) ?? h.now }
         if (h.dirs.has(p)) return { kind: 'dir', size: 0, mtimeMs: h.mtimes.get(p) ?? h.now }
         throw new Error('ENOENT')

@@ -45,7 +45,7 @@ export async function laneRows($: any, v: View, me: Sid): Promise<LaneRow[]> {
 // This session's real folder and the real paths of what it was given (`~` is the person's home); undefined when one does not resolve.
 async function realPaths($: any, v: View, me: Sid, paths: string[]): Promise<string[] | undefined> {
   const h = await home($)
-  const folder = ((await $.session.root().catch(() => undefined)) as string | undefined) ?? (v.rows === 'unknown' ? undefined : v.rows.get(me)?.folder)
+  const folder = (await $.session.root().catch(() => undefined)) as string | undefined
   const out: string[] = []
   for (const p of folder === undefined || h === undefined ? [] : [folder, ...paths].slice(0, 17)) {
     const r = await run($, ['/bin/realpath', '--', p.startsWith('~/') ? `${h}${p.slice(1)}` : p]).catch(() => undefined)
@@ -90,7 +90,8 @@ async function perform($: any, cmd: Cmd, me: Sid, v: View, now: number): Promise
     case 'go-off': {
       const live = (await listGoes($)).filter((g) => now < g.end && (cmd.id === undefined || g.id === cmd.id))
       await Promise.all(live.map((g) => rmGo($, g.id)))
-      return T['cmd.goOff']({ n: live.length })
+      const left = (await listGoes($)).filter((g) => live.some((l) => l.id === g.id)).length
+      return saved(left === 0, T['cmd.goOff']({ n: live.length }))
     }
     case 'unattended': {
       const list = async () => {
@@ -140,7 +141,7 @@ export async function promptCompose($: any, e: any, next: any) {
       const name = nameOf(v, me)
       if (cap === 'manager') {
         const rules = printed((await readRules($)) ?? '', RULES_CAP)
-        body = T['brief.manager']({ name, rules: rules.text, rulesCut: rules.cut })
+        body = T['brief.manager']({ name, rules: rules.text.replace(/^(\s*)\[(callboard|compact-cue)\]/gim, '$1[ $2]'), rulesCut: rules.cut })
       } else if (cap === 'lead') body = T['brief.parent']({ name, repos: [v.table[me]!.folder, ...v.table[me]!.lead!.repos] })
       else if (up !== PERSON && up !== 'unknown') body = T['brief.child']({ name, parent: nameOf(v, up) })
     }

@@ -21,13 +21,13 @@ function rowOf(j: any, file: string): RegistryRow | undefined {
   return { sid: j.sessionId, pid: Number(j.pid), procStart: j.procStart, folder: j.cwd, name: str(j.name), nameSource: str(j.nameSource), status: str(j.status), statusAt: num(j.statusUpdatedAt), waitingFor: str(j.waitingFor) ?? null, kind: str(j.kind) }
 }
 const squash = (s: string): string => s.replace(/\s+/g, ' ').trim()
-// The rows whose pid is alive with the same start time, or `unknown`: too many files, a file that is there and stays unreadable or unparseable, a `ps` that failed or printed nothing, or no row of the
+// The rows whose pid is alive with the same start time, or `unknown`: too many files, a file that is there and stays unreadable or unparseable, two rows of one session id, a `ps` that failed or printed nothing, or no row of the
 // reading session's own (a live session always has one, so a read without it is in doubt).
 export async function readRegistry($: any, self: Sid): Promise<Registry> {
   const h = await home($)
   if (h === undefined) return 'unknown'
   const dir = `${h}/.claude/sessions`
-  const files = ((await $.fs.list(dir).catch(() => undefined)) as { name: string }[] | undefined)?.filter((f) => /^[0-9]{1,10}\.json$/.test(f.name))
+  const files = ((await $.fs.list(dir).catch(() => undefined)) as { name: string; kind?: string }[] | undefined)?.filter((f) => /^[0-9]{1,10}\.json$/.test(f.name) && (f.kind ?? 'file') === 'file')
   if (files === undefined || files.length > REGISTRY_MAX) return 'unknown'
   let doubt = false
   const rows = await Promise.all(
@@ -47,7 +47,7 @@ export async function readRegistry($: any, self: Sid): Promise<Registry> {
   if (doubt || ps === undefined || ps.exitCode !== 0 || ps.isStdoutTruncated === true) return 'unknown'
   const starts = new Map([...ps.stdout.matchAll(/^\s*(\d+)\s+(.+?)\s*$/gm)].map((m) => [Number(m[1]), squash(m[2]!)] as const))
   const live = rows.filter((r): r is RegistryRow => r !== undefined && starts.get(r.pid) === squash(r.procStart))
-  return starts.size > 0 && live.some((r) => r.sid === self) ? live : 'unknown'
+  return starts.size > 0 && live.some((r) => r.sid === self) && new Set(live.map((r) => r.sid)).size === live.length ? live : 'unknown'
 }
 
 // ---- the session table ----
@@ -152,15 +152,15 @@ export async function writeGo($: any, g: Go): Promise<boolean> {
   const p = await path($, 'go', `${g.id}.json`)
   return p !== undefined && writeFile($, p, JSON.stringify(g))
 }
-export async function rmGo($: any, id: string): Promise<void> {
+export async function rmGo($: any, id: string): Promise<boolean> {
   const p = /^[A-Za-z0-9]{4,32}$/.test(id) ? await path($, 'go', `${id}.json`) : undefined
-  if (p !== undefined) await rm($, [p])
+  return p !== undefined && rm($, [p])
 }
 export async function writeWindow($: any, w: { start: number; end: number; readAt: number } | null): Promise<boolean> {
   const p = await path($, 'unattended.json')
   mem.win = undefined
   if (p === undefined) return false
-  return w === null ? ((await rm($, [p])), true) : writeFile($, p, JSON.stringify(w))
+  return w === null ? (await rm($, [p])) && !(await $.fs.exists(p).catch(() => true)) : writeFile($, p, JSON.stringify(w))
 }
 // The ask log's rows since a time, from the last 256 KB of this month's file and of the month before when the time reaches back to it; a line that is not a row is dropped. undefined: a file is there and could not be read.
 export async function readAskLog($: any, since: number): Promise<AskLogRow[] | undefined> {

@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { HOME, MIN, T0, V2, fake } from '../../test/fake.ts'
-import { locked, personDialog, windowNow } from './io.ts'
+import { locked, personDialog, readText, windowNow, writeFile } from './io.ts'
 import { getView, listGoes, readRegistry, updateTable } from './store.ts'
 import { usageFlush, usageRead } from './usage.ts'
 import { mem, staleView } from './mem.ts'
@@ -165,4 +165,38 @@ test('a go that ended an hour ago is removed when the goes are listed; a live on
   f.h.dirs.add(`${V2}/go`)
   assert.deepEqual((await listGoes(f.$)).map((g) => g.id).sort(), ['live', 'new1'])
   assert.equal(f.h.files.has(`${V2}/go/old1.json`), false)
+})
+test('two registry rows of one session id are a doubtful reading; a registry entry that is not a plain file is not read', async () => {
+  const f = fake()
+  f.seed({ sid: 'sid-me', pid: 10 })
+  f.seed({ sid: 'sid-me', pid: 11 })
+  assert.equal(await readRegistry(f.$, 'sid-me'), 'unknown')
+  const g = fake()
+  g.seed({ sid: 'sid-me', pid: 10 })
+  g.seed({ sid: 'sid-a', pid: 11 })
+  g.h.kinds.set(`${HOME}/.claude/sessions/11.json`, 'fifo')
+  const reg = await readRegistry(g.$, 'sid-me')
+  assert.ok(reg !== 'unknown')
+  assert.deepEqual(reg.map((r) => r.sid), ['sid-me'])
+})
+test('a file that is not a plain one is neither read nor written over', async () => {
+  const f = fake()
+  f.h.files.set(`${V2}/config.json`, '{}')
+  f.h.kinds.set(`${V2}/config.json`, 'fifo')
+  assert.equal(await readText(f.$, `${V2}/config.json`), undefined)
+  assert.equal(await writeFile(f.$, `${V2}/config.json`, '{"a":1}'), false)
+  f.h.dirs.add(`${V2}/unattended.json`)
+  f.h.kinds.set(`${V2}/unattended.json`, 'dir')
+  assert.equal(await writeFile(f.$, `${V2}/unattended.json`, '{}'), false)
+  const ok = fake()
+  assert.equal(await writeFile(ok.$, `${V2}/x.json`, '{}'), true)
+  assert.ok(ok.h.runs.some((r) => r.argv[0] === '/bin/chmod' && r.argv[1] === '600'))
+})
+test('personDialog reads the window anew: a window turned on within the 10 s a reading is kept still refuses', async () => {
+  const f = fake()
+  const spec = goDialog('me', 'work', 'later')
+  assert.equal((await windowNow(f.$)).state, 'off')
+  f.h.files.set(`${V2}/unattended.json`, JSON.stringify({ start: T0, end: T0 + 60 * MIN, readAt: T0 }))
+  assert.deepEqual(await personDialog(f.$, spec), { no: 'unattended' })
+  assert.equal(f.h.asked.length, 0)
 })

@@ -57,7 +57,7 @@ function lineOf(v: View, n: Notice, now: number): string | undefined {
   const name = nameOf(v, n.about)
   const reg = v.rows === 'unknown' ? undefined : v.rows.get(n.about)
   if (n.kind === 'done' || n.kind === 'gone') return say({ msg: `event.${n.kind}`, p: { name } })
-  if (n.kind === 'waiting') return say({ msg: 'event.waiting', p: { name, why: reg?.waitingFor ?? '' } })
+  if (n.kind === 'waiting') return say({ msg: 'event.waiting', p: { name, why: (reg?.waitingFor ?? '').slice(0, 80) } })
   if (n.kind === 'quiet') return say({ msg: 'event.quiet', p: { name, minutes: Math.floor((now - (reg?.statusAt ?? now)) / 60_000) } })
   return n.kind === 'report' ? say({ msg: 'event.report', p: { name, code: n.code ?? '' } }) : undefined
 }
@@ -110,7 +110,8 @@ async function signedTick($: any, v: View, me: Sid, now: number): Promise<void> 
     [me, ...(capability(v, me) === 'none' ? [] : children(v, me))].map(async (k) => {
       const r = v.table[k]
       if (r?.report === undefined || !r.report.startsWith(`${r.folder}/.archive/`) || r.report.includes('..')) return
-      const size = ((await $.fs.stat(r.report).catch(() => undefined)) as { size: number } | undefined)?.size
+      const st = (await $.fs.stat(r.report).catch(() => undefined)) as { size: number; kind?: string } | undefined
+      const size = st?.kind === 'file' ? st.size : undefined
       const t = size === undefined ? undefined : await $.fs.read(r.report, { offset: Math.max(0, size - 1024), length: 1024 }).catch(() => undefined)
       if (typeof t === 'string' && signedBy(t, k)) set.add(k)
     }),
