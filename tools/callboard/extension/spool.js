@@ -164,7 +164,7 @@ async function readLeadStores(dir, { uid = process.getuid(), home = os.homedir()
       return false
     })
     if (bad) continue
-    for (const l of j.leads) out.push({ name: l.name, folder: j.repo, repo: j.repo, store: n, ...(l.sid !== undefined ? { sid: l.sid } : {}), ...(l.parked !== undefined ? { parked: l.parked } : {}) })
+    for (const l of j.leads) out.push({ name: l.name, folder: j.repo, repo: j.repo, store: n, conductorSid: l.conductorSid, ...(l.sid !== undefined ? { sid: l.sid } : {}), ...(l.parked !== undefined ? { parked: l.parked } : {}) })
   }
   return out
 }
@@ -174,7 +174,7 @@ async function allLeads({ recordDir, uid, home } = {}) {
   const leads = await readLeadStores(recordDir, { uid, home })
   const files = new Map()
   for (const l of leads) files.set(l.name.toUpperCase(), new Set([...(files.get(l.name.toUpperCase()) ?? []), l.store]))
-  return leads.filter((l) => files.get(l.name.toUpperCase()).size === 1).map((l) => ({ name: l.name, folder: l.folder, repo: l.repo, lead: true, ...(l.sid !== undefined ? { sid: l.sid } : {}), ...(l.parked !== undefined ? { parked: l.parked } : {}) }))
+  return leads.filter((l) => files.get(l.name.toUpperCase()).size === 1).map((l) => ({ name: l.name, folder: l.folder, repo: l.repo, lead: true, conductorSid: l.conductorSid, ...(l.sid !== undefined ? { sid: l.sid } : {}), ...(l.parked !== undefined ? { parked: l.parked } : {}) }))
 }
 
 function createSpool({ dir, uid = process.getuid(), home = os.homedir(), loadLanes, loadLeads = async () => [], openLane, openLead = openLane, closeLane, reopenLane, workspaceFolders, liveInRepo, now = Date.now }) {

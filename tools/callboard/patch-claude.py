@@ -7,7 +7,7 @@
         unpatched-patchable      every anchor was found exactly once: --apply would patch it
         anchors-missing <names>  an update moved the code the patch hooks into (a name is missing or matches twice): --apply refuses
       --apply: patch extension.js, keep the original beside it as extension.js.callboard-orig and write callboard-cwd-patch.json
-      (the marker callboard's panels extension reads; its "look" field says whether the panel look below went in). Patched already: says so and stops. A window reload (Developer: Reload
+      (the marker callboard's panels extension reads; its "look" and "groups" fields say whether the panel look and the group command below went in). Patched already: says so and stops. A window reload (Developer: Reload
       Window) loads it.
       --undo: put the original back from the backup and remove the backup and the marker.
 
@@ -17,8 +17,9 @@ new panel instead of the window's first folder, when it is one of the window's f
 opens nothing; a bare call (the palette, Open, an @-mention), a resume and a one-folder window never ask. The panel look (LOOK_CSS below, a style block added to the webview page the extension builds) lets the composer and its permission box use the panel's
 width and keeps the Remote Control chip icon-only. Each anchor is a pattern that tolerates renamed minified
 identifiers, and the file is written only when every anchor matches exactly once: otherwise nothing changes and the missing ones
-are named. The one optional piece, the panel look, is separate: its style block goes in when its one anchor matches exactly once; when it
-does not, a warning line says so and the folder patch still applies. There is no half patch: a failure after the file was replaced puts the backup back. An update of the extension is a new
+are named. Two optional pieces are separate: the panel look, whose style block goes in when its one anchor matches exactly once, and the group
+command (GROUPS_ANCHOR below), which registers `callboard assign group` (session id, group name) so callboard's panels extension can put a lead, lane or conductor
+session in the sidebar's Lead, Lanes or Conductor group; when an optional anchor does not match, a warning line says so and the folder patch still applies. There is no half patch: a failure after the file was replaced puts the backup back. An update of the extension is a new
 folder, so it starts unpatched and this runs again. It never uses the network, runs nothing else, works only inside EXTENSION_DIR
 and changes no setting. Run it as your user: it refuses root. Tests: /usr/bin/python3 -I tools/callboard/test_patch_claude.py
 Exit codes: 0 done or nothing to do (patched, patchable), 1 refused or anchors missing, 2 usage.
@@ -89,6 +90,33 @@ def look_problem(raw):
     if n != 1:
         return "look anchor (%s)" % ("no match" if n == 0 else "%d matches" % n)
     return "the file already contains %s" % LOOK_ID.decode() if LOOK_ID in raw else None
+
+
+# The group command's anchor: the registration of the stock command that adds the active tab to a group, which sits inside an `x.subscriptions.push(...)` call
+# of the extension's activation. Our registration goes in front of it as one more argument of that push. Optional, like the look.
+GROUPS_ANCHOR = rb'(?P<vs>ID)\.commands\.registerCommand\("claude-vscode\.addSessionTabToGroup",async\(\)=>\{if\(!await (?P<prov>ID)\.addActiveSessionTabToGroup\(\)\)'.replace(b"ID", ID)
+GROUPS_COMMAND = "callboard assign group"
+
+
+def groups_command(m):
+    """`callboard assign group` (session id, group name): in the window's group list (the provider's own settings, which are keyed by the window's first folder)
+    find the group by name in any letter case, create it when there is none, add the session to it unless it already sits in some group, and save through the
+    provider, which also tells the open sidebars. Returns true when it added the session. Uses only members the extension keeps unminified."""
+    p = m.group("prov")
+    return (m.group("vs") + b'.commands.registerCommand("' + GROUPS_COMMAND.encode() + b'",async(cbqS,cbqN)=>{'
+            b'if(typeof cbqS!="string"||typeof cbqN!="string"||!cbqN)return!1;let cbqG=' + p + b".settings.getSessionGroups();"
+            b"if(cbqG.some((cbqE)=>cbqE.sessionIds.includes(cbqS)))return!1;"
+            b"let cbqL=cbqN.toLowerCase(),cbqT=cbqG.find((cbqE)=>cbqE.name.toLowerCase()===cbqL);"
+            + p + b".persistGroupsFromHost(cbqT?cbqG.map((cbqE)=>cbqE===cbqT?{...cbqE,sessionIds:[...cbqE.sessionIds,cbqS]}:cbqE)"
+            b':[...cbqG,{id:require("crypto").randomUUID(),name:cbqN,collapsed:!1,sessionIds:[cbqS]}]);return!0}),' + m.group(0))
+
+
+def groups_problem(raw):
+    """Why the group command cannot go in (None when it can): its anchor does not match exactly once, or the file already has it."""
+    n = len(re.findall(GROUPS_ANCHOR, raw))
+    if n != 1:
+        return "groups anchor (%s)" % ("no match" if n == 0 else "%d matches" % n)
+    return "the file already contains %s" % GROUPS_COMMAND if GROUPS_COMMAND.encode() in raw else None
 
 
 def pick(sid, opt):
@@ -188,15 +216,19 @@ def problems(raw):
 
 
 def patched(raw):
-    """(the patched bytes, whether the panel look went in). Every anchor is replaced on these very bytes and must match exactly once, else nothing is
-    written; the look is the one anchor that may miss."""
+    """(the patched bytes, whether the panel look went in, whether the group command went in). Every anchor is replaced on these very bytes and must match
+    exactly once, else nothing is written; the two optional pieces may miss."""
     for label, pat, rep in ANCHORS:
         raw, n = re.subn(pat, rep, raw)
         if n != 1:
             refuse("%s matched %d times; nothing was changed" % (label, n))
-    if look_problem(raw) is not None:
-        return raw, False
-    return re.sub(LOOK_ANCHOR, look_block, raw), True
+    look = look_problem(raw) is None
+    if look:
+        raw = re.sub(LOOK_ANCHOR, look_block, raw)
+    groups = groups_problem(raw) is None
+    if groups:
+        raw = re.sub(GROUPS_ANCHOR, groups_command, raw)
+    return raw, look, groups
 
 
 def state(ext):
@@ -228,14 +260,14 @@ def apply(ext):
         return 1
     main = os.path.join(ext, MAIN)
     raw = read(main)
-    new, look = patched(raw)
+    new, look, groups = patched(raw)
     mode = os.stat(main).st_mode & 0o777
     backup = os.path.join(ext, BACKUP)
     try:
         # A hard link costs no space, and the patched file is a new inode, so the backup keeps the original.
         os.link(main, backup)
         put(main, new, mode)
-        put(os.path.join(ext, MARKER), json.dumps({"patch": PATCH, "version": ver, "look": look, "original_sha256": digest(raw), "patched_sha256": digest(new)}).encode() + b"\n", 0o644)
+        put(os.path.join(ext, MARKER), json.dumps({"patch": PATCH, "version": ver, "look": look, "groups": groups, "original_sha256": digest(raw), "patched_sha256": digest(new)}).encode() + b"\n", 0o644)
         if read(main) != new:
             raise OSError("the file read back differs")
     except BaseException as e:
@@ -250,6 +282,8 @@ def apply(ext):
     print("Changed: %s (backup: %s, marker: %s, all in %s)" % (MAIN, BACKUP, MARKER, show(ext)))
     if not look:
         print("warning: the panel look is not in (%s); the folder patch is." % look_problem(raw))
+    if not groups:
+        print("warning: the group command is not in (%s); the folder patch is." % groups_problem(raw))
     print("Reload the VS Code window (Developer: Reload Window) to load it. Undo: run this with --undo.")
     return 0
 
@@ -297,8 +331,13 @@ def main(argv):
     miss = look_problem(read(os.path.join(ext, MAIN))) if name == "unpatched-patchable" else None
     if miss:
         print("warning: the panel look would be left out (%s); the folder patch would still apply." % miss)
+    miss = groups_problem(read(os.path.join(ext, MAIN))) if name == "unpatched-patchable" else None
+    if miss:
+        print("warning: the group command would be left out (%s); the folder patch would still apply." % miss)
     if name == "patched" and marker_of(ext).get("look") is not True:
         print("warning: the panel look is not in this patch.")
+    if name == "patched" and marker_of(ext).get("groups") is not True:
+        print("warning: the group command is not in this patch: undo, then apply, brings it in.")
     if name == "leftovers":
         print("A backup or marker from an earlier run is here and does not match the file: run --undo.")
     return 1 if name in ("anchors-missing", "leftovers") else 0
