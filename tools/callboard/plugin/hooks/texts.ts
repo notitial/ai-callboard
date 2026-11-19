@@ -85,10 +85,10 @@ const RULE: Record<RefuseCode, (p: Params['refuse.bad-input']) => string> = {
   'go-declined': () => 'the person declined.',
   'stop-declined': () => 'the person did not confirm the force stop.',
   'signal-failed': () => 'the signal to the session did not go; it may already be gone. Check lane_list.',
-  'table-unwritten': () => 'the lane table could not be written, so the lane is not recorded as asked. Check lane_list, then call again.',
+  'table-unwritten': (p) => (p.detail === undefined ? 'the lane table could not be written, so the lane is not recorded as asked. Check lane_list, then call again.' : `the window opened session ${esc(p.detail)} but the lane table could not take it. Do not call lane_open again; lane_adopt that session once it has a name.`),
   'window-refused': (p) => `the window refused (${esc(p.detail ?? 'no code')}). If a panel is already open in that folder, lane_start it first; otherwise tell the person. Calling again does not change it.`,
   'cue-held': () => 'the lane is in a turn. Try once more in a moment.',
-  'cue-refused': (p) => `the lane refused${p.detail === undefined ? '' : ` (${esc(p.detail)})`}.`,
+  'cue-refused': (p) => (p.detail === 'no-answer' ? 'the lane did not answer in 20 seconds. It may still act on the cue: do not repeat the call; check lane_list.' : `the lane refused${p.detail === undefined ? '' : ` (${esc(p.detail)})`}.`),
   'cue-stale': () => 'the cue was too old. Send it again.',
 }
 const refuse = (code: RefuseCode): ((p: Params['refuse.bad-input']) => string) => (p) =>
@@ -239,7 +239,7 @@ const fixed: { [K in keyof Fixed]: (p: Fixed[K]) => string } = {
 
   'lane.cued': (p) => `${q(p.name)} accepted ${p.verb}.`,
   'lane.stopped': (p) => {
-    if (p.outcome === 'alive') return `${q(p.name)} got the signal${p.pid === undefined ? '' : ` (pid ${p.pid})`} and is still running. Call lane_${p.verb} again in a moment.`
+    if (p.outcome === 'alive') return `${q(p.name)} got the signal${p.pid === undefined ? '' : ` (pid ${p.pid})`} and is still running.${p.verb === 'park' ? ' It is marked parked and ends when the signal lands.' : ` Call lane_${p.verb} again in a moment.`}`
     return p.verb === 'park' ? `${q(p.name)} is parked. lane_unpark reopens it.` : p.verb === 'retire' ? `${q(p.name)} is retired and its row removed.` : `${q(p.name)} was force stopped and its row removed.`
   },
   'lane.unparked': (p) => `${q(p.name)} is reopened as session ${q(p.sid)}. Call lane_resume.`,

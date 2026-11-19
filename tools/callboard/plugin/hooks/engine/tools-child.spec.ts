@@ -8,6 +8,7 @@ import { mem } from './mem.ts'
 import { prClaim, prTick, prWatchCall } from './pr.ts'
 import { getView } from './store.ts'
 import { sessionStart } from './tick.ts'
+import { turnComplete } from './upkeep.ts'
 import { cueVerbCall, laneAdoptCall, laneCreateCall, laneListCall, laneOpenCall, laneUnparkCall, stopVerbCall } from './tools-child.ts'
 
 type F = ReturnType<typeof fake>
@@ -224,14 +225,15 @@ test('park, resume and retire by a parent open no dialog; a stop needs the lane 
   assert.match(text(await stopVerbCall(busy.$, { lane: 'kid' }, next, 'park')), /not idle yet/)
 })
 
-test('a stop that the process outlives says so and changes no row; a failed signal is refused', async () => {
+test('a park is recorded before the signal: kept when the process outlives the wait, cleared when the signal fails; a session with no row cannot be parked', async () => {
   const f = world()
   killer(f, false)
-  assert.match(text(await stopVerbCall(f.$, { lane: 'kid' }, next, 'park')), /still running/)
-  assert.equal(table(f)['sid-kid'].parked, undefined)
+  assert.match(text(await stopVerbCall(f.$, { lane: 'kid' }, next, 'park')), /still running\. It is marked parked/)
+  assert.equal(table(f)['sid-kid'].parked, T0)
   const g = world()
   g.$.process.run = async (argv: string[]) => (argv[0] === '/bin/kill' ? { exitCode: 1, stdout: '', stderr: '' } : { exitCode: 0, stdout: g.h.ps, stderr: '' })
   assert.match(text(await stopVerbCall(g.$, { lane: 'kid' }, next, 'park')), /signal to the session did not go/)
+  assert.equal(table(g)['sid-kid'].parked, undefined)
 })
 
 test('a force stop always opens the person\'s dialog and needs his Yes; it is refused while a window is on and then opens none', async () => {
@@ -341,10 +343,10 @@ test('a window that names a session which already has a row does not overwrite i
   const f = world()
   await laneCreateCall(f.$, { name: 'NEW', folder: '/w/repo/new', brief: 'b' }, next)
   window(f, () => ({ ok: true, sid: 'sid-kid' }))
-  assert.match(text(await laneOpenCall(f.$, { lane: 'NEW' }, next)), /lane table could not be written/)
+  assert.match(text(await laneOpenCall(f.$, { lane: 'NEW' }, next)), /window opened session `?sid-kid`? but the lane table could not take it\. Do not call lane_open again/)
   assert.equal(table(f)['sid-kid'].name, 'kid')
   assert.ok(table(f)['new:NEW'])
-  assert.match(text(await cueVerbCall(f.$, { lane: 'kid' }, next, 'resume')), /the lane refused \(no-answer\)/)
+  assert.match(text(await cueVerbCall(f.$, { lane: 'kid' }, next, 'resume')), /did not answer in 20 seconds\. It may still act on the cue: do not repeat/)
   const g = world()
   g.table({ ...table(g), 'sid-kid': { name: 'kid', folder: '/w/repo/kid', under: 'sid-me' } })
   g.h.files.set(`${V2}/cue/sid-kid.json`, JSON.stringify({ id: 'abcdefgh1234', verb: 'start', from: 'sid-me', at: T0, name: 'kid', brief: '/etc/passwd' }))
@@ -352,6 +354,27 @@ test('a window that names a session which already has a row does not overwrite i
   await cueTick(g.$, 'sid-kid', await getView(g.$, true), T0)
   assert.deepEqual(JSON.parse(g.h.files.get(`${V2}/result/abcdefgh1234.json`)!), { id: 'abcdefgh1234', outcome: 'refused', code: 'no-brief' })
   assert.equal(g.h.submitted.length, 0)
+})
+
+test('one tick submits one text: a start cue taken in a tick leaves a due compaction nudge for the next', async () => {
+  const f = world()
+  f.h.usage = { context: { tokens: 320_000 } }
+  f.$.prompt.submit = async ({ text }: { text: string }) => void f.h.submitted.push(text)
+  f.h.sid = 'sid-kid'
+  mem.view = undefined
+  await sessionStart(f.$, {}, next)
+  await turnComplete(f.$, { reason: 'answer' }, next)
+  f.h.files.set(`${V2}/cue/sid-kid.json`, JSON.stringify({ id: 'abcdefgh1234', verb: 'start', from: 'sid-me', at: T0, name: 'kid' }))
+  f.h.now += 31_000
+  await tick(f)
+  assert.equal(f.h.submitted.length, 1)
+  assert.match(f.h.submitted[0]!, /You are lane `kid`/)
+  f.seed({ sid: 'sid-kid', pid: 20, name: 'kid', cwd: '/w/repo/kid', kind: 'interactive', status: 'idle', statusUpdatedAt: f.h.now - 2 * MIN })
+  mem.view = undefined
+  f.h.now += 31_000
+  await tick(f)
+  assert.equal(f.h.submitted.length, 2)
+  assert.match(f.h.submitted[1]!, /300k/)
 })
 
 test('adopting a lane of a gone lead keeps its report path and brief; a force stop of a row with no live session still asks the person', async () => {

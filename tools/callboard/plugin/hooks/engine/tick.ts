@@ -174,7 +174,7 @@ async function tick($: any): Promise<void> {
     await step('toasts', async () => toasts($, v, me))
     await step('request', () => requestTick($, me))
     if (mem.submits === start) await step('cue', () => cueTick($, me, v, now))
-    await step('nudge', () => nudgeTick($, me, v))
+    if (mem.submits === start) await step('nudge', () => nudgeTick($, me, v))
     if (mem.submits === start) await step('events', () => eventsTick($, me, v, now))
     await step('asks', () => sweepTick($, v, me, now))
     await step('relay', () => relayTick($, me, v, now))

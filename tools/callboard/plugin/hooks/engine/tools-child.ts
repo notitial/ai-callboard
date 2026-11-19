@@ -71,9 +71,9 @@ async function signal($: any, pid: number, sid: Sid): Promise<'done' | 'alive' |
   }
   return 'alive'
 }
-async function parkRow($: any, key: Sid) {
+async function markParked($: any, key: Sid, on: boolean) {
   const now = await $.clock.now()
-  return updateTable($, (t) => (t[key] === undefined ? t : { ...t, [key]: { ...t[key]!, parked: now } }))
+  return updateTable($, (t) => (t[key] === undefined ? t : { ...t, [key]: { ...t[key]!, parked: on ? now : undefined } }))
 }
 function dropRow($: any, key: Sid) {
   return updateTable($, (t) => (t[key]?.lead === undefined ? Object.fromEntries(Object.entries(t).filter(([k]) => k !== key)) : t))
@@ -95,10 +95,14 @@ export async function stopVerbCall($: any, e: any, _next: any, verb: StopVerb) {
   }
   if (plan.act !== 'stop' && plan.act !== 'remove') return deny(plan)
   const reg = plan.act === 'stop' && v.rows !== 'unknown' ? v.rows.get(key) : undefined
+  if (verb === 'park' && reg !== undefined && (v.table[key] === undefined || !(await markParked($, key, true)))) return deny(refusal('refuse', v.table[key] === undefined ? 'no-such-lane' : 'table-unwritten', { tool, target: name }))
   const outcome = reg === undefined ? 'done' : await signal($, reg.pid, key)
-  if (outcome === 'failed') return deny(refusal('refuse', 'signal-failed', { tool, target: name }))
+  if (outcome === 'failed') {
+    if (verb === 'park') await markParked($, key, false)
+    return deny(refusal('refuse', 'signal-failed', { tool, target: name }))
+  }
   if (reg !== undefined) await spoolSend($, { op: 'close', sid: key, pid: reg.pid, name, folder: reg.folder })
-  if (outcome === 'done' && !(await (verb === 'park' ? parkRow($, key) : dropRow($, key)))) return deny(refusal('refuse', 'table-unwritten', { tool, target: name }))
+  if (outcome === 'done' && verb !== 'park' && !(await dropRow($, key))) return deny(refusal('refuse', 'table-unwritten', { tool, target: name }))
   return { result: say({ msg: 'lane.stopped', p: { verb, name, outcome, ...(reg === undefined ? {} : { pid: reg.pid }) } }) }
 }
 
@@ -110,6 +114,15 @@ function openPlan(v: View, me: Sid, key: Sid, tool: string): Decision<'reopen' |
   const l = key.startsWith(NEW_KEY) ? 'no' : liveness(v, key)
   const bad = row === undefined ? 'no-such-lane' : row.off ? 'is-off' : !mayActOn(v, me, key) ? 'not-a-parent' : l === 'unknown' ? 'unknown-liveness' : l === 'yes' ? 'has-live-session' : capRefusal(v, parent(v, key))
   return bad === undefined ? { act: 'reopen', msg: 'lane.opened', p: { name: nameOf(v, key), sid: key } } : no(bad)
+}
+// The row moves to the session the window answered with; a session that already has a row is never overwritten, and a failed write is tried once more.
+async function bind($: any, key: Sid, sid: Sid): Promise<boolean> {
+  let clash = false
+  for (let i = 0; i < 2 && !clash; i++) {
+    const done = await updateTable($, (t) => (t[key] === undefined || (sid !== key && (clash = t[sid] !== undefined)) ? t : { ...Object.fromEntries(Object.entries(t).filter(([k]) => k !== key)), [sid]: { ...t[key]!, parked: undefined } }))
+    if (done) return !clash
+  }
+  return false
 }
 async function bringUp($: any, e: any, tool: 'lane_open' | 'lane_unpark') {
   const g = await gated($, e, tool)
@@ -123,10 +136,8 @@ async function bringUp($: any, e: any, tool: 'lane_open' | 'lane_unpark') {
   const r = await spool($, fresh ? { op: 'open', folder: row!.folder } : { op: 'reopen', sid: key, folder: row!.folder }, me)
   if (r?.ok === false) return deny(refusal('refuse', 'window-refused', { tool, target: name, detail: r.code }))
   const sid = r?.ok !== true ? undefined : fresh ? r.sid : r.sid === undefined || r.sid === key ? key : undefined
-  let clash = false
-  const bound = sid !== undefined && (await updateTable($, (t) => (t[key] === undefined || (sid !== key && (clash = t[sid] !== undefined)) ? t : { ...Object.fromEntries(Object.entries(t).filter(([k]) => k !== key)), [sid]: { ...t[key]!, parked: undefined } })))
   if (sid === undefined) return { deny: say({ msg: 'lane.notOpened', p: { name } }) }
-  return clash || !bound ? deny(refusal('refuse', 'table-unwritten', { tool, target: name })) : { result: say({ msg: tool === 'lane_open' ? 'lane.opened' : 'lane.unparked', p: { name, sid } }) }
+  return !(await bind($, key, sid)) ? deny(refusal('refuse', 'table-unwritten', { tool, target: name, detail: sid })) : { result: say({ msg: tool === 'lane_open' ? 'lane.opened' : 'lane.unparked', p: { name, sid } }) }
 }
 export async function laneOpenCall($: any, e: any, _next: any) {
   return bringUp($, e, 'lane_open')
