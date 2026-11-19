@@ -74,6 +74,46 @@ refuses to change anything while VS Code runs. Dry run, then apply:
   `settingsSync.ignoredExtensions` by hand, so a removal of an old version isn't synced to another Mac; the script
   changes no setting.
 
+### Optional: one multi-folder window for several repos
+
+Claude Code opens a new panel in a window's first folder, so a lane of another folder needs a window of its own, and
+each window costs about 900 MB plus a webview. `patch-claude.py` patches the installed Claude Code extension so the
+callboard panels extension can ask for a folder, and one multi-folder window then serves all its folders. It is opt-in:
+without it nothing changes. It edits only the Claude Code extension's own folder, and nothing else: no setting and no
+network. Run it as your user, in any terminal, then reload each VS Code window (Command Palette, Developer: Reload
+Window). Check first, then apply:
+
+```
+CHECKOUT='<checkout>'
+EXT_DIR="$(ls -d "$HOME"/.vscode/extensions/anthropic.claude-code-* | sort -V | tail -1)"
+/usr/bin/python3 -I "$CHECKOUT/tools/callboard/patch-claude.py" "$EXT_DIR"
+```
+
+```
+CHECKOUT='<checkout>'
+EXT_DIR="$(ls -d "$HOME"/.vscode/extensions/anthropic.claude-code-* | sort -V | tail -1)"
+/usr/bin/python3 -I "$CHECKOUT/tools/callboard/patch-claude.py" "$EXT_DIR" --apply
+```
+
+To take it out again (the original file comes back from its backup):
+
+```
+CHECKOUT='<checkout>'
+EXT_DIR="$(ls -d "$HOME"/.vscode/extensions/anthropic.claude-code-* | sort -V | tail -1)"
+/usr/bin/python3 -I "$CHECKOUT/tools/callboard/patch-claude.py" "$EXT_DIR" --undo
+```
+
+- The check prints `patched`, `unpatched-patchable` or `anchors-missing` and the extension's version, and changes
+  nothing. `--apply` changes `extension.js` only when every one of its four anchors matches exactly once; otherwise it
+  changes nothing and names the anchor that is missing. It keeps the original as `extension.js.callboard-orig` and writes
+  `callboard-cwd-patch.json` (the marker the panels extension reads), both in the extension's folder. A second run says
+  `already patched`.
+- Claude Code updates about daily, and an update is a new folder that starts unpatched: run the check and `--apply`
+  again, or type `/patch Claude` in a session in this checkout, which does both and, when an update moved the code the
+  patch hooks into, repairs the script in a clone and asks you before it applies the repair.
+- The patch is made for 2.1.327 and 2.1.328. A later version may rename or restructure the code it hooks into; then
+  `anchors-missing` is printed and nothing is touched, and the panels extension keeps its one-repo-per-window behavior.
+
 ### Load it in every session
 
 Add this line to the `env` block of `~/.claude/settings.json`, with `<checkout>` written as an absolute path:
@@ -344,7 +384,7 @@ extension's version is fixed, so the link stays and the reload loads the new cod
 Panels shows the build it loaded (the checkout's commit). Only when `extension/package.json` itself changed
 (`activationEvents`, `engines`, `extensionDependencies`, `main`) is the version bumped, because VS Code caches the
 manifest: then quit VS Code (Cmd+Q), merge as above, run `link-extension.py --apply` in a plain Terminal, then reopen
-VS Code. Restart every session, and restart every conductor session before it calls `lead_open`: from extension 1.3.0 the answer to a lead open carries a nonce, which a conductor still on the older mod refuses (the panel opens, but the conductor is told the open failed). Before
+VS Code. After an update of the Claude Code extension itself, run the optional patch again if you use it (above). Restart every session, and restart every conductor session before it calls `lead_open`: from extension 1.3.0 the answer to a lead open carries a nonce, which a conductor still on the older mod refuses (the panel opens, but the conductor is told the open failed). Before
 you turn unattended mode on, restart every session started before the update: a lane and a tier both on older code
 can still relay a prompt to you. For the usage watcher, run its installer again with the new `--ref`.
 

@@ -13,6 +13,7 @@ texts are in the code, and `/callboard help` lists every command. Nothing loads 
 | `mod/` | The Claude Code mod. Pure logic is in `mod/hooks/core.ts` and its siblings; the engine side is in `mod/hooks/engine/` (layout: ADR 0005) |
 | `extension/` | The VS Code extension that opens, reopens and closes lane panels. It has no commands of its own. What it does: [`extension/README.md`](extension/README.md) |
 | `link-extension.py` | Links that extension into VS Code from this checkout, once per machine (Install) |
+| `patch-claude.py` | Optional: patches the installed Claude Code extension so a lane of any folder of a multi-folder window opens there (docs/setup.md; `/patch Claude`). Header comment: usage and exit codes |
 | `prompt-audit.mjs` | Read-only audit of prompt answering, from the machine-wide ledger and the files beside it (it reads no transcript). It runs from this checkout with node 22.18 or later; usage and exit codes are in its header comment |
 | `test.sh` | The test entry point (Tests) |
 
@@ -236,7 +237,8 @@ Developer: Reload Window). Output > Callboard Panels shows the build it loaded. 
 `extension/package.json` needs a version bump: quit VS Code, pull, run the script again, reopen VS Code.
 
 A window answers `lane_open` only when the lane's folder is its first workspace folder, so open further windows from
-inside VS Code (File, New Window).
+inside VS Code (File, New Window). With the optional patch of the Claude Code extension (`patch-claude.py`,
+docs/setup.md) one multi-folder window answers for every one of its folders.
 
 ### Manager setup: keep agents off the list file and the store (by hand)
 
@@ -384,7 +386,7 @@ bash tools/callboard/test.sh
 ```
 
 It runs the core logic tests, the prompt audit tests, the extension tests, `claude plugin validate`,
-`claude plugin test` (the slow part, about 2 minutes) and the `link-extension.py` tests. CI runs all of it.
+`claude plugin test` (the slow part, about 2 minutes) and the `link-extension.py` and `patch-claude.py` tests. CI runs all of it.
 `CALLBOARD_SKIP_MOD_TESTS=1` skips only the mod tests for a quick local run. How the mod tests are written:
 `CLAUDE.md`.
 

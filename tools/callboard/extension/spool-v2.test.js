@@ -57,7 +57,7 @@ test('a reopen reopens that session; an answer for another session id fails', as
   const w = world()
   w.put('r1', { op: 'reopen', sid: SID, folder: FOLDER })
   await w.spool.scan()
-  assert.deepEqual(w.calls, [['reopen', SID, { timeoutMs: 20000 }]])
+  assert.deepEqual(w.calls, [['reopen', SID, { timeoutMs: 20000, folder: FOLDER }]])
   assert.deepEqual(w.result('r1'), { ok: true, sid: SID })
   const x = world({ lanes: { reopen: async () => OTHER } })
   x.put('r2', { op: 'reopen', sid: SID, folder: FOLDER })
@@ -94,6 +94,15 @@ test('a folder that is not exactly the window\'s first folder is not taken (a pa
   for (const [i, folder] of ['/work/repo', '/work/repo/lab/sub', `${FOLDER}/`, '/work/repo/lab/../lab'].entries()) w.put(`f${i}`, { op: 'open', folder })
   assert.deepEqual((await w.spool.scan()).map((x) => x[1]), ['not-mine', 'not-mine', 'not-mine', 'not-mine'])
   assert.equal(w.calls.length, 0)
+})
+
+test('a window that serves several folders takes a request for any of them, and leaves one for a folder it does not serve', async () => {
+  const w = world({ ws: [FOLDER, '/work/repo/other'] })
+  w.put('a1', { op: 'open', folder: '/work/repo/other' })
+  w.put('a2', { op: 'reopen', sid: SID, folder: '/work/repo/other' })
+  w.put('a3', { op: 'open', folder: '/work/elsewhere' })
+  assert.deepEqual(await w.spool.scan(), [['a1', 'done'], ['a2', 'done'], ['a3', 'not-mine']])
+  assert.deepEqual(w.calls, [['open', '/work/repo/other', { timeoutMs: 20000, refuseUnnamed: true }], ['reopen', SID, { timeoutMs: 20000, folder: '/work/repo/other' }]])
 })
 
 test('two windows racing for one request: one handles it, the other loses the claim', async () => {
