@@ -22,11 +22,12 @@ Callboard is then back to one repo per window. This is the person's way out at a
    (`pwd -P`); it must match `^/[A-Za-z0-9._/-]+$` or stop. The folder must contain no single quote or newline, or stop.
 2. **Check and report first.** Run `/usr/bin/python3 -I <checkout>/tools/callboard/patch-claude.py '<folder>'` (single
    quotes; no flag: changes nothing). Tell the person, before anything else: the extension version, whether it is patched
-   (the first word of the output: `patched`, `unpatched-patchable`, `anchors-missing` or `leftovers`) and whether the marker
-   `callboard-cwd-patch.json` is in that folder.
+   (the first word of the output: `patched`, `unpatched-patchable`, `anchors-missing` or `leftovers`), whether the marker
+   `callboard-cwd-patch.json` is in that folder, and, when the output has a `warning:` line, that the panel look (the wider composer and
+   the icon-only Remote Control chip) is not in or would be left out while the folder patch still applies.
 3. **`patched`:** say so and stop. **`unpatched-patchable`:** run the same command with `--apply`, say the version and what
    was changed (`extension.js`, backup `extension.js.callboard-orig`, marker `callboard-cwd-patch.json`, all in that
-   folder), and that each VS Code window needs Developer: Reload Window.
+   folder), whether the panel look went in (a `warning:` line says it did not), and that each VS Code window needs Developer: Reload Window.
 4. **The check or the apply refuses** (`anchors-missing`: an update moved the minified code; nothing was changed): ask once
    with AskUserQuestion whether you may diagnose it and repair the script. Recommend yes. A yes means: read the new
    `extension.js` read-only, change the script's patterns and its test in a /tmp clone, test on a copy of the extension

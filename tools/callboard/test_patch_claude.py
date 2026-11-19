@@ -27,6 +27,12 @@ TEMPLATE = (
     'let{{startedInNewColumn:L,shownInSidebar:N}}=await c.createPanel({a},{b},{c},{d},{e},O.focusInput);if(L)await kS();'
     'if(O.updatePreferredLocationToPanel&&N!==!0)as(n.setPreferredLocation("panel"))}}));'
     'x.push(Wp("claude-vscode.editor.openLast",async()=>{{await rl("claude-vscode.editor.open")}}));'
+    '{html}'
+)
+# The webview page builder, as the extension's host writes it: the stylesheet link, then the font configuration style tag, inside a template literal.
+HTML = (
+    'function Hp(u,S){{return`<!DOCTYPE html>\n      <head>\n        <link href="${{u}}" rel="stylesheet">\n        <style id="claude-font-configuration">\n'
+    '          :root {{\n            --vscode-editor-font-family: ${{S}} !important;\n          }}\n        </style>\n      </head>`}}'
 )
 # Runs a patched stand-in under a fake vscode and prints what the folder rule and the open command did.
 RUNNER = r"""
@@ -66,8 +72,8 @@ V328 = dict(nc="$v", vs="Pe", a="w", b="T", c="C", d="A", e="k", f="z")
 PKG = {"name": "claude-code", "publisher": "Anthropic", "version": "2.1.328"}
 
 
-def build(variant):
-    return TEMPLATE.format(**variant).encode("utf-8")
+def build(variant, html=HTML):
+    return TEMPLATE.format(html=html.format(), **variant).encode("utf-8")
 
 
 def slurp(path):
@@ -238,7 +244,7 @@ class Apply(Case):
     def test_every_anchor_must_match_once_on_the_bytes_that_are_written(self):
         mod = load_module()
         raw = build(V327)
-        self.assertEqual(mod.patched(raw).count(b"cbCwd"), 5)
+        self.assertEqual(mod.patched(raw)[0].count(b"cbCwd"), 5)
         doubled = raw + raw[raw.index(b"x.push(Wp("):raw.index(b'x.push(Wp("claude-vscode.editor.openLast')]
         with self.assertRaises(SystemExit):
             mod.patched(doubled)
@@ -278,6 +284,101 @@ class Apply(Case):
         os.unlink(os.path.join(self.ext, "extension.js.callboard-orig"))
         self.assertUnchanged(self.ext, "--undo")
         self.assertEqual(self.rc, 1)
+
+
+# Runs the page builder of a patched stand-in and prints the page it returns.
+PAGE = r"""
+const vm = require('vm'), fs = require('fs')
+const ctx = vm.createContext({ require: () => ({}), x: [], Wp: () => {}, F: () => ({}) })
+vm.runInContext(fs.readFileSync(process.argv[1], 'utf8') + ';globalThis.Hp=Hp', ctx)
+console.log(JSON.stringify(ctx.Hp('/a.css', 'mono')))
+"""
+
+
+class Look(Case):
+    """The panel look is one optional style block in the webview page; the folder patch never depends on it."""
+
+    def applied(self, raw, name="look"):
+        ext = self.make(V327, name=name, raw=raw)
+        self.run_script(ext, "--apply")
+        return ext, json.loads(slurp(os.path.join(ext, "callboard-cwd-patch.json")))
+
+    def test_the_block_goes_between_the_stylesheet_and_the_font_tag_once(self):
+        mod = load_module()
+        ext, marker = self.applied(build(V327))
+        self.assertEqual((self.rc, marker["look"]), (0, True))
+        self.assertEqual(self.out.count("warning"), 0)
+        new = self.js(ext).decode("utf-8")
+        self.assertEqual(new.count('<style id="callboard-look">'), 1)
+        self.assertIn('rel="stylesheet">\n        <style id="callboard-look">' + mod.LOOK_CSS + '</style>\n        <style id="claude-font-configuration">', new)
+
+    def test_the_css_is_safe_inside_a_template_literal_and_covers_the_three_things(self):
+        mod = load_module()
+        for bad in ("`", "\\", "${"):
+            self.assertNotIn(bad, mod.LOOK_CSS)
+        for part in ('inputWrapper_', 'permissionsContainer_', 'inputContainer_', 'max-width:none', '[aria-label="Remote Control"] svg{display:block', '[aria-label="Remote Control"] span{display:none'):
+            self.assertIn(part, mod.LOOK_CSS)
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_the_patched_page_builder_still_runs_and_carries_the_block(self):
+        mod = load_module()
+        ext, _ = self.applied(build(V327), name="page")
+        p = subprocess.run(["node", "-e", PAGE, os.path.join(ext, "extension.js")], capture_output=True, text=True, timeout=60)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        page = json.loads(p.stdout)
+        self.assertIn('<link href="/a.css" rel="stylesheet">', page)
+        self.assertIn(mod.LOOK_CSS, page)
+        self.assertIn("--vscode-editor-font-family: mono", page)
+
+    def test_a_renamed_expression_and_other_whitespace_still_match(self):
+        html = HTML.replace("${{u}}", "${{n.cssUri}}").replace('rel="stylesheet">\n        <style', 'rel="stylesheet"><style')
+        ext, marker = self.applied(build(V327, html), name="tol")
+        self.assertEqual((self.rc, marker["look"]), (0, True))
+        self.assertIn(b'rel="stylesheet"><style id="callboard-look">', self.js(ext))
+
+    def test_a_missing_look_anchor_costs_only_the_look(self):
+        misses = {
+            "no builder": "",
+            "no font tag": HTML.replace("claude-font-configuration", "font-config"),
+            "link after the tag": HTML.replace('<link href="${{u}}" rel="stylesheet">', '<link rel="stylesheet" href="${{u}}">'),
+            "two builders": HTML + HTML.replace("Hp", "Hq"),
+        }
+        for label, html in misses.items():
+            raw = build(V327, html)
+            ext = self.make(V327, name="miss%d" % len(os.listdir(self.t)), raw=raw)
+            before = snap(ext)
+            self.run_script(ext)
+            self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "unpatched-patchable 2.1.328"), label)
+            self.assertIn("warning: the panel look would be left out (look anchor (", self.out, label)
+            self.assertEqual(snap(ext), before, label)
+            self.run_script(ext, "--apply")
+            self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "patched 2.1.328"), label)
+            self.assertIn("warning: the panel look is not in (look anchor (", self.out, label)
+            new = self.js(ext)
+            self.assertEqual(new.count(b"cbCwd"), 5, label)
+            self.assertNotIn(b"callboard-look", new, label)
+            self.assertEqual(json.loads(slurp(os.path.join(ext, "callboard-cwd-patch.json")))["look"], False, label)
+            self.run_script(ext)
+            self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "patched 2.1.328"), label)
+            self.assertIn("warning: the panel look is not in this patch.", self.out, label)
+            self.run_script(ext, "--undo")
+            self.assertEqual((self.rc, self.js(ext)), (0, raw), label)
+            self.assertEqual(sorted(os.listdir(ext)), ["extension.js", "package.json"], label)
+
+    def test_a_page_that_already_has_the_block_is_left_alone(self):
+        raw = build(V327, HTML.replace("<head>", '<head><style id="callboard-look"></style>'))
+        ext, marker = self.applied(raw, name="have")
+        self.assertEqual((self.rc, marker["look"]), (0, False))
+        self.assertEqual(self.js(ext).count(b"callboard-look"), 1)
+        self.assertIn("the file already contains callboard-look", self.out)
+
+    def test_undo_takes_the_block_out_with_the_rest(self):
+        raw = build(V327)
+        ext, _ = self.applied(raw, name="undo")
+        self.assertIn(b"callboard-look", self.js(ext))
+        self.run_script(ext, "--undo")
+        self.assertEqual((self.rc, self.js(ext)), (0, raw))
+        self.assertEqual(sorted(os.listdir(ext)), ["extension.js", "package.json"])
 
 
 class Refusals(Case):
