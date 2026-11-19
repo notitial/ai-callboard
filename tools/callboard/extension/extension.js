@@ -6,6 +6,7 @@ const path = require('node:path')
 const { buildId } = require('./build.js')
 const { createLanes } = require('./lanes.js')
 const { createSpool, allLanes, allLeads } = require('./spool.js')
+const { createSpool: createWindowSpool } = require('./spool-v2.js')
 const { createRegistry } = require('./registry.js')
 const { pidAlive } = require('./reserved.js')
 
@@ -52,6 +53,7 @@ function activate(context) {
     liveInRepo: async (repo) => (await registry.list()).filter(liveIn(repo)).length,
   })
   context.subscriptions.push(spool.start())
+  context.subscriptions.push(createWindowSpool({ dir: path.join(CLAUDE, 'callboard', 'v2', 'open'), lanes, workspaceFolders: primaryFolder, timeoutMs: SPOOL_OPEN_MS }).start())
   const sweep = setInterval(() => lanes.sweep().catch(() => undefined), 2000)
   context.subscriptions.push({ dispose: () => clearInterval(sweep) })
 }

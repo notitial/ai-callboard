@@ -114,8 +114,9 @@ export type Cue = { id: string; verb: CueVerb; from: Sid; at: number; name?: str
 export type CueResult = { id: string; outcome: 'ok' | 'refused' | 'held'; code?: string }
 
 // ---- the window's spool (the extension's requests) ----
+// One JSON file `v2/open/<id>.req` per request, answered in `<id>.result`. A close names the session's name: the window finds the panel's tab by it.
 
-export type SpoolRequest = { op: 'open'; folder: Folder } | { op: 'reopen'; sid: Sid; folder: Folder } | { op: 'close'; sid: Sid; pid: number; folder: Folder }
+export type SpoolRequest = { op: 'open'; folder: Folder } | { op: 'reopen'; sid: Sid; folder: Folder } | { op: 'close'; sid: Sid; pid: number; name: string; folder: Folder }
 export type SpoolReply = { ok: true; sid?: Sid } | { ok: false; code: string }
 
 // ---- goes, the unattended window, the settings ----
