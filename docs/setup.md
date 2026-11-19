@@ -115,8 +115,14 @@ EXT_DIR="$(ls -d "$HOME"/.vscode/extensions/anthropic.claude-code-* | sort -V | 
   (the marker's `look` field says which it was). Its selectors are the one `LOOK_CSS` constant at the top of `patch-claude.py`;
   the side-margin selector is a guess that only a rendered panel confirms, so tune it there after one look, then `--update`.
   `--undo` takes it out with the rest.
-- An install patched by an older version of the script (before the panel look, say) shows `outdated` with a line saying what
-  differs, or the old warning that the look is not in. The check compares the installed file with what the current script
+- The patch also carries a restore fix, optional in the same way (the marker's `restore` field, a warning when an anchor is not
+  found, one `--undo`): a Claude panel that VS Code restores at a window reload, or that Claude Code reopens (Reopen Closed
+  Session), starts in the folder that holds its conversation instead of the window's first folder, so it resumes that
+  conversation. The folder is found from the session's transcript (`projects/<folder>/<session id>.jsonl` under Claude's
+  config folder, from the `CLAUDE_CONFIG_DIR` of the VS Code process, not from the `claudeCode.environmentVariables` setting), as no saved panel state names it. With no transcript yet, a one-folder window, a folder that is a
+  sub-folder of a window folder or a very long path, the panel starts in the first folder as before.
+- An install patched by an older version of the script (before the panel look or the restore fix, say) shows `outdated` with a
+  line saying what differs, or the old warning that a piece is not in. The check compares the installed file with what the current script
   builds from the backup original. `--update` (or `/patch-vs-claude`, which runs it) rebuilds the patch from the backup and
   swaps in `extension.js` and the marker, so no undo and apply by hand is needed; the backup is not touched, and a failed
   write puts the previous patch back. `--undo` stays the way out.
@@ -130,8 +136,9 @@ EXT_DIR="$(ls -d "$HOME"/.vscode/extensions/anthropic.claude-code-* | sort -V | 
   @-mention are bare calls that cannot be told from Claude Code's own internal ones: they never ask and start in the
   first folder. Separately from the patch, the status bar shows the folder of the Claude panel in front, in a window
   with several folders, whenever the panel's session is known by its name.
-- It serves the plugin build's lanes (the old mod keeps one repo per window), and covers only the open command: a tab
-  that Claude Code itself restores at a window reload, or reopens, starts in the window's first folder.
+- It serves the plugin build's lanes (the old mod keeps one repo per window). A tab that Claude Code itself restores or reopens
+  resumes in its conversation's folder through the restore fix; where that fix is not in or finds no transcript, it starts in
+  the window's first folder.
 - The patch is made for 2.1.327 and 2.1.328. A later version may rename or restructure the code it hooks into; then
   `anchors-missing` is printed and nothing is touched, and the panels extension keeps its one-repo-per-window behavior.
 - Nothing depends on it. The marker lives in the Claude extension's own folder, so an update (a new folder) drops the

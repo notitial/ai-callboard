@@ -13,7 +13,7 @@ texts are in the code, and `/callboard help` lists every command. Nothing loads 
 | `mod/` | The Claude Code mod. Pure logic is in `mod/hooks/core.ts` and its siblings; the engine side is in `mod/hooks/engine/` (layout: ADR 0005) |
 | `extension/` | The VS Code extension that opens, reopens and closes lane panels. It has no commands of its own. What it does: [`extension/README.md`](extension/README.md) |
 | `link-extension.py` | Links that extension into VS Code from this checkout, once per machine (Install) |
-| `patch-claude.py` | Optional: patches the installed Claude Code extension so a lane of any folder of a multi-folder window opens there, and widens the composer and keeps the Remote Control chip icon-only (docs/setup.md; `/patch-vs-claude`). Header comment: usage and exit codes |
+| `patch-claude.py` | Optional: patches the installed Claude Code extension so a lane of any folder of a multi-folder window opens there, widens the composer, keeps the Remote Control chip icon-only, and makes a restored or reopened panel resume in its conversation's folder (docs/setup.md; `/patch-vs-claude`). Header comment: usage and exit codes |
 | `prompt-audit.mjs` | Read-only audit of prompt answering, from the machine-wide ledger and the files beside it (it reads no transcript). It runs from this checkout with node 22.18 or later; usage and exit codes are in its header comment |
 | `test.sh` | The test entry point (Tests) |
 
