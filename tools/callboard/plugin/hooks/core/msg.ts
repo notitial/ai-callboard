@@ -145,6 +145,9 @@ export type Fixed = {
   'cmd.configSet': { key: keyof Config; value: string }
   'cmd.configReset': E
   'cmd.rest': E
+  // The notice turn after his own step in this session: a typed /callboard command that changed something, or his click on the go dialog.
+  'cmd.told': { result: string }
+  'go.clicked': { outcome: 'given' | 'declined' | 'unsaved' }
 
   // Dialogs: the go, the force stop and the relay pop-up, each as header and question, and their buttons.
   'dialog.go.header': E

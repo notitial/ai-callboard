@@ -19,6 +19,7 @@ import { giveParentTools } from './tick.ts'
 import { usageRead } from './usage.ts'
 
 const TYPED_ORIGINS = ['composer', 'bridge']
+const CHANGES: string[] = ['lead', 'lead-off', 'off', 'on', 'go', 'go-off', 'unattended']
 // A command is typed when the engine stamped its origin as one of his own typed turns; any other origin, or none, is not.
 const originOf = (e: any): Origin => (TYPED_ORIGINS.includes(e?.origin?.kind) ? 'typed' : 'other')
 const person = (v: View, s: Sid | 'unknown' | null): string | null => (s === null ? null : s === 'unknown' ? 'unknown' : s === PERSON ? PERSON : nameOf(v, s))
@@ -109,7 +110,10 @@ export async function commandRun($: any, e: any) {
   const now = await $.clock.now()
   const plan = planCommand(typeof e?.args === 'string' ? e.args : '', originOf(e), now)
   if (plan.act === 'refuse') return { text: say(plan) }
-  return { text: await perform($, plan.cmd, (await $.session.id()) as Sid, await getView($, true), now) }
+  const text = await perform($, plan.cmd, (await $.session.id()) as Sid, await getView($, true), now)
+  // His typed step that changed this session's role, goes or window gives it a turn, so he need not type "done". A read sends nothing.
+  if (originOf(e) === 'typed' && CHANGES.includes(plan.cmd.op) && !(plan.cmd.op === 'unattended' && plan.cmd.span.op === 'state')) mem.owed.push(T['cmd.told']({ result: text }))
+  return { text }
 }
 
 // ---- the typeahead and the briefing ----

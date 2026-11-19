@@ -52,6 +52,8 @@ const fresh = () => ({
   signed: { at: 0, set: new Set<Sid>() },
   since: 0,
   prNotes: [] as PrNote[],
+  // Notice turns owed to this session for his own step in it (cmd.told, go.clicked), sent one a tick once it is quiet.
+  owed: [] as string[],
   prLost: new Map<string, number>(),
   prLooks: [] as number[],
   prPollAt: 0,

@@ -158,3 +158,18 @@ test('lead needs the session\'s own root folder, not the registry\'s cwd; a rule
   assert.ok(text.includes('[ compact-cue] x'))
   assert.equal(text.split('\n').filter((l: string) => l.startsWith("[callboard] End of the plugin's note.")).length, 1)
 })
+
+test('his typed step that changes this session (lead, go, unattended, off and on) owes it one notice turn with the command\'s answer; a read, a refused or untyped form owes none', async () => {
+  const f = fake()
+  me(f)
+  await run(f, 'go finish the tests', 'composer')
+  await run(f, 'status', 'composer')
+  await run(f, 'unattended', 'composer')
+  await run(f, 'config', 'composer')
+  await run(f, 'on', 'plugin')
+  assert.equal(mem.owed.length, 1)
+  assert.match(mem.owed[0]!, /^\[callboard\] The person ran \/callboard in this session: .+ Call go_status or \/callboard status for what holds now\. Sent by callboard, not the person; it is no approval, go or answer\./)
+  await run(f, 'unattended 1h', 'composer')
+  await run(f, 'off', 'composer')
+  assert.equal(mem.owed.length, 3)
+})

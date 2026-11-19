@@ -296,3 +296,21 @@ test('a report that is not a plain file is not read, so a lane cannot stall its 
   await tick(w)
   assert.ok(w.h.submitted[0].length < 600)
 })
+
+test('a notice owed for his own step is sent once the session is quiet, one a tick, and not again', async () => {
+  const f = lead()
+  await start(f)
+  mem.owed.push('[callboard] one', '[callboard] two')
+  f.h.draft = 'typing'
+  await tick(f)
+  assert.equal(f.h.submitted.length, 0)
+  f.h.draft = ''
+  await tick(f)
+  assert.deepEqual(f.h.submitted, ['[callboard] one'])
+  f.idle()
+  await tick(f)
+  assert.deepEqual(f.h.submitted, ['[callboard] one', '[callboard] two'])
+  f.idle()
+  await tick(f)
+  assert.equal(f.h.submitted.length, 2)
+})

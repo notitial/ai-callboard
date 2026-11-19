@@ -279,6 +279,8 @@ const fixed: { [K in keyof Fixed]: (p: Fixed[K]) => string } = {
   'cmd.config': (p) => `**Callboard settings**\n\n| Setting | Value |\n|---|---|\n| Keepalive | ${onOff(p.cfg.keepalive)} |\n| Ping after | ${p.cfg.pingAfterMin} min |\n| Stop after | ${p.cfg.stopAfterH} h |\n| Idle level | ${p.cfg.idleK}k |\n| Working level | ${p.cfg.workingK}k |`,
   'cmd.configSet': (p) => `Callboard setting changed: ${p.key} ${esc(p.value)}. It applies to every session on this Mac within a minute.`,
   'cmd.configReset': () => 'Callboard settings are back to the defaults. They apply to every session on this Mac within a minute.',
+  'cmd.told': (p) => `[callboard] The person ran /callboard in this session: ${p.result} Call go_status or /callboard status for what holds now. ${SENT} ${NEVER}`,
+  'go.clicked': (p) => `[callboard] The person ${p.outcome === 'given' ? 'gave the go you asked for; call go_status to read it' : p.outcome === 'declined' ? 'declined the go you asked for' : 'said yes to the go you asked for, but it could not be saved, so there is none; ask again'}. ${SENT} ${NEVER}`,
   'cmd.rest': () => 'Rest set for this session: no more keepalive pings in this idle gap, so its prompt cache will expire. The next real turn turns pings back on. A PR notice still wakes it.',
 
   'dialog.go.header': () => 'Go request',

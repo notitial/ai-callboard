@@ -95,6 +95,10 @@ async function prNoticeTick($: any, me: Sid): Promise<void> {
   const c = prClaim()
   if (c !== undefined) await submitOwn($, c.text, false).catch(() => c.undo())
 }
+async function owedTick($: any, me: Sid): Promise<void> {
+  const text = mem.owed[0]
+  if (text !== undefined && (await quiet($, me))) await submitOwn($, text, false).then(() => void mem.owed.shift(), () => undefined)
+}
 // A report about a session whose parent is the person is a toast; the manager is never told of one.
 function toasts($: any, v: View, me: Sid): void {
   const once = (key: string, text: string) => (mem.toasted.has(key) ? undefined : (mem.toasted.add(key), toast($, text)))
@@ -172,6 +176,7 @@ async function tick($: any): Promise<void> {
     await step('relay', () => relayTick($, me, v, now))
     await step('pr-poll', () => prTick($, me, v))
     if (mem.submits === start) await step('pr-notice', () => prNoticeTick($, me))
+    if (mem.submits === start) await step('owed', () => owedTick($, me))
     await step('keepalive', () => keepaliveTick($, me, v, start))
     await step('usage', () => usageFlush($, me))
   } finally {

@@ -136,3 +136,17 @@ test('go_status reports a go only while the protected-paths guard is in place, a
   mem.guard = undefined
   assert.match((await call(lead, goStatusCall)).result!, /guard/)
 })
+
+test('his click on the go dialog owes the session that asked one notice: given (read go_status) or declined', async () => {
+  const { lead } = world()
+  const settle = async () => { for (let i = 0; i < 20; i++) await new Promise((r) => setImmediate(r)) }
+  lead.h.askAnswer = async () => 'No'
+  await call(lead, goRequestCall, { text: 'Build the ask tools' })
+  await settle()
+  lead.h.askAnswer = async () => 'Yes'
+  await call(lead, goRequestCall, { text: 'Build the ask tools' })
+  await settle()
+  assert.equal(mem.owed.length, 2)
+  assert.match(mem.owed[0]!, /^\[callboard\] The person declined the go you asked for\. Sent by callboard/)
+  assert.match(mem.owed[1]!, /^\[callboard\] The person gave the go you asked for; call go_status to read it\./)
+})

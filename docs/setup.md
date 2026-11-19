@@ -139,7 +139,9 @@ EXT_DIR="$(ls -d "$HOME"/.vscode/extensions/anthropic.claude-code-* | sort -V | 
   nothing. Callboard's own lane opens pass their folder and never ask. The palette's Open in New Tab, Open and an
   @-mention are bare calls that cannot be told from Claude Code's own internal ones: they never ask and start in the
   first folder. Separately from the patch, the status bar shows the folder of the Claude panel in front, in a window
-  with several folders, whenever the panel's session is known by its name.
+  with several folders, when the panel's session has a name it was given (`/rename`, or a lane's own name, which
+  callboard gives its panel): it matches the tab to the session by that name, and a tab still showing the title Claude
+  generated names no session.
 - It serves the plugin build's lanes (the old mod keeps one repo per window). A tab that Claude Code itself restores or reopens
   resumes in its conversation's folder through the restore fix; where that fix is not in or finds no transcript, it starts in
   the window's first folder.
