@@ -45,7 +45,7 @@ export async function path($: any, ...parts: string[]): Promise<string | undefin
   return r === undefined ? undefined : [r, ...parts].join('/')
 }
 // A folder of ours, made once per process and set 0700, with the root above it.
-async function ensureDir($: any, d: string): Promise<void> {
+export async function ensureDir($: any, d: string): Promise<void> {
   if (mem.dirs.has(d)) return
   const top = (await v2($))!
   await run($, ['/bin/mkdir', '-p', d])

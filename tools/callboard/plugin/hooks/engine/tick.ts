@@ -1,13 +1,14 @@
 // The session start and end, the registration of the tools and commands by what a session may use, the 2 s tick, and the PostToolUse hook that carries the same texts mid-turn.
 // Trust rules held here: one tick runs at a time and a step that throws is logged and does not stop the others; at most one text is submitted per tick; a notice is recomputed
 // from the sessions under this one now each time it is sent, a key is spent only when the turn carrying it starts, and nothing is sent unless the session is quiet.
-import type { Notice, Sid, ToolName, View } from '../core/model.ts'
+import type { Notice, Row, Sid, ToolName, View } from '../core/model.ts'
 import { PERSON, TOOLS, capability, children, nameOf, parent } from '../core/model.ts'
 import { signedBy, tidy } from '../core/lifecycle.ts'
 import { notices } from '../core/notices.ts'
 import { SLEEP_GAP_MS } from '../core/upkeep.ts'
 import { T } from '../texts.ts'
 import { TOOL_SCHEMAS } from '../tool-schemas.ts'
+import { cueTick } from './cue.ts'
 import { TICK_MS, log, submitOwn, toast } from './io.ts'
 import { getUp, mem, spendStarted } from './mem.ts'
 import { prClaim, prTick } from './pr.ts'
@@ -101,21 +102,20 @@ async function tableTick($: any, v: View, now: number): Promise<void> {
   const next = (t: typeof v.table) => tidy(t, v, (k) => mem.noSince.get(k), now)
   if (JSON.stringify(next(v.table)) !== JSON.stringify(v.table)) await updateTable($, next)
 }
-// Every 30 s: the sessions, this one and its children, whose report's last line is signed by their own id. The report path is the row's, inside the row's own folder.
+// Whether a session's report's last line is signed by its own id. The report path is the row's, inside the row's own folder.
+export async function signedNow($: any, k: Sid, r: Row | undefined): Promise<boolean> {
+  if (r?.report === undefined || !r.report.startsWith(`${r.folder}/.archive/`) || r.report.includes('..')) return false
+  const st = (await $.fs.stat(r.report).catch(() => undefined)) as { size: number; kind?: string } | undefined
+  const size = st?.kind === 'file' ? st.size : undefined
+  const t = size === undefined ? undefined : await $.fs.read(r.report, { offset: Math.max(0, size - 1024), length: 1024 }).catch(() => undefined)
+  return typeof t === 'string' && signedBy(t, k)
+}
+// Every 30 s: the sessions, this one and its children, whose report is signed.
 async function signedTick($: any, v: View, me: Sid, now: number): Promise<void> {
   if (now - mem.signed.at < 30_000) return
   mem.signed.at = now
   const set = new Set<Sid>()
-  await Promise.all(
-    [me, ...(capability(v, me) === 'none' ? [] : children(v, me))].map(async (k) => {
-      const r = v.table[k]
-      if (r?.report === undefined || !r.report.startsWith(`${r.folder}/.archive/`) || r.report.includes('..')) return
-      const st = (await $.fs.stat(r.report).catch(() => undefined)) as { size: number; kind?: string } | undefined
-      const size = st?.kind === 'file' ? st.size : undefined
-      const t = size === undefined ? undefined : await $.fs.read(r.report, { offset: Math.max(0, size - 1024), length: 1024 }).catch(() => undefined)
-      if (typeof t === 'string' && signedBy(t, k)) set.add(k)
-    }),
-  )
+  await Promise.all([me, ...(capability(v, me) === 'none' ? [] : children(v, me))].map(async (k) => ((await signedNow($, k, v.table[k])) ? set.add(k) : undefined)))
   mem.signed = { at: now, set }
 }
 
@@ -136,6 +136,7 @@ async function tick($: any): Promise<void> {
     await step('signed', () => signedTick($, v, me, now))
     await step('toasts', async () => toasts($, v, me))
     await step('request', () => requestTick($, me))
+    await step('cue', () => cueTick($, me, v, now))
     await step('nudge', () => nudgeTick($, me, v))
     if (mem.submits === start) await step('events', () => eventsTick($, me, v, now))
     await step('pr-poll', () => prTick($, me, v))

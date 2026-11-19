@@ -1,0 +1,101 @@
+// The two files a parent and a child talk through (a cue to the child's own process, and the window's spool), and the child's side of a cue. Trust rules held here: a cue is acted on
+// only when its sender is above the child now and it is fresh (`cueAnswer`), and is taken off the disk before it is acted on, so a failed act is never repeated; a doubtful registry
+// read does nothing; the brief a `start` points at is the child's own row's, never the cue's; every file name is built from an id this file checks first.
+// The spool: `open/<id>.req` is written as a dot-file and renamed, with a fresh random id, and the folder is named exactly as the lane's row holds it; the window that serves it answers
+// `open/<id>.result` within its own 20 s, so the writer waits one budget (SPOOL_WAIT_S) and, with no answer, takes its own request back so a window that wakes later opens nothing.
+// Bounds that hold for the same user (ADR 0002): the window opens only a folder of its own workspace, drops a request older than 60 s, reads plain files up to 1200 bytes and takes one
+// request at a time; the plugin checks capability, allowlist, name and the cap of live children before it writes. No rate limit and no lane store are checked beyond that.
+import type { Cue, CueResult, CueVerb, Sid, SpoolReply, SpoolRequest, View } from '../core/model.ts'
+import { nameOf, nameRefusal } from '../core/model.ts'
+import { cueAnswer, parseCue, parseResult } from '../core/lifecycle.ts'
+import { T } from '../texts.ts'
+import { ensureDir, log, path, pause, readText, rm, run, submitOwn, writeFile } from './io.ts'
+import { idle } from './upkeep.ts'
+import { safeJson } from './store.ts'
+
+export const CUE_WAIT_S = 20
+export const SPOOL_WAIT_S = 30
+const ID_RE = /^[a-z0-9]{8,40}$/
+const rid = (): string => (Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2)).slice(0, 20)
+const json = (t: string | undefined): unknown => (t === undefined ? undefined : safeJson(t))
+
+// ---- the parent's side of a cue: write it, wait for the child's answer, take both files away. undefined: no answer in time ----
+export async function sendCue($: any, from: Sid, child: Sid, verb: CueVerb, name: string, now: number): Promise<CueResult | undefined> {
+  const id = rid()
+  const [cp, rp] = [await path($, 'cue', `${child}.json`), await path($, 'result', `${id}.json`)]
+  if (cp === undefined || rp === undefined || !(await writeFile($, cp, JSON.stringify({ id, verb, from, at: now, name } satisfies Cue)))) return undefined
+  let r: CueResult | undefined
+  for (let i = 0; i < CUE_WAIT_S && r === undefined && (await pause($, 1000)); i++) r = parseResult(json(await readText($, rp, 512)))
+  await rm($, [cp, rp])
+  return r
+}
+
+// ---- the child's side, every tick ----
+// What the cue asks of this session: rename it, start it on its own row's brief (naming it first when its name differs), or resume it.
+async function act($: any, me: Sid, v: View, cue: Cue): Promise<CueResult> {
+  const refused = (code: string): CueResult => ({ id: cue.id, outcome: 'refused', code })
+  const row = v.table[me]
+  const own = v.rows === 'unknown' ? undefined : v.rows.get(me)
+  if (cue.verb === 'resume') return (await submitOwn($, T['cue.resume']({ name: nameOf(v, me) })).then(() => true, () => false)) ? { id: cue.id, outcome: 'ok' } : refused('failed')
+  const name = cue.name ?? ''
+  if (nameRefusal(v, name, me) !== undefined) return refused('name')
+  const brief = row?.brief
+  if (cue.verb === 'start' && (brief === undefined || !brief.startsWith(`${row!.folder}/.archive/`) || brief.includes('..'))) return refused('no-brief')
+  if (own?.name !== name) {
+    const renamed = await Promise.race([Promise.resolve($.command.run({ command: 'rename', args: name })).then(() => true, () => false), $.clock.sleep(10_000).then(() => false)])
+    if (!renamed) return refused('rename-failed')
+  }
+  if (cue.verb === 'start' && !(await submitOwn($, T['cue.start']({ name, brief: brief!, parent: nameOf(v, cue.from) })).then(() => true, () => false))) return refused('failed')
+  return { id: cue.id, outcome: 'ok' }
+}
+export async function cueTick($: any, me: Sid, v: View, now: number): Promise<void> {
+  if (v.rows === 'unknown') return
+  const p = await path($, 'cue', `${me}.json`)
+  if (p === undefined || !(await $.fs.exists(p).catch(() => false))) return
+  const cue = parseCue(json(await readText($, p, 2048)))
+  if (cue === undefined || !ID_RE.test(cue.id)) return void (await rm($, [p]))
+  const answer = cueAnswer(v, me, cue, !(await idle($, me)), now)
+  if (answer.outcome === 'held') return
+  await rm($, [p])
+  const result = answer.outcome === 'ok' ? await act($, me, v, cue) : answer
+  const rp = await path($, 'result', `${cue.id}.json`)
+  if (rp !== undefined) await writeFile($, rp, JSON.stringify(result))
+  await log($, me, 'cue', `${cue.verb}:${result.outcome}`)
+}
+
+// ---- the window's spool ----
+const isSid = (x: unknown): x is Sid => typeof x === 'string' && /^[A-Za-z0-9-]{1,64}$/.test(x)
+function parseReply(raw: unknown): SpoolReply | undefined {
+  const r = (raw ?? {}) as { ok?: unknown; sid?: unknown; code?: unknown }
+  if (r.ok === true) return isSid(r.sid) ? { ok: true, sid: r.sid } : r.sid === undefined ? { ok: true } : undefined
+  return r.ok === false && typeof r.code === 'string' && /^[a-z-]{1,24}$/.test(r.code) ? { ok: false, code: r.code } : undefined
+}
+// Writes one request and returns its id, or undefined when it could not be put in place.
+export async function spoolSend($: any, req: SpoolRequest): Promise<string | undefined> {
+  const dir = await path($, 'open')
+  if (dir === undefined) return undefined
+  const id = rid()
+  const tmp = `${dir}/.${id}.tmp`
+  try {
+    await ensureDir($, dir)
+    await $.fs.write(tmp, JSON.stringify(req))
+    await run($, ['/bin/chmod', '600', tmp])
+    if ((await run($, ['/bin/mv', '-f', '--', tmp, `${dir}/${id}.req`])).exitCode === 0) return id
+  } catch {}
+  await rm($, [tmp])
+  return undefined
+}
+// A request and its answer. undefined: nothing came in SPOOL_WAIT_S, and the request is taken back.
+export async function spool($: any, req: SpoolRequest, who: Sid): Promise<SpoolReply | undefined> {
+  const id = await spoolSend($, req)
+  const dir = await path($, 'open')
+  if (id === undefined || dir === undefined) return undefined
+  let a: SpoolReply | undefined
+  for (let i = 0; i < SPOOL_WAIT_S && a === undefined; i++) {
+    a = parseReply(json(await readText($, `${dir}/${id}.result`, 512)))
+    if (a === undefined && !(await pause($, 1000))) break
+  }
+  await rm($, [`${dir}/${id}.req`, `${dir}/${id}.result`])
+  await log($, who, 'spool', a === undefined ? 'no-answer' : a.ok ? req.op : a.code)
+  return a
+}
