@@ -225,13 +225,14 @@ touch ~/.claude/callboard/manager-rules.md
 
 **The switch.** One command, the entry replaced where it sits in the list, every other byte of the file kept, a backup
 named with the time, and the one-line change shown. It refuses and changes nothing unless the file holds exactly one
-such entry, and it writes through the real path, so a `settings.json` that is a symlink stays one. `diff` exits 1 when it
-shows the change, which is expected:
+such entry, and it writes through the real path, so a `settings.json` that is a symlink stays one. Set `CHECKOUT` on
+the first line to your checkout's absolute path, the only value to change. `diff` exits 1 when it shows the change,
+which is expected:
 
 ```
 CHECKOUT='<checkout>'
 BAK=~/.claude/settings.json.bak-callboard-$(date +%Y%m%d-%H%M%S)
-cp ~/.claude/settings.json "$BAK" && /usr/bin/python3 -I -c "import os,re,sys;p=os.path.realpath(os.path.expanduser('~/.claude/settings.json'));t=open(p,encoding='utf-8').read();o=sys.argv[1]+sys.argv[2];n=sys.argv[1]+sys.argv[3];u,k=re.subn(re.escape(o)+r'(?=[\":,;])',n,t);k==1 or sys.exit('expected one callboard entry, found %d'%k);f=p+'.tmp';open(f,'w',encoding='utf-8').write(u);os.chmod(f,os.stat(p).st_mode&0o777);os.replace(f,p)" "$CHECKOUT" /tools/callboard/mod /tools/callboard/plugin && diff "$BAK" ~/.claude/settings.json
+cp ~/.claude/settings.json "$BAK" && /usr/bin/python3 -I -c "import os,re,sys;p=os.path.realpath(os.path.expanduser('~/.claude/settings.json'));t=open(p,encoding='utf-8').read();o=sys.argv[1]+sys.argv[2];n=sys.argv[1]+sys.argv[3];u,k=re.subn(re.escape(o)+r'(?=[\":,;])',lambda m:n,t);k==1 or sys.exit('expected one callboard entry, found %d'%k);f=p+'.tmp';open(f,'w',encoding='utf-8').write(u);os.chmod(f,os.stat(p).st_mode&0o777);os.replace(f,p)" "$CHECKOUT" /tools/callboard/mod /tools/callboard/plugin && diff "$BAK" ~/.claude/settings.json
 ```
 
 Then restart every session, VS Code windows included (a reload is not enough: the plugin list is read when a session
@@ -239,12 +240,13 @@ starts). Start the manager session and name it with the manager's name from the 
 its lanes back by name with `lane_adopt`, and you give goes again as needed (`/callboard go TEXT`, or a lead's
 `go_request`).
 
-**The way back.** The same command with the two paths swapped, then a restart of every session:
+**The way back.** The same command with the two paths swapped (set `CHECKOUT` the same way), then a restart of every
+session:
 
 ```
 CHECKOUT='<checkout>'
 BAK=~/.claude/settings.json.bak-callboard-$(date +%Y%m%d-%H%M%S)
-cp ~/.claude/settings.json "$BAK" && /usr/bin/python3 -I -c "import os,re,sys;p=os.path.realpath(os.path.expanduser('~/.claude/settings.json'));t=open(p,encoding='utf-8').read();o=sys.argv[1]+sys.argv[2];n=sys.argv[1]+sys.argv[3];u,k=re.subn(re.escape(o)+r'(?=[\":,;])',n,t);k==1 or sys.exit('expected one callboard entry, found %d'%k);f=p+'.tmp';open(f,'w',encoding='utf-8').write(u);os.chmod(f,os.stat(p).st_mode&0o777);os.replace(f,p)" "$CHECKOUT" /tools/callboard/plugin /tools/callboard/mod && diff "$BAK" ~/.claude/settings.json
+cp ~/.claude/settings.json "$BAK" && /usr/bin/python3 -I -c "import os,re,sys;p=os.path.realpath(os.path.expanduser('~/.claude/settings.json'));t=open(p,encoding='utf-8').read();o=sys.argv[1]+sys.argv[2];n=sys.argv[1]+sys.argv[3];u,k=re.subn(re.escape(o)+r'(?=[\":,;])',lambda m:n,t);k==1 or sys.exit('expected one callboard entry, found %d'%k);f=p+'.tmp';open(f,'w',encoding='utf-8').write(u);os.chmod(f,os.stat(p).st_mode&0o777);os.replace(f,p)" "$CHECKOUT" /tools/callboard/plugin /tools/callboard/mod && diff "$BAK" ~/.claude/settings.json
 ```
 
 Going back loses what the plugin did: its session rows, the lanes it created or adopted, lead capabilities, goes, the
@@ -254,7 +256,9 @@ possibly stale, and any saved grant older than 30 days lapsed.
 **The first test.** One round, once the sessions are restarted. Each step names what you should see; stop at the
 first one that differs and tell the manager session, or me, which.
 
-1. In any new session type this and read the status page: it names the session, its role and its parent.
+1. In any new session type this and read the status page, a table of Role, Parent, Manager, Callboard, Keepalive,
+   Unattended and Goes. A plain session reads Role `session` and Callboard `on`; its Parent and Manager name
+   the manager session if one runs, else Parent reads `the person` and Manager `none`.
 
 ```
 /callboard status
@@ -273,8 +277,13 @@ first one that differs and tell the manager session, or me, which.
 /callboard config ping 50
 ```
 
-3. In the manager session, make sure it is the manager: type the status command there and read its role. Then, in a
-   second session that is not the manager and runs in manual permission mode, send this prompt and leave the
+3. In the manager session, type the status command and check that Role reads `manager` and Parent reads `the person`:
+
+```
+/callboard status
+```
+
+   Then, in a second session that is not the manager and runs in manual permission mode, send this prompt and leave the
    permission card unanswered for a minute:
 
 ```
@@ -299,10 +308,14 @@ Run this exact command with the Bash tool and nothing else: touch /tmp/callboard
 /callboard unattended off
 ```
 
-5. A go: type this in the manager session, then ask it to call `go_status` and read the go back. End it at once.
+5. A go: type this in the manager session, then send the prompt below and read the go back. End it at once.
 
 ```
 /callboard go first test of the plugin: nothing to do
+```
+
+```
+Call go_status and read back every go it lists.
 ```
 
 ```
@@ -320,7 +333,7 @@ Run this exact command with the Bash tool and nothing else: touch /tmp/callboard
 Create a lane named TESTLANE in this folder with the brief "Write hello as the first line of your report, sign it done and stop" using lane_create, then lane_open and lane_start it. When it reports, read its report and call lane_retire on it.
 ```
 
-7. Off wins: in the scratch session type the first line (no pings, nudges, asks or notices, and it is nobody's parent or
+7. Off wins: in the scratch session of step 6 type the first line (no pings, nudges, asks or notices, and it is nobody's parent or
    child), then the second to bring it back.
 
 ```

@@ -40,9 +40,10 @@ Callboard is then back to one repo per window. This is the person's way out at a
    Only on a yes:
    - Clone the repo to `/tmp/ai-manager-patch-<version>` (a plain clone, git MCP with `path`), on a branch `fix/claude-patch-<version>`.
    - Read the new `extension.js` (one huge line: use `grep -o` with a bounded context, never print the file) around the
-     strings the missing anchors name: `createPanel(`, `setupPanel(`, `"claude-vscode.editor.open"`. Change only the patterns in
-     `ANCHORS`, so each matches exactly once in the new file and still in the stand-in fixtures; add a stand-in variant to
-     `test_patch_claude.py` for the new shape.
+     strings the missing anchors name: `createPanel(`, `setupPanel(`, `"claude-vscode.editor.open"`. Change only the anchor
+     patterns: `ANCHORS` and the one each optional piece has beside it (`LOOK_ANCHOR`, and any other `*_ANCHOR` or `*_ANCHORS`
+     the script's header names), so each matches exactly once in the new file and still in the stand-in fixtures; add a
+     stand-in variant to `test_patch_claude.py` for the new shape.
    - Run `/usr/bin/python3 -I tools/callboard/test_patch_claude.py`, then the repaired script on a COPY of the extension folder
      under /tmp (`cp -R`), and `node --check` on the patched copy's `extension.js`.
    - Show the person the diff and the result on the copy, then ask once more with AskUserQuestion: apply the repaired script to
