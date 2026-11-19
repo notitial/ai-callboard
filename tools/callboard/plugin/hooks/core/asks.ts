@@ -39,24 +39,27 @@ export function stage(x: StageIn): Stage {
   if (x.ask.awake >= EXPIRE_MS) return { open: false, act: 'deny', msg: 'ask.expired', p }
   // Unattended, the person's asks close at once: only on a reading that is known (the window on, the chain's top the person) and once "no manager" has held.
   if (x.win.state === 'on' && toPerson && c.top === PERSON && !(noManager && x.held < NO_MANAGER_HOLD_MS)) return { open: false, act: 'deny', msg: 'ask.leftForPerson', p }
-  // A session told of the ask, or that escalated it, stays eligible while it is above the asker: a lead that restarts does not take an ask back from the manager.
+  // A session told of the ask stays eligible while it is above the asker: a lead that restarts does not take an ask back from the manager. An escalation ends the
+  // right of the escalator and of everyone below it, save the manager, who answers on the person's words.
+  const top = Math.max(-1, ...x.ups.filter((u) => u.kind === 'escalated').map((u) => c.up.indexOf(u.by)))
   const marked = x.ups.map((u) => u.by).filter((s) => c.up.includes(s))
-  const eligible = x.ask.personOnly ? [] : [...new Set([...c.up.slice(0, reach), ...marked])]
+  const eligible = x.ask.personOnly ? [] : [...new Set([...c.up.slice(0, reach), ...marked])].filter((s) => c.up.indexOf(s) > top || s === x.v.manager)
   const relay = toPerson && reach > 0 && x.win.state !== 'on' && typeof x.v.manager === 'string' && x.v.manager !== 'unknown' && x.v.manager !== x.ask.asker
   return { open: true, reach, eligible, toPerson, relay, noManager, top: c.top }
 }
 
-// One check for an answer: it names this ask, and its author is the person or eligible now. Then the decision must fit the ask: allow for a permission ask whose
-// input a reader saw whole (the person's own pick aside), answer for a question with one of its options, deny for either. The label comes from the live input.
+// One check for an answer: it names this ask, and its author is eligible now, or the person on an ask that has reached him (the relay pop-up). Then it must fit
+// the ask: deny for either kind; allow for a permission ask and answer for a question, each only on an input a reader saw whole. The label comes from the live input.
 export type Verdict = Decision<'allow' | 'deny' | 'ignore'> | (Decision<'answer'> & { question: string })
 export function decide(a: Answer, ask: Ask, s: Open, v: View, liveInput: unknown): Verdict {
   const no = (code: RefuseCode): Verdict => refusal('ignore', code, { tool: 'prompt_answer', target: ask.id })
   if (a.ask !== ask.id) return no('no-such-ask')
   const by = a.by === PERSON ? PERSON : nameOf(v, a.by)
-  if (a.by !== PERSON && !s.eligible.includes(a.by)) return no(ask.personOnly ? 'person-only' : 'not-eligible')
+  if (a.by === PERSON ? !s.toPerson : !s.eligible.includes(a.by)) return no(ask.personOnly ? 'person-only' : 'not-eligible')
   if (a.decision === 'deny') return { act: 'deny', msg: 'ask.denyText', p: { by, note: a.note ?? '' } }
+  if (ask.cut) return no('input-cut')
   const isQuestion = ask.tool === QUESTION_TOOL
-  if (a.decision === 'allow') return isQuestion ? no('bad-input') : ask.cut && a.by !== PERSON ? no('input-cut') : { act: 'allow', msg: 'ask.allowed', p: { ask: ask.id } }
+  if (a.decision === 'allow') return isQuestion ? no('bad-input') : { act: 'allow', msg: 'ask.allowed', p: { ask: ask.id } }
   const pick = isQuestion && a.option !== undefined ? answerOf(liveInput, a.option) : undefined
   return pick === undefined ? no('bad-input') : { act: 'answer', msg: 'ask.answerText', p: { label: pick.label, by }, question: pick.question }
 }
@@ -113,11 +116,12 @@ export function questionShape(input: unknown): { ok: true } | { ok: false; code:
   if (typeof q.question !== 'string' || (q.header !== undefined && typeof q.header !== 'string') || 'answers' in i) return { ok: false, code: 'question-shape' }
   return { ok: true }
 }
-// What a reader is shown of a question: header, text and options, each redacted.
+// What a reader is shown of a question: header, text and options, each redacted and capped as inputText caps a string (which then marks the ask cut).
 export function questionView(input: unknown): Question | undefined {
   if (!questionShape(input).ok) return undefined
   const q = obj((obj(input).questions as unknown[])[0])
-  return { header: redact(str(q.header)), question: redact(str(q.question)), options: (q.options as unknown[]).map((o) => ({ label: labelOf(obj(o).label), description: redact(str(obj(o).description)) })) }
+  const t = (x: unknown): string => capBytes(redact(str(x)), STRING_CAP).text
+  return { header: t(q.header), question: t(q.question), options: (q.options as unknown[]).map((o) => ({ label: labelOf(obj(o).label), description: t(obj(o).description) })) }
 }
 // The chosen option (1-based, as prompt_answer takes it) from the LIVE input, never from the answer file: the question's text and the label as the asker wrote it.
 export function answerOf(liveInput: unknown, option: number): { question: string; label: string } | undefined {
