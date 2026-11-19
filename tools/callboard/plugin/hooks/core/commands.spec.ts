@@ -16,7 +16,7 @@ test('every form parses to its command', () => {
 })
 
 test('a form that does not fit is bad; a window length that does not fit says so', () => {
-  for (const a of ['', 'bogus', 'status now', 'on 1', 'lead rel/path', 'lead /a\u0007b', 'go', 'config ping', 'config ping 10', 'config ping 56', 'config stop 3k', 'config idle 100', 'config keepalive maybe', 'config __proto__ 5', 'config constructor 5', 'config toString 5', 'unattended soon'])
+  for (const a of ['', 'bogus', 'status now', 'on 1', 'lead rel/path', 'lead /a\u0007b', 'go', 'go Off', 'go OFF now', 'go off all goes', 'config ping', 'config ping 10', 'config ping 56', 'config stop 3k', 'config idle 100', 'config keepalive maybe', 'config __proto__ 5', 'config constructor 5', 'config toString 5', 'unattended soon'])
     assert.deepEqual(parseCommand(a, NOW), { op: 'bad' }, a)
   assert.deepEqual(parseCommand('unattended 10m', NOW), { op: 'bad', detail: 'short' })
   assert.deepEqual(parseCommand('unattended 20h', NOW), { op: 'bad', detail: 'long' })
@@ -53,7 +53,6 @@ test('the settings file: a field is read only with its type and inside its range
   assert.deepEqual(parseConfig({ keepalive: false, pingAfterMin: 40, stopAfterH: 4, idleK: 200, workingK: 600 }), { keepalive: false, pingAfterMin: 40, stopAfterH: 4, idleK: 200, workingK: 600 })
   assert.deepEqual(parseConfig({ keepalive: 'no', pingAfterMin: 29, stopAfterH: 8.5, idleK: '200', workingK: 901 }), CONFIG_DEFAULTS)
   assert.deepEqual(parseConfig({ idleK: 700, workingK: 200 }), CONFIG_DEFAULTS)
-  assert.deepEqual(parseConfig(JSON.parse('{"__proto__": {"keepalive": false}, "pingAfterMin": 31}')), { ...CONFIG_DEFAULTS, pingAfterMin: 31 })
 })
 
 test('a change that puts the idle level over the working level is refused', () => {

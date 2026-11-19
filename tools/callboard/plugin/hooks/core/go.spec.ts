@@ -30,7 +30,7 @@ test('a go covers only its giver and the sessions under the giver now, until its
 
 test('a go\'s text: one to three plain lines the person can read, nothing hidden and no fence; a file that is not a go is no go', () => {
   assert.ok(goTextOk('Build steps 1 to 5.\nNo merge.'))
-  for (const bad of ['', ' padded', 'a\n\nb', 'x'.repeat(301), 'a\nb\nc\nd', 'zero\u200bwidth', '>>> fence', 'tab\there', 7]) assert.ok(!goTextOk(bad), JSON.stringify(bad))
+  for (const bad of ['', ' padded', 'a\n\nb', 'x'.repeat(301), 'a\nb\nc\nd', 'zero\u200bwidth', '>>> fence', 'tab\there', 7, 'a\n\u00a0>>>\nb', 'a\n\u3000<<<go']) assert.ok(!goTextOk(bad), JSON.stringify(bad))
   assert.equal(parseGo({ id: 'g', giver: 's', text: 'ok', end: 'tomorrow' }), undefined)
   assert.equal(parseGo(null), undefined)
   assert.deepEqual(parseGo({ id: 'g', giver: 's', text: 'ok', end: 5, extra: 1 }), { id: 'g', giver: 's', text: 'ok', end: 5 })

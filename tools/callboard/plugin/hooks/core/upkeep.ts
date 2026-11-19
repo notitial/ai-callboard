@@ -18,7 +18,8 @@ export const MIN_CONTEXT_TOKENS = 100_000
 export const CACHE_NUDGE_TOKENS = 150_000
 export const REQUEST_TTL_MS = 15 * 60_000
 
-const inHour = (ts: readonly number[], now: number): number[] => ts.filter((t) => t <= now && now - t < HOUR_MS)
+// A stamp from the future (a clock that ran back) still counts, so the cap holds until the clock catches up.
+const inHour = (ts: readonly number[], now: number): number[] => ts.filter((t) => Math.abs(now - t) < HOUR_MS)
 export const pushRecent = (ts: readonly number[], now: number): number[] => [...inHour(ts, now), now]
 export const recentOk = (ts: readonly number[], now: number, max: number = NOTICES_PER_HOUR): boolean => inHour(ts, now).length < max
 
@@ -54,12 +55,14 @@ export function compactPlan(c: Counters, tokens: number, now: number, busy: bool
 export type Request = { focus: string; continuation: string }
 const PRINTABLE = /^[\x20-\x7e]+$/
 const PRINTABLE_NL = /^[\x20-\x7e\n]+$/
+// A line that opens like the plugin's own turns or a fence: the note is printed between fences, and no line of it may pass for the plugin's.
+const FORGED = /^\s*(\[callboard\]|\[compact-cue\]|<<<|>>>)/m
 // focus: 1 to 1200 printable ASCII characters, not a slash command. continuation: 1 to 600, at most 5 lines, something other than blanks.
 export function validateRequest(r: unknown): { ok: true; req: Request } | Decision<'refuse'> {
   const { focus, continuation } = (r ?? {}) as Record<string, unknown>
   const no = (detail: string) => refusal('refuse', 'bad-input', { tool: 'request_compact', detail })
-  if (typeof focus !== 'string' || focus.length < 1 || focus.length > 1200 || !PRINTABLE.test(focus) || focus.startsWith('/')) return no('focus')
-  if (typeof continuation !== 'string' || continuation.length < 1 || continuation.length > 600 || !PRINTABLE_NL.test(continuation) || !/[^\n ]/.test(continuation) || continuation.split('\n').length > 5) return no('continuation')
+  if (typeof focus !== 'string' || focus.length < 1 || focus.length > 1200 || !PRINTABLE.test(focus) || focus.startsWith('/') || FORGED.test(focus)) return no('focus')
+  if (typeof continuation !== 'string' || continuation.length < 1 || continuation.length > 600 || !PRINTABLE_NL.test(continuation) || !/[^\n ]/.test(continuation) || continuation.split('\n').length > 5 || FORGED.test(continuation)) return no('continuation')
   return { ok: true, req: { focus, continuation } }
 }
 
@@ -77,7 +80,7 @@ export function reqStep(req: Req | null, ev: ReqEvent, now: number): Req | null 
   return req.phase === 'compacting' ? { ...req, phase: 'compacted' } : req
 }
 // A request that waits or compacts longer than REQUEST_TTL_MS, counted from its own start, is dropped.
-export const reqExpired = (req: Req, now: number): boolean => req.phase !== 'compacted' && now - (req.compactingAt ?? req.at) >= REQUEST_TTL_MS
+export const reqExpired = (req: Req, now: number): boolean => req.phase !== 'compacted' && now - Math.min(req.compactingAt ?? req.at, now) >= REQUEST_TTL_MS
 
 // ---- the keepalive ----
 // turnEnd, realEnd (the end of the last turn that was not the plugin's own), lastSubmit and pingAt are the wall times this process saw: absent after a restart, and then

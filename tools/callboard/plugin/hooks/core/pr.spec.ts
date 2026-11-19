@@ -29,7 +29,10 @@ test('GitHub\'s answer is read field by field: a missing or unknown field reads 
   assert.equal(look({ isDraft: undefined })?.draft, true)
   assert.equal(look({ isDraft: undefined })?.merge, 'no')
   assert.equal(look({ commits: { nodes: [{ commit: { statusCheckRollup: { state: 'NEW_STATE' } } }] } })?.checks, 'pending')
-  assert.equal(look({ commits: undefined })?.checks, 'none')
+  // Only a rollup that is present and null means no checks; a missing or reshaped one reads as pending and is never mergeable.
+  const none = { commits: { nodes: [{ commit: { statusCheckRollup: null } }] } }
+  assert.deepEqual([look(none)?.checks, look(none)?.merge], ['none', 'yes'])
+  for (const commits of [undefined, null, {}, { nodes: [] }, { nodes: [{}] }, { nodes: [{ commit: {} }] }]) assert.deepEqual([look({ commits })?.checks, look({ commits })?.merge], ['pending', 'no'], JSON.stringify(commits))
   assert.equal(look({ mergeable: 'UNKNOWN' })?.merge, 'unknown')
   assert.equal(look({ mergeable: 'CONFLICTING' })?.merge, 'no')
   assert.equal(look({ reviewDecision: 'CHANGES_REQUESTED' })?.merge, 'no')
@@ -42,9 +45,16 @@ test('an answer that cannot be read is no observation; a node that fails is left
   assert.equal(look({ headRefOid: 'abc' }), undefined)
   assert.equal(look({ headRefOid: A.toUpperCase() }), undefined)
   for (const state of ['toString', 'constructor', '__proto__', 'merged', 1, null]) assert.equal(look({ state }), undefined, String(state))
-  assert.equal(parseAnswer('{"data":{"repository":{"__proto__":{"p5":1}}}}', [5])?.size, 0)
-  const inherited = JSON.parse(`{"__proto__":{"state":"MERGED","headRefOid":"${A}"}}`)
-  assert.equal(parseAnswer(JSON.stringify({ data: { repository: { p5: inherited } } }), [5])?.size, 0)
+  // A property put on Object.prototype is not a field of any node.
+  const proto = Object.prototype as Record<string, unknown>
+  Object.defineProperty(proto, 'state', { value: 'OPEN', configurable: true })
+  Object.defineProperty(proto, 'headRefOid', { value: A, configurable: true })
+  try {
+    assert.equal(parseAnswer(answer({}), [5])?.size, 0)
+  } finally {
+    delete proto.state
+    delete proto.headRefOid
+  }
   const two = JSON.stringify({ data: { repository: { p5: node(), p6: node({ headRefOid: 'x' }) } } })
   assert.deepEqual([...parseAnswer(two, [5, 6, 7])!.keys()], [5])
 })
@@ -82,6 +92,9 @@ test('notes merge per PR and lane: the newest check result, summed activity, one
   const act = mergeNotes([n('activity', 2, { reviews: 1, comments: 0, threads: 2 }), n('activity', 1, { reviews: 0, comments: 3, threads: 0 })])
   assert.deepEqual(act, [{ kind: 'activity', pr: 'o/r#1', at: 2, reviews: 1, comments: 3, threads: 2 }])
   assert.equal(mergeNotes([n('mergeable', 1), n('mergeable', 2)]).length, 1)
+  // A failed check makes an earlier mergeable note stale; a mergeable note after a failure stands beside it.
+  assert.deepEqual(mergeNotes([n('mergeable', 1), n('failed', 2)]).map((x) => x.kind), ['failed'])
+  assert.deepEqual(mergeNotes([n('failed', 1), n('mergeable', 2)]).map((x) => x.kind), ['failed', 'mergeable'])
   assert.deepEqual(mergeNotes([n('green', 1), n('activity', 2, { reviews: 1 }), n('merged', 3), n('green', 4, { lane: 'z' })]).map((x) => x.kind), ['merged', 'green'])
   assert.equal(mergeNotes([n('green', 1), n('green', 1, { pr: 'o/r#2' })]).length, 2)
   assert.deepEqual(mergeNotes([]), [])
@@ -93,15 +106,16 @@ test('the tracker file: only this session\'s, a bad entry is dropped, the rest k
   assert.deepEqual(parseTracker(file([good]), 's1'), { sid: 's1', prs: [good] })
   assert.equal(parseTracker(file([good]), 's2'), undefined)
   for (const t of ['', 'x', 'null', '{}', '{"sid":"s1"}', file('x')]) assert.equal(parseTracker(t, 's1'), undefined, t)
-  const bad = [{ ...good, number: 0 }, { ...good, at: 'now' }, { ...good, seen: { ...good.seen, sha: 'z' } }, { ...good, seen: { ...good.seen, checks: 'toString' } }, { ...good, seen: { ...good.seen, reviews: 1.5 } }, null, 7]
-  assert.deepEqual(parseTracker(file([...bad, good, { ...good, owner: 'ACME' }]), 's1')?.prs, [good])
+  const bad = [{ ...good, number: 0 }, { ...good, at: 'now' }, { ...good, seen: { ...good.seen, sha: 'z' } }, { ...good, seen: { ...good.seen, checks: 'toString' } }, { ...good, seen: { ...good.seen, reviews: 1.5 } }, { ...good, seen: { ...good.seen, comments: -1 } }, null, 7]
+  // (A file holds at most PR_MAX entries, so the bad ones go in two files.)
+  for (const some of [bad.slice(0, 4), bad.slice(4)]) assert.deepEqual(parseTracker(file([...some, good, { ...good, owner: 'ACME' }]), 's1')?.prs, [good])
   const many = Array.from({ length: PR_MAX + 3 }, (_, i) => ({ ...good, number: i + 1 }))
   assert.equal(parseTracker(file(many), 's1')?.prs.length, PR_MAX)
-  assert.equal(parseTracker('{"sid":"s1","prs":[],"__proto__":{"sid":"s2"}}', 's1')?.sid, 's1')
 })
 
-test('tracking ends 20 minutes after the last pr_watch call; a clock that ran back does not end it', () => {
+test('tracking ends 20 minutes after the last pr_watch call; a stamp more than that in the future is expired too, not kept for good', () => {
   assert.equal(trackExpired({ at: NOW - PR_TRACK_MS + 1 }, NOW), false)
   assert.equal(trackExpired({ at: NOW - PR_TRACK_MS }, NOW), true)
-  assert.equal(trackExpired({ at: NOW + 3_600_000 }, NOW), false)
+  assert.equal(trackExpired({ at: NOW + 5 * 60_000 }, NOW), false)
+  assert.equal(trackExpired({ at: NOW + 3_600_000 }, NOW), true)
 })

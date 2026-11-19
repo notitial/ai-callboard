@@ -31,23 +31,21 @@ export type Look = Omit<Seen, 'mergeable'> & { merge: 'yes' | 'no' | 'unknown' }
 // The fields the adapter asks GitHub for, one alias `p<number>` per PR; parseLook reads exactly these.
 export const PR_FIELDS = 'state isDraft mergeable reviewDecision headRefOid reviews{totalCount} comments{totalCount} reviewThreads{totalCount} commits(last:1){nodes{commit{statusCheckRollup{state}}}}'
 const own = (o: unknown, k: string): unknown => (typeof o === 'object' && o !== null && Object.hasOwn(o, k) ? (o as Record<string, unknown>)[k] : undefined)
-const total = (v: unknown): number => {
-  const n = own(v, 'totalCount')
-  return typeof n === 'number' && Number.isInteger(n) && n >= 0 ? n : 0
-}
+const count = (v: unknown): v is number => Number.isInteger(v) && (v as number) >= 0
+const total = (v: unknown): number => (count(own(v, 'totalCount')) ? (own(v, 'totalCount') as number) : 0)
 const STATES: Record<string, PrState> = { OPEN: 'open', MERGED: 'merged', CLOSED: 'closed' }
 const ROLLUP: Record<string, Checks> = { SUCCESS: 'green', FAILURE: 'failed', ERROR: 'failed', PENDING: 'pending', EXPECTED: 'pending' }
 const word = (o: Record<string, string>, k: unknown): string | undefined => (typeof k === 'string' && Object.hasOwn(o, k) ? o[k] : undefined)
 
-// A node that has no valid commit id or state is not observed. Anything else it lacks reads as its quiet value, a check state this reader does not know as pending: a
-// field GitHub adds or renames never throws, and never reads as mergeable.
+// A node that has no valid commit id or state is not observed. Anything else it lacks reads as its quiet value; only a check rollup that is present and null means no checks,
+// a rollup that is missing or has a state this reader does not know reads as pending: a field GitHub adds or renames never throws, and never reads as mergeable.
 function parseLook(node: unknown): Look | undefined {
   const sha = own(node, 'headRefOid')
   const state = word(STATES, own(node, 'state')) as PrState | undefined
   if (typeof sha !== 'string' || !SHA_RE.test(sha) || state === undefined) return undefined
   const nodes = own(own(node, 'commits'), 'nodes')
   const rollup = Array.isArray(nodes) ? own(own(nodes[0], 'commit'), 'statusCheckRollup') : undefined
-  const checks: Checks = rollup === null || rollup === undefined ? 'none' : ((word(ROLLUP, own(rollup, 'state')) as Checks | undefined) ?? 'pending')
+  const checks: Checks = rollup === null ? 'none' : ((word(ROLLUP, own(rollup, 'state')) as Checks | undefined) ?? 'pending')
   const draft = own(node, 'isDraft') !== false
   const decision = own(node, 'reviewDecision')
   const m = own(node, 'mergeable')
@@ -104,6 +102,7 @@ export function mergeNotes(ns: readonly PrNote[]): PrNote[] {
     const base = `${n.pr}|${n.lane ?? ''}|`
     if (END.includes(n.kind)) for (const k of [...out.keys()]) if (k.startsWith(base)) out.delete(k)
     const key = base + (n.kind === 'green' || n.kind === 'failed' ? 'checks' : n.kind)
+    if (n.kind === 'failed') out.delete(`${base}mergeable`)
     const prev = out.get(key)
     out.set(key, n.kind === 'activity' && prev ? { ...n, reviews: (prev.reviews ?? 0) + (n.reviews ?? 0), comments: (prev.comments ?? 0) + (n.comments ?? 0), threads: (prev.threads ?? 0) + (n.threads ?? 0) } : n)
   }
@@ -111,12 +110,13 @@ export function mergeNotes(ns: readonly PrNote[]): PrNote[] {
 }
 
 // ---- the tracker ----
+// An entry whose stamp is more than PR_TRACK_MS from now, either way, is expired: a stamp from the future cannot keep a PR polled for good.
 export type Tracked = PrRef & { at: number; seen: Seen }
 export type Tracker = { sid: string; prs: Tracked[] }
-export const trackExpired = (p: { at: number }, now: number): boolean => now - Math.min(p.at, now) >= PR_TRACK_MS
+export const trackExpired = (p: { at: number }, now: number): boolean => Math.abs(now - p.at) >= PR_TRACK_MS
 const seenOk = (s: unknown): s is Seen =>
   SHA_RE.test(String(own(s, 'sha'))) && ['open', 'merged', 'closed'].includes(String(own(s, 'state'))) && ['none', 'pending', 'green', 'failed'].includes(String(own(s, 'checks'))) &&
-  ['draft', 'mergeable'].every((k) => typeof own(s, k) === 'boolean') && ['reviews', 'comments', 'threads'].every((k) => Number.isInteger(own(s, k)))
+  ['draft', 'mergeable'].every((k) => typeof own(s, k) === 'boolean') && ['reviews', 'comments', 'threads'].every((k) => count(own(s, k)))
 // A tracker file of the session `sid`: a PR entry that fails is dropped, the rest kept. undefined: not a tracker of this session.
 export function parseTracker(text: unknown, sid: string): Tracker | undefined {
   let j: unknown

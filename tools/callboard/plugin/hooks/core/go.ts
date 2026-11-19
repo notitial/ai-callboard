@@ -9,7 +9,7 @@ const GO_TEXT_LINES = 3
 // A control character other than newline, a format or private-use or unassigned character, a line or paragraph separator: what a person cannot see in the dialog.
 const HIDDEN_RE = /[\u0000-\u0009\u000b-\u001f\u007f-\u009f\p{Cf}\p{Co}\p{Cn}\p{Zl}\p{Zp}\u{fe00}-\u{fe0f}\u{e0100}-\u{e01ef}\u115f\u1160\u3164\uffa0]/u
 // A line that starts like the fence go_status puts around the text.
-const FENCE_RE = /^[ \t]*(<<<|>>>)/m
+const FENCE_RE = /^\s*(<<<|>>>)/m
 
 // The text a go may carry: 1 to 3 non-empty lines, at most 300 bytes, no space at its ends, nothing hidden, no fence.
 export function goTextOk(text: unknown): text is string {
@@ -31,5 +31,6 @@ export function goCommand(args: string): { op: 'give'; text: string } | { op: 'o
   const text = args.trim()
   const off = /^off(?:\s+(\S+))?$/.exec(text)
   if (off) return off[1] === undefined ? { op: 'off' } : { op: 'off', id: off[1] }
-  return goTextOk(text) ? { op: 'give', text } : 'bad'
+  // `go Off`, `go off all` and the like read as an attempt to end a go: they are refused, not recorded as a new go.
+  return goTextOk(text) && !/^off(\s|$)/i.test(text) ? { op: 'give', text } : 'bad'
 }
