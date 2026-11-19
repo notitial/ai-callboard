@@ -7,16 +7,18 @@
         unpatched-patchable      every anchor was found exactly once: --apply would patch it
         anchors-missing <names>  an update moved the code the patch hooks into (a name is missing or matches twice): --apply refuses
       --apply: patch extension.js, keep the original beside it as extension.js.callboard-orig and write callboard-cwd-patch.json
-      (the marker callboard's panels extension reads). Patched already: says so and stops. A window reload (Developer: Reload
+      (the marker callboard's panels extension reads; its "look" field says whether the panel look below went in). Patched already: says so and stops. A window reload (Developer: Reload
       Window) loads it.
       --undo: put the original back from the backup and remove the backup and the marker.
 
 The patch gives `claude-vscode.editor.open` a `cwd` in its sixth argument ({cwd: folder}), which becomes the working folder of the
 new panel instead of the window's first folder, when it is one of the window's folders (4 edits). A fresh panel opened by a + New session button
 (a call with an options object but no `cwd` or session id) in a window with several folders first shows VS Code's own folder list and uses the pick; Escape
-opens nothing; a bare call (the palette, Open, an @-mention), a resume and a one-folder window never ask. Each anchor is a pattern that tolerates renamed minified
+opens nothing; a bare call (the palette, Open, an @-mention), a resume and a one-folder window never ask. The panel look (LOOK_CSS below, a style block added to the webview page the extension builds) lets the composer and its permission box use the panel's
+width and keeps the Remote Control chip icon-only. Each anchor is a pattern that tolerates renamed minified
 identifiers, and the file is written only when every anchor matches exactly once: otherwise nothing changes and the missing ones
-are named. There is no half patch: a failure after the file was replaced puts the backup back. An update of the extension is a new
+are named. The one optional piece, the panel look, is separate: its style block goes in when its one anchor matches exactly once; when it
+does not, a warning line says so and the folder patch still applies. There is no half patch: a failure after the file was replaced puts the backup back. An update of the extension is a new
 folder, so it starts unpatched and this runs again. It never uses the network, runs nothing else, works only inside EXTENSION_DIR
 and changes no setting. Run it as your user: it refuses root. Tests: /usr/bin/python3 -I tools/callboard/test_patch_claude.py
 Exit codes: 0 done or nothing to do (patched, patchable), 1 refused or anchors missing, 2 usage.
@@ -37,6 +39,21 @@ NAME = b"cbCwd"
 ID = rb"[A-Za-z_$][\w$]*"
 VERSION = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+")
 
+# The panel look: the one block of CSS the patch adds to the webview page, and the one place to tune it. It ends up inside a JavaScript template literal of
+# the extension, so it holds no backtick, backslash or "${". Class names of the page carry a build hash, so the selectors match their stable prefix.
+# CONFIRMED against the shipped index.css (2.1.328): the 680px cap on `inputWrapper_` and `permissionsContainer_` (both centred with margin:0 auto), and
+# the Remote Control chip's `aria-label`. A GUESS, which only a rendered panel can confirm: `inputContainer_`, the composer's outer box (absolute,
+# max-width 680px, left and right 16px). The guess is limited to the rule that has no `data-permission-mode`, because the inner box of the same prefix has it.
+# If the side margin does not change, find the element that holds the margin in the window's developer tools and change that selector and the 8px.
+LOOK_CSS = (
+    '[class*="inputWrapper_"],[class*="permissionsContainer_"]{max-width:none!important}'
+    '[class*="inputContainer_"]:not([data-permission-mode]){max-width:none!important;left:8px!important;right:8px!important}'
+    '[aria-label="Remote Control"]{padding:0!important}'
+    '[aria-label="Remote Control"] svg{display:block!important}'
+    '[aria-label="Remote Control"] span{display:none!important}'
+)
+LOOK_ID = b"callboard-look"
+
 
 # (label, pattern, replacement). The replacement gets the match; each pattern is checked on the unpatched file.
 ANCHORS = (
@@ -55,6 +72,23 @@ ANCHORS = (
      lambda m: m.group(1) + b"let cbqC=await " + pick(m.group("args").split(b",")[0], m.group("opt")) + b";if(cbqC===null)return;" + m.group("decl")
      + b".createPanel(" + m.group("args") + b"," + m.group("fi") + b",void 0,!1,cbqC)"),
 )
+
+
+# The panel look's anchor: the webview page's stylesheet link followed by the font configuration style tag. The block goes between them, after the page's own
+# stylesheet, so it wins ties. Optional: when it does not match exactly once the folder patch still applies.
+LOOK_ANCHOR = rb'(<link href="\$\{[^}`]{1,60}\}" rel="stylesheet">)(\s*)(<style id="claude-font-configuration">)'
+
+
+def look_block(m):
+    return m.group(1) + m.group(2) + b'<style id="' + LOOK_ID + b'">' + LOOK_CSS.encode("ascii") + b"</style>" + m.group(2) + m.group(3)
+
+
+def look_problem(raw):
+    """Why the panel look cannot go in (None when it can): its anchor does not match exactly once, or the page already has the block."""
+    n = len(re.findall(LOOK_ANCHOR, raw))
+    if n != 1:
+        return "look anchor (%s)" % ("no match" if n == 0 else "%d matches" % n)
+    return "the file already contains %s" % LOOK_ID.decode() if LOOK_ID in raw else None
 
 
 def pick(sid, opt):
@@ -154,12 +188,15 @@ def problems(raw):
 
 
 def patched(raw):
-    """The patched bytes. Every anchor is replaced on these very bytes and must match exactly once, else nothing is written."""
+    """(the patched bytes, whether the panel look went in). Every anchor is replaced on these very bytes and must match exactly once, else nothing is
+    written; the look is the one anchor that may miss."""
     for label, pat, rep in ANCHORS:
         raw, n = re.subn(pat, rep, raw)
         if n != 1:
             refuse("%s matched %d times; nothing was changed" % (label, n))
-    return raw
+    if look_problem(raw) is not None:
+        return raw, False
+    return re.sub(LOOK_ANCHOR, look_block, raw), True
 
 
 def state(ext):
@@ -191,14 +228,14 @@ def apply(ext):
         return 1
     main = os.path.join(ext, MAIN)
     raw = read(main)
-    new = patched(raw)
+    new, look = patched(raw)
     mode = os.stat(main).st_mode & 0o777
     backup = os.path.join(ext, BACKUP)
     try:
         # A hard link costs no space, and the patched file is a new inode, so the backup keeps the original.
         os.link(main, backup)
         put(main, new, mode)
-        put(os.path.join(ext, MARKER), json.dumps({"patch": PATCH, "version": ver, "original_sha256": digest(raw), "patched_sha256": digest(new)}).encode() + b"\n", 0o644)
+        put(os.path.join(ext, MARKER), json.dumps({"patch": PATCH, "version": ver, "look": look, "original_sha256": digest(raw), "patched_sha256": digest(new)}).encode() + b"\n", 0o644)
         if read(main) != new:
             raise OSError("the file read back differs")
     except BaseException as e:
@@ -211,6 +248,8 @@ def apply(ext):
         refuse("could not patch (%s); the original is back and nothing is left over" % (e.strerror if isinstance(e, OSError) and e.strerror else type(e).__name__))
     print("patched %s" % ver)
     print("Changed: %s (backup: %s, marker: %s, all in %s)" % (MAIN, BACKUP, MARKER, show(ext)))
+    if not look:
+        print("warning: the panel look is not in (%s); the folder patch is." % look_problem(raw))
     print("Reload the VS Code window (Developer: Reload Window) to load it. Undo: run this with --undo.")
     return 0
 
@@ -255,6 +294,11 @@ def main(argv):
         return undo(ext)
     name, ver, detail = state(ext)
     print("%s %s%s" % (name, ver, ": " + detail if detail else ""))
+    miss = look_problem(read(os.path.join(ext, MAIN))) if name == "unpatched-patchable" else None
+    if miss:
+        print("warning: the panel look would be left out (%s); the folder patch would still apply." % miss)
+    if name == "patched" and marker_of(ext).get("look") is not True:
+        print("warning: the panel look is not in this patch.")
     if name == "leftovers":
         print("A backup or marker from an earlier run is here and does not match the file: run --undo.")
     return 1 if name in ("anchors-missing", "leftovers") else 0
