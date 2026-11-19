@@ -51,6 +51,23 @@ test('a loose session\'s prompt: the manager is told after the head start, nobod
   assert.match(r.decision.message, /Expired/)
   assert.match(await events(boss), /was closed with no decision/)
 })
+test('the manager\'s own dialog is denied at once while a window is on; an unknown window closes nothing, and a lane\'s ask is not closed early', async () => {
+  const f = tiers()
+  const boss = peer(f, 'sid-boss')
+  window(f)
+  const r: any = await permissionRequest(boss.$, bash(), nx())
+  assert.match(r.decision.message, /^\[callboard\] Closed: the person is away/)
+  assert.ok(f.h.now - T0 < 10_000, String(f.h.now - T0))
+  assert.deepEqual(await rows(f), ['raised:Bash', 'closed:away'])
+  const g = tiers()
+  const b2 = peer(g, 'sid-boss')
+  g.h.files.set(`${V2}/unattended.json`, 'not json')
+  b2.h.sleepMoves = true
+  assert.match(((await permissionRequest(b2.$, bash(), nx())) as any).decision.message, /Expired/)
+  const h = tiers()
+  window(h)
+  assert.match((await ask(h)).decision.message, /Expired/)
+})
 test('a go dialog or a force-stop dialog open in the session is the person\'s alone: its question gets no decision from the hook and no ask', async () => {
   for (const spec of [goDialog('lane', 'finish the tests', '2026-11-20 10:00'), stopDialog('kid', 'terminate')]) {
     const f = tiers()

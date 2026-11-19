@@ -123,6 +123,8 @@ async function hold($: any, e: any, beneath: any, signal: AbortSignal | undefine
       if (signal?.aborted || (tid !== undefined && mem.done.has(tid)) || (await clicked())) return finish('closed', beneath, undefined, 'click')
       const v = await getView($)
       if (isOff(v, me) || (await offFile($))) return finish('closed', beneath, undefined, 'off')
+      // The one early close: the manager's own dialog while the person is away. Nobody is above it, and its turn is the one that answers every ask below.
+      if (v.manager === me && (await windowNow($)).state === 'on') return finish('closed', { ...beneath, decision: { behavior: 'deny', message: say({ msg: 'ask.away', p: {} }) } }, undefined, 'away')
       const ask: Ask = { ...base, awake }
       const { ups, answered } = await askState($, ask.id)
       const st = stage({ ask, now, ups, v })

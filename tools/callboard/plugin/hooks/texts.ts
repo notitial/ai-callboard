@@ -227,6 +227,7 @@ const fixed: { [K in keyof Fixed]: (p: Fixed[K]) => string } = {
     return p.lane === undefined ? `${ref}: tracking ended after 20 minutes. Call pr_watch again to keep watching it.` : `${ref}: tracking ended after 20 minutes.`
   },
 
+  'ask.away': () => '[callboard] Closed: the person is away and nobody is above you to decide this. Do not ask again now. Leave that part and write what is blocked in your report.',
   'ask.expired': (p) => `[callboard] Expired: no one answered this within 15 minutes, so it is closed. Do not ask again for the same thing. Leave that part for now, write what is blocked in your report and tell ${who(p.parent)}, or split the work so the next ask is one your parent can decide.`,
   'ask.subagent': () => '[callboard] Denied: a subagent asked. Run this call yourself in the main session, where it can be decided; do not ask again from a subagent.',
   'ask.allowed': (p) => `Ask ${q(p.ask)} allowed. It lands shortly; the person's click always wins.`,

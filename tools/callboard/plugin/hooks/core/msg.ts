@@ -107,6 +107,7 @@ export type Fixed = {
 
   // The ask: the two close texts, the subagent deny, and what each prompt tool answers.
   'ask.expired': { parent: string }
+  'ask.away': E
   'ask.subagent': E
   'ask.allowed': { ask: string }
   'ask.denied': { ask: string }
