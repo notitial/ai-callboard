@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { HOME, MIN, T0, V2, as, peer, tiers } from '../../test/fake.ts'
 import type { Ask } from '../core/model.ts'
 import { permissionRequest } from './ask-hook.ts'
+import { mem } from './mem.ts'
 import { relayTick } from './relay.ts'
 import { getView, readAnswer, readAskLog, readAsks, rmAsk, writeAsk, writeUp } from './store.ts'
 import { promptAnswerCall } from './tools-ask.ts'
@@ -99,4 +100,30 @@ test('the OFF file and a busy manager open no pop-up', async () => {
   await tickRelay(boss)
   await settle()
   assert.equal(boss.h.asked.length, 1)
+})
+test('with the guard missing no pop-up opens, and a click that finds it missing says so and leaves the ask to be offered again', async () => {
+  const f = tiers()
+  const boss = peer(f, 'sid-boss')
+  f.h.sleepMoves = false
+  await writeAsk(f.$, mk('aa11bb22cc'))
+  await reach(f, 'aa11bb22cc')
+  let click: (l: string) => void = () => undefined
+  boss.h.askAnswer = () => new Promise((r) => (click = r))
+  await tickRelay(boss)
+  await settle()
+  assert.equal(boss.h.asked.length, 1)
+  f.h.files.delete(`${HOME}/.claude/callboard/.protected-checkout`)
+  mem.guard = undefined
+  click('Allow')
+  await settle()
+  assert.equal(await readAnswer(f.$, 'aa11bb22cc'), undefined)
+  assert.match(boss.h.toasts[0]!, /guard/)
+  await tickRelay(boss)
+  await settle()
+  assert.equal(boss.h.asked.length, 1)
+  f.h.files.set(`${HOME}/.claude/callboard/.protected-checkout`, '')
+  mem.guard = undefined
+  await tickRelay(boss)
+  await settle()
+  assert.equal(boss.h.asked.length, 2)
 })

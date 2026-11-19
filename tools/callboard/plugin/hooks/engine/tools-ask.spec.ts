@@ -49,6 +49,14 @@ test('prompt_answer: the author is the caller\'s own id whatever the input says,
   assert.equal((await readAnswer(f.$, ID))!.decision, 'allow')
   void boss
 })
+test('prompt_answer: with the protected-paths guard missing the answer is refused and nothing is written', async () => {
+  const { f, lead, put } = world()
+  await put()
+  f.h.files.delete(`${HOME}/.claude/callboard/.protected-checkout`)
+  mem.guard = undefined
+  assert.match((await call(lead, promptAnswerCall, { id: ID, decision: 'allow' })).deny!, /guard/)
+  assert.equal(await readAnswer(f.$, ID), undefined)
+})
 test('prompt_answer: eligibility is checked at the write, not at the list; an input not shown whole cannot be allowed; a bad id and a bad option are refused', async () => {
   const { f, lead, boss, put } = world()
   await put()

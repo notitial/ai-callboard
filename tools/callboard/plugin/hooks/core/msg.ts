@@ -34,6 +34,7 @@ export type RefuseCode =
   | 'not-eligible'
   | 'person-only'
   | 'ask-closed'
+  | 'no-guard' // an answer while the protected-paths guard is not in place
   | 'input-cut' // an allow of an ask whose input a reader has not seen whole
   | 'compact-rate'
   | 'compact-floor'

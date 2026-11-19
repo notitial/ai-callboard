@@ -259,9 +259,9 @@ test('without the protected-paths guard an answer file is dropped: the ask stays
   const lead = peer(f, 'sid-lead')
   const out: Record<string, any> = {}
   script(f, [[40_000, async () => {
+    out.a = await answer(lead, { id: await idOf(f), decision: 'allow' })
     f.h.files.delete(`${HOME}/.claude/settings.json`)
     mem.guard = undefined
-    out.a = await answer(lead, { id: await idOf(f), decision: 'allow' })
   }]])
   const r = await ask(f)
   assert.match(out.a.result, /allowed/)

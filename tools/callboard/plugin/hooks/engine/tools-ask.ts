@@ -54,6 +54,7 @@ export async function answerAsk($: any, v: View, id: string, a: { decision: 'all
   const answer = { ask: id, by, decision: a.decision, at: now, ...(a.note === undefined ? {} : { note: capBytes(a.note, NOTE_MAX).text }), ...(a.option === undefined ? {} : { option: a.option }) }
   const d = decide(answer, ask, st, v, liveOf(ask))
   if (d.act === 'ignore') return d
+  if (!(await guardOk($))) return no('no-guard')
   const w = await writeAnswer($, answer)
   return w === 'ok' ? { act: 'ok', msg: d.act === 'allow' ? 'ask.allowed' : d.act === 'deny' ? 'ask.denied' : 'ask.answered', p: { ask: id } } : no(w === 'exists' ? 'ask-closed' : 'unknown-liveness')
 }
