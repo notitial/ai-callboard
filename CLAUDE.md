@@ -30,8 +30,8 @@ never overlap: a second run waits for the first, and one that finds a stale turn
   (`mod/test/fixtures.ts`). The kit runs each `*.test.ts` file in its own process, side by side, and kills one after
   10 minutes: the tests sit in topic files (`mod/test/<topic>.test.ts`) over a shared harness (`harness.ts`, with the
   state object `h`, and `fixtures.ts`). A test goes in the file of its topic; one that needs a state the harness does
-  not reset gets its setup in its own body. `tools/callboard/plugin/` sits beside `mod/`: its tools and commands refuse
-  `not-built` where the body is not written. The script validates and tests it too (specs, `claude plugin validate`,
+  not reset gets its setup in its own body. `tools/callboard/plugin/` sits beside `mod/`: it is the build that replaces
+  the mod (ADR 0012). The script validates and tests it too (the core and engine specs, `claude plugin validate`,
   `claude plugin test`), and `CALLBOARD_SKIP_MOD_TESTS` never skips those.
 - `tools/usage-watcher/` — `/usr/bin/python3 -I tools/usage-watcher/test_watch.py` after changing `watch.py`;
   `bash tools/usage-watcher/test-install.sh` after changing `install.sh`.

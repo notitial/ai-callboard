@@ -1,5 +1,5 @@
 ---
-description: "Report whether callboard's patch of the Claude Code VS Code extension is in and current, apply it when it is missing, bring it up to date when an older version of the script built it, and, only after a question, repair the patch script when an update moved the code it hooks into. The patch has two parts: the folder patch, which lets one multi-folder VS Code window open lanes in any of its folders and ask which folder a new session starts in, and the panel look, a wider composer and an icon-only Remote Control chip. Use on '/patch-vs-claude' after the Claude Code extension updated, and '/patch-vs-claude undo' to take the patch out."
+description: "Report whether callboard's patch of the Claude Code VS Code extension is in and current, apply it when it is missing, bring it up to date when an older version of the script built it, and, only after a question, repair the patch script when an update moved the code it hooks into. The patch has two parts: the folder patch, which lets one multi-folder VS Code window open lanes in any of its folders and ask which folder a new session starts in, and the panel look, a wider composer and an icon-only Remote Control chip, and the restore fix, which makes a restored or reopened panel resume in its conversation's folder. Use on '/patch-vs-claude' after the Claude Code extension updated, and '/patch-vs-claude undo' to take the patch out."
 disable-model-invocation: true
 ---
 
@@ -24,15 +24,15 @@ Callboard is then back to one repo per window. This is the person's way out at a
 2. **Check and report first.** Run `/usr/bin/python3 -I <checkout>/tools/callboard/patch-claude.py '<folder>'` (single
    quotes; no flag: changes nothing). Tell the person, before anything else: the extension version, whether it is patched
    (the first word of the output: `patched`, `outdated`, `unpatched-patchable`, `anchors-missing` or `leftovers`), whether the marker
-   `callboard-cwd-patch.json` is in that folder, and, when the output has a `warning:` line, that the panel look (the wider composer and
-   the icon-only Remote Control chip) is not in or would be left out while the folder patch still applies.
+   `callboard-cwd-patch.json` is in that folder, and, when the output has a `warning:` line, which optional piece (the panel look, the wider composer and
+   the icon-only Remote Control chip, or the restore fix, which makes a restored panel resume in its folder) is not in or would be left out while the folder patch still applies.
 3. **`patched`:** is up to date (an older build reads `outdated`, below): say so, with the warning if there is one, and stop. **`outdated`:** an older version of the script
    built the patch. Say what the line after the colon says differs, then run the same command with `--update` (it rebuilds the
    patch from the backup original and swaps `extension.js` and the marker; the backup is not touched; a failed write puts the
    previous patch back), say what it printed and that each VS Code window needs Developer: Reload Window. If `--update`
    refuses, nothing was changed: report its message and stop. **`unpatched-patchable`:** run the same command with `--apply`, say the version and what
    was changed (`extension.js`, backup `extension.js.callboard-orig`, marker `callboard-cwd-patch.json`, all in that
-   folder), whether the panel look went in (a `warning:` line says it did not), and that each VS Code window needs Developer: Reload Window.
+   folder), whether the panel look and the restore fix went in (a `warning:` line says which did not), and that each VS Code window needs Developer: Reload Window.
 4. **The check or the apply refuses** (`anchors-missing`: an update moved the minified code; nothing was changed): ask once
    with AskUserQuestion whether you may diagnose it and repair the script. Recommend yes. A yes means: read the new
    `extension.js` read-only, change the script's patterns and its test in a /tmp clone, test on a copy of the extension
@@ -40,9 +40,10 @@ Callboard is then back to one repo per window. This is the person's way out at a
    Only on a yes:
    - Clone the repo to `/tmp/ai-manager-patch-<version>` (a plain clone, git MCP with `path`), on a branch `fix/claude-patch-<version>`.
    - Read the new `extension.js` (one huge line: use `grep -o` with a bounded context, never print the file) around the
-     strings the missing anchors name: `createPanel(`, `setupPanel(`, `"claude-vscode.editor.open"`. Change only the patterns in
-     `ANCHORS`, so each matches exactly once in the new file and still in the stand-in fixtures; add a stand-in variant to
-     `test_patch_claude.py` for the new shape.
+     strings the missing anchors name: `createPanel(`, `setupPanel(`, `"claude-vscode.editor.open"`. Change only the anchor
+     patterns: `ANCHORS` and the one each optional piece has beside it (`LOOK_ANCHOR`, and any other `*_ANCHOR` or `*_ANCHORS`
+     the script's header names), so each matches exactly once in the new file and still in the stand-in fixtures; add a
+     stand-in variant to `test_patch_claude.py` for the new shape.
    - Run `/usr/bin/python3 -I tools/callboard/test_patch_claude.py`, then the repaired script on a COPY of the extension folder
      under /tmp (`cp -R`), and `node --check` on the patched copy's `extension.js`.
    - Show the person the diff and the result on the copy, then ask once more with AskUserQuestion: apply the repaired script to
