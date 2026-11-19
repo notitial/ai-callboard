@@ -12,7 +12,7 @@
       --undo: put the original back from the backup and remove the backup and the marker.
 
 The patch gives `claude-vscode.editor.open` a `cwd` in its sixth argument ({cwd: folder}), which becomes the working folder of the
-new panel instead of the window's first folder (4 edits, 5 names). Each anchor is a pattern that tolerates renamed minified
+new panel instead of the window's first folder, when it is one of the window's folders (4 edits). Each anchor is a pattern that tolerates renamed minified
 identifiers, and the file is written only when every anchor matches exactly once: otherwise nothing changes and the missing ones
 are named. There is no half patch: a failure after the file was replaced puts the backup back. An update of the extension is a new
 folder, so it starts unpatched and this runs again. It never uses the network, runs nothing else, works only inside EXTENSION_DIR
@@ -47,12 +47,11 @@ ANCHORS = (
     ("setupPanel start",
      rb"(setupPanel\((?:ID,){5}ID=!1)\)\{(this\.panelFullEditor\.set\(ID,!!ID\);let (ID)=ID\.workspace\.workspaceFolders\?\.map\(\((ID)\)=>\4\.uri\.fsPath\)"
      rb"\|\|\[\],ID=ID\()\3\)".replace(b"ID", ID),
-     lambda m: m.group(1) + b"," + NAME + b"){" + m.group(2) + NAME + b"?[" + NAME + b"]:" + m.group(3) + b")"),
+     lambda m: m.group(1) + b"," + NAME + b"){" + m.group(2) + m.group(3) + b".includes(" + NAME + b")?[" + NAME + b"]:" + m.group(3) + b")"),
     ("editor.open command",
      rb'("claude-vscode\.editor\.open",async\((?P<args>(?:ID,){4}ID),(?P<opt>ID)\)=>\{[\s\S]{0,1500}?\.createPanel\((?P=args),ID\.focusInput)\)'.replace(b"ID", ID),
      lambda m: m.group(1) + b",void 0,!1,typeof " + m.group("opt") + b'?.cwd=="string"?' + m.group("opt") + b".cwd:void 0)"),
 )
-EDITS = 5  # occurrences of NAME the four anchors add
 
 
 def refuse(msg):
@@ -75,7 +74,7 @@ def read(path):
         refuse("%s is a link; refusing to work through it" % show(path))
     if not os.path.lexists(path):
         return None
-    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     with os.fdopen(fd, "rb") as f:
         if not stat.S_ISREG(os.fstat(f.fileno()).st_mode):
             refuse("%s is not a regular file" % show(path))
@@ -118,16 +117,14 @@ def version(ext):
 
 
 def marker_of(ext):
+    """The marker's fields, or None when there is none or it is not this script's (the state then reads as leftovers)."""
     raw = read(os.path.join(ext, MARKER))
-    if raw is None:
-        return None
     try:
-        m = json.loads(raw.decode("utf-8"))
+        m = json.loads(raw.decode("utf-8")) if raw is not None else None
     except ValueError:
-        refuse("%s is not valid JSON; reinstall the extension (an update is a fresh folder)" % MARKER)
-    if not isinstance(m, dict) or m.get("patch") != PATCH or not all(isinstance(m.get(k), str) for k in ("original_sha256", "patched_sha256")):
-        refuse("%s is not this script's marker; reinstall the extension (an update is a fresh folder)" % MARKER)
-    return m
+        return None
+    ok = isinstance(m, dict) and m.get("patch") == PATCH and all(isinstance(m.get(k), str) for k in ("original_sha256", "patched_sha256"))
+    return m if ok else None
 
 
 def problems(raw):
@@ -143,10 +140,11 @@ def problems(raw):
 
 
 def patched(raw):
-    for _, pat, rep in ANCHORS:
-        raw = re.sub(pat, rep, raw)
-    if raw.count(NAME) != EDITS:
-        refuse("internal check failed: the patch would not carry %d edits; nothing was changed" % EDITS)
+    """The patched bytes. Every anchor is replaced on these very bytes and must match exactly once, else nothing is written."""
+    for label, pat, rep in ANCHORS:
+        raw, n = re.subn(pat, rep, raw)
+        if n != 1:
+            refuse("%s matched %d times; nothing was changed" % (label, n))
     return raw
 
 
@@ -181,15 +179,18 @@ def apply(ext):
     raw = read(main)
     new = patched(raw)
     mode = os.stat(main).st_mode & 0o777
+    backup = os.path.join(ext, BACKUP)
     try:
-        put(os.path.join(ext, BACKUP), raw, mode)
+        # A hard link costs no space, and the patched file is a new inode, so the backup keeps the original.
+        os.link(main, backup)
         put(main, new, mode)
         put(os.path.join(ext, MARKER), json.dumps({"patch": PATCH, "version": ver, "original_sha256": digest(raw), "patched_sha256": digest(new)}).encode() + b"\n", 0o644)
         if read(main) != new:
             raise OSError("the file read back differs")
     except BaseException as e:
-        # Back to the original, whatever was written: the backup holds it.
-        put(main, raw, mode)
+        # Back to the original: renaming the backup over the file is atomic and needs no space (a no-op when both are still one inode).
+        if os.path.lexists(backup):
+            os.replace(backup, main)
         for n in (BACKUP, MARKER):
             if os.path.lexists(os.path.join(ext, n)):
                 os.unlink(os.path.join(ext, n))
@@ -205,15 +206,15 @@ def undo(ext):
     main = os.path.join(ext, MAIN)
     m = marker_of(ext)
     orig = read(os.path.join(ext, BACKUP))
-    if orig is None and m is None:
+    if orig is None and not os.path.lexists(os.path.join(ext, MARKER)):
         print("nothing to undo")
         return 0
     if orig is not None and m is not None and digest(orig) != m["original_sha256"]:
         refuse("%s does not match the marker's recorded original; left alone. Reinstall the extension instead" % BACKUP)
     raw = read(main)
     if orig is None:
-        if raw is None or digest(raw) != m["original_sha256"]:
-            refuse("the backup is gone and %s is not the original; reinstall the extension instead" % MAIN)
+        if m is None or raw is None or digest(raw) != m["original_sha256"]:
+            refuse("the backup is gone and %s is not known to be the original; reinstall the extension instead" % MAIN)
     elif raw != orig:
         put(main, orig, os.stat(main).st_mode & 0o777)
     for n in (BACKUP, MARKER):

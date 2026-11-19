@@ -7,7 +7,8 @@ disable-model-invocation: true
 
 Keeps `tools/callboard/patch-claude.py` applied to the person's Claude Code extension. The script is the only place that
 knows what the patch is, how it is checked and how it is undone: read its header first, and never copy its logic here.
-The person's own typed `/patch Claude` is the go for the one apply in step 3 and for nothing else. The argument must be
+The person's own typed `/patch Claude` is the go for the one apply in step 3, and for the undo of step 6 (it only
+puts the original back), and for nothing else. The argument must be
 exactly `Claude`; anything else, say what the skill does and stop.
 
 Never touch `~/.claude/settings.json`, any VS Code setting, or callboard's state or ledger files. Tell the person the
@@ -15,8 +16,8 @@ exact file, backup and marker whenever something is changed.
 
 1. **Find the folder.** List `~/.vscode/extensions/anthropic.claude-code-*` with `ls -d` and take the newest version
    (`sort -V`). If two platform builds of the newest version exist, ask which one. `<checkout>` is this session's repo
-   (`pwd -P`); it must match `^/[A-Za-z0-9._/-]+$` or stop.
-2. **Check.** Run `/usr/bin/python3 -I <checkout>/tools/callboard/patch-claude.py "<folder>"` (no flag: changes nothing).
+   (`pwd -P`); it must match `^/[A-Za-z0-9._/-]+$` or stop. The folder must contain no single quote or newline, or stop.
+2. **Check.** Run `/usr/bin/python3 -I <checkout>/tools/callboard/patch-claude.py '<folder>'` (single quotes; no flag: changes nothing).
    The first word of its output is the state; show it with the version.
 3. **`unpatched-patchable`:** run the same command with `--apply`. Say the version, that `extension.js` was changed with
    its backup `extension.js.callboard-orig` and marker `callboard-cwd-patch.json` in that folder, and that each VS Code window

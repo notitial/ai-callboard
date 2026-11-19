@@ -135,7 +135,7 @@ class Apply(Case):
         self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "patched 2.1.328"))
         new = self.js()
         self.assertEqual(new.count(b"cbCwd"), 5)
-        for part in (b"a=!1,cbCwd){", b"s===!0,a,cbCwd)", b"s=!1,cbCwd){", b"nC(cbCwd?[cbCwd]:i)", b'O.focusInput,void 0,!1,typeof x?.cwd=="string"?x.cwd:void 0)'):
+        for part in (b"a=!1,cbCwd){", b"s===!0,a,cbCwd)", b"s=!1,cbCwd){", b"nC(i.includes(cbCwd)?[cbCwd]:i)", b'O.focusInput,void 0,!1,typeof x?.cwd=="string"?x.cwd:void 0)'):
             self.assertIn(part, new)
         self.assertIn("é".encode("utf-8"), new)
         self.assertEqual(slurp(os.path.join(self.ext, "extension.js.callboard-orig")), orig)
@@ -160,24 +160,45 @@ class Apply(Case):
         ext = self.make(V328, name="r")
         self.run_script(ext, "--apply")
         self.assertEqual(self.rc, 0)
-        self.assertIn(b"$v(cbCwd?[cbCwd]:i)", self.js(ext))
+        self.assertIn(b"$v(i.includes(cbCwd)?[cbCwd]:i)", self.js(ext))
         self.assertIn(b'typeof z?.cwd=="string"?z.cwd:void 0)', self.js(ext))
 
-    def test_a_failure_after_the_file_was_replaced_puts_the_original_back(self):
+    def test_a_failed_write_puts_the_original_back_and_leaves_nothing(self):
+        for failing in ("extension.js", "callboard-cwd-patch.json"):
+            ext = self.make(V327, name="f-" + failing)
+            mod = load_module()
+            orig = self.js(ext)
+            real = mod.put
+
+            def put(path, content, mode, failing=failing, real=real):
+                if os.path.basename(path) == failing:
+                    raise OSError(28, "No space left on device")
+                real(path, content, mode)
+
+            mod.put = put
+            with self.assertRaises(SystemExit) as cm:
+                mod.apply(ext)
+            self.assertEqual(cm.exception.code, 1, failing)
+            self.assertEqual(self.js(ext), orig, failing)
+            self.assertEqual(sorted(os.listdir(ext)), ["extension.js", "package.json"], failing)
+
+    def test_every_anchor_must_match_once_on_the_bytes_that_are_written(self):
         mod = load_module()
+        raw = build(V327)
+        self.assertEqual(mod.patched(raw).count(b"cbCwd"), 5)
+        doubled = raw + raw[raw.index(b"x.push(Wp("):raw.index(b'x.push(Wp("claude-vscode.editor.openLast')]
+        with self.assertRaises(SystemExit):
+            mod.patched(doubled)
+
+    def test_a_corrupt_marker_reads_as_leftovers_and_undo_recovers_from_the_backup(self):
         orig = self.js()
-        real = mod.put
-
-        def put(path, content, mode):
-            if os.path.basename(path) == "callboard-cwd-patch.json":
-                raise OSError(28, "No space left on device")
-            real(path, content, mode)
-
-        mod.put = put
-        with self.assertRaises(SystemExit) as cm:
-            mod.apply(self.ext)
-        self.assertEqual(cm.exception.code, 1)
-        self.assertEqual(self.js(), orig)
+        self.run_script(self.ext, "--apply")
+        with open(os.path.join(self.ext, "callboard-cwd-patch.json"), "w") as f:
+            f.write("{")
+        self.run_script(self.ext)
+        self.assertEqual((self.rc, self.out.split(":")[0]), (1, "leftovers 2.1.328"))
+        self.run_script(self.ext, "--undo")
+        self.assertEqual((self.rc, self.js()), (0, orig))
         self.assertEqual(sorted(os.listdir(self.ext)), ["extension.js", "package.json"])
 
     def test_leftovers_block_apply_and_undo_clears_them(self):
@@ -226,6 +247,12 @@ class Refusals(Case):
         self.assertUnchanged(self.ext, "--apply")
         self.assertEqual(self.rc, 1)
         self.assertEqual(slurp(other), build(V327))
+
+    def test_a_fifo_in_place_of_a_file_is_refused_and_does_not_hang(self):
+        os.unlink(os.path.join(self.ext, "extension.js"))
+        os.mkfifo(os.path.join(self.ext, "extension.js"))
+        p = subprocess.run([PY, "-I", SCRIPT, self.ext], capture_output=True, text=True, timeout=20)
+        self.assertEqual(p.returncode, 1)
 
     def test_a_missing_folder_and_a_missing_file(self):
         self.run_script(os.path.join(self.t, "none"))

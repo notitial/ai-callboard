@@ -111,6 +111,8 @@ EXT_DIR="$(ls -d "$HOME"/.vscode/extensions/anthropic.claude-code-* | sort -V | 
 - Claude Code updates about daily, and an update is a new folder that starts unpatched: run the check and `--apply`
   again, or type `/patch Claude` in a session in this checkout, which does both and, when an update moved the code the
   patch hooks into, repairs the script in a clone and asks you before it applies the repair.
+- It serves the plugin build's lanes (the old mod keeps one repo per window), and covers only the open command: a tab
+  that Claude Code itself restores at a window reload, or reopens, starts in the window's first folder.
 - The patch is made for 2.1.327 and 2.1.328. A later version may rename or restructure the code it hooks into; then
   `anchors-missing` is printed and nothing is touched, and the panels extension keeps its one-repo-per-window behavior.
 

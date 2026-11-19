@@ -238,7 +238,7 @@ Developer: Reload Window). Output > Callboard Panels shows the build it loaded. 
 
 A window answers `lane_open` only when the lane's folder is its first workspace folder, so open further windows from
 inside VS Code (File, New Window). With the optional patch of the Claude Code extension (`patch-claude.py`,
-docs/setup.md) one multi-folder window answers for every one of its folders.
+docs/setup.md) one multi-folder window answers, for the plugin build, for every one of its folders.
 
 ### Manager setup: keep agents off the list file and the store (by hand)
 
