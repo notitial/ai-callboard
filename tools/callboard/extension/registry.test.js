@@ -124,3 +124,10 @@ test('a file this user may not read is skipped, not an incomplete read', async (
     fs.promises.readFile = real
   }
 })
+
+test('an entry carries the status, its time and what it waits for', async () => {
+  const f = folder()
+  f.put('101.json', row(101, { status: 'waiting', statusUpdatedAt: 7, waitingFor: 'approve a tool' }))
+  const [e] = await createRegistry(f.dir).list()
+  assert.deepEqual([e.status, e.statusAt, e.waitingFor], ['waiting', 7, 'approve a tool'])
+})

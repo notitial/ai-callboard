@@ -11,6 +11,7 @@ const { createRegistry } = require('./registry.js')
 const { pidAlive } = require('./reserved.js')
 const { claudePatched } = require('./claude-patch.js')
 const { createFolderBadge } = require('./folder-badge.js')
+const { createLaneView } = require('./lane-view.js')
 
 const CLAUDE = path.join(os.homedir(), '.claude')
 const SESSIONS = path.join(CLAUDE, 'sessions')
@@ -71,6 +72,11 @@ function activate(context) {
     context.subscriptions.push(createFolderBadge({ vscode, registry }))
   } catch {
     // no folder item
+  }
+  try {
+    context.subscriptions.push(createLaneView({ vscode, registry, lanes, loadLanes: () => allLanes({ storeDir: path.join(CLAUDE, 'callboard', 'lanes') }), tablePath: path.join(CLAUDE, 'callboard', 'v2', 'sessions.json'), projectsDir: path.join(CLAUDE, 'projects'), workspaceFolders: windowFolders }))
+  } catch {
+    // no lane list
   }
   const sweep = setInterval(() => lanes.sweep().catch(() => undefined), 2000)
   context.subscriptions.push({ dispose: () => clearInterval(sweep) })

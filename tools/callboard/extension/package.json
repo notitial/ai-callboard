@@ -2,7 +2,7 @@
   "name": "callboard-panels",
   "displayName": "Callboard Panels",
   "description": "Opens, reopens and closes Claude Code lane panels for the callboard mod, and opens or reopens a lead's panel for a conductor, so a lead session can run its lanes in this window.",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "publisher": "notitial",
   "icon": "icon.png",
   "galleryBanner": { "color": "#101d22", "theme": "dark" },
@@ -13,6 +13,7 @@
   "homepage": "https://github.com/notitial/ai-manager#readme",
   "engines": { "vscode": "^1.90.0" },
   "main": "./extension.js",
+  "contributes": { "views": { "explorer": [{ "id": "callboardLanes", "name": "Callboard Lanes" }] } },
   "activationEvents": ["onStartupFinished"],
   "extensionDependencies": ["anthropic.claude-code"],
   "type": "commonjs"
