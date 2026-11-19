@@ -12,7 +12,7 @@ type F = ReturnType<typeof tiers>
 const noop = Object.assign(async () => ({}), { signal: undefined })
 const settle = async () => { for (let i = 0; i < 30; i++) await new Promise((r) => setImmediate(r)) }
 const tickRelay = (g: ReturnType<typeof peer>) => as(async () => relayTick(g.$, 'sid-boss', await getView(g.$, true), g.h.now))
-const mk = (id: string, over: Partial<Ask> = {}): Ask => ({ id, asker: 'sid-me', t0: T0 - 60_000, awake: 60_000, window: null, personOnly: false, tool: 'Bash', raisedBy: 'unknown', input: '{"command":"make"}', cut: false, beat: T0, ...over })
+const mk = (id: string, over: Partial<Ask> = {}): Ask => ({ id, asker: 'sid-me', t0: T0 - 60_000, awake: 60_000, tool: 'Bash', raisedBy: 'unknown', input: '{"command":"make"}', cut: false, beat: T0, ...over })
 const reach = async (f: F, id: string) => {
   await writeUp(f.$, id, 'sid-lead', 'escalated', T0)
   await writeUp(f.$, id, 'sid-boss', 'escalated', T0)
@@ -42,23 +42,26 @@ test('by day an ask escalated past the manager shows one pop-up in the manager\'
   const last = (await readAskLog(f.$, 0))!.at(-1)!
   assert.deepEqual([last.ev, last.by], ['answered', 'PERSON'])
 })
-test('while unattended no pop-up opens and an ask for the person closes at once', async () => {
+test('while unattended no pop-up opens: an ask that reached the person waits for a reply and closes only at 15 minutes', async () => {
   const f = tiers()
   const [lead, boss] = [peer(f, 'sid-lead'), peer(f, 'sid-boss')]
   window(f)
+  const out: Record<string, any> = {}
   f.h.onSleep = async () => {
-    const id = (await readAsks(f.$)).asks[0]?.id
-    if (id === undefined || boss.h.asked.length > 0 || f.h.now - T0 > 10_000) return
+    if (out.done || f.h.now - T0 < 40_000) return
+    out.done = true
+    const id = (await readAsks(f.$)).asks[0]!.id
     await as(() => promptAnswerCall(lead.$, { id, decision: 'escalate' }, noop))
     await as(() => promptAnswerCall(boss.$, { id, decision: 'escalate' }, noop))
     await tickRelay(boss)
     await settle()
+    await tickRelay(boss)
+    await settle()
   }
   const r: any = await permissionRequest(f.$, { tool_name: 'Bash', tool_input: { command: 'make' }, tool_use_id: 't1' }, noop)
-  assert.match(r.decision.message, /^\[callboard\] Closed: this needs the person/)
-  assert.ok(f.h.now - T0 < 20_000)
+  assert.match(r.decision.message, /^\[callboard\] Expired/)
   assert.equal(boss.h.asked.length, 0)
-  assert.equal((await readAskLog(f.$, 0))!.at(-1)!.ev, 'left-for-person')
+  assert.equal((await readAskLog(f.$, 0))!.at(-1)!.ev, 'expired')
 })
 test('a pop-up clicked after its ask closed writes nothing and says so, and the next ask\'s pop-up does not stack on an open one', async () => {
   const f = tiers()

@@ -1,7 +1,6 @@
-// The unattended window: the span his command asks for, what a reader makes of the window file, and the list for his return. Pure. Trust rule held here: a window
-// that cannot be read is `unknown`, which every close reads as by day, so a failed read never closes an ask early. The window changes timing only: stage() in
-// asks.ts reads the reading this file gives, so a window that starts or ends mid-ask changes that ask at its next poll and nothing else.
-import type { AskEvent, AskLogRow, Window, WindowReading } from './model.ts'
+// The unattended window: the span his command asks for and what a reader makes of the window file. Pure. Trust rule held here: a window that cannot be read is
+// `unknown`, which no dialog treats as off, so a failed read never opens a pop-up. The window changes nothing but whether a pop-up may open.
+import type { Window, WindowReading } from './model.ts'
 
 export const WINDOW_MIN_MS = 30 * 60_000
 export const WINDOW_MAX_MS = 14 * 3_600_000
@@ -36,11 +35,4 @@ export function readWindow(raw: unknown, now: number, last?: WindowReading): Win
   const ok = Number.isFinite(w.start) && Number.isFinite(w.end) && w.end! > w.start! && w.end! - w.start! <= WINDOW_MAX_MS + MINUTE
   if (!ok) return last?.state === 'on' && now >= last.window.end ? { state: 'off' } : (last ?? { state: 'unknown' })
   return now >= w.start! && now < w.end! ? { state: 'on', window: { start: w.start!, end: w.end!, readAt: Number.isFinite(w.readAt) ? w.readAt! : 0 } } : { state: 'off' }
-}
-
-// The list for his return, from the ask log: what nobody decided (closed for him) and what a session decided while he was away, inside the window's span.
-const OPEN: readonly AskEvent[] = ['expired', 'left-for-person']
-export function returnList(log: readonly AskLogRow[], w: Window): { open: AskLogRow[]; decided: AskLogRow[] } {
-  const inside = log.filter((r) => r.t >= w.start && r.t <= w.end)
-  return { open: inside.filter((r) => OPEN.includes(r.ev)), decided: inside.filter((r) => r.ev === 'answered') }
 }

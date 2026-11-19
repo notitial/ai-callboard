@@ -1,16 +1,16 @@
-// What the person and a parent session see: the status page, the lane table, prompt_list, the unattended and go lists, the three dialogs and the refusal toast. Pure: every
+// What the person and a parent session see: the status page, the lane table, prompt_list, the go list, the three dialogs and the refusal toast. Pure: every
 // string comes from `T`. Trust rules held here: text a session wrote (an ask's input, a name, a folder) is escaped before it reaches a text (`<` and invisible characters
 // become escapes, so nothing closes a frame, hides text or reorders it); an input whose printed form had to be cut is reported cut, so no session may allow it.
 import { capBytes } from './core/asks.ts'
-import type { Ask, AskLogRow, Capability, Decision, Question, Sid, StopVerb } from './core/model.ts'
+import type { Ask, Capability, Decision, Question, Sid, StopVerb } from './core/model.ts'
 import { PERSON } from './core/model.ts'
 import type { RefuseCode, StatusRow, UiColumn, UiState } from './core/msg.ts'
 import { escBlock, escCell, T } from './texts.ts'
 
 export const PRINT_CAP = 32 * 1024
 const two = (n: number): string => String(n).padStart(2, '0')
-// A time as the person reads it: the clock, and the date with it.
-export const clock = (t: number): string => `${two(new Date(t).getHours())}:${two(new Date(t).getMinutes())}`
+// A time as the person reads it, with its date.
+const clock = (t: number): string => `${two(new Date(t).getHours())}:${two(new Date(t).getMinutes())}`
 export const stamp = (t: number): string => `${new Date(t).getFullYear()}-${two(new Date(t).getMonth() + 1)}-${two(new Date(t).getDate())} ${clock(t)}`
 export const RULES_CAP = 8 * 1024
 // What a pop-up is trusted to show whole: a longer input gets Deny only.
@@ -48,20 +48,13 @@ export function promptList(rules: string | null | undefined, asks: readonly AskV
   const blocks = asks.map(({ ask: a, asker, ageMin, yours }) => {
     const p = printed(a.input, PRINT_CAP)
     if (p.cut && !a.cut) cutIds.push(a.id)
-    return T['ui.ask']({ id: a.id, asker, tool: a.tool, ageMin, raisedBy: a.raisedBy, yours, personOnly: a.personOnly, input: p.text, cut: a.cut || p.cut, question: a.question })
+    return T['ui.ask']({ id: a.id, asker, tool: a.tool, ageMin, raisedBy: a.raisedBy, yours, input: p.text, cut: a.cut || p.cut, question: a.question })
   })
   const head = rules === undefined ? [] : [r === undefined ? T['ui.rules.none']({}) : T['ui.rules']({ rules: r.text, cut: r.cut })]
   return { text: [...head, ...(blocks.length > 0 ? blocks : [T['ui.asks.none']({})])].join('\n\n'), cutIds }
 }
 
 // ---- the lists for the person ----
-// The unattended list: `name` gives a session's name, `clock` a time as the person reads it.
-export function unattendedList(end: string, list: { open: readonly AskLogRow[]; decided: readonly AskLogRow[] }, name: (s: Sid) => string, clock: (t: number) => string): string {
-  const row = (r: AskLogRow): string => T['ui.unattended.row']({ time: clock(r.t), ev: r.ev, asker: name(r.asker), ask: r.ask, ...(r.by === undefined ? {} : { by: r.by === PERSON ? T['ui.person']({}) : name(r.by) }) })
-  const part = (head: string, rows: readonly AskLogRow[]): string[] => (rows.length === 0 ? [] : [head, ...rows.map(row)])
-  const body = [...part(T['ui.unattended.open']({}), list.open), ...part(T['ui.unattended.decided']({}), list.decided)]
-  return [T['ui.unattended.head']({ end }), ...(body.length > 0 ? body : [T['ui.unattended.none']({})])].join('\n')
-}
 // giver: a name; end: a time as the person reads it.
 export function goList(goes: readonly { id: string; giver: string; text: string; end: string }[]): string {
   return goes.length === 0 ? `${T['ui.goes.head']({})}\n${T['ui.goes.none']({})}` : [T['ui.goes.head']({}), ...goes.map((g) => T['ui.goes.row'](g)), '', T['go.neverCovers']({})].join('\n')

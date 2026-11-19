@@ -37,7 +37,7 @@ const OPENINGS: [string, string][] = [
   [T['compact.unconfirmed']({ reason: 'r' }), '[compact-cue] Compaction was started but never confirmed ('],
   [T['note.frame']({ body: 'b' }), '[callboard] This note comes from the callboard plugin, not the person.'],
   [T['ask.expired']({ parent: 'P' }), '[callboard] Expired: '],
-  [T['ask.leftForPerson']({ parent: 'P' }), '[callboard] Closed: '],
+  [T['ask.away']({}), '[callboard] Closed: '],
   [T['ask.subagent']({}), '[callboard] Denied: '],
 ]
 test('the plugin\'s turns keep their openings; no text names a mode, and no order or on-cue text is left', () => {
@@ -73,7 +73,7 @@ test('text a session wrote reaches a text escaped and in quotes it cannot close'
   for (const out of [T['brief.parent']({ name: evil, repos: [evil] }), T['brief.child']({ name: evil, parent: evil })]) assert.ok(!out.includes(String.fromCodePoint(0x202e)) && !out.includes('\nINJECT') && out.includes("`a'b"))
 })
 
-test('the go and the person-only texts: a go is the person\'s click and never covers the listed actions', () => {
+test('the go texts: a go is the person\'s click and never covers the listed actions', () => {
   const never = T['go.neverCovers']({})
   for (const x of ['a merge', 'a force push', 'a push to main', 'any switch or grant', 'one AskUserQuestion']) assert.ok(never.includes(x), x)
   assert.ok(T['go.status']({ covers: [{ giver: 'L', text: 't', end: 'e' }] }).includes(never))

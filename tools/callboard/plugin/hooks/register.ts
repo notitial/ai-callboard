@@ -7,7 +7,7 @@ import { commandRun, commandComplete, promptCompose } from './engine/commands.ts
 import { toolCheck, permissionRequest, doneHook } from './engine/ask-hook.ts'
 import { requestCompactCall, turnComplete, promptSubmit, turnStart, postCompact } from './engine/upkeep.ts'
 import { cueVerbCall, stopVerbCall, laneCreateCall, laneOpenCall, laneUnparkCall, laneAdoptCall, laneListCall } from './engine/tools-child.ts'
-import { promptListCall, promptAnswerCall, goRequestCall, goStatusCall, unattendedOffCall } from './engine/tools-ask.ts'
+import { promptListCall, promptAnswerCall, goRequestCall, goStatusCall } from './engine/tools-ask.ts'
 import { restCall } from './engine/tools-any.ts'
 import { prWatchCall } from './engine/pr.ts'
 import { usageMeasure } from './engine/usage.ts'
@@ -36,7 +36,6 @@ export const register: Register = (on) => {
   on('tool.call', { tool: 'mcp__callboard__lane_list' }, laneListCall).catch(() => ({ deny: 'lane_list failed closed.' }))
   on('tool.call', { tool: 'mcp__callboard__prompt_list' }, promptListCall).catch(() => ({ deny: 'prompt_list failed closed.' }))
   on('tool.call', { tool: 'mcp__callboard__prompt_answer' }, promptAnswerCall).catch(() => ({ deny: 'prompt_answer failed closed.' }))
-  on('tool.call', { tool: 'mcp__callboard__unattended_off' }, unattendedOffCall).catch(() => ({ deny: 'unattended_off failed closed.' }))
   on('tool.call', { tool: 'mcp__callboard__go_request' }, goRequestCall).catch(() => ({ deny: 'go_request failed closed.' }))
   on('tool.call', { tool: 'mcp__callboard__go_status' }, goStatusCall).catch(() => ({ deny: 'go_status failed closed.' }))
   on('tool.call', { tool: 'mcp__callboard__pr_watch' }, prWatchCall).catch(() => ({ deny: 'pr_watch failed closed.' }))

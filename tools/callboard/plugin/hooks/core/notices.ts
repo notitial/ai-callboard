@@ -34,7 +34,7 @@ export function notices(x: NoticeIn): Notice[] {
   const scope = new Set(r.from === 'children' ? children(x.v, x.me) : descendants(x.v, x.me))
   const all: Notice[] = []
   for (const a of x.asks) all.push({ kind: 'ask', key: `ask:${a.id}`, about: a.asker, ask: a.id })
-  for (const l of x.log) if (l.ev === 'expired' || l.ev === 'left-for-person') all.push({ kind: 'expired', key: `expired:${l.ask}`, about: l.asker, ask: l.ask })
+  for (const l of x.log) if (l.ev === 'expired') all.push({ kind: 'expired', key: `expired:${l.ask}`, about: l.asker, ask: l.ask })
   for (const p of x.reports) all.push({ kind: 'report', key: `report:${p.about}:${p.code}:${p.at}`, about: p.about, code: p.code })
   for (const s of scope) {
     const goneAt = x.v.table[s]?.goneAt

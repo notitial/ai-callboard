@@ -174,7 +174,7 @@ export async function writeWindow($: any, w: { start: number; end: number; readA
 function askLogPath($: any, at: Date): Promise<string | undefined> {
   return path($, `asks-${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, '0')}.jsonl`)
 }
-// One row appended to this month's ask log. The raised, expired and left-for-person rows carry the tool name in `code`, so a notice can name it.
+// One row appended to this month's ask log. The raised and expired rows carry the tool name in `code`, so a notice can name it.
 export async function logAsk($: any, row: Omit<AskLogRow, 't'>): Promise<void> {
   const now = await $.clock.now()
   const p = await askLogPath($, new Date(now))
@@ -198,11 +198,11 @@ const isNum = (x: unknown): x is number => typeof x === 'number' && Number.isFin
 // An ask file read leniently: anything that is not an ask is no ask.
 function parseAsk(j: any): Ask | undefined {
   if (typeof j !== 'object' || j === null || typeof j.id !== 'string' || !ASK_ID_RE.test(j.id) || typeof j.asker !== 'string' || !SID_RE.test(j.asker) || ![j.t0, j.awake, j.beat].every(isNum)) return undefined
-  if (typeof j.personOnly !== 'boolean' || typeof j.cut !== 'boolean' || typeof j.tool !== 'string' || typeof j.input !== 'string' || !RAISED.includes(j.raisedBy) || !(j.window === null || isNum(j.window))) return undefined
+  if (typeof j.cut !== 'boolean' || typeof j.tool !== 'string' || typeof j.input !== 'string' || !RAISED.includes(j.raisedBy)) return undefined
   const q = j.question
   const good = typeof q === 'object' && q !== null && typeof q.header === 'string' && typeof q.question === 'string' && Array.isArray(q.options) && q.options.every((o: any) => typeof o?.label === 'string')
   const question = good ? { header: q.header, question: q.question, options: q.options.map((o: any) => ({ label: o.label, ...(typeof o.description === 'string' ? { description: o.description } : {}) })) } : undefined
-  return { id: j.id, asker: j.asker, t0: j.t0, awake: j.awake, window: j.window, personOnly: j.personOnly, tool: j.tool, raisedBy: j.raisedBy, input: j.input, cut: j.cut, beat: j.beat, ...(question === undefined ? {} : { question }) }
+  return { id: j.id, asker: j.asker, t0: j.t0, awake: j.awake, tool: j.tool, raisedBy: j.raisedBy, input: j.input, cut: j.cut, beat: j.beat, ...(question === undefined ? {} : { question }) }
 }
 export async function writeAsk($: any, a: Ask): Promise<boolean> {
   const p = await askPath($, a.id)

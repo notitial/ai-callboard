@@ -21,7 +21,7 @@ import { openAsks } from './tools-ask.ts'
 import { idle, keepaliveTick, midNudge, nudgeTick, requestTick } from './upkeep.ts'
 import { usageDrop, usageFlush, usageSweep } from './usage.ts'
 
-// ---- what a session is given: the five tools every session has at its start, the fourteen when it holds a capability (and, once, from the tick or from `/callboard lead`) ----
+// ---- what a session is given: the five tools every session has at its start, the thirteen when it holds a capability (and, once, from the tick or from `/callboard lead`) ----
 export async function registerTools($: any, group: 'any' | 'parent'): Promise<void> {
   for (const name of TOOLS) {
     const s = TOOL_SCHEMAS[name as ToolName]
@@ -71,7 +71,7 @@ function lineOf(v: View, n: Notice, now: number): string | undefined {
   if (n.kind === 'report') return say({ msg: 'event.report', p: { name, code: n.code ?? '' } })
   const ask = n.ask ?? ''
   if (n.kind === 'ask') return say({ msg: 'event.ask', p: { ask, name, tool: mem.asks?.open.find((o) => o.ask.id === ask)?.ask.tool ?? '' } })
-  return say({ msg: 'event.expired', p: { ask, name, tool: mem.asks?.log.find((l) => l.ask === ask && l.code !== undefined && (l.ev === 'expired' || l.ev === 'left-for-person'))?.code ?? '' } })
+  return say({ msg: 'event.expired', p: { ask, name, tool: mem.asks?.log.find((l) => l.ask === ask && l.code !== undefined && l.ev === 'expired')?.code ?? '' } })
 }
 // The events owed now, computed again from the sessions under this one: a key already spent, or carried by a text submitted and not yet started, is left out.
 async function owed($: any, me: Sid, v: View, now: number): Promise<{ key: string; line: string }[]> {

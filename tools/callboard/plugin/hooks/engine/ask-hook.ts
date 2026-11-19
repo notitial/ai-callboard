@@ -69,7 +69,7 @@ export async function permissionRequest($: any, e: any, next: any) {
   if (ownDialog(e)) return {}
   if (isSub(e)) {
     // A subagent's dialog is shown only after the hooks return, so nothing can wait for it: the chain beneath, else a deny that sends the main agent to run the call itself, but only
-    // where the main session's own ask could rise (a window is on, or a lead is above it).
+    // where the main session's own ask could rise (a lead is above it, or a window is on and it rises to the manager).
     const under = await next(e)
     const lead = capability(v, parent(v, me) as Sid) === 'lead'
     return decided(under) || !(lead || (await windowNow($)).state === 'on') ? under : { decision: { behavior: 'deny', message: say({ msg: 'ask.subagent', p: {} }) } }
@@ -95,9 +95,8 @@ async function hold($: any, e: any, beneath: any, signal: AbortSignal | undefine
   if (entry !== undefined && entry.approver !== 'person') return beneath
   const tid = entry?.toolUseId
   const shown = inputText(input)
-  const w0 = await windowNow($)
   const q = tool === QUESTION_TOOL ? questionView(input) : undefined
-  const base: Ask = { id: newId(), asker: me, t0, awake: 0, window: w0.state === 'on' ? w0.window.start : null, ...classify(tool, input, entry?.facts), tool, input: shown.text, cut: shown.cut || printed(shown.text, PRINT_CAP).cut, beat: t0, ...(q === undefined ? {} : { question: q }) }
+  const base: Ask = { id: newId(), asker: me, t0, awake: 0, raisedBy: classify(tool, entry?.facts), tool, input: shown.text, cut: shown.cut || printed(shown.text, PRINT_CAP).cut, beat: t0, ...(q === undefined ? {} : { question: q }) }
   await logAsk($, { ev: 'raised', ask: base.id, asker: me, code: tool })
   const finish = async (ev: AskEvent, out: unknown, by?: Owner, code?: string) => {
     await logAsk($, { ev, ask: base.id, asker: me, ...(by === undefined ? {} : { by }), ...(code === undefined ? {} : { code }) })
@@ -106,8 +105,6 @@ async function hold($: any, e: any, beneath: any, signal: AbortSignal | undefine
   }
   let awake = 0
   let last = t0
-  let gap = 0
-  let held = 0
   let beatAt = -Infinity
   let wrote = true
   let seen = false
@@ -126,11 +123,12 @@ async function hold($: any, e: any, beneath: any, signal: AbortSignal | undefine
       if (signal?.aborted || (tid !== undefined && mem.done.has(tid)) || (await clicked())) return finish('closed', beneath, undefined, 'click')
       const v = await getView($)
       if (isOff(v, me) || (await offFile($))) return finish('closed', beneath, undefined, 'off')
+      // The one early close: the manager's own dialog while the person is away. Nobody is above it, and its turn is the one that answers every ask below.
+      if (v.manager === me && (await windowNow($)).state === 'on') return finish('closed', { ...beneath, decision: { behavior: 'deny', message: say({ msg: 'ask.away', p: {} }) } }, undefined, 'away')
       const ask: Ask = { ...base, awake }
       const { ups, answered } = await askState($, ask.id)
-      const st = stage({ ask, now, win: await windowNow($), ups, v, held })
-      if (!st.open) return finish(st.msg === 'ask.expired' ? 'expired' : 'left-for-person', { ...beneath, decision: { behavior: 'deny', message: say(st) } }, undefined, tool)
-      held = st.noManager ? held + gap : 0
+      const st = stage({ ask, now, ups, v })
+      if (!st.open) return finish('expired', { ...beneath, decision: { behavior: 'deny', message: say(st) } }, undefined, tool)
       if (now - beatAt >= BEAT_MS) {
         beatAt = now
         const ok = await writeAsk($, { ...ask, beat: now })
@@ -154,8 +152,7 @@ async function hold($: any, e: any, beneath: any, signal: AbortSignal | undefine
       const after = await $.clock.now()
       if (ran) {
         fails = 0
-        gap = awakeAdd(awake, after - last) - awake
-        awake += gap
+        awake = awakeAdd(awake, after - last)
       } else if (!signal?.aborted && ++fails >= PAUSE_FAILS_MAX) return finish('closed', beneath, undefined, 'hook-failed')
       last = after
     }

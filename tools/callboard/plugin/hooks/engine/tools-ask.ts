@@ -1,18 +1,17 @@
-// The ask and go tools: prompt_list, prompt_answer, go_request, go_status, and the manager's unattended_off, and what the tick and the relay share of the open asks.
+// The ask and go tools: prompt_list, prompt_answer, go_request, go_status, and what the tick and the relay share of the open asks.
 // Trust rules held here: an answer's author is the caller's own session id (or the person on his click), never a name in the input; eligibility is checked again at the write and the first
 // writer wins; a go is reported only while the protected-paths guard is in place; go_request opens a dialog and returns, and only the person's click on it writes a go.
-import type { Ask, Decision, Owner, Sid, View, WindowReading } from '../core/model.ts'
+import type { Ask, Decision, Owner, Sid, View } from '../core/model.ts'
 import { capability, chain, isOff, nameOf, refusal } from '../core/model.ts'
 import type { Open } from '../core/asks.ts'
 import { capBytes, decide, stage } from '../core/asks.ts'
 import { GO_HOURS, covers, goTextOk } from '../core/go.ts'
 import type { RefuseCode } from '../core/msg.ts'
-import { returnList } from '../core/unattended.ts'
 import { T } from '../texts.ts'
-import { clock, goDialog, promptList, stamp, unattendedList } from '../ui.ts'
-import { log, newId, personDialog, windowNow } from './io.ts'
+import { goDialog, promptList, stamp } from '../ui.ts'
+import { newId, personDialog, windowNow } from './io.ts'
 import { mem } from './mem.ts'
-import { askState, getView, guardOk, listGoes, logAsk, offFile, readAsk, readAskLog, readAsks, readRules, writeAnswer, writeGo, writeUp, writeWindow } from './store.ts'
+import { askState, getView, guardOk, listGoes, logAsk, offFile, readAsk, readAskLog, readAsks, readRules, writeAnswer, writeGo, writeUp } from './store.ts'
 import { deny, isSub, say } from './tools-any.ts'
 
 const ASKS_MS = 10_000
@@ -24,10 +23,9 @@ const GO_DIALOG_MS = 15 * 60_000
 export async function openAsks($: any, me: Sid, v: View, now: number, fresh = false): Promise<NonNullable<typeof mem.asks>> {
   if (!fresh && mem.asks !== undefined && now - mem.asks.at < ASKS_MS) return mem.asks
   const { asks, ups, answered } = await readAsks($)
-  const win = await windowNow($)
   const open: { ask: Ask; st: Open }[] = []
   for (const ask of asks) {
-    const st = answered.has(ask.id) ? undefined : stage({ ask, now, win, ups: ups.get(ask.id) ?? [], v, held: 0 })
+    const st = answered.has(ask.id) ? undefined : stage({ ask, now, ups: ups.get(ask.id) ?? [], v })
     if (st?.open !== true) continue
     open.push({ ask, st })
     if (!st.eligible.includes(me) || isOff(v, me) || mem.told.has(ask.id) || (ups.get(ask.id) ?? []).some((u) => u.by === me)) continue
@@ -49,7 +47,7 @@ export async function answerAsk($: any, v: View, id: string, a: { decision: 'all
   if (ask === undefined) return no('no-such-ask')
   const { ups, answered } = await askState($, id)
   const now = await $.clock.now()
-  const st = answered ? undefined : stage({ ask, now, win: await windowNow($, true), ups, v, held: 0 })
+  const st = answered ? undefined : stage({ ask, now, ups, v })
   if (st?.open !== true) return no('ask-closed')
   const answer = { ask: id, by, decision: a.decision, at: now, ...(a.note === undefined ? {} : { note: capBytes(a.note, NOTE_MAX).text }), ...(a.option === undefined ? {} : { option: a.option }) }
   const d = decide(answer, ask, st, v, liveOf(ask))
@@ -91,7 +89,7 @@ export async function promptAnswerCall($: any, e: any, _next: any) {
     const ask = await readAsk($, id)
     const { ups, answered } = await askState($, id)
     const now = await $.clock.now()
-    const st = ask === undefined ? undefined : answered ? undefined : stage({ ask, now, win: await windowNow($, true), ups, v, held: 0 })
+    const st = ask === undefined ? undefined : answered ? undefined : stage({ ask, now, ups, v })
     if (ask === undefined) return no('no-such-ask')
     if (st?.open !== true) return no('ask-closed')
     if (!st.eligible.includes(c.me)) return no('not-eligible')
@@ -111,7 +109,7 @@ async function goDialogRun($: any, me: Sid, name: string, text: string): Promise
   try {
     const end = (await $.clock.now()) + GO_HOURS * 3_600_000
     const r = await personDialog($, goDialog(name, text, stamp(end)), GO_DIALOG_MS)
-    if ('label' in r && r.label === T['dialog.yes']({}) && (await windowNow($, true)).state === 'off') await writeGo($, { id: newId(), giver: me, text, end })
+    if ('label' in r && r.label === T['dialog.yes']({})) await writeGo($, { id: newId(), giver: me, text, end })
   } catch {}
 }
 export async function goRequestCall($: any, e: any, _next: any) {
@@ -134,21 +132,4 @@ export async function goStatusCall($: any, e: any, _next: any) {
   const now = await $.clock.now()
   const mine = v.rows === 'unknown' ? [] : (await listGoes($)).filter((g) => covers(g, me, v, now))
   return { result: say(mine.length === 0 ? { msg: 'go.none', p: {} } : { msg: 'go.status', p: { covers: mine.map((g) => ({ giver: nameOf(v, g.giver), text: g.text, end: stamp(g.end) })) } }) }
-}
-
-// The unattended list for the person's return, or the off line.
-export async function unattendedText($: any, v: View, w: WindowReading): Promise<string> {
-  if (w.state !== 'on') return T['cmd.unattendedOff']({})
-  const rows = await readAskLog($, w.window.start)
-  return rows === undefined ? say(refusal('refuse', 'unknown-liveness', { tool: 'callboard', target: 'unattended' })) : unattendedList(stamp(w.window.end), returnList(rows, w.window), (s) => nameOf(v, s), clock)
-}
-export async function unattendedOffCall($: any, e: any, _next: any) {
-  const c = await caller($, e, 'unattended_off')
-  if (!isCaller(c)) return deny(c)
-  if (capability(c.v, c.me) !== 'manager') return deny(refusal('refuse', 'no-capability', { tool: 'unattended_off' }))
-  const w = await windowNow($, true)
-  const list = await unattendedText($, c.v, w)
-  if (!(await writeWindow($, null))) return deny(refusal('refuse', 'unknown-liveness', { tool: 'unattended_off' }))
-  await log($, c.me, 'unattended-off', 'tool')
-  return { result: w.state === 'on' ? `${T['cmd.unattendedOff']({})}\n\n${list}` : T['cmd.unattendedOff']({}) }
 }

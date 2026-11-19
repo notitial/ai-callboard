@@ -37,8 +37,8 @@ test('the manager is woken only by asks and expired asks; a lead hears every eve
   assert.deepEqual(kinds({ ...busy, me: A }), ['ask', 'done', 'expired', 'report'])
   assert.deepEqual(kinds({ ...busy, me: LOOSE }), [])
   // A loose session's expired ask reaches the manager, not a lead.
-  assert.deepEqual(kinds({ me: M, log: [{ t: NOW, ev: 'left-for-person', ask: 'e', asker: LOOSE }] }), ['expired'])
-  assert.deepEqual(kinds({ me: A, log: [{ t: NOW, ev: 'left-for-person', ask: 'e', asker: LOOSE }] }), [])
+  assert.deepEqual(kinds({ me: M, log: [{ t: NOW, ev: 'expired', ask: 'e', asker: LOOSE }] }), ['expired'])
+  assert.deepEqual(kinds({ me: A, log: [{ t: NOW, ev: 'expired', ask: 'e', asker: LOOSE }] }), [])
 })
 
 test('a lane adopted by another lead: its signed report goes to the new lead only, never to the lead it left', () => {
