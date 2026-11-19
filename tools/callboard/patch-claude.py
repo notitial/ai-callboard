@@ -49,9 +49,19 @@ ANCHORS = (
      rb"\|\|\[\],ID=ID\()\3\)".replace(b"ID", ID),
      lambda m: m.group(1) + b"," + NAME + b"){" + m.group(2) + m.group(3) + b".includes(" + NAME + b")?[" + NAME + b"]:" + m.group(3) + b")"),
     ("editor.open command",
-     rb'("claude-vscode\.editor\.open",async\((?P<args>(?:ID,){4}ID),(?P<opt>ID)\)=>\{[\s\S]{0,1500}?\.createPanel\((?P=args),ID\.focusInput)\)'.replace(b"ID", ID),
-     lambda m: m.group(1) + b",void 0,!1,typeof " + m.group("opt") + b'?.cwd=="string"?' + m.group("opt") + b".cwd:void 0)"),
+     rb'("claude-vscode\.editor\.open",async\((?P<args>(?:ID,){4}ID),(?P<opt>ID)\)=>\{[\s\S]{0,1500}?)(?P<decl>let\{[^{}]{1,80}\}=await ID)\.createPanel\((?P=args),(?P<fi>ID\.focusInput)\)'.replace(b"ID", ID),
+     lambda m: m.group(1) + b"let cbqC=await " + pick(m.group("args").split(b",")[0], m.group("opt")) + b";if(cbqC===null)return;" + m.group("decl")
+     + b".createPanel(" + m.group("args") + b"," + m.group("fi") + b",void 0,!1,cbqC)"),
 )
+
+
+def pick(sid, opt):
+    """The folder a new panel starts in: the caller's {cwd}, else (a fresh open, window with several folders) the one picked in VS Code's own list, else none.
+    null is a cancelled pick: nothing opens. Uses require("vscode") of the extension's own bundle, so it needs no module alias."""
+    return (b'(async()=>{let cbqV=require("vscode"),cbqF=cbqV.workspace.workspaceFolders||[];if(typeof ' + opt + b'?.cwd=="string")return ' + opt + b".cwd;"
+            b"if(" + sid + b"!==void 0||cbqF.length<2)return;"
+            b"let cbqP=await cbqV.window.showQuickPick(cbqF.map((cbqE)=>({label:cbqE.name,description:cbqE.uri.fsPath,fsPath:cbqE.uri.fsPath}))"
+            b',{placeHolder:"Start the session in which folder?"});return cbqP?cbqP.fsPath:null})()')
 
 
 def refuse(msg):

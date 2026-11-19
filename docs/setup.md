@@ -95,7 +95,7 @@ EXT_DIR="$(ls -d "$HOME"/.vscode/extensions/anthropic.claude-code-* | sort -V | 
 /usr/bin/python3 -I "$CHECKOUT/tools/callboard/patch-claude.py" "$EXT_DIR" --apply
 ```
 
-To take it out again (the original file comes back from its backup; `/patch Claude undo` in a session in this checkout
+To take it out again (the original file comes back from its backup; `/patch-vs-claude undo` in a session in this checkout
 runs the same command):
 
 ```
@@ -110,8 +110,13 @@ EXT_DIR="$(ls -d "$HOME"/.vscode/extensions/anthropic.claude-code-* | sort -V | 
   `callboard-cwd-patch.json` (the marker the panels extension reads), both in the extension's folder. A second run says
   `already patched`.
 - Claude Code updates about daily, and an update is a new folder that starts unpatched: run the check and `--apply`
-  again, or type `/patch Claude` in a session in this checkout, which does both and, when an update moved the code the
-  patch hooks into, repairs the script in a clone and asks you before it applies the repair.
+  again, or type `/patch-vs-claude` in a session in this checkout: it reports the version and whether the patch is in,
+  applies it when it is missing and, when an update moved the code the patch hooks into, asks you once before it
+  repairs the script in a clone, shows you the diff and opens a PR.
+- With the patch, `+ New session` (and Claude Code: Open in New Tab) in a window with several folders opens VS Code's
+  own folder list first and starts the session in the folder you pick; Escape opens nothing. Callboard's own lane
+  opens pass their folder and never ask. Separately from the patch, the status bar shows the folder of the Claude
+  panel in front, in a window with several folders, whenever the panel's session is known by its name.
 - It serves the plugin build's lanes (the old mod keeps one repo per window), and covers only the open command: a tab
   that Claude Code itself restores at a window reload, or reopens, starts in the window's first folder.
 - The patch is made for 2.1.327 and 2.1.328. A later version may rename or restructure the code it hooks into; then

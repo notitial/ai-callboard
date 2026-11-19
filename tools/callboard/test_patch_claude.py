@@ -21,11 +21,42 @@ TEMPLATE = (
     'var q="é";function {nc}(e){{return e[0]}}class W{{async createPanel(e,t,n,r,o,s,i,a=!1){{if(e){{return 1}}let d=1,p=2,l=!1;'
     'if(this.setupPanel(d,e,t,p,s===!0,a),e)this.sessionPanels.set(e,d);return{{startedInNewColumn:l}}}}'
     'setupPanel(e,t,n,r,o,s=!1){{this.panelFullEditor.set(e,!!r);let i={vs}.workspace.workspaceFolders?.map((h)=>h.uri.fsPath)||[],'
-    'a={nc}(i),l=1}}}}'
+    'a={nc}(i);return a}}}}'
     'x.push(Wp("claude-vscode.editor.open",async({a},{b},{c},{d},{e},{f})=>{{let O=F({{programmatic:{f}?.programmatic}});'
     'if(O.target==="sidebar"){{return}}let{{startedInNewColumn:L}}=await c.createPanel({a},{b},{c},{d},{e},O.focusInput);if(L)await kS()}}));'
     'x.push(Wp("claude-vscode.editor.openLast",async()=>{{await rl("claude-vscode.editor.open")}}));'
 )
+# Runs a patched stand-in under a fake vscode and prints what the folder rule and the open command did.
+RUNNER = r"""
+const vm = require('vm'), fs = require('fs')
+const code = fs.readFileSync(process.argv[1], 'utf8')
+function run(folders, pickResult) {
+  const calls = [], H = {}, picks = []
+  const fake = { workspace: { workspaceFolders: folders.map((f) => ({ name: f.split('/').pop(), uri: { fsPath: f } })) },
+    window: { showQuickPick: async (items) => { picks.push(items.map((i) => i.fsPath)); return pickResult } } }
+  const ctx = vm.createContext({ x: [], Wp: (id, fn) => { H[id] = fn }, F: () => ({ target: 'panel', focusInput: 1 }),
+    c: { createPanel: async (...a) => { calls.push(a); return { startedInNewColumn: false } } }, kS: async () => {}, rl: async () => {},
+    $e: fake, Pe: fake, require: (m) => { if (m !== 'vscode') throw new Error(m); return fake } })
+  vm.runInContext(code + ';globalThis.W=W', ctx)
+  return { H, calls, picks, ctx }
+}
+const open = async (folders, pickResult, ...args) => {
+  const q = run(folders, pickResult)
+  await q.H['claude-vscode.editor.open'](...args)
+  return { last: q.calls.map((a) => a[a.length - 1] ?? null), n: q.calls.length, picks: q.picks.length }
+}
+;(async () => {
+  const r = run(['/a', '/b'])
+  const sp = (cwd) => r.ctx.W.prototype.setupPanel.call({ panelFullEditor: new Map() }, 1, 2, 3, 4, 5, false, cwd)
+  const out = { setup: [sp('/b'), sp('/x'), sp(undefined)] }
+  out.cwdGiven = await open(['/a', '/b'], undefined, undefined, undefined, undefined, undefined, true, { cwd: '/b' })
+  out.picked = await open(['/a', '/b'], { fsPath: '/b' }, undefined, undefined, undefined, undefined, true, {})
+  out.cancel = await open(['/a', '/b'], undefined, undefined, undefined, undefined, undefined, true, {})
+  out.single = await open(['/a'], { fsPath: '/z' }, undefined, undefined, undefined, undefined, true)
+  out.resume = await open(['/a', '/b'], { fsPath: '/z' }, 'sid', undefined, undefined, undefined, true)
+  console.log(JSON.stringify(out))
+})()
+"""
 V327 = dict(nc="nC", vs="$e", a="w", b="A", c="C", d="T", e="R", f="x")
 V328 = dict(nc="$v", vs="Pe", a="w", b="T", c="C", d="A", e="k", f="z")
 PKG = {"name": "claude-code", "publisher": "Anthropic", "version": "2.1.328"}
@@ -135,7 +166,7 @@ class Apply(Case):
         self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "patched 2.1.328"))
         new = self.js()
         self.assertEqual(new.count(b"cbCwd"), 5)
-        for part in (b"a=!1,cbCwd){", b"s===!0,a,cbCwd)", b"s=!1,cbCwd){", b"nC(i.includes(cbCwd)?[cbCwd]:i)", b'O.focusInput,void 0,!1,typeof x?.cwd=="string"?x.cwd:void 0)'):
+        for part in (b"a=!1,cbCwd){", b"s===!0,a,cbCwd)", b"s=!1,cbCwd){", b"nC(i.includes(cbCwd)?[cbCwd]:i)", b"if(cbqC===null)return;let{startedInNewColumn:L}=await c.createPanel(w,A,C,T,R,O.focusInput,void 0,!1,cbqC)"):
             self.assertIn(part, new)
         self.assertIn("é".encode("utf-8"), new)
         self.assertEqual(slurp(os.path.join(self.ext, "extension.js.callboard-orig")), orig)
@@ -161,7 +192,23 @@ class Apply(Case):
         self.run_script(ext, "--apply")
         self.assertEqual(self.rc, 0)
         self.assertIn(b"$v(i.includes(cbCwd)?[cbCwd]:i)", self.js(ext))
-        self.assertIn(b'typeof z?.cwd=="string"?z.cwd:void 0)', self.js(ext))
+        self.assertIn(b'typeof z?.cwd=="string")return z.cwd;if(w!==void 0||cbqF.length<2)return;', self.js(ext))
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_the_patched_code_runs_the_picker_and_the_folder_rule(self):
+        """Runs the patched stand-in in node with a fake vscode: the folder rule in setupPanel and every way the open command can start."""
+        for variant in (V327, V328):
+            ext = self.make(variant, name="run-" + variant["nc"].strip("$"))
+            self.run_script(ext, "--apply")
+            p = subprocess.run(["node", "-e", RUNNER, os.path.join(ext, "extension.js")], capture_output=True, text=True, timeout=60)
+            self.assertEqual(p.returncode, 0, p.stderr)
+            got = json.loads(p.stdout)
+            self.assertEqual(got["setup"], ["/b", "/a", "/a"], "a cwd of the window is taken; another one, or none, is the first folder")
+            self.assertEqual(got["cwdGiven"], {"last": ["/b"], "n": 1, "picks": 0}, "callboard's {cwd} is passed and never prompts")
+            self.assertEqual(got["picked"], {"last": ["/b"], "n": 1, "picks": 1}, "a fresh open in a two-folder window asks, and uses the answer")
+            self.assertEqual(got["cancel"], {"last": [], "n": 0, "picks": 1}, "cancelling the list opens nothing")
+            self.assertEqual(got["single"], {"last": [None], "n": 1, "picks": 0}, "one folder: no prompt, as before")
+            self.assertEqual(got["resume"], {"last": [None], "n": 1, "picks": 0}, "resuming a session: no prompt")
 
     def test_a_failed_write_puts_the_original_back_and_leaves_nothing(self):
         for failing in ("extension.js", "callboard-cwd-patch.json"):

@@ -10,6 +10,7 @@ const { createSpool: createWindowSpool } = require('./spool-v2.js')
 const { createRegistry } = require('./registry.js')
 const { pidAlive } = require('./reserved.js')
 const { claudePatched } = require('./claude-patch.js')
+const { createFolderBadge } = require('./folder-badge.js')
 
 const CLAUDE = path.join(os.homedir(), '.claude')
 const SESSIONS = path.join(CLAUDE, 'sessions')
@@ -66,6 +67,11 @@ function activate(context) {
   })
   context.subscriptions.push(spool.start())
   context.subscriptions.push(createWindowSpool({ dir: path.join(CLAUDE, 'callboard', 'v2', 'open'), lanes, workspaceFolders: windowFolders, timeoutMs: SPOOL_OPEN_MS }).start())
+  try {
+    context.subscriptions.push(createFolderBadge({ vscode, registry }))
+  } catch {
+    // no folder item
+  }
   const sweep = setInterval(() => lanes.sweep().catch(() => undefined), 2000)
   context.subscriptions.push({ dispose: () => clearInterval(sweep) })
 }
