@@ -72,7 +72,7 @@ test('text a session wrote reaches a text escaped and in quotes it cannot close'
   for (const out of [T['brief.parent']({ name: evil, repos: [evil] }), T['brief.child']({ name: evil, parent: evil })]) assert.ok(!out.includes(String.fromCodePoint(0x202e)) && !out.includes('\nINJECT') && out.includes("`a'b"))
 })
 
-test('the go and the person-only texts: a go is the person\'s click and never covers the listed actions', () => {
+test('the go texts: a go is the person\'s click and never covers the listed actions', () => {
   const never = T['go.neverCovers']({})
   for (const x of ['a merge', 'a force push', 'a push to main', 'any switch or grant', 'one AskUserQuestion']) assert.ok(never.includes(x), x)
   assert.ok(T['go.status']({ covers: [{ giver: 'L', text: 't', end: 'e' }] }).includes(never))

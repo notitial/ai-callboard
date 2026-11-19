@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { EXPIRE_MS, HEAD_START_MS, MANAGER_AT_MS, awakeAdd, classify, decide, inputText, questionShape, questionView, stage, sweep } from './asks.ts'
-import type { Open, StageIn } from './asks.ts'
+import type { CheckFacts, Open, StageIn } from './asks.ts'
 import { PERSON, ancestors, liveView } from './model.ts'
 import type { Answer, Ask, Sid, Table, UpMark, View } from './model.ts'
 import { MANAGER, NOW, forAll, pick, reg } from './gen.spec.ts'
@@ -119,6 +119,8 @@ test('classify: what raised the ask, whatever the tool or the input', () => {
   assert.equal(classify('ExitPlanMode', { decision: 'other' }), 'mode')
   assert.equal(classify('Bash', { decision: 'ask', rule: 'Bash(rm:*)', setting: 'x' }), 'setting')
   assert.equal(classify('mcp__github__update_pull_request', { decision: 'ask', hook: 'PreToolUse', reason: 'github-mcp-guard: no' }), 'guard')
+  assert.deepEqual(questionShape({ questions: [{ question: 'Q', header: 'Person', options: [{ label: 'a' }, { label: 'b' }] }] }), { ok: false, code: 'question-person' })
+  assert.deepEqual(questionShape({ questions: [{ question: 'Q', options: ['a', 'b', 'c', 'd', 'e'].map((label) => ({ label })) }] }), { ok: false, code: 'question-options' })
   assert.deepEqual(questionShape({ questions: [{ question: 'Q', options: [{ label: 'a' }, { label: 'a ' }] }] }), { ok: false, code: 'question-options' })
   assert.deepEqual(questionShape({ questions: [{ question: 'Q', options: [{ label: 'a\u202e' }, { label: 'b' }] }] }), { ok: false, code: 'question-options' })
   assert.equal(questionView({ questions: [{ question: 'token=abc123', header: 'H', options: [{ label: 'a' }, { label: 'b' }] }] })?.question, 'token=[REDACTED]')
@@ -167,7 +169,7 @@ test('a `__proto__` key is an ordinary entry: it is shown, not swallowed into th
 })
 
 // Every kind of ask, from what tool.check saw to who may answer it once it has risen to the manager (the lead escalated it).
-const kinds: [string, { tool: string; input: unknown; facts: Parameters<typeof classify>[2] }][] = [
+const kinds: [string, { tool: string; input: unknown; facts: CheckFacts | undefined }][] = [
   ['a rule asks', { tool: 'Bash', input: { command: 'ls' }, facts: { decision: 'ask', rule: 'Bash(ls:*)' } }],
   ['a hook asks', { tool: 'Bash', input: { command: 'ls' }, facts: { decision: 'ask', hook: 'PreToolUse' } }],
   ['no tool.check entry', { tool: 'Bash', input: { command: 'ls' }, facts: undefined }],

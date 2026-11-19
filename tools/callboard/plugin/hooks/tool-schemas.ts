@@ -1,4 +1,4 @@
-// The 19 tools: who is given each, and its input schema. `cap` is 'any' for the tools every session gets and 'parent' for the fourteen a session gets only when it
+// The 18 tools: who is given each, and its input schema. `cap` is 'any' for the tools every session gets and 'parent' for the thirteen a session gets only when it
 // holds the lead capability or is the manager. Data only: the tool descriptions are texts (`tool.<name>`).
 import type { ToolName } from './core/model.ts'
 

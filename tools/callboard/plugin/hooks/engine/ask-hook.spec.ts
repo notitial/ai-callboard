@@ -227,6 +227,10 @@ test('a subagent\'s dialog gets the chain beneath, or a deny that sends the call
   staleView()
   assert.deepEqual(await ask(f, sub('t3')), {})
   assert.deepEqual(await rows(f), [])
+  const g = tiers()
+  loose(g)
+  window(g)
+  assert.match((await ask(g, sub('t4'))).decision.message, /subagent asked/)
 })
 test('a loop whose waits keep failing ends with the dialog left to the person, and one that throws ends its ask file too', async () => {
   const f = tiers()

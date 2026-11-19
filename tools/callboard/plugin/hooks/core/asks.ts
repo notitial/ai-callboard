@@ -5,7 +5,7 @@ import type { Answer, Ask, Decision, Person, Question, RaisedBy, Sid, UpMark, Vi
 import { PERSON, chain, liveness, nameOf, refusal } from './model.ts'
 import type { RefuseCode } from './msg.ts'
 
-export const HEAD_START_MS = 30_000 // wall time: hidden this long by day
+export const HEAD_START_MS = 30_000 // wall time: hidden this long
 export const MANAGER_AT_MS = 5 * 60_000 // awake: the manager is reached whatever happened below
 export const EXPIRE_MS = 15 * 60_000 // awake: every ask closes
 export const STALE_BEAT_MS = 60_000

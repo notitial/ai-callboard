@@ -20,7 +20,7 @@ import { openAsks } from './tools-ask.ts'
 import { idle, keepaliveTick, midNudge, nudgeTick, requestTick } from './upkeep.ts'
 import { usageDrop, usageFlush, usageSweep } from './usage.ts'
 
-// ---- what a session is given: the five tools every session has at its start, the fourteen when it holds a capability (and, once, from the tick or from `/callboard lead`) ----
+// ---- what a session is given: the five tools every session has at its start, the thirteen when it holds a capability (and, once, from the tick or from `/callboard lead`) ----
 export async function registerTools($: any, group: 'any' | 'parent'): Promise<void> {
   for (const name of TOOLS) {
     const s = TOOL_SCHEMAS[name as ToolName]

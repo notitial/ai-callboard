@@ -46,11 +46,15 @@ test('while unattended no pop-up opens: an ask that reached the person waits for
   const f = tiers()
   const [lead, boss] = [peer(f, 'sid-lead'), peer(f, 'sid-boss')]
   window(f)
+  const out: Record<string, any> = {}
   f.h.onSleep = async () => {
-    const id = (await readAsks(f.$)).asks[0]?.id
-    if (id === undefined || boss.h.asked.length > 0 || f.h.now - T0 > 10_000) return
+    if (out.done || f.h.now - T0 < 40_000) return
+    out.done = true
+    const id = (await readAsks(f.$)).asks[0]!.id
     await as(() => promptAnswerCall(lead.$, { id, decision: 'escalate' }, noop))
     await as(() => promptAnswerCall(boss.$, { id, decision: 'escalate' }, noop))
+    await tickRelay(boss)
+    await settle()
     await tickRelay(boss)
     await settle()
   }
