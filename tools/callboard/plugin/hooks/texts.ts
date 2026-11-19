@@ -285,7 +285,7 @@ const fixed: { [K in keyof Fixed]: (p: Fixed[K]) => string } = {
 
   'dialog.go.header': () => 'Go request',
   'dialog.go.question': (p) => `${q(p.giver)} asks for a go until ${p.end}, for this work only (its own and its sessions'):\n\n${escBlock(p.text)}\n\nNever a merge or a push to main; go_status lists what a go never covers.`,
-  'dialog.stop.header': () => 'Callboard: force stop',
+  'dialog.stop.header': () => 'Force stop',
   'dialog.stop.question': (p) => `${p.verb === 'terminate' ? 'Force stop' : p.verb} ${q(p.name)}? Its process gets SIGTERM whatever it is doing, and unsaved work is lost.`,
   'dialog.relay.header': () => 'Your call',
   'dialog.relay.question': (p) => `${q(p.asker)} wants to run ${q(p.tool)}:\n\n${fence(p.input)}${p.cut ? '\n\n[NOT SHOWN WHOLE: you can only deny it]' : ''}\n\nYour click decides this ask only.`,
@@ -307,6 +307,7 @@ const fixed: { [K in keyof Fixed]: (p: Fixed[K]) => string } = {
 
   'toast.refused': (p) => `${esc(p.tool)} refused (${p.code}).`,
   'toast.askClosed': () => 'That ask is closed; your click wrote nothing.',
+  'toast.askDecided': (p) => `The pop-up for ${esc(p.name)}'s ask is out of date: the ask was decided or closed elsewhere. Dismiss it; a click there writes nothing.`,
   'toast.askNoFile': (p) => `Ask ${esc(p.ask)} could not be written down. It still closes at 15 minutes.`,
   'toast.askStuck': (p) => `Ask ${esc(p.ask)} from ${esc(p.name)} has no process to answer it. It cannot be closed from here.`,
   'toast.twoManagers': (p) => `Two sessions carry the manager's name (${esc(p.a)}, ${esc(p.b)}). The older one is the manager.`,

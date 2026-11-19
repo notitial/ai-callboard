@@ -86,6 +86,23 @@ test('a pop-up clicked after its ask closed writes nothing and says so, and the 
   await settle()
   assert.equal(boss.h.asked.length, 2)
 })
+test('a pop-up whose ask closed elsewhere is named once in a toast while it stays on screen', async () => {
+  const f = tiers()
+  const boss = peer(f, 'sid-boss')
+  f.h.sleepMoves = false
+  await writeAsk(f.$, mk('aa11bb22cc'))
+  await reach(f, 'aa11bb22cc')
+  boss.h.askAnswer = () => new Promise(() => undefined)
+  await tickRelay(boss)
+  await settle()
+  await tickRelay(boss)
+  assert.deepEqual(boss.h.toasts, [], 'an open ask is not named')
+  await rmAsk(f.$, 'aa11bb22cc')
+  await tickRelay(boss)
+  await tickRelay(boss)
+  assert.equal(boss.h.toasts.length, 1)
+  assert.match(boss.h.toasts[0]!, /^The pop-up for .+'s ask is out of date/)
+})
 test('the OFF file and a busy manager open no pop-up', async () => {
   const f = tiers()
   const boss = peer(f, 'sid-boss')

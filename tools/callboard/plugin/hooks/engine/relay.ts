@@ -16,8 +16,9 @@ import { idle } from './upkeep.ts'
 // A late click still lands on the dialog, so it waits as long as the ask can live.
 async function relayRun($: any, ask: Ask, v: View): Promise<void> {
   try {
-    const spec = relayDialog(nameOf(v, ask.asker), ask.tool, ask.input, ask.cut, ask.question)
-    const r = await personDialog($, spec, EXPIRE_MS)
+    const name = nameOf(v, ask.asker)
+    mem.shown = { id: ask.id, name }
+    const r = await personDialog($, relayDialog(name, ask.tool, ask.input, ask.cut, ask.question), EXPIRE_MS).finally(() => (mem.shown = undefined))
     if (!('label' in r)) {
       if (r.no === 'timeout') await logAsk($, { ev: 'relay-unanswered', ask: ask.id, asker: ask.asker })
       else if (r.no !== 'error') mem.relayed.delete(ask.id)
@@ -34,6 +35,9 @@ async function relayRun($: any, ask: Ask, v: View): Promise<void> {
 }
 
 export async function relayTick($: any, me: Sid, v: View, now: number): Promise<void> {
+  // A plugin cannot close a pop-up, so one whose ask was decided or closed elsewhere is named once in a toast.
+  const s = mem.shown
+  if (s !== undefined && !mem.toasted.has(`shown:${s.id}`) && !(await askOpen($, s.id))) (mem.toasted.add(`shown:${s.id}`), toast($, say({ msg: 'toast.askDecided', p: { name: s.name } })))
   if (v.manager !== me || (await offFile($)) || !(await guardOk($)) || !(await idle($, me))) return
   let hit: { ask: Ask } | undefined
   for (const o of (await openAsks($, me, v, now)).open) if (o.st.relay && o.ask.asker !== me && !mem.relayed.has(o.ask.id) && (o.ask.tool !== QUESTION_TOOL || o.ask.question !== undefined) && (await askOpen($, o.ask.id))) {
