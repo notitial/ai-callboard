@@ -40,6 +40,10 @@ export type RefuseCode =
   | 'compact-busy'
   | 'go-bad-text'
   | 'go-declined'
+  | 'stop-declined' // a force stop the person did not confirm
+  | 'signal-failed' // the signal to the session's process did not go
+  | 'table-unwritten' // the lane table could not be written
+  | 'window-refused' // the window answered a spool request with a refusal code
   | 'cue-held'
   | 'cue-refused'
   | 'cue-stale'
@@ -73,7 +77,7 @@ export type Fixed = {
 
   // Cue and compaction notes: the turns a parent's cue and a session's own compaction submit. There is no order nudge and no on-cue note.
   'cue.rename': Names
-  'cue.start': { name: string; brief: string }
+  'cue.start': { name: string; brief: string; parent: string }
   'cue.resume': Names
   'compact.queued': E
   'compact.note': { focus: string; continuation: string }
@@ -117,10 +121,12 @@ export type Fixed = {
   // `done`: the process ended (or there was none, so no pid) and, for a retire or terminate, the row is removed; `alive`: it outlived its signal, call again.
   'lane.stopped': { verb: StopVerb; name: string; pid?: number; outcome: 'done' | 'alive' }
   'lane.unparked': { name: string; sid: string }
-  'lane.created': { name: string; folder: string }
+  'lane.created': { name: string; folder: string; lead: string }
   'lane.opened': { name: string; sid: string }
   'lane.notOpened': Names
-  'lane.adopted': Names
+  'lane.adopted': { name: string; lead: string }
+  // The file a lane's brief is written to: the lead's name and the task.
+  'lane.brief': { name: string; lead: string; text: string }
 
   // Help: its heading; one row per command is `help.<name>`.
   'help.head': E

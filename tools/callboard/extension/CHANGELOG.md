@@ -1,6 +1,10 @@
 # Changelog
 
-The version stays at 1.4.0: a change to the code is an update of the checkout plus a window reload, not a new version. Changes after 1.4.0 are in the repository's git history.
+The version stays fixed between these entries: a change to the code is an update of the checkout plus a window reload, not a new version.
+
+## 1.5.0
+
+- A "Callboard Lanes" tree in the Explorer lists every callboard session the records know, with its state, under the lead that owns it, and each window folder's recent Claude conversations; a click reopens one in its own folder. The manifest gains `contributes.views`, so this version needs the quit, pull, `link-extension.py --apply` update.
 
 ## 1.4.0
 
