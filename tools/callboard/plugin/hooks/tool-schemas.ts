@@ -25,6 +25,6 @@ export const TOOL_SCHEMAS: Record<ToolName, { cap: 'any' | 'parent'; input: Sche
   go_request: { cap: 'any', input: { type: 'object', properties: { text }, required: ['text'] } },
   go_status: { cap: 'any', input: none },
   pr_watch: { cap: 'any', input: { type: 'object', properties: { owner: text, repo: text, number: { type: 'integer' } }, required: ['owner', 'repo', 'number'] } },
-  request_compact: { cap: 'any', input: { type: 'object', properties: { focus: text, continuation: text, mode: { type: 'string', enum: ['now'] } }, required: ['focus', 'continuation', 'mode'] } },
+  request_compact: { cap: 'any', input: { type: 'object', properties: { focus: text, continuation: text }, required: ['focus', 'continuation'] } },
   rest: { cap: 'any', input: none },
 }

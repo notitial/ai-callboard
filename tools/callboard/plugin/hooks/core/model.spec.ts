@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { MAX_LIVE_CHILDREN, PERSON, ancestors, capability, chain, children, descendants, isLead, isOff, liveView, liveness, mayActOn, mayAdopt, mayCreate, nameRefusal, parent } from './model.ts'
+import { MAX_LIVE_CHILDREN, PERSON, ancestors, capability, chain, children, descendants, isLead, isOff, liveView, liveness, mayActOn, mayAdopt, mayCreate, nameOf, nameRefusal, parent } from './model.ts'
 import type { Table } from './model.ts'
 import { MANAGER, forAll, reg } from './gen.spec.ts'
 
@@ -138,4 +138,11 @@ test('the name rule: a renamed session keeps its own name free for itself; an un
   assert.equal(nameRefusal(v, 'L1', L1), undefined)
   assert.equal(nameRefusal(v, 'L1'), 'name-taken')
   assert.equal(nameRefusal(liveView('unknown', {}, MANAGER), 'free'), 'unknown-liveness')
+})
+
+test('a session named like a sentinel shows as its id, never as the person or as an unknown parent', () => {
+  const t: Table = { [A]: { name: 'PERSON', folder: '/Users/x/a' }, [B]: { name: 'unknown', folder: '/Users/x/b' } }
+  const v = liveView([reg(A, 'PERSON'), reg(B, 'unknown'), reg(L1, 'lane')], t, MANAGER)
+  assert.deepEqual([nameOf(v, A), nameOf(v, B), nameOf(v, L1), nameOf(v, 'sid-gone')], [A, B, 'lane', 'sid-gone'])
+  assert.equal(nameOf(liveView('unknown', t, MANAGER), A), A)
 })

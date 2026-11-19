@@ -166,7 +166,11 @@ export const liveness = (v: View, s: Sid): Liveness => (v.rows === 'unknown' ? '
 export const isOff = (v: View, s: Sid): boolean => v.table[s]?.off === true
 export const isLead = (v: View, s: Sid): boolean => v.table[s]?.lead !== undefined && !isOff(v, s)
 export const capability = (v: View, s: Sid): Capability => (v.manager === s ? 'manager' : isLead(v, s) ? 'lead' : 'none')
-export const nameOf = (v: View, s: Sid): string => (v.rows === 'unknown' ? undefined : v.rows.get(s)?.name) ?? v.table[s]?.name ?? s
+// A name that spells a sentinel (PERSON, unknown) is not shown: the texts read those two words as the person and as a parent not known, so such a session shows as its id.
+export const nameOf = (v: View, s: Sid): string => {
+  const n = (v.rows === 'unknown' ? undefined : v.rows.get(s)?.name) ?? v.table[s]?.name ?? s
+  return n === PERSON || n === 'unknown' ? s : n
+}
 
 // The one parent: the lead in `under` while it is not known gone, holds the capability and is not off; else the manager, unless this is it; else the person.
 // A lead's `under` is never read and the manager's parent is the person, so a chain is at most lane, lead, manager. An off session is nobody's child.

@@ -197,3 +197,9 @@ test('awake time: a gap counts at most 10 s, and a clock that ran back or a slee
   assert.equal(awakeAdd(5, -1000), 5)
   assert.equal(awakeAdd(5, NaN), 5)
 })
+
+test('a `__proto__` key is an ordinary entry: it is shown, not swallowed into the shown object\'s prototype', () => {
+  const t = inputText(JSON.parse('{"__proto__": {"command": "delete everything"}, "ok": 1}'))
+  assert.ok(t.text.includes('"__proto__"') && t.text.includes('delete everything'), t.text)
+  assert.ok(inputText(JSON.parse('{"__proto__": "$(id)"}')).text.includes('$(id)'))
+})
