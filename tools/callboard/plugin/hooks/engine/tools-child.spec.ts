@@ -5,6 +5,7 @@ import { parent, PERSON } from '../core/model.ts'
 import { notices } from '../core/notices.ts'
 import { cueTick } from './cue.ts'
 import { mem } from './mem.ts'
+import { prClaim, prTick, prWatchCall } from './pr.ts'
 import { getView } from './store.ts'
 import { sessionStart } from './tick.ts'
 import { cueVerbCall, laneAdoptCall, laneCreateCall, laneListCall, laneOpenCall, laneUnparkCall, stopVerbCall } from './tools-child.ts'
@@ -318,4 +319,28 @@ test('a lead row gone three days keeps its capability and allowlist, a plain lan
   mem.view = undefined
   assert.deepEqual(table(f)['sid-a'].lead, { repos: ['/w/repo'] })
   assert.match(text(await laneListCall(f.$, {}, next)), /No sessions are under you/)
+})
+
+test('a loose session\'s pr_watch works; a lead polling a lane whose row is gone routes nothing and the tracker is removed', async () => {
+  const f = fake()
+  f.seed({ sid: 'sid-me', pid: 10, name: 'lead', cwd: '/w/me', kind: 'interactive' })
+  f.seed({ sid: 'sid-loose', pid: 11, name: 'loose', cwd: '/w/x', kind: 'interactive' })
+  f.table({ 'sid-me': { name: 'lead', folder: '/w/me', lead: { repos: [] } }, 'sid-gone': { name: 'gone', folder: '/w/g', under: 'sid-me', goneAt: T0 - 1000 } })
+  f.h.ghBin = '/opt/homebrew/bin/gh'
+  const sha = 'a'.repeat(40)
+  const node = (state: string) => ({ state: 'OPEN', isDraft: false, mergeable: 'MERGEABLE', reviewDecision: null, headRefOid: sha, reviews: { totalCount: 0 }, comments: { totalCount: 0 }, reviewThreads: { totalCount: 0 }, commits: { nodes: [{ commit: { statusCheckRollup: { state } } }] } })
+  const out = (state: string) => ({ exitCode: 0, stdout: JSON.stringify({ data: { repository: { p5: node(state) } } }) })
+  f.h.ghOut = out('PENDING')
+  f.h.sid = 'sid-loose'
+  mem.view = undefined
+  assert.match((await prWatchCall(f.$, { owner: 'acme', repo: 'app', number: 5 }, next)).result, /Watching/)
+  const seen = { sha, state: 'open', draft: false, checks: 'pending', mergeable: false, reviews: 0, comments: 0, threads: 0 }
+  f.h.files.set(`${V2}/prs/sid-gone.json`, JSON.stringify({ sid: 'sid-gone', prs: [{ owner: 'acme', repo: 'app', number: 5, at: T0, seen }] }))
+  f.h.sid = 'sid-me'
+  mem.view = undefined
+  f.h.ghOut = out('FAILURE')
+  f.h.now += 2 * MIN
+  await prTick(f.$, 'sid-me', await getView(f.$, true))
+  assert.equal(prClaim(), undefined)
+  assert.equal(f.h.files.has(`${V2}/prs/sid-gone.json`), false)
 })

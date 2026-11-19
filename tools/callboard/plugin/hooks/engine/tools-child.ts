@@ -40,7 +40,7 @@ function target(v: View, tool: string, lane: unknown): { key: Sid } | { deny: st
 async function planOf($: any, verb: Verb, v: View, me: Sid, key: Sid, name?: string) {
   return verbPlan(verb, v, me, key, { signed: verb === 'retire' && (await signedNow($, key, v.table[key])), win: await windowNow($), now: await $.clock.now(), name })
 }
-const gated = async ($: any, e: any, tool: string) => {
+async function gated($: any, e: any, tool: string) {
   const g = await gate($, e, tool)
   if ('deny' in g) return g
   const t = target(g.v, tool, e.lane)
@@ -76,7 +76,9 @@ async function parkRow($: any, key: Sid) {
   const now = await $.clock.now()
   return updateTable($, (t) => (t[key] === undefined ? t : { ...t, [key]: { ...t[key]!, parked: now } }))
 }
-const dropRow = ($: any, key: Sid) => updateTable($, (t) => (t[key]?.lead === undefined ? Object.fromEntries(Object.entries(t).filter(([k]) => k !== key)) : t))
+function dropRow($: any, key: Sid) {
+  return updateTable($, (t) => (t[key]?.lead === undefined ? Object.fromEntries(Object.entries(t).filter(([k]) => k !== key)) : t))
+}
 export async function stopVerbCall($: any, e: any, _next: any, verb: StopVerb) {
   const tool = `lane_${verb}`
   const g = await gated($, e, tool)
@@ -124,11 +126,15 @@ async function bringUp($: any, e: any, tool: 'lane_open' | 'lane_unpark') {
   const bound = sid !== undefined && (await updateTable($, (t) => (t[key] === undefined ? t : { ...Object.fromEntries(Object.entries(t).filter(([k]) => k !== key)), [sid]: { ...t[key]!, parked: undefined } })))
   return sid === undefined || !bound ? { deny: say({ msg: 'lane.notOpened', p: { name } }) } : { result: say({ msg: tool === 'lane_open' ? 'lane.opened' : 'lane.unparked', p: { name, sid } }) }
 }
-export const laneOpenCall = ($: any, e: any, _next: any) => bringUp($, e, 'lane_open')
-export const laneUnparkCall = ($: any, e: any, _next: any) => bringUp($, e, 'lane_unpark')
+export async function laneOpenCall($: any, e: any, _next: any) {
+  return bringUp($, e, 'lane_open')
+}
+export async function laneUnparkCall($: any, e: any, _next: any) {
+  return bringUp($, e, 'lane_unpark')
+}
 
 // ---- create, adopt, list ----
-const real = async ($: any, p: string): Promise<string | undefined> => {
+async function real($: any, p: string): Promise<string | undefined> {
   const r = p.startsWith('/') ? await run($, ['/bin/realpath', '--', p]).catch(() => undefined) : undefined
   return r?.exitCode === 0 && r.stdout.trim().startsWith('/') ? r.stdout.trim() : undefined
 }
