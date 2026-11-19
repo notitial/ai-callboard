@@ -5,6 +5,7 @@ const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
 const { createSpool, parse } = require('./spool-v2.js')
+const { createLanes } = require('./lanes.js')
 
 const SID = '1a1b2c3d-0000-4000-8000-123456789abc'
 const OTHER = '2b2c3d4e-0000-4000-8000-123456789abc'
@@ -104,10 +105,10 @@ test('two windows racing for one request: one handles it, the other loses the cl
   assert.equal(a.calls.length + b.calls.length, 1)
 })
 
-test('a request older than two minutes is dropped with stale, whichever window finds it, and opens nothing', async () => {
+test('a request older than a minute is dropped with stale, whichever window finds it, and opens nothing', async () => {
   const w = world({ ws: ['/work/other'] })
   const file = w.put('a1', OPEN)
-  w.tick(121_000)
+  w.tick(61_000)
   assert.deepEqual(await w.spool.scan(), [['a1', 'stale']])
   assert.deepEqual(w.result('a1'), { ok: false, code: 'stale' })
   assert.equal(fs.existsSync(file), false)
@@ -176,4 +177,22 @@ test('a scan while another runs does nothing, and a missing folder is made', asy
 test('parse keeps only the request\'s own fields', () => {
   assert.deepEqual(parse(JSON.stringify({ ...CLOSE, extra: 1 })), CLOSE)
   assert.deepEqual(parse(JSON.stringify({ ...OPEN, sid: SID })), OPEN)
+})
+
+test('with the real lanes.js: a close is taken and a reserved name is refused', async () => {
+  const lanes = createLanes({ vscode: {}, registry: {}, sleep: async () => undefined, now: Date.now })
+  const w = world({ lanes: { adopt: lanes.adopt } })
+  w.put('c1', CLOSE)
+  w.put('c2', { ...CLOSE, name: 'MANAGER' })
+  await w.spool.scan()
+  assert.deepEqual(w.result('c1'), { ok: true })
+  assert.deepEqual(w.result('c2'), { ok: false, code: 'refused' })
+})
+
+test('a request whose answer cannot be written is reported and does not stop the scan', async () => {
+  const w = world()
+  w.put('a1', OPEN)
+  fs.mkdirSync(path.join(w.dir, 'a1.result'))
+  w.put('a2', OPEN)
+  assert.deepEqual(await w.spool.scan(), [['a1', 'answer-failed'], ['a2', 'done']])
 })

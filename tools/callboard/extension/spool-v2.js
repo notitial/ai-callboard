@@ -1,13 +1,15 @@
 'use strict'
 // The window's spool for the plugin build: requests in ~/.claude/callboard/v2/open, answers beside them.
 // <id>.req holds one JSON request: {op:'open',folder}, {op:'reopen',sid,folder} or {op:'close',sid,pid,name,folder}. <id> is the writer's own, one per request.
-// Only the window whose first workspace folder is the request's folder takes it, and a request older than MAX_AGE_MS is dropped. The answer is <id>.result,
+// The writer writes `.<id>.tmp` and renames it to <id>.req, uses a fresh random <id> per request, and gives the folder exactly as VS Code names the window's first
+// folder. Only the window whose first workspace folder is the request's folder takes it, and a request older than MAX_AGE_MS (a little over the writer's own
+// wait) is dropped. The answer is <id>.result,
 // JSON: {ok:true,sid?} or {ok:false,code}; a close is answered too, and its answer is not read. The panel of a close goes to the extension's sweep (lanes.js).
 const fsp = require('node:fs/promises')
 const path = require('node:path')
 const { SID_RE, NAME_RE } = require('./reserved.js')
 
-const MAX_AGE_MS = 120_000
+const MAX_AGE_MS = 60_000
 const RESULT_KEEP_MS = 600_000
 const MAX_BYTES = 1200
 const PID_MAX = 2 ** 22
@@ -40,7 +42,7 @@ function createSpool({ dir, lanes, workspaceFolders, timeoutMs, now = Date.now }
   async function answer(id, reply) {
     const tmp = path.join(dir, `.${id}.${++seq}.tmp`)
     await fsp.writeFile(tmp, JSON.stringify(reply), { mode: 0o600 })
-    await fsp.rename(tmp, path.join(dir, `${id}.result`)).catch(() => drop(tmp))
+    await fsp.rename(tmp, path.join(dir, `${id}.result`))
   }
 
   const refuse = async (id, code) => {
@@ -97,7 +99,8 @@ function createSpool({ dir, lanes, workspaceFolders, timeoutMs, now = Date.now }
       for (const f of await fsp.readdir(dir)) {
         const m = FILE_RE.exec(f)
         if (!m) continue
-        if (m[2] === 'req') out.push([m[1], await handle(m[1])])
+        // A request whose answer cannot be written is already claimed: it is reported and the scan goes on.
+        if (m[2] === 'req') out.push([m[1], await handle(m[1]).catch(() => 'answer-failed')])
         else await expire(path.join(dir, f))
       }
     } catch {
