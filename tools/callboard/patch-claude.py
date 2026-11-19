@@ -9,7 +9,7 @@
         unpatched-patchable      every anchor was found exactly once: --apply would patch it
         anchors-missing <names>  an update moved the code the patch hooks into (a name is missing or matches twice): --apply refuses
       --apply: patch extension.js, keep the original beside it as extension.js.callboard-orig and write callboard-cwd-patch.json
-      (the marker callboard's panels extension reads; its "look" and "restore" fields say whether the panel look and the restore fix below went in). Patched already: says so and stops; outdated: refuses and names --update. A window reload (Developer: Reload
+      (the marker callboard's panels extension reads; its "look", "restore" and "groups" fields say whether the panel look, the restore fix and the group command below went in). Patched already: says so and stops; outdated: refuses and names --update. A window reload (Developer: Reload
       Window) loads it.
       --update: for an `outdated` install, build the patch again from the backup original and swap it in: extension.js and the marker are
       replaced, the backup is not touched. The new bytes are built before anything is written (a refusal changes nothing), and a failed write puts the
@@ -22,9 +22,10 @@ new panel instead of the window's first folder, when it is one of the window's f
 opens nothing; a bare call (the palette, Open, an @-mention), a resume and a one-folder window never ask. The panel look (LOOK_CSS below, a style block added to the webview page the extension builds) lets the composer and its permission box use the panel's
 width and keeps the Remote Control chip icon-only. Each anchor is a pattern that tolerates renamed minified
 identifiers, and the file is written only when every anchor matches exactly once: otherwise nothing changes and the missing ones
-are named. The two optional pieces are separate: the panel look's style block goes in when its one anchor matches exactly once, and the restore fix
+are named. The three optional pieces are separate: the panel look's style block goes in when its one anchor matches exactly once, the restore fix
 (RESTORE_ANCHORS below: a panel that VS Code restores or Claude reopens keeps the folder of its conversation, found from the session's transcript) goes in
-when its two anchors do; when one does not, a warning line says so and the folder patch still applies. There is no half patch: a failure after the file was replaced puts the backup back. An update of the extension is a new
+when its two anchors do, and the group command (GROUPS_ANCHOR below) registers `callboard assign group` (session id, group name), so callboard's panels
+extension can put a lead, lane or conductor session in the sidebar's Lead, Lanes or Conductor group, when its one anchor matches exactly once; when one does not, a warning line says so and the folder patch still applies. There is no half patch: a failure after the file was replaced puts the backup back. An update of the extension is a new
 folder, so it starts unpatched and this runs again. It never uses the network, runs nothing else, works only inside EXTENSION_DIR
 and changes no setting. Run it as your user: it refuses root. Tests: /usr/bin/python3 -I tools/callboard/test_patch_claude.py
 Exit codes: 0 done or nothing to do (patched, patchable), 1 refused, outdated or anchors missing, 2 usage.
@@ -139,11 +140,47 @@ def look_in(raw):
     return re.sub(LOOK_ANCHOR, look_block, raw)
 
 
+# The group command's anchor: the registration of the stock command that adds the active tab to a group, which sits inside an `x.subscriptions.push(...)` call
+# of the extension's activation. Our registration goes in front of it as one more argument of that push.
+GROUPS_ANCHOR = rb'(?P<vs>ID)\.commands\.registerCommand\("claude-vscode\.addSessionTabToGroup",async\(\)=>\{if\(!await (?P<prov>ID)\.addActiveSessionTabToGroup\(\)\)'.replace(b"ID", ID)
+GROUPS_COMMAND = "callboard assign group"
+
+
+def groups_command(m):
+    """`callboard assign group` (session id, group name): in the window's group list (the provider's own settings, which are keyed by the window's first folder)
+    find the group by name in any letter case, create it when there is none, add the session to it unless it already sits in some group, and save through the
+    provider, which also tells the open sidebars. Returns true when the session sits in a group afterwards, false when it was refused: a bad argument, an
+    archived session (the provider's save drops archived ids from every group, as the stock command refuses them), or the stock list limits (100 groups,
+    1000 sessions: the provider's save would drop the excess without saying). Uses only members the extension keeps unminified."""
+    p = m.group("prov")
+    return (m.group("vs") + b'.commands.registerCommand("' + GROUPS_COMMAND.encode() + b'",async(cbqS,cbqN)=>{'
+            b'if(typeof cbqS!="string"||typeof cbqN!="string"||!cbqN)return!1;let cbqG=' + p + b".settings.getSessionGroups();"
+            b"if(" + p + b".settings.getArchivedSessionIds().includes(cbqS))return!1;"
+            b"if(cbqG.some((cbqE)=>cbqE.sessionIds.includes(cbqS)))return!0;"
+            b"let cbqL=cbqN.toLowerCase(),cbqT=cbqG.find((cbqE)=>cbqE.name.toLowerCase()===cbqL);"
+            b"if(!cbqT&&cbqG.length>=100||cbqG.reduce((cbqA,cbqE)=>cbqA+cbqE.sessionIds.length,0)>=1000)return!1;"
+            + p + b".persistGroupsFromHost(cbqT?cbqG.map((cbqE)=>cbqE===cbqT?{...cbqE,sessionIds:[...cbqE.sessionIds,cbqS]}:cbqE)"
+            b':[...cbqG,{id:require("crypto").randomUUID(),name:cbqN,collapsed:!1,sessionIds:[cbqS]}]);return!0}),' + m.group(0))
+
+
+def groups_problem(raw):
+    """Why the group command cannot go in (None when it can): its anchor does not match exactly once, or the file already has it."""
+    n = len(re.findall(GROUPS_ANCHOR, raw))
+    if n != 1:
+        return "groups anchor (%s)" % ("no match" if n == 0 else "%d matches" % n)
+    return "the file already contains %s" % GROUPS_COMMAND if GROUPS_COMMAND.encode() in raw else None
+
+
+def groups_in(raw):
+    return re.sub(GROUPS_ANCHOR, groups_command, raw)
+
+
 # The optional pieces, in the order they go in: (marker field, name in messages, why it cannot go in, how it goes in). A piece that cannot go in is left out
 # with a warning, and the folder patch still applies.
 PIECES = (
     ("look", "panel look", look_problem, look_in),
     ("restore", "restore fix", restore_problem, restore_in),
+    ("groups", "group command", groups_problem, groups_in),
 )
 
 

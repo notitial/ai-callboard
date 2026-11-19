@@ -11,6 +11,7 @@ const { createRegistry } = require('./registry.js')
 const { pidAlive } = require('./reserved.js')
 const { claudePatched } = require('./claude-patch.js')
 const { createFolderBadge } = require('./folder-badge.js')
+const { createGroups } = require('./groups.js')
 const { createLaneView } = require('./lane-view.js')
 
 const CLAUDE = path.join(os.homedir(), '.claude')
@@ -81,6 +82,12 @@ function activate(context) {
   }
   const sweep = setInterval(() => lanes.sweep().catch(() => undefined), 2000)
   context.subscriptions.push({ dispose: () => clearInterval(sweep) })
+  const groups = createGroups({ vscode, registry, state: context.workspaceState, workspaceFolders: windowFolders,
+    loadLanes: () => allLanes({ storeDir: path.join(CLAUDE, 'callboard', 'lanes') }),
+    loadLeads: () => allLeads({ recordDir: path.join(CLAUDE, 'callboard', 'lead-records') }),
+  })
+  const groupTick = setInterval(() => groups.tick(), groups.TICK_MS)
+  context.subscriptions.push({ dispose: () => clearInterval(groupTick) })
 }
 
 module.exports = { activate, deactivate() {} }

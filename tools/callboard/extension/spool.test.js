@@ -982,7 +982,7 @@ test('readLeadStores reads a lead record as the mod does and refuses the whole f
   const rec = { name: 'LEAD-A', createdAt: 1, how: 'made', conductorSid: C, conductorName: 'COND', nonce: 'a'.repeat(32), sid: SID, parked: 5 }
   const good = { repo: w.repo, leads: [rec] }
   w.put(good)
-  assert.deepEqual(await readLeadStores(w.dir), [{ name: 'LEAD-A', folder: w.repo, repo: w.repo, store: `${w.key}.json`, sid: SID, parked: 5 }])
+  assert.deepEqual(await readLeadStores(w.dir), [{ name: 'LEAD-A', folder: w.repo, repo: w.repo, store: `${w.key}.json`, conductorSid: C, sid: SID, parked: 5 }])
   const two = { ...rec, name: 'LEAD-B', sid: undefined, parked: undefined, how: 'joined', nonce: undefined }
   w.put({ repo: w.repo, leads: [rec, JSON.parse(JSON.stringify(two))] })
   assert.deepEqual((await readLeadStores(w.dir)).map((l) => [l.name, 'sid' in l]), [['LEAD-A', true], ['LEAD-B', false]])
@@ -1026,7 +1026,7 @@ test('allLeads drops a lead whose name is in two record files, and a missing fol
   const C = '3a1b2c3d-0000-4000-8000-123456789abc'
   const rec = { name: 'LEAD-A', createdAt: 1, how: 'joined', conductorSid: C, sid: SID }
   a.put({ repo: a.repo, leads: [rec] })
-  assert.deepEqual(await allLeads({ recordDir: a.dir }), [{ name: 'LEAD-A', folder: a.repo, repo: a.repo, lead: true, sid: SID }])
+  assert.deepEqual(await allLeads({ recordDir: a.dir }), [{ name: 'LEAD-A', folder: a.repo, repo: a.repo, lead: true, conductorSid: C, sid: SID }])
   const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'cb-repo-')))
   const repo2 = path.join(base, 'work', 'two')
   fs.mkdirSync(repo2, { recursive: true })

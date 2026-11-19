@@ -4,6 +4,7 @@ Each case builds a small stand-in for the Claude Code extension's minified file 
 names of 2.1.327, one with other minified names, as in 2.1.328) and runs the script on it, so nothing outside the
 temporary folder is touched."""
 import contextlib
+import glob
 import hashlib
 import importlib.util
 import io
@@ -32,7 +33,13 @@ TEMPLATE = (
     'let{{startedInNewColumn:L,shownInSidebar:N}}=await c.createPanel({a},{b},{c},{d},{e},O.focusInput);if(L)await kS();'
     'if(O.updatePreferredLocationToPanel&&N!==!0)as(n.setPreferredLocation("panel"))}}));'
     'x.push(Wp("claude-vscode.editor.openLast",async()=>{{await rl("claude-vscode.editor.open")}}));'
+    '{grp}'
     '{html}'
+)
+# The registration of the stock add-to-group command, inside a push call of the activation, with the provider's name `pv`.
+GROUP = (
+    'x.push({vs}.commands.registerCommand("claude-vscode.addSessionTabToGroup",async()=>{{if(!await {pv}.addActiveSessionTabToGroup())'
+    '{vs}.window.showInformationMessage("No active Claude Code session tab to add to a group.")}}),{vs}.commands.registerCommand("claude-vscode.toggleFocusView",()=>1));'
 )
 # The webview page builder, as the extension's host writes it: the stylesheet link, then the font configuration style tag, inside a template literal.
 HTML = (
@@ -46,6 +53,7 @@ const code = fs.readFileSync(process.argv[1], 'utf8')
 function run(folders, pickResult, target = 'panel') {
   const calls = [], H = {}, picks = []
   const fake = { workspace: { workspaceFolders: folders.map((f) => ({ name: f.split('/').pop(), uri: { fsPath: f } })) },
+    commands: { registerCommand: (id, fn) => { H[id] = fn; return {} } },
     window: { showQuickPick: async (items) => { picks.push(items.map((i) => i.fsPath)); return pickResult } } }
   const ctx = vm.createContext({ x: [], Wp: (id, fn) => { H[id] = fn }, F: () => ({ target, focusInput: 1 }),
     c: { createPanel: async (...a) => { calls.push(a); return { startedInNewColumn: false } }, activateInSidebar: () => 1, clearPendingSidebarActivation: () => {} }, kS: async () => {}, rl: async () => {},
@@ -72,13 +80,13 @@ const open = async (folders, pickResult, target, ...args) => {
   console.log(JSON.stringify(out))
 })()
 """
-V327 = dict(nc="nC", vs="$e", a="w", b="A", c="C", d="T", e="R", f="x")
-V328 = dict(nc="$v", vs="Pe", a="w", b="T", c="C", d="A", e="k", f="z")
+V327 = dict(nc="nC", vs="$e", a="w", b="A", c="C", d="T", e="R", f="x", pv="G")
+V328 = dict(nc="$v", vs="Pe", a="w", b="T", c="C", d="A", e="k", f="z", pv="Gq")
 PKG = {"name": "claude-code", "publisher": "Anthropic", "version": "2.1.328"}
 
 
-def build(variant, html=HTML):
-    return TEMPLATE.format(html=html.format(), **variant).encode("utf-8")
+def build(variant, html=HTML, grp=GROUP):
+    return TEMPLATE.format(html=html.format(), grp=grp.format(**variant), **variant).encode("utf-8")
 
 
 def slurp(path):
@@ -294,7 +302,8 @@ class Apply(Case):
 # Runs the page builder of a patched stand-in and prints the page it returns.
 PAGE = r"""
 const vm = require('vm'), fs = require('fs')
-const ctx = vm.createContext({ require: () => ({}), x: [], Wp: () => {}, F: () => ({}) })
+const vs = { commands: { registerCommand: () => ({}) }, window: {} }
+const ctx = vm.createContext({ require: () => ({}), x: [], Wp: () => {}, F: () => ({}), $e: vs, Pe: vs })
 vm.runInContext(fs.readFileSync(process.argv[1], 'utf8') + ';globalThis.Hp=Hp', ctx)
 console.log(JSON.stringify(ctx.Hp('/a.css', 'mono')))
 """
@@ -384,6 +393,183 @@ class Look(Case):
         self.run_script(ext, "--undo")
         self.assertEqual((self.rc, self.js(ext)), (0, raw))
         self.assertEqual(sorted(os.listdir(ext)), ["extension.js", "package.json"])
+
+
+# Runs the patched stand-in's group command against a fake provider that keeps the group list the way Claude's settings do, and prints what it did.
+GROUPS_RUNNER = r"""
+const vm = require('vm'), fs = require('fs')
+const code = fs.readFileSync(process.argv[1], 'utf8')
+const start = JSON.parse(process.argv[2])
+async function run(groups, sid, name) {
+  const H = {}, saved = []
+  const provider = { settings: { getSessionGroups: () => groups, getArchivedSessionIds: () => start.archived || [] }, persistGroupsFromHost: (g) => saved.push(g), addActiveSessionTabToGroup: async () => true }
+  const fake = { workspace: {}, window: {}, commands: { registerCommand: (id, fn) => { H[id] = fn; return {} } } }
+  const ctx = vm.createContext({ x: [], Wp: () => {}, F: () => ({}), G: provider, Gq: provider, $e: fake, Pe: fake, require: (m) => (m === 'crypto' ? { randomUUID: () => 'new-id' } : fake) })
+  vm.runInContext(code, ctx)
+  const result = await H['callboard assign group'](sid, name)
+  return { result, saved, stock: typeof H['claude-vscode.addSessionTabToGroup'], other: typeof H['claude-vscode.toggleFocusView'] }
+}
+;(async () => {
+  const out = []
+  for (const [sid, name] of start.calls) out.push(await run(JSON.parse(JSON.stringify(start.groups)), sid, name))
+  console.log(JSON.stringify(out))
+})()
+"""
+G1 = {"id": "g1", "name": "LANES", "collapsed": True, "sessionIds": ["s0"]}
+G2 = {"id": "g2", "name": "LEAD", "collapsed": False, "sessionIds": ["s9"]}
+
+
+class Groups(Case):
+    """The group command is one optional registration next to the stock add-to-group command; the folder patch never depends on it."""
+
+    def applied(self, raw, name="grp"):
+        ext = self.make(V327, name=name, raw=raw)
+        self.run_script(ext, "--apply")
+        return ext, json.loads(slurp(os.path.join(ext, "callboard-cwd-patch.json")))
+
+    def drive(self, ext, groups, *calls, archived=()):
+        p = subprocess.run(["node", "-e", GROUPS_RUNNER, os.path.join(ext, "extension.js"), json.dumps({"groups": groups, "calls": calls, "archived": archived})], capture_output=True, text=True, timeout=60)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        return json.loads(p.stdout)
+
+    def test_both_variants_patch_with_the_marker_still_at_one(self):
+        for variant in (V327, V328):
+            ext = self.make(variant, name="v%s" % variant["pv"])
+            self.run_script(ext)
+            self.assertEqual((self.rc, self.out.splitlines()), (0, ["unpatched-patchable 2.1.328"]))
+            self.run_script(ext, "--apply")
+            self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "patched 2.1.328"))
+            self.assertEqual(self.out.count("warning"), 0)
+            marker = json.loads(slurp(os.path.join(ext, "callboard-cwd-patch.json")))
+            self.assertEqual((marker["patch"], marker["look"], marker["groups"]), (1, True, True))
+            new = self.js(ext)
+            self.assertEqual(new.count(b"callboard assign group"), 1)
+            self.assertEqual(new.count(b"cbCwd"), 6)
+
+    def test_the_command_goes_in_front_of_the_stock_one_inside_its_push_call(self):
+        ext, _ = self.applied(build(V328), name="front")
+        new = self.js(ext).decode("utf-8")
+        i, j = new.index("Pe.commands.registerCommand(\"callboard assign group\""), new.index("Pe.commands.registerCommand(\"claude-vscode.addSessionTabToGroup\"")
+        self.assertLess(i, j)
+        self.assertEqual(new[i:j].count("registerCommand"), 1)
+        self.assertTrue(new[:i].endswith("x.push("))
+        self.assertTrue(new[i:j].endswith("}),"))
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_the_command_puts_a_session_in_a_group_by_name_creates_a_missing_one_and_leaves_a_grouped_session(self):
+        for variant in (V327, V328):
+            ext = self.make(variant, name="run%s" % variant["pv"])
+            self.run_script(ext, "--apply")
+            r = self.drive(ext, [G1, G2], ["s1", "Lanes"], ["s2", "Conductor"], ["s0", "Lead"], ["s9", "lanes"], [5, "Lead"], ["s3", ""], ["s1", "lead"])
+            joined = lambda g, sid, n: {**g, "sessionIds": g["sessionIds"] + [sid]}
+            self.assertEqual(r[0]["saved"], [[joined(G1, "s1", 0), G2]], "a name in another letter case finds the group")
+            self.assertEqual(r[1]["saved"], [[G1, G2, {"id": "new-id", "name": "Conductor", "collapsed": False, "sessionIds": ["s2"]}]], "a missing group is created")
+            self.assertEqual((r[2]["result"], r[2]["saved"]), (True, []), "a session already in a group stays where it is")
+            self.assertEqual((r[3]["result"], r[3]["saved"]), (True, []))
+            self.assertEqual([(x["result"], x["saved"]) for x in r[4:6]], [(False, []), (False, [])], "bad arguments do nothing")
+            self.assertEqual(r[6]["saved"], [[G1, joined(G2, "s1", 0)]])
+            self.assertEqual([x["result"] for x in (r[0], r[1], r[6])], [True, True, True])
+            self.assertEqual((r[0]["stock"], r[0]["other"]), ("function", "function"), "the stock commands are still registered")
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_the_command_refuses_an_archived_session_and_the_stock_list_limits(self):
+        ext = self.make(V327, name="refuse")
+        self.run_script(ext, "--apply")
+        arch = self.drive(ext, [G1], ["s1", "Lanes"], archived=["s1"])
+        self.assertEqual((arch[0]["result"], arch[0]["saved"]), (False, []), "the provider's save would drop an archived id")
+        full = [{"id": "g%d" % i, "name": "N%d" % i, "collapsed": False, "sessionIds": []} for i in range(100)]
+        r = self.drive(ext, full, ["s1", "Lanes"], ["s1", "n5"])
+        self.assertEqual((r[0]["result"], r[0]["saved"]), (False, []), "100 groups: no new one")
+        self.assertEqual(r[1]["result"], True, "an existing group still takes the session")
+        crowded = [{"id": "g1", "name": "A", "collapsed": False, "sessionIds": ["x%d" % i for i in range(1000)]}, G2]
+        r = self.drive(ext, crowded, ["s1", "A"])
+        self.assertEqual((r[0]["result"], r[0]["saved"]), (False, []), "1000 sessions: no more")
+
+    def test_a_missing_or_doubled_anchor_costs_only_the_group_command(self):
+        stock = GROUP.replace("addSessionTabToGroup", "addSessionToGroup")
+        twice = GROUP + GROUP.replace("toggleFocusView", "toggleFocusView2")
+        for label, grp in (("no registration", ""), ("renamed command", stock), ("two registrations", twice), ("another provider call", GROUP.replace(".addActiveSessionTabToGroup()", ".addTab()"))):
+            raw = build(V327, grp=grp)
+            ext = self.make(V327, name="miss%d" % len(os.listdir(self.t)), raw=raw)
+            before = snap(ext)
+            self.run_script(ext)
+            self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "unpatched-patchable 2.1.328"), label)
+            self.assertIn("warning: the group command would be left out (groups anchor (", self.out, label)
+            self.assertEqual(snap(ext), before, label)
+            self.run_script(ext, "--apply")
+            self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "patched 2.1.328"), label)
+            self.assertIn("warning: the group command is not in (groups anchor (", self.out, label)
+            new = self.js(ext)
+            self.assertEqual((new.count(b"cbCwd"), new.count(b"callboard assign group")), (6, 0), label)
+            marker = json.loads(slurp(os.path.join(ext, "callboard-cwd-patch.json")))
+            self.assertEqual((marker["patch"], marker["groups"], marker["look"]), (1, False, True), label)
+            self.run_script(ext)
+            self.assertIn("warning: the group command is not in this patch", self.out, label)
+            self.run_script(ext, "--undo")
+            self.assertEqual((self.rc, self.js(ext)), (0, raw), label)
+
+    def test_a_file_that_already_has_the_command_is_left_alone(self):
+        raw = build(V327, grp=GROUP + 'x.push(Wp("callboard assign group",()=>1));')
+        ext, marker = self.applied(raw, name="have")
+        self.assertEqual((self.rc, marker["groups"]), (0, False))
+        self.assertEqual(self.js(ext).count(b"callboard assign group"), 1)
+
+    def test_a_patch_from_before_the_command_reads_outdated_and_update_brings_it_in(self):
+        mod = load_module()
+        ext = self.make(V327, name="old")
+        with contextlib.redirect_stdout(io.StringIO()):
+            old = load_module()
+            old.GROUPS_ANCHOR = rb"(NO)(MATCH)(HERE)"
+            old.apply(ext)
+        self.assertNotIn(b"callboard assign group", self.js(ext))
+        self.assertEqual(json.loads(slurp(os.path.join(ext, "callboard-cwd-patch.json")))["groups"], False)
+        self.assertUnchanged(ext)
+        self.assertEqual((self.rc, self.out.splitlines()[0]), (1, "outdated 2.1.328: the group command is not in"))
+        self.run_script(ext, "--update")
+        self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "updated 2.1.328"))
+        self.assertEqual(self.js(ext), mod.patched(slurp(os.path.join(ext, "extension.js.callboard-orig")))[0])
+        self.assertEqual(json.loads(slurp(os.path.join(ext, "callboard-cwd-patch.json")))["groups"], True)
+        self.assertUnchanged(ext)
+        self.assertEqual((self.rc, self.out), (0, "patched 2.1.328\n"))
+
+    def test_undo_takes_the_command_out_with_the_rest(self):
+        raw = build(V328)
+        ext, _ = self.applied(raw, name="undo")
+        self.assertIn(b"callboard assign group", self.js(ext))
+        self.run_script(ext, "--undo")
+        self.assertEqual((self.rc, self.js(ext)), (0, raw))
+        self.assertEqual(sorted(os.listdir(ext)), ["extension.js", "package.json"])
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_a_patched_copy_of_each_installed_claude_extension_still_parses(self):
+        """Reads the installed extensions (their original file, or the live one when never patched) and patches copies in the temp folder; the install is not changed."""
+        found = []
+        for d in sorted(glob.glob(os.path.expanduser("~/.vscode/extensions/anthropic.claude-code-*"))):
+            src = os.path.join(d, "extension.js.callboard-orig")
+            src = src if os.path.isfile(src) else os.path.join(d, "extension.js")
+            if os.path.isfile(src) and os.path.isfile(os.path.join(d, "package.json")):
+                found.append((d, src))
+        if not found:
+            self.skipTest("no installed Claude Code extension")
+        for i, (d, src) in enumerate(found):
+            ext = os.path.join(self.t, "real%d" % i)
+            os.makedirs(ext)
+            shutil.copy(src, os.path.join(ext, "extension.js"))
+            shutil.copy(os.path.join(d, "package.json"), ext)
+            raw = slurp(os.path.join(ext, "extension.js"))
+            self.run_script(ext, "--apply")
+            if self.rc != 0:
+                continue
+            marker = json.loads(slurp(os.path.join(ext, "callboard-cwd-patch.json")))
+            self.assertEqual(marker["patch"], 1)
+            if marker["groups"]:
+                self.assertEqual(self.js(ext).count(b"callboard assign group"), 1, d)
+                for member in (b".settings.getSessionGroups()", b".settings.getArchivedSessionIds()", b"persistGroupsFromHost("):
+                    self.assertIn(member, raw, "%s: the members the command uses" % d)
+            p = subprocess.run(["node", "--check", os.path.join(ext, "extension.js")], capture_output=True, text=True, timeout=120)
+            self.assertEqual(p.returncode, 0, "%s: %s" % (d, p.stderr))
+            self.run_script(ext, "--undo")
+            self.assertEqual(self.js(ext), raw)
 
 
 class Update(Case):
@@ -525,6 +711,7 @@ const code = fs.readFileSync(file, 'utf8')
 const SB = process.env.SID_B, SA = process.env.SID_A
 function boot(list) {
   const fake = { workspace: { workspaceFolders: list.map((f) => ({ name: path.basename(f), uri: { fsPath: f } })) },
+    commands: { registerCommand: () => ({}) },
     window: { registerWebviewPanelSerializer: (id, h) => { fake.serializer = h } } }
   const ctx = vm.createContext({ x: [], Wp: () => {}, F: () => ({}), $e: fake, Pe: fake, process: { env: { CLAUDE_CONFIG_DIR: cfg } },
     nL: (f) => f(), sw: (v) => typeof v === 'string', ice: () => true,
