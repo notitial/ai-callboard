@@ -42,6 +42,12 @@ A comment or doc states what the code does now. A version, date, review or plan 
 (`v13.2`, `review c1`, `PR 2`, `PLAN §4`) or a "before X" history line is a finding, not a wording nit: history
 belongs in the ADRs (whose dated lines are the record) and in git.
 
+## Fixes
+
+A fix that adds a branch, flag or guard for the one reported case is checked against the cause, not only the report.
+Read the general path the new code sits beside. A sibling input or state that the same cause still breaks is a
+finding: name it as the trigger.
+
 ## Nit cap
 
 Report at most 5 findings. Fewer is better. Security and private-data findings come first. No style, naming,

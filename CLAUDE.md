@@ -112,3 +112,4 @@ Its verdict is a signal, not a required approval. The rules it holds a change to
   checkout's own object store or git config.
 - Callboard has no installer: it loads from the live checkout. Nothing in it may need root, write outside the
   person's own folders, or edit a settings file for the person.
+- A fix goes to its cause and weighs a subtractive option first: ai-toolkit `rules/workflow.md`, Fixing a Failure.
