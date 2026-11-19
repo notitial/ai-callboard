@@ -4,6 +4,7 @@
       EXTENSION_DIR is one installed Claude Code extension folder, for example ~/.vscode/extensions/anthropic.claude-code-<version>-<platform>.
       No flag: change nothing and print one line, the state and the extension's version, then what it means:
         patched                  the patch is in, its marker matches the file and it is what this script would build now
+                                 (with no backup that matches the marker, there is nothing to build from, and the marker decides)
         outdated <why>           the patch is in but an older script built it (the line names what differs): --update brings it current
         unpatched-patchable      every anchor was found exactly once: --apply would patch it
         anchors-missing <names>  an update moved the code the patch hooks into (a name is missing or matches twice): --apply refuses
@@ -291,6 +292,9 @@ def update(ext):
         return apply(ext)
     main = os.path.join(ext, MAIN)
     orig = read(os.path.join(ext, BACKUP))
+    bad = problems(orig)
+    if bad:
+        refuse("this script cannot build the patch from the backup (%s); nothing was changed" % "; ".join(bad))
     new, look = patched(orig)
     # The previous patched file stays reachable under a second name (a hard link, no space) until the new one is in: a failed write puts it back.
     prev = os.path.join(ext, PREVIOUS)
@@ -332,7 +336,7 @@ def undo(ext):
             refuse("the backup is gone and %s is not known to be the original; reinstall the extension instead" % MAIN)
     elif raw != orig:
         put(main, orig, os.stat(main).st_mode & 0o777)
-    for n in (BACKUP, MARKER):
+    for n in (BACKUP, MARKER, PREVIOUS):
         if os.path.lexists(os.path.join(ext, n)):
             os.unlink(os.path.join(ext, n))
     print("undone: the original %s is back, backup and marker removed" % MAIN)

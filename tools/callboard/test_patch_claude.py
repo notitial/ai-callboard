@@ -463,6 +463,33 @@ class Update(Case):
         self.assertEqual(snap(self.ext), before)
         self.assertEqual(slurp(os.path.join(self.ext, "extension.js.callboard-orig")), orig)
 
+    def test_check_and_update_agree_when_the_names_collide(self):
+        self.older(self.ext, LOOK_CSS="a{b:c}")
+        mod = load_module()
+        mod.NAME = "é".encode("utf-8")
+        before = snap(self.ext)
+        self.assertEqual(mod.state(self.ext)[::2], ("outdated", "this script no longer fits the backup: the file already contains é"))
+        with self.assertRaises(SystemExit) as cm:
+            mod.update(self.ext)
+        self.assertEqual((cm.exception.code, snap(self.ext)), (1, before))
+
+    def test_without_a_matching_backup_the_marker_decides(self):
+        self.older(self.ext, LOOK_CSS="a{b:c}")
+        os.unlink(os.path.join(self.ext, "extension.js.callboard-orig"))
+        self.assertUnchanged(self.ext)
+        self.assertEqual((self.rc, self.out), (0, "patched 2.1.328\n"))
+
+    def test_a_spare_link_left_by_a_killed_update_goes_with_the_next_update_or_undo(self):
+        orig = self.js()
+        for last in ("--update", "--undo"):
+            ext = self.make(V327, name="spare" + last)
+            self.older(ext, LOOK_CSS="a{b:c}")
+            os.link(os.path.join(ext, "extension.js.callboard-orig"), os.path.join(ext, "extension.js.callboard-prev"))
+            self.run_script(ext, last)
+            self.assertEqual(self.rc, 0, last)
+            self.assertNotIn("extension.js.callboard-prev", os.listdir(ext), last)
+        self.assertEqual(self.js(ext), orig)
+
     def test_a_failed_write_keeps_the_previous_patch_intact(self):
         for failing in ("extension.js", "callboard-cwd-patch.json"):
             ext = self.make(V327, name="f-" + failing)
