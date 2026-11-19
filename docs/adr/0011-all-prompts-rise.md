@@ -156,6 +156,8 @@ person; this decision does not depend on it and adds no notice of its own.
 | Nobody can be asked, or a host answers (the approver is not the person) | none | The prompt is not one a person clicks in the lane's panel. | Nothing is waiting on the person |
 | A question of a shape with no answer form: several questions, multi-select, a `Person` header | `not-judgeable question-…`, then `question-denied question-…` when it is ended | The relay carries one single-choice question with the lane's own labels; `Person` is the lane's own mark. | With a tier in reach it is ended with a message, a `Person` header excepted; else the check-in and the toast |
 
+*Amended 2026-11-19 ([ADR 0012](0012-callboard-plugin.md)): this ADR is superseded for the plugin build. There a question headed `Person`, a question of a shape with no answer form, a plan exit and any other dialog is an ordinary ask that rises to the manager like every other; callboard keeps none for the person, and the rubric of the tier that reads it decides. The table above, the `Person` header and the "stays the person's" lines stand for the mod only.*
+
 Two cases are the person's own switch, not a limit:
 
 - **The escalation switch does not cover the session**: no row. The person turned answering off for it.

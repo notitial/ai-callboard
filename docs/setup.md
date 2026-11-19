@@ -139,9 +139,28 @@ EXT_DIR="$(ls -d "$HOME"/.vscode/extensions/anthropic.claude-code-* | sort -V | 
   file beside it. Without the patch, open one VS Code window per repo and use callboard as before. If a patched open
   does not bring up its panel, it fails as the usual open timeout, once.
 
+### Optional: the Explorer lane view
+
+The panels extension adds a tree, Callboard Lanes, at the bottom of the Explorer: one row per callboard session the
+plugin's session table and the old lane stores know, with its folder and state (live, working, waiting, parked, closed,
+gone), a lane under the lead that owns it. A click reopens the session in its own folder, so a parked or closed lane
+comes back with its conversation, even in a window whose first folder is another one when the patch above is in
+(without it, a folder outside the window's first folder gets the usual refusal as a warning). Below the lanes, one group
+per window folder lists its newest saved chats, and a click opens one the same way. The view reads names and times only
+and refreshes every 3 seconds while it is visible. Nothing is needed for it beyond the extension, and a session marked
+off is left out.
+
+VS Code caches the extension's manifest, and the view is declared in it. After an update that changes the manifest, quit
+VS Code (Cmd+Q), fast-forward the checkout ([Updating](#updating)), run this in a plain Terminal, then reopen VS Code:
+
+```
+/usr/bin/python3 -I <checkout>/tools/callboard/link-extension.py --apply
+```
+
 ### Load it in every session
 
-Add this line to the `env` block of `~/.claude/settings.json`, with `<checkout>` written as an absolute path:
+Add this line to the `env` block of `~/.claude/settings.json`, with `<checkout>` written as an absolute path. It loads
+the mod, the build every session runs until you [switch to the plugin](#switch-to-the-plugin):
 
 ```json
 "CLAUDE_CODE_PLUGIN_DIRS": "<checkout>/tools/callboard/mod"
@@ -162,6 +181,150 @@ run it. First type `/callboard config` and note the ping value. The typed one mu
 refused with "Only you can change callboard settings". If the model-run one applies, report it (ADR 0002, Design
 addition v13.2: keepalive pings and `/callboard config`). Then type `/callboard config ping <the value you noted>`. Do not use
 `/callboard config reset` for this: it puts every callboard setting on this Mac back to its default.
+
+### Switch to the plugin
+
+The plugin (`<checkout>/tools/callboard/plugin`, [ADR 0012](adr/0012-callboard-plugin.md)) replaces the mod: one session
+model, one chain of asks, no conductor tier, no per-tier switches. You switch once, by changing the one entry in
+`CLAUDE_CODE_PLUGIN_DIRS` from `<checkout>/tools/callboard/mod` to `<checkout>/tools/callboard/plugin`, and you can
+switch back the same way. Both builds are named `callboard`, so never list both: the second one in the list does not
+load. A list separates its entries with `:`, and a folder that does not exist is skipped with a warning. Every command
+here is yours to run; an agent never edits settings.
+
+**Before you switch.**
+
+- The checkout holds a commit with the plugin: fast-forward it as in [Updating](#updating), then reload each VS Code
+  window (Command Palette, Developer: Reload Window). The panels extension then serves both builds, each from its own
+  folder under `~/.claude/callboard`.
+- The protected-paths hook is wired and `~/.claude/callboard/.protected-checkout` exists
+  ([Escalation is on by default once the protected-paths hook is in place](#escalation-is-on-by-default-once-the-protected-paths-hook-is-in-place)).
+  Without them the plugin refuses every answer from a tier, and asks stay with you.
+- Write the two per-machine files. The first holds the manager's session name, one line; it is what lets the plugin find
+  the manager, and `MANAGER` stays reserved beside it. On a second Mac use another name, because Remote Control lists every
+  machine's sessions. The second is optional: your standing rules for the manager in plain prose, up to 8 KB, shown at the
+  top of its `prompt_list` and in its briefing (a merge right for the sentinel goes here, as a line, and nowhere else).
+  The folder is one agents cannot write, so you do it:
+
+```
+MANAGER_NAME='MANAGER'
+mkdir -p ~/.claude/callboard
+printf '%s\n' "$MANAGER_NAME" > ~/.claude/callboard/manager-name
+touch ~/.claude/callboard/manager-rules.md
+```
+
+- Pick a quiet moment: no lane mid-task and no unattended window. Open lanes, goes and the window do not cross the
+  switch, because the plugin starts with its own state under `~/.claude/callboard/v2` and reads nothing of the mod's.
+  Every session is loose until a lead adopts it again (see below).
+
+**The switch.** One command, the entry replaced where it sits in the list, every other byte of the file kept, a backup
+named with the time, and the one-line change shown. It refuses and changes nothing unless the file holds exactly one
+such entry, and it writes through the real path, so a `settings.json` that is a symlink stays one. `diff` exits 1 when it
+shows the change, which is expected:
+
+```
+CHECKOUT='<checkout>'
+BAK=~/.claude/settings.json.bak-callboard-$(date +%Y%m%d-%H%M%S)
+cp ~/.claude/settings.json "$BAK" && /usr/bin/python3 -I -c "import os,re,sys;p=os.path.realpath(os.path.expanduser('~/.claude/settings.json'));t=open(p,encoding='utf-8').read();o=sys.argv[1]+sys.argv[2];n=sys.argv[1]+sys.argv[3];u,k=re.subn(re.escape(o)+r'(?=[\":,;])',n,t);k==1 or sys.exit('expected one callboard entry, found %d'%k);f=p+'.tmp';open(f,'w',encoding='utf-8').write(u);os.chmod(f,os.stat(p).st_mode&0o777);os.replace(f,p)" "$CHECKOUT" /tools/callboard/mod /tools/callboard/plugin && diff "$BAK" ~/.claude/settings.json
+```
+
+Then restart every session, VS Code windows included (a reload is not enough: the plugin list is read when a session
+starts). Start the manager session and name it with the manager's name from the file (`/rename`). Each lead then takes
+its lanes back by name with `lane_adopt`, and you give goes again as needed (`/callboard go TEXT`, or a lead's
+`go_request`).
+
+**The way back.** The same command with the two paths swapped, then a restart of every session:
+
+```
+CHECKOUT='<checkout>'
+BAK=~/.claude/settings.json.bak-callboard-$(date +%Y%m%d-%H%M%S)
+cp ~/.claude/settings.json "$BAK" && /usr/bin/python3 -I -c "import os,re,sys;p=os.path.realpath(os.path.expanduser('~/.claude/settings.json'));t=open(p,encoding='utf-8').read();o=sys.argv[1]+sys.argv[2];n=sys.argv[1]+sys.argv[3];u,k=re.subn(re.escape(o)+r'(?=[\":,;])',n,t);k==1 or sys.exit('expected one callboard entry, found %d'%k);f=p+'.tmp';open(f,'w',encoding='utf-8').write(u);os.chmod(f,os.stat(p).st_mode&0o777);os.replace(f,p)" "$CHECKOUT" /tools/callboard/plugin /tools/callboard/mod && diff "$BAK" ~/.claude/settings.json
+```
+
+Going back loses what the plugin did: its session rows, the lanes it created or adopted, lead capabilities, goes, the
+unattended window, its ask log and its settings. The mod finds its own state as it was at the switch, its lane stores
+possibly stale, and any saved grant older than 30 days lapsed.
+
+**The first test.** One round, once the sessions are restarted. Each step names what you should see; stop at the
+first one that differs and tell the manager session, or me, which.
+
+1. In any new session type this and read the status page: it names the session, its role and its parent.
+
+```
+/callboard status
+```
+
+2. In the same session, check that your own typing changes settings. Type the first line and see "Callboard setting
+   changed", then the second to put the default back (the plugin starts with its own settings, so 50 is the default).
+   A model cannot run a `/callboard` command at all (the engine refuses it), and the plugin also refuses a form that
+   changes what a session may do unless it came from your own typed turn.
+
+```
+/callboard config ping 45
+```
+
+```
+/callboard config ping 50
+```
+
+3. In the manager session, make sure it is the manager: type the status command there and read its role. Then, in a
+   second session that is not the manager and runs in manual permission mode, send this prompt and leave the
+   permission card unanswered for a minute:
+
+```
+Run this exact command with the Bash tool and nothing else: touch /tmp/callboard-first-test
+```
+
+   The manager session gets a `[callboard] Check-in:` turn naming the ask, and its `prompt_list` shows it. Click Deny on
+   the card yourself: your click always wins over a tier's answer.
+
+4. Unattended mode: type these three in the manager session, one at a time. The first says no pop-up will open at you;
+   the second shows the window; the third ends it.
+
+```
+/callboard unattended 30m
+```
+
+```
+/callboard unattended
+```
+
+```
+/callboard unattended off
+```
+
+5. A go: type this in the manager session, then ask it to call `go_status` and read the go back. End it at once.
+
+```
+/callboard go first test of the plugin: nothing to do
+```
+
+```
+/callboard go off
+```
+
+6. A lead and a lane: in a session in a scratch repo type the first line, then send the second as a prompt. The lead
+   creates, opens and starts the lane; the lane writes its report, signs it done and tells the lead, which retires it.
+
+```
+/callboard lead
+```
+
+```
+Create a lane named TESTLANE in this folder with the brief "Write hello as the first line of your report, sign it done and stop" using lane_create, then lane_open and lane_start it. When it reports, read its report and call lane_retire on it.
+```
+
+7. Off wins: in the scratch session type the first line (no pings, nudges, asks or notices, and it is nobody's parent or
+   child), then the second to bring it back.
+
+```
+/callboard off
+```
+
+```
+/callboard on
+```
+
+If the lane view is installed (see above), step 6 shows the lane in Callboard Lanes with its lead and its state.
 
 ### Manager setup: keep agents off the list file and the store (by hand)
 
@@ -332,6 +495,10 @@ Follow [docs/manager/README.md](manager/README.md), Starting and resuming. In sh
 checkout, without `CLAUDE_CONFIG_DIR`, on Opus (`/model opus`), then type `/callboard manager [NAME]` yourself. With
 no NAME the session is named `MANAGER`. The grant lives in memory and your yes saves it: the same conversation, started or resumed, asks whether to restore the manager (a compaction asks nothing; an unanswered question is asked again after the next prompt there).
 
+With the plugin there is no `/callboard manager` and no grant to restore: the manager is the session that carries the
+name in `~/.claude/callboard/manager-name` ([Switch to the plugin](#switch-to-the-plugin)), found by its registry name
+while it is live. The rest of this section is the mod's.
+
 The only name callboard reserves built in is `MANAGER`. A manager on a second machine needs a different name, because
 Remote Control lists every machine's sessions. Reserve it on that machine first, typed yourself, then use it:
 
@@ -357,7 +524,7 @@ ADR 0002, Design addition v15.1: per-machine reserved names.
 | Old install gone | `ls /usr/local/libexec/callboard` | No such file or directory |
 | Panels extension | `ls -l ~/.vscode/extensions \| grep callboard-panels` | one link, to `<checkout>/tools/callboard/extension` |
 | Panels entry | `/usr/bin/python3 -I <checkout>/tools/callboard/link-extension.py` | it prints `already linked` and no `DRY:` line |
-| Default load | type `! echo $CLAUDE_CODE_PLUGIN_DIRS` in a new session | `<checkout>/tools/callboard/mod` |
+| Default load | type `! echo $CLAUDE_CODE_PLUGIN_DIRS` in a new session | `<checkout>/tools/callboard/mod`, or `<checkout>/tools/callboard/plugin` once you have switched |
 | Mod loaded | type `/callboard status` in a session | it answers a status table with a `Lane` row (`NONE`) and a `Lead` row (`OFF`) or similar |
 | Reserved names | type `/callboard reserve` | the manager's name, when it is not `MANAGER`, is listed |
 | Deny lines | read `permissions.deny` in `~/.claude/settings.json` | the two store and list-file lines are there |
