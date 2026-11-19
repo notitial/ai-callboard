@@ -1,9 +1,9 @@
 'use strict'
 // The window's spool for the plugin build: requests in ~/.claude/callboard/v2/open, answers beside them.
 // <id>.req holds one JSON request: {op:'open',folder}, {op:'reopen',sid,folder} or {op:'close',sid,pid,name,folder}. <id> is the writer's own, one per request.
-// The writer writes `.<id>.tmp` and renames it to <id>.req, uses a fresh random <id> per request, and gives the folder exactly as VS Code names the window's first
-// folder. Only the window whose first workspace folder is the request's folder takes it, and a request older than MAX_AGE_MS (a little over the writer's own
-// wait) is dropped. The answer is <id>.result,
+// The writer writes `.<id>.tmp` and renames it to <id>.req, uses a fresh random <id> per request, and gives the folder exactly as VS Code names a workspace folder.
+// Only a window that serves the folder takes it (`workspaceFolders()`: its first folder, or every folder when the Claude extension carries the cwd patch,
+// claude-patch.js), and a request older than MAX_AGE_MS (a little over the writer's own wait) is dropped. The answer is <id>.result,
 // JSON: {ok:true,sid?} or {ok:false,code}; a close is answered too, and its answer is not read. The panel of a close goes to the extension's sweep (lanes.js).
 const fsp = require('node:fs/promises')
 const path = require('node:path')
@@ -56,7 +56,7 @@ function createSpool({ dir, lanes, workspaceFolders, timeoutMs, now = Date.now }
       if (!lanes.adopt(r.sid, r)) throw new Error('refused')
       return undefined
     }
-    return r.op === 'open' ? lanes.open(r.folder, { timeoutMs, refuseUnnamed: true }) : lanes.reopen(r.sid, { timeoutMs })
+    return r.op === 'open' ? lanes.open(r.folder, { timeoutMs, refuseUnnamed: true }) : lanes.reopen(r.sid, { timeoutMs, folder: r.folder })
   }
 
   // One request file. Returns what happened, for the tests; nothing is thrown for a bad request. A request for another window's folder stays where it is.

@@ -33,4 +33,5 @@ else
   step "mod tests" claude plugin test mod
 fi
 step "extension link" /usr/bin/python3 -I test_link_extension.py
+step "claude patch" /usr/bin/python3 -I test_patch_claude.py
 exit "$rc"

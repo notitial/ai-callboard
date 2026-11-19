@@ -25,7 +25,7 @@ function psStart(pid) {
 }
 const startKey = (s) => (typeof s === 'string' && s.trim() !== '' ? s.trim().replace(/\s+/g, ' ') : undefined)
 
-function createLanes({ vscode, registry, sleep, now, workspaceFolders = () => undefined, timeoutMs = 15000, pollMs = 200, settleMs = SETTLE_MS, showMs = SHOW_MS, guardMs = 120000, adoptTtlMs = ADOPT_TTL_MS, alive = pidAlive, startOf = psStart }) {
+function createLanes({ vscode, registry, sleep, now, workspaceFolders = () => undefined, passCwd = false, timeoutMs = 15000, pollMs = 200, settleMs = SETTLE_MS, showMs = SHOW_MS, guardMs = 120000, adoptTtlMs = ADOPT_TTL_MS, alive = pidAlive, startOf = psStart }) {
   // registry.list() -> [{ sessionId, cwd, entrypoint, name }] (parsed ~/.claude/sessions/*.json)
   let chain = Promise.resolve()
   function serial(fn) {
@@ -35,6 +35,15 @@ function createLanes({ vscode, registry, sleep, now, workspaceFolders = () => un
   }
 
   const panels = (list) => list.filter((e) => e.entrypoint === 'claude-vscode')
+
+  // With the patched Claude extension (claude-patch.js) the open command takes the folder in its sixth argument and starts the panel there; unpatched, it
+  // always starts in the window's first folder, so the caller's workspaceFolders lists only that one and nothing is passed.
+  const cwdArg = (folder) => (passCwd && folder !== undefined ? [{ cwd: folder }] : [])
+  const folderError = (folder) => {
+    const ws = workspaceFolders()
+    if (ws === undefined || ws.includes(folder)) return undefined
+    return passCwd ? 'folder is not a workspace folder of this window' : 'folder is not the first workspace folder of this window; editor.open opens there'
+  }
 
   // The list an open compares against must hold every panel, or an existing one could be taken for the new one. A read that skipped a file (a torn
   // write) or could not list the folder says so (complete false); it is tried twice more, then the open fails.
@@ -108,8 +117,8 @@ function createLanes({ vscode, registry, sleep, now, workspaceFolders = () => un
   // timeout still sits unnamed in the folder, so a retry is refused until the lead names it instead of opening a second.
   function open(folder, { timeoutMs: limitMs = timeoutMs, refuseUnnamed = false } = {}) {
     if (typeof folder !== 'string' || !folder.startsWith('/')) return Promise.reject(new Error('folder must be an absolute path'))
-    const ws = workspaceFolders()
-    if (ws !== undefined && !ws.includes(folder)) return Promise.reject(new Error('folder is not the first workspace folder of this window; editor.open opens there'))
+    const bad = folderError(folder)
+    if (bad) return Promise.reject(new Error(bad))
     return serial(async () => {
       const start = now()
       const before = await fullList()
@@ -119,7 +128,7 @@ function createLanes({ vscode, registry, sleep, now, workspaceFolders = () => un
       try {
         // The fifth argument opens it as a full editor, like a panel opened by hand: no panel header, the editor's background.
         // One time limit covers the registry read, the command and the wait, so the spool still answers before the lead stops waiting.
-        await bounded(vscode.commands.executeCommand('claude-vscode.editor.open', undefined, undefined, undefined, undefined, true), left(start, limitMs), 'the open command')
+        await bounded(vscode.commands.executeCommand('claude-vscode.editor.open', undefined, undefined, undefined, undefined, true, ...cwdArg(folder)), left(start, limitMs), 'the open command')
         const row = await waitNew(before, folder, left(start, limitMs))
         // The panel took focus when it opened: the lead's tab gets it back now, not after the wait for the id to settle.
         await refocus(prev)
@@ -264,8 +273,11 @@ function createLanes({ vscode, registry, sleep, now, workspaceFolders = () => un
   // alive means its pid answers and `ps` agrees with the row's procStart, as the mod checks: a pid reused by another process leaves the old row dead. A live
   // panel of that id returns at once, a live row that is not a panel (a terminal) is refused rather than opened a second time, and the wait takes only a live
   // panel whose pid is new, so a row left by the stopped process is never taken for the reopened one. The spool passes a timeout shorter than the lead's wait.
-  function reopen(sid, { timeoutMs: limitMs = timeoutMs } = {}) {
+  // `folder`, when given, is the lane's folder: the patched Claude extension resumes the conversation there (the transcript is looked up from the panel's folder).
+  function reopen(sid, { timeoutMs: limitMs = timeoutMs, folder } = {}) {
     if (!SID_RE.test(String(sid))) return Promise.reject(new Error('bad session id'))
+    const bad = folder === undefined ? undefined : folderError(folder)
+    if (bad) return Promise.reject(new Error(bad))
     const live = async (list) => {
       const out = []
       for (const e of list) if (e.sessionId === sid && (await rowLive(e))) out.push(e)
@@ -282,7 +294,7 @@ function createLanes({ vscode, registry, sleep, now, workspaceFolders = () => un
       const prev = activeTab()
       try {
         // As open: one time limit from the first registry read, and the wait reads at least once.
-        await bounded(vscode.commands.executeCommand('claude-vscode.editor.open', sid, undefined, undefined, undefined, true), left(start, limitMs), 'the open command')
+        await bounded(vscode.commands.executeCommand('claude-vscode.editor.open', sid, undefined, undefined, undefined, true, ...cwdArg(folder)), left(start, limitMs), 'the open command')
         const waitFrom = now()
         const waitMs = left(start, limitMs)
         for (;;) {

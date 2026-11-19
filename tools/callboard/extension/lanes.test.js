@@ -22,9 +22,11 @@ function trackTabs(w, ...tabs) {
 // A new panel gets a generated name (nameSource auto), as in the real registry; renaming it sets nameSource to user.
 // `tabs`: { column, activeColumn, failFocus } gives the fake an active tab at index 0, to test switching back to it.
 // `cwd`: the folder each panel it opens registers under (the folder the caller asks for, A, unless a test says otherwise); setCwd changes it between opens.
-function world({ delays = [], extra = [], tabs, guardMs, alive, pids = false, startOf, cwd = A, settleMs = 0, rewrites = [] } = {}) {
+// `patched`: the Claude extension carries the cwd patch, so lanes passes {cwd: folder} and a panel registers under that folder (as the patched command does); `ws` is the window's folders.
+function world({ delays = [], extra = [], tabs, guardMs, alive, pids = false, startOf, cwd = A, settleMs = 0, rewrites = [], patched = false, ignoreCwd = false, ws } = {}) {
   const entries = []
   const focusCalls = []
+  const calls = []
   let t = 0
   const pending = []
   let opens = 0
@@ -39,10 +41,12 @@ function world({ delays = [], extra = [], tabs, guardMs, alive, pids = false, st
           return
         }
         assert.equal(cmd, 'claude-vscode.editor.open')
-        assert.deepEqual(rest, [undefined, undefined, undefined, true], 'every lane panel opens as a full editor')
+        assert.deepEqual(rest.slice(0, 4), [undefined, undefined, undefined, true], 'every lane panel opens as a full editor')
+        assert.equal(rest.length, patched ? 5 : 4, patched ? 'the folder goes in the sixth argument' : 'unpatched: no sixth argument, as before')
+        calls.push([s, rest[4]])
         const i = opens++
         const id = s ?? sid()
-        const cwdOf = cwd
+        const cwdOf = patched && !ignoreCwd ? rest[4].cwd : cwd
         const entry = { sessionId: id, cwd: cwdOf, entrypoint: 'claude-vscode', name: `auto-${i}`, nameSource: 'auto', startedAt: t, ...(pids ? { pid: 5000 + i } : {}) }
         pending.push({ at: t + (delays[i] ?? 1), entry })
         // A rewrite: `after` ticks into the open the panel's row takes another session id and start time, as a real panel's does once its session is up.
@@ -62,8 +66,8 @@ function world({ delays = [], extra = [], tabs, guardMs, alive, pids = false, st
   const registry = { async list() { flush(); return entries.map((e) => ({ procStart: `start-${e.pid}`, ...e })) } }
   world.opens = () => opens
   const sleep = async () => { t += 1 }
-  const lanes = createLanes({ vscode, registry, sleep, now: () => t, timeoutMs: 50, pollMs: 1, settleMs, ...(guardMs ? { guardMs } : {}), ...(alive ? { alive } : {}), startOf: startOf ?? (async (pid) => `start-${pid}`) })
-  return { lanes, entries, vscode, registry, focusCalls, tick: (n) => { t += n }, setCwd: (c) => { cwd = c } }
+  const lanes = createLanes({ vscode, registry, sleep, now: () => t, timeoutMs: 50, pollMs: 1, settleMs, ...(guardMs ? { guardMs } : {}), ...(alive ? { alive } : {}), startOf: startOf ?? (async (pid) => `start-${pid}`), passCwd: patched, ...(ws ? { workspaceFolders: () => ws } : {}) })
+  return { lanes, calls, entries, vscode, registry, focusCalls, tick: (n) => { t += n }, setCwd: (c) => { cwd = c } }
 }
 
 test('several panels opened one after another each get their own sid', async () => {
@@ -340,6 +344,47 @@ test('open refuses a folder that is not the first workspace folder of the window
   const w = world()
   const lanes = createLanes({ vscode: w.vscode, registry: { list: async () => [] }, sleep: async () => {}, now: () => 0, workspaceFolders: () => [A] })
   await assert.rejects(lanes.open(B), /workspace folder/)
+})
+
+test('patched: a lane of any folder of the window opens with its folder in the sixth argument and registers there', async () => {
+  const w = world({ patched: true, ws: [A, B] })
+  const sidB = await w.lanes.open(B)
+  assert.deepEqual(w.calls, [[undefined, { cwd: B }]])
+  assert.equal(w.entries[0].cwd, B)
+  assert.equal(w.entries[0].sessionId, sidB)
+  await w.lanes.open(A)
+  assert.deepEqual(w.calls[1], [undefined, { cwd: A }])
+})
+
+test('patched: a folder that is not one of the window\'s folders is refused before any command runs', async () => {
+  const w = world({ patched: true, ws: [A, B] })
+  await assert.rejects(w.lanes.open('/w/c'), /not a workspace folder of this window/)
+  await assert.rejects(w.lanes.reopen('abcdef01-0000-4000-8000-00000000000c', { folder: '/w/c' }), /not a workspace folder of this window/)
+  assert.equal(w.calls.length, 0)
+})
+
+test('unpatched: only the first folder is served, nothing is passed, and a reopen with a folder passes none either', async () => {
+  const w = world({ ws: [A], pids: true, alive: () => true })
+  await assert.rejects(w.lanes.open(B), /first workspace folder/)
+  await w.lanes.open(A)
+  const sid = 'abcdef01-0000-4000-8000-00000000000d'
+  assert.equal(await w.lanes.reopen(sid, { folder: A }), sid)
+  assert.deepEqual(w.calls, [[undefined, undefined], [sid, undefined]])
+})
+
+// A marker that says patched while the Claude extension ignores the folder (`ignoreCwd`): the panel registers in the first folder. It ends as today's timeout, once, with no retry.
+test('patched but ignored: the open fails as the usual timeout, runs the command once and does not retry', async () => {
+  const w = world({ patched: true, ignoreCwd: true, ws: [A, B] })
+  await assert.rejects(w.lanes.open(B), /^Error: timeout: no new panel registered/)
+  assert.equal(w.calls.length, 1)
+  assert.equal(world.opens(), 1)
+})
+
+test('patched: a reopen carries the lane\'s folder, so the conversation resumes there', async () => {
+  const w = world({ patched: true, ws: [A, B], pids: true, alive: () => true })
+  const sid = 'abcdef01-0000-4000-8000-00000000000e'
+  assert.equal(await w.lanes.reopen(sid, { folder: B }), sid)
+  assert.deepEqual(w.calls, [[sid, { cwd: B }]])
 })
 
 // A stopped lane's tab: only panels opened by the extension, only once the process is dead, only one matching Claude tab.

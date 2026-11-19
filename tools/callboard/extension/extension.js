@@ -9,6 +9,8 @@ const { createSpool, allLanes, allLeads } = require('./spool.js')
 const { createSpool: createWindowSpool } = require('./spool-v2.js')
 const { createRegistry } = require('./registry.js')
 const { pidAlive } = require('./reserved.js')
+const { claudePatched } = require('./claude-patch.js')
+const { createFolderBadge } = require('./folder-badge.js')
 
 const CLAUDE = path.join(os.homedir(), '.claude')
 const SESSIONS = path.join(CLAUDE, 'sessions')
@@ -24,6 +26,8 @@ const LEAD_OPEN_MS = 45000
 
 // claude-vscode.editor.open opens the panel in the window's first folder, so a lane is only this window's when its folder is that one.
 const primaryFolder = () => (vscode.workspace.workspaceFolders || []).slice(0, 1).map((f) => f.uri.fsPath)
+// Once the Claude extension carries the cwd patch (tools/callboard/patch-claude.py) the command takes the folder, and every folder of the window is served.
+const allFolders = () => (vscode.workspace.workspaceFolders || []).map((f) => f.uri.fsPath)
 
 // A registry row of a session that runs in the repo or under it, and whose process still answers when the row names a pid.
 const liveIn = (repo) => (x) => x && typeof x.cwd === 'string' && (x.cwd === repo || x.cwd.startsWith(`${repo}/`)) && (!Number.isInteger(x.pid) || pidAlive(x.pid))
@@ -31,15 +35,24 @@ const liveIn = (repo) => (x) => x && typeof x.cwd === 'string' && (x.cwd === rep
 function activate(context) {
   // The version is fixed, so the build (the checkout's commit) tells a window that has loaded a pull from one that has not: Output > Callboard Panels.
   // A diagnostic line must never stop the extension from starting.
+  let log
   try {
-    const log = vscode.window.createOutputChannel('Callboard Panels')
+    log = vscode.window.createOutputChannel('Callboard Panels')
     context.subscriptions.push(log)
     log.appendLine(`callboard panels ${context.extension.packageJSON.version}, build ${buildId(fs.realpathSync(__dirname))}`)
   } catch {
     // no build line
   }
+  // Read once, as the Claude extension is: a patch applied or undone takes effect in both at the next window reload.
+  const patched = claudePatched(vscode.extensions)
+  const windowFolders = patched ? allFolders : primaryFolder
+  try {
+    log.appendLine(`claude cwd patch: ${patched ? 'present, every workspace folder is served' : 'absent, only the first workspace folder is served'}`)
+  } catch {
+    // no output channel or line
+  }
   const lanes = createLanes({ vscode, registry, sleep: (ms) => new Promise((r) => setTimeout(r, ms)), now: Date.now,
-    workspaceFolders: primaryFolder,
+    workspaceFolders: windowFolders, passCwd: patched,
   })
   const spool = createSpool({
     dir: path.join(CLAUDE, 'callboard', 'open'),
@@ -53,7 +66,12 @@ function activate(context) {
     liveInRepo: async (repo) => (await registry.list()).filter(liveIn(repo)).length,
   })
   context.subscriptions.push(spool.start())
-  context.subscriptions.push(createWindowSpool({ dir: path.join(CLAUDE, 'callboard', 'v2', 'open'), lanes, workspaceFolders: primaryFolder, timeoutMs: SPOOL_OPEN_MS }).start())
+  context.subscriptions.push(createWindowSpool({ dir: path.join(CLAUDE, 'callboard', 'v2', 'open'), lanes, workspaceFolders: windowFolders, timeoutMs: SPOOL_OPEN_MS }).start())
+  try {
+    context.subscriptions.push(createFolderBadge({ vscode, registry }))
+  } catch {
+    // no folder item
+  }
   const sweep = setInterval(() => lanes.sweep().catch(() => undefined), 2000)
   context.subscriptions.push({ dispose: () => clearInterval(sweep) })
 }
