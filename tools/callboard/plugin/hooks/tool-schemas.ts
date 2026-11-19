@@ -21,7 +21,6 @@ export const TOOL_SCHEMAS: Record<ToolName, { cap: 'any' | 'parent'; input: Sche
   lane_adopt: { cap: 'parent', input: { type: 'object', properties: { name: text }, required: ['name'] } },
   prompt_list: { cap: 'parent', input: none },
   prompt_answer: { cap: 'parent', input: { type: 'object', properties: { id: text, decision: { type: 'string', enum: ['allow', 'deny', 'answer', 'escalate'] }, note: text, option: { type: 'integer', minimum: 1, maximum: 4 } }, required: ['id', 'decision'] } },
-  unattended_off: { cap: 'parent', input: none },
   go_request: { cap: 'any', input: { type: 'object', properties: { text }, required: ['text'] } },
   go_status: { cap: 'any', input: none },
   pr_watch: { cap: 'any', input: { type: 'object', properties: { owner: text, repo: text, number: { type: 'integer' } }, required: ['owner', 'repo', 'number'] } },

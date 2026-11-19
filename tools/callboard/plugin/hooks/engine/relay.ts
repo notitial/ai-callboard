@@ -6,7 +6,7 @@ import { PERSON, nameOf } from '../core/model.ts'
 import { EXPIRE_MS, QUESTION_TOOL } from '../core/asks.ts'
 import { T } from '../texts.ts'
 import { relayDialog } from '../ui.ts'
-import { personDialog, toast, windowNow } from './io.ts'
+import { personDialog, toast } from './io.ts'
 import { mem } from './mem.ts'
 import { askOpen, getView, guardOk, logAsk, offFile } from './store.ts'
 import { answerAsk, openAsks } from './tools-ask.ts'
@@ -34,7 +34,7 @@ async function relayRun($: any, ask: Ask, v: View): Promise<void> {
 }
 
 export async function relayTick($: any, me: Sid, v: View, now: number): Promise<void> {
-  if (v.manager !== me || (await windowNow($)).state !== 'off' || (await offFile($)) || !(await guardOk($)) || !(await idle($, me))) return
+  if (v.manager !== me || (await offFile($)) || !(await guardOk($)) || !(await idle($, me))) return
   let hit: { ask: Ask } | undefined
   for (const o of (await openAsks($, me, v, now)).open) if (o.st.relay && o.ask.asker !== me && !mem.relayed.has(o.ask.id) && (o.ask.tool !== QUESTION_TOOL || o.ask.question !== undefined) && (await askOpen($, o.ask.id))) {
       hit = o

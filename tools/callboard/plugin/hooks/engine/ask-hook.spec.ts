@@ -2,12 +2,12 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { HOME, MIN, T0, V2, as, peer, tiers } from '../../test/fake.ts'
 import { goDialog, stopDialog } from '../ui.ts'
-import { personDialog, windowNow } from './io.ts'
+import { personDialog } from './io.ts'
 import { permissionRequest, toolCheck } from './ask-hook.ts'
 import { mem, staleView } from './mem.ts'
-import { getView, readAskLog, readAsks } from './store.ts'
+import { readAskLog, readAsks } from './store.ts'
 import { postToolHook, sessionStart } from './tick.ts'
-import { promptAnswerCall, promptListCall, unattendedText } from './tools-ask.ts'
+import { promptAnswerCall, promptListCall } from './tools-ask.ts'
 
 type F = ReturnType<typeof tiers>
 const nx = (r: unknown = {}) => Object.assign(async () => r, { signal: undefined as AbortSignal | undefined })
@@ -40,18 +40,15 @@ test('a question nobody answers closes at 15 minutes awake with the expired text
   assert.deepEqual(await rows(f), ['raised:AskUserQuestion', 'expired:AskUserQuestion'])
   assert.deepEqual((await readAsks(f.$)).asks, [])
 })
-test('a loose session\'s prompt in a window: the manager is told at once, nobody answers, it closes at 15 minutes awake and is listed for the person', async () => {
+test('a loose session\'s prompt: the manager is told after the head start, nobody answers, and it closes at 15 minutes awake', async () => {
   const f = tiers()
   const boss = peer(f, 'sid-boss')
   loose(f)
-  window(f)
   let told = ''
-  script(f, [[10_000, async () => void (told = await events(boss))]])
+  script(f, [[40_000, async () => void (told = await events(boss))]])
   const r = await ask(f)
   assert.match(told, /is yours to decide/)
   assert.match(r.decision.message, /Expired/)
-  const id = (await readAskLog(f.$, 0))![0]!.ask
-  assert.match(await unattendedText(f.$, await getView(f.$, true), await windowNow(f.$, true)), new RegExp(id))
   assert.match(await events(boss), /was closed with no decision/)
 })
 test('a go dialog or a force-stop dialog open in the session is the person\'s alone: its question gets no decision from the hook and no ask', async () => {
@@ -107,25 +104,6 @@ test('at 5 minutes awake the manager is reached and the lead, busy compacting, m
   assert.match(out.boss, /is yours to decide/)
   assert.match(out.lead, /is yours to decide/)
   assert.match(r.decision.message, /Denied by `lead`, not the person: not now/)
-})
-test('no manager during a window: an ask for the person is held 90 s awake, and a manager back inside it keeps the ask open', async () => {
-  const f = tiers()
-  const boss = peer(f, 'sid-boss')
-  loose(f)
-  window(f)
-  const name = `${HOME}/.claude/callboard/manager-name`
-  f.h.files.delete(name)
-  const r = await ask(f)
-  assert.match(r.decision.message, /^\[callboard\] Closed: this needs the person/)
-  assert.ok(f.h.now - T0 >= 90_000 && f.h.now - T0 < 100_000, String(f.h.now - T0))
-  const g = tiers()
-  const b2 = peer(g, 'sid-boss')
-  loose(g)
-  window(g)
-  g.h.files.delete(name)
-  script(g, [[60_000, async () => void g.h.files.set(name, 'BOSS\n')], [200_000, async () => void (await answer(b2, { id: await idOf(g), decision: 'allow' }))]])
-  assert.deepEqual(await ask(g), { decision: { behavior: 'allow' } })
-  void boss
 })
 test('a registry that cannot be read closes nothing, in a window too', async () => {
   const f = tiers()
@@ -216,15 +194,18 @@ test('a slow hook beneath does not cost the join entry or the start: a Yes click
   assert.deepEqual(await ask(f, bash(), slow), {})
   assert.deepEqual(await rows(f), ['raised:Bash', 'closed:click'])
 })
-test('a dialog that was not an ask, and a question with no answer form, are the person\'s alone: no session may decide them', async () => {
+test('a plan exit and a question with no answer form are asks like any other: a session above decides them', async () => {
   const f = tiers()
   const lead = peer(f, 'sid-lead')
   await toolCheck(f.$, { tool: 'ExitPlanMode', input: { plan: 'x' }, tool_use_id: 't1', approver: 'person' }, nx({ decision: 'passthrough' }))
-  const out: Record<string, any> = {}
-  script(f, [[40_000, async () => void (out.a = await answer(lead, { id: await idOf(f), decision: 'allow' }))]])
-  const r = await ask(f, { tool_name: 'ExitPlanMode', tool_input: { plan: 'x' }, tool_use_id: 't1' })
-  assert.match(out.a.deny, /person/i)
-  assert.match(r.decision.message, /Expired/)
+  script(f, [[40_000, async () => void (await answer(lead, { id: await idOf(f), decision: 'allow' }))]])
+  assert.deepEqual(await ask(f, { tool_name: 'ExitPlanMode', tool_input: { plan: 'x' }, tool_use_id: 't1' }), { decision: { behavior: 'allow' } })
+  const g = tiers()
+  const boss = peer(g, 'sid-lead')
+  const bad = { questions: [{ header: 'Pick', question: 'Which?', options: [{ label: 'only' }] }] }
+  await toolCheck(g.$, { tool: 'AskUserQuestion', input: bad, tool_use_id: 't2', approver: 'person' }, nx({ decision: 'ask' }))
+  script(g, [[40_000, async () => void (await answer(boss, { id: await idOf(g), decision: 'deny', note: 'the person is away' }))]])
+  assert.match((await ask(g, { tool_name: 'AskUserQuestion', tool_input: bad, tool_use_id: 't2' })).decision.message, /Denied by .*the person is away/)
 })
 test('an answer file written by hand for a session that may not decide is dropped, and the ask stays open', async () => {
   const f = tiers()

@@ -5,14 +5,14 @@ import type { Ask } from '../core/model.ts'
 import { mem } from './mem.ts'
 import { readAnswer, readAsks, writeAsk, writeGo } from './store.ts'
 import { postToolHook } from './tick.ts'
-import { goRequestCall, goStatusCall, promptAnswerCall, promptListCall, unattendedOffCall } from './tools-ask.ts'
+import { goRequestCall, goStatusCall, promptAnswerCall, promptListCall } from './tools-ask.ts'
 
 type F = ReturnType<typeof tiers>
 type R = { result?: string; deny?: string }
 const noop = Object.assign(async () => ({}), { signal: undefined })
 const call = (g: ReturnType<typeof peer>, fn: typeof promptListCall, input: object = {}, extra: object = {}) => as(() => fn(g.$, { ...input, ...extra }, noop)) as Promise<R>
 const ID = 'ab12cd34ef'
-const mk = (over: Partial<Ask> = {}): Ask => ({ id: ID, asker: 'sid-me', t0: T0 - 40_000, awake: 40_000, window: null, personOnly: false, tool: 'Bash', raisedBy: 'unknown', input: '{"command":"make"}', cut: false, beat: T0, ...over })
+const mk = (over: Partial<Ask> = {}): Ask => ({ id: ID, asker: 'sid-me', t0: T0 - 40_000, awake: 40_000, tool: 'Bash', raisedBy: 'unknown', input: '{"command":"make"}', cut: false, beat: T0, ...over })
 const QUESTION = { header: 'Pick', question: 'Which branch?', options: [{ label: 'main' }, { label: 'dev' }] }
 function world(over: Partial<Ask> = {}) {
   const f = tiers()
@@ -135,13 +135,4 @@ test('go_status reports a go only while the protected-paths guard is in place, a
   f.h.files.set(`${HOME}/.claude/settings.json`, JSON.stringify({ disableAllHooks: true, hooks: { PreToolUse: [{ hooks: [{ type: 'command', command: 'protected-paths-guard.sh' }] }] } }))
   mem.guard = undefined
   assert.match((await call(lead, goStatusCall)).result!, /guard/)
-})
-test('unattended_off: only the manager ends the window, and it gets the list back', async () => {
-  const { f, lead, boss } = world()
-  f.h.files.set(`${V2}/unattended.json`, JSON.stringify({ start: T0, end: T0 + 60 * MIN, readAt: T0 }))
-  mem.win = undefined
-  assert.match((await call(lead, unattendedOffCall)).deny!, /lead or the manager/)
-  assert.ok(f.h.files.has(`${V2}/unattended.json`))
-  assert.match((await call(boss, unattendedOffCall)).result!, /Unattended mode is off/)
-  assert.equal(f.h.files.has(`${V2}/unattended.json`), false)
 })

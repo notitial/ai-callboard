@@ -37,7 +37,6 @@ const OPENINGS: [string, string][] = [
   [T['compact.unconfirmed']({ reason: 'r' }), '[compact-cue] Compaction was started but never confirmed ('],
   [T['note.frame']({ body: 'b' }), '[callboard] This note comes from the callboard plugin, not the person.'],
   [T['ask.expired']({ parent: 'P' }), '[callboard] Expired: '],
-  [T['ask.leftForPerson']({ parent: 'P' }), '[callboard] Closed: '],
   [T['ask.subagent']({}), '[callboard] Denied: '],
 ]
 test('the plugin\'s turns keep their openings; no text names a mode, and no order or on-cue text is left', () => {

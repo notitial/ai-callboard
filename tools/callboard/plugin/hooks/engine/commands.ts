@@ -15,7 +15,6 @@ import { home, newId, run, windowNow } from './io.ts'
 import { mem } from './mem.ts'
 import { cfgNow, getView, listGoes, readRules, rmGo, updateTable, writeConfig, writeGo, writeWindow } from './store.ts'
 import { restSet, say } from './tools-any.ts'
-import { unattendedText } from './tools-ask.ts'
 import { giveParentTools } from './tick.ts'
 import { usageRead } from './usage.ts'
 
@@ -91,8 +90,8 @@ async function perform($: any, cmd: Cmd, me: Sid, v: View, now: number): Promise
       return saved(left === 0, T['cmd.goOff']({ n: live.length }))
     }
     case 'unattended': {
-      if (cmd.span.op === 'state') return w.state === 'unknown' ? say(refusal('refuse', 'unknown-liveness', { tool: 'callboard', target: 'unattended' })) : unattendedText($, v, w)
-      if (cmd.span.op === 'off') return saved(await writeWindow($, null), w.state === 'on' ? `${T['cmd.unattendedOff']({})}\n\n${await unattendedText($, v, w)}` : T['cmd.unattendedOff']({}))
+      if (cmd.span.op === 'state') return w.state === 'unknown' ? say(refusal('refuse', 'unknown-liveness', { tool: 'callboard', target: 'unattended' })) : w.state === 'on' ? T['cmd.unattendedOn']({ end: stamp(w.window.end) }) : T['cmd.unattendedOff']({})
+      if (cmd.span.op === 'off') return saved(await writeWindow($, null), T['cmd.unattendedOff']({}))
       return saved(await writeWindow($, { start: now, end: cmd.span.end, readAt: now }), T['cmd.unattendedOn']({ end: stamp(cmd.span.end) }))
     }
     case 'config': {

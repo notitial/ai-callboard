@@ -6,7 +6,7 @@ import { readAskLog, readAsks, tidyAsks, writeAsk } from './store.ts'
 import { sessionStart } from './tick.ts'
 
 const noop = Object.assign(async () => ({}), { signal: undefined })
-const mk = (id: string, asker: string, beat: number): Ask => ({ id, asker, t0: beat, awake: 0, window: null, personOnly: false, tool: 'Bash', raisedBy: 'unknown', input: '{}', cut: false, beat })
+const mk = (id: string, asker: string, beat: number): Ask => ({ id, asker, t0: beat, awake: 0, tool: 'Bash', raisedBy: 'unknown', input: '{}', cut: false, beat })
 
 test('the sweep: a dead asker\'s ask is removed and logged; a stale beat of a live asker that still waits is told once; one whose row no longer waits is removed', async () => {
   const f = tiers()

@@ -70,7 +70,7 @@ function lineOf(v: View, n: Notice, now: number): string | undefined {
   if (n.kind === 'report') return say({ msg: 'event.report', p: { name, code: n.code ?? '' } })
   const ask = n.ask ?? ''
   if (n.kind === 'ask') return say({ msg: 'event.ask', p: { ask, name, tool: mem.asks?.open.find((o) => o.ask.id === ask)?.ask.tool ?? '' } })
-  return say({ msg: 'event.expired', p: { ask, name, tool: mem.asks?.log.find((l) => l.ask === ask && l.code !== undefined && (l.ev === 'expired' || l.ev === 'left-for-person'))?.code ?? '' } })
+  return say({ msg: 'event.expired', p: { ask, name, tool: mem.asks?.log.find((l) => l.ask === ask && l.code !== undefined && l.ev === 'expired')?.code ?? '' } })
 }
 // The events owed now, computed again from the sessions under this one: a key already spent, or carried by a text submitted and not yet started, is left out.
 async function owed($: any, me: Sid, v: View, now: number): Promise<{ key: string; line: string }[]> {
