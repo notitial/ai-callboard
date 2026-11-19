@@ -1,7 +1,7 @@
 // The session start and end, the registration of the tools and commands by what a session may use, the 2 s tick, and the PostToolUse hook that carries the same texts mid-turn.
 // Trust rules held here: one tick runs at a time and a step that throws is logged and does not stop the others; at most one text is submitted per tick; a notice is recomputed
 // from the sessions under this one now each time it is sent, a key is spent only when the turn carrying it starts, and nothing is sent unless the session is quiet.
-import type { Notice, Row, Sid, ToolName, View } from '../core/model.ts'
+import type { Notice, Sid, ToolName, View } from '../core/model.ts'
 import { PERSON, TOOLS, capability, children, nameOf, parent } from '../core/model.ts'
 import { tidy } from '../core/lifecycle.ts'
 import { sweep } from '../core/asks.ts'

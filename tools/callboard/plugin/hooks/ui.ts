@@ -65,19 +65,10 @@ export type DialogSpec = { header: string; question: string; options: { label: s
 const yesNo = (): { label: string }[] => [{ label: T['dialog.yes']({}) }, { label: T['dialog.no']({}) }]
 export const goDialog = (giver: string, text: string, end: string): DialogSpec => ({ header: T['dialog.go.header']({}), question: T['dialog.go.question']({ giver, text, end }), options: yesNo() })
 export const stopDialog = (name: string, verb: StopVerb): DialogSpec => ({ header: T['dialog.stop.header']({}), question: T['dialog.stop.question']({ name, verb }), options: yesNo() })
-// A tool input as JSON, one field a line; anything that does not parse as an object is shown as it is. Each string stays quoted, so no value reads as another field.
-function pretty(input: string): string {
-  try {
-    const j = JSON.parse(input)
-    return j !== null && typeof j === 'object' ? JSON.stringify(j, null, 2) : input
-  } catch {
-    return input
-  }
-}
 // The relay pop-up: an input not shown whole (cut, or too large to print) gets Deny only, as `decide` refuses its allow. `cut` is that finding: the adapter stores it on the
 // ask, as it stores promptList's cutIds, so no other path allows the input. A question offers its own options (a click on one is that answer) in place of Allow.
 export function relayDialog(asker: string, tool: string, input: string, cut: boolean, q?: Question): DialogSpec & { cut: boolean } {
-  const p = printed(cut ? input : pretty(input), DIALOG_CAP)
+  const p = printed(input, DIALOG_CAP)
   const whole = !cut && !p.cut
   return {
     header: T['dialog.relay.header']({}),

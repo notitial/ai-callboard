@@ -6,7 +6,7 @@ import { LANE_MODELS, MAX_LIVE_CHILDREN, PERSON } from './core/model.ts'
 import type { ToolName } from './core/model.ts'
 import type { CommandName, Fixed, MsgId, Params, RefuseCode, UiColumn, UiState } from './core/msg.ts'
 
-// `<` and every invisible or direction-changing character as an escape. Backticks stay: an input block is not framed by them.
+// `<` and every invisible or direction-changing character as an escape. Backticks stay: the relay's input block is framed by a fence longer than any run of them (fence).
 // The braille blank is a letter to Unicode and draws as a gap, so it is named here.
 const INVISIBLE_RE = new RegExp(`(?![ \\t])[\\p{Cc}\\p{Cs}\\p{Cf}\\p{Co}\\p{Cn}\\p{Zl}\\p{Zp}\\p{Zs}\\p{Default_Ignorable_Code_Point}${String.fromCodePoint(0x2800)}]`, 'gu')
 const hex = (c: string): string => (c.codePointAt(0)! > 0xffff ? `\\u{${c.codePointAt(0)!.toString(16)}}` : `\\u${c.codePointAt(0)!.toString(16).padStart(4, '0')}`)
@@ -282,7 +282,7 @@ const fixed: { [K in keyof Fixed]: (p: Fixed[K]) => string } = {
   'cmd.rest': () => 'Rest set for this session: no more keepalive pings in this idle gap, so its prompt cache will expire. The next real turn turns pings back on. A PR notice still wakes it.',
 
   'dialog.go.header': () => 'Go request',
-  'dialog.go.question': (p) => `${q(p.giver)} asks for a go until ${p.end}, for this work only (its own and its sessions'):\n\n${escBlock(p.text)}\n\ngo_status lists what a go never covers.`,
+  'dialog.go.question': (p) => `${q(p.giver)} asks for a go until ${p.end}, for this work only (its own and its sessions'):\n\n${escBlock(p.text)}\n\nNever a merge or a push to main; go_status lists what a go never covers.`,
   'dialog.stop.header': () => 'Callboard: force stop',
   'dialog.stop.question': (p) => `${p.verb === 'terminate' ? 'Force stop' : p.verb} ${q(p.name)}? Its process gets SIGTERM whatever it is doing, and unsaved work is lost.`,
   'dialog.relay.header': () => 'Your call',

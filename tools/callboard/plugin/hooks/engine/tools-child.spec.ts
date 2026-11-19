@@ -478,3 +478,17 @@ test('a lane that signed done retires right after its turn ends; a park at that 
   f.h.files.set(KID_REPORT, 'notes\nstatus: done sid-kid\n')
   assert.match(text(await stopVerbCall(f.$, { lane: 'kid' }, next, 'retire')), /retired and its row removed/)
 })
+
+test('the self-rename touches only a lane\'s panel that still has its generated name, and only when no cue waits: a named panel, a row with no brief and a loose session keep their names', async () => {
+  const f = world()
+  f.table({ ...table(f), 'sid-kid': { name: 'kid', folder: '/w/repo/kid', under: 'sid-me' }, 'sid-named': { name: 'LANE', folder: '/w/repo/kid', under: 'sid-me', brief: '/w/repo/kid/.archive/LANE/BRIEF.md' } })
+  kidReg(f, { name: 'ai-manager-01', nameSource: 'auto' })
+  f.seed({ sid: 'sid-named', pid: 31, name: 'mine', nameSource: 'user', cwd: '/w/repo/kid', kind: 'interactive' })
+  f.seed({ sid: 'sid-loose', pid: 32, name: 'ai-manager-02', nameSource: 'auto', cwd: '/w/repo/kid', kind: 'interactive' })
+  for (const sid of ['sid-kid', 'sid-named', 'sid-loose']) {
+    f.h.sid = sid
+    mem.view = undefined
+    await cueTick(f.$, sid, await getView(f.$, true), T0)
+  }
+  assert.deepEqual(f.h.compactRuns, [])
+})

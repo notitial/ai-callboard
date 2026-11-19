@@ -59,9 +59,9 @@ async function act($: any, me: Sid, v: View, cue: Cue): Promise<CueResult> {
 }
 export async function cueTick($: any, me: Sid, v: View, now: number): Promise<void> {
   if (v.rows === 'unknown') return
-  await selfName($, me, v)
   const p = await path($, 'cue', `${me}.json`)
-  if (p === undefined || !(await $.fs.exists(p).catch(() => false))) return
+  // The self-rename runs only in a tick with no cue, so a cue's answer still comes inside the parent's wait; a start renames the lane itself.
+  if (p === undefined || !(await $.fs.exists(p).catch(() => false))) return selfName($, me, v)
   const cue = parseCue(json(await readText($, p, 2048)))
   if (cue === undefined || !ID_RE.test(cue.id)) return void (await rm($, [p]))
   const fresh = await getView($, true)
