@@ -1,14 +1,18 @@
-"""Lets callboard open a Claude Code panel in any folder of a multi-folder VS Code window. Checks unless --apply or --undo.
+"""Lets callboard open a Claude Code panel in any folder of a multi-folder VS Code window. Checks unless --apply, --update or --undo.
 
-  /usr/bin/python3 -I patch-claude.py EXTENSION_DIR [--apply | --undo]
+  /usr/bin/python3 -I patch-claude.py EXTENSION_DIR [--apply | --update | --undo]
       EXTENSION_DIR is one installed Claude Code extension folder, for example ~/.vscode/extensions/anthropic.claude-code-<version>-<platform>.
       No flag: change nothing and print one line, the state and the extension's version, then what it means:
-        patched                  the patch is in and its marker matches the file
+        patched                  the patch is in, its marker matches the file and it is what this script would build now
+        outdated <why>           the patch is in but an older script built it (the line names what differs): --update brings it current
         unpatched-patchable      every anchor was found exactly once: --apply would patch it
         anchors-missing <names>  an update moved the code the patch hooks into (a name is missing or matches twice): --apply refuses
       --apply: patch extension.js, keep the original beside it as extension.js.callboard-orig and write callboard-cwd-patch.json
-      (the marker callboard's panels extension reads; its "look" field says whether the panel look below went in). Patched already: says so and stops. A window reload (Developer: Reload
+      (the marker callboard's panels extension reads; its "look" field says whether the panel look below went in). Patched already: says so and stops; outdated: refuses and names --update. A window reload (Developer: Reload
       Window) loads it.
+      --update: for an `outdated` install, build the patch again from the backup original and swap it in: extension.js and the marker are
+      replaced, the backup is not touched. The new bytes are built before anything is written (a refusal changes nothing), and a failed write puts the
+      previous patched file back. Any other state: the same as --apply.
       --undo: put the original back from the backup and remove the backup and the marker.
 
 The patch gives `claude-vscode.editor.open` a `cwd` in its sixth argument ({cwd: folder}), which becomes the working folder of the
@@ -21,7 +25,7 @@ are named. The one optional piece, the panel look, is separate: its style block 
 does not, a warning line says so and the folder patch still applies. There is no half patch: a failure after the file was replaced puts the backup back. An update of the extension is a new
 folder, so it starts unpatched and this runs again. It never uses the network, runs nothing else, works only inside EXTENSION_DIR
 and changes no setting. Run it as your user: it refuses root. Tests: /usr/bin/python3 -I tools/callboard/test_patch_claude.py
-Exit codes: 0 done or nothing to do (patched, patchable), 1 refused or anchors missing, 2 usage.
+Exit codes: 0 done or nothing to do (patched, patchable), 1 refused, outdated or anchors missing, 2 usage.
 """
 import hashlib
 import json
@@ -33,6 +37,7 @@ import tempfile
 
 MAIN = "extension.js"
 BACKUP = "extension.js.callboard-orig"
+PREVIOUS = "extension.js.callboard-prev"
 MARKER = "callboard-cwd-patch.json"
 PATCH = 1
 NAME = b"cbCwd"
@@ -41,7 +46,7 @@ VERSION = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+")
 
 # The panel look: the one block of CSS the patch adds to the webview page, and the one place to tune it. It ends up inside a JavaScript template literal of
 # the extension, so it holds no backtick, backslash or "${". Class names of the page carry a build hash, so the selectors match their stable prefix.
-# CONFIRMED against the shipped index.css (2.1.328): the 680px cap on `inputWrapper_` and `permissionsContainer_` (both centred with margin:0 auto), and
+# CONFIRMED against the shipped index.css: the 680px cap on `inputWrapper_` and `permissionsContainer_` (both centred with margin:0 auto), and
 # the Remote Control chip's `aria-label`. A GUESS, which only a rendered panel can confirm: `inputContainer_`, the composer's outer box (absolute,
 # max-width 680px, left and right 16px). The guess is limited to the rule that has no `data-permission-mode`, because the inner box of the same prefix has it.
 # If the side margin does not change, find the element that holds the margin in the window's developer tools and change that selector and the 8px.
@@ -199,6 +204,20 @@ def patched(raw):
     return re.sub(LOOK_ANCHOR, look_block, raw), True
 
 
+def stale(ext, raw, m):
+    """Why the installed patch differs from the one this script builds from the backed-up original, or None when it is the same (or no usable backup is there to build from)."""
+    orig = read(os.path.join(ext, BACKUP))
+    if orig is None or digest(orig) != m["original_sha256"]:
+        return None
+    bad = problems(orig)
+    if bad:
+        return "this script no longer fits the backup: " + "; ".join(bad)
+    new, look = patched(orig)
+    if digest(new) == digest(raw):
+        return None
+    return "the panel look is not in" if look and m.get("look") is not True else "the patch code differs from this script's"
+
+
 def state(ext):
     """(name, version, detail). Reads only."""
     ver = version(ext)
@@ -207,7 +226,8 @@ def state(ext):
         refuse("%s has no %s" % (show(ext), MAIN))
     m = marker_of(ext)
     if m is not None and m["patched_sha256"] == digest(raw):
-        return "patched", ver, ""
+        why = stale(ext, raw, m)
+        return ("outdated", ver, why) if why else ("patched", ver, "")
     left = [n for n in (MARKER, BACKUP) if os.path.lexists(os.path.join(ext, n))]
     if left:
         return "leftovers", ver, ", ".join(left)
@@ -215,11 +235,26 @@ def state(ext):
     return ("anchors-missing", ver, "; ".join(bad)) if bad else ("unpatched-patchable", ver, "")
 
 
+def reason(e):
+    return e.strerror if isinstance(e, OSError) and e.strerror else type(e).__name__
+
+
+def write_patch(ext, ver, orig, new, look):
+    """The one write of a patch, for --apply and --update: the patched file, read back, then the marker that vouches for it."""
+    main = os.path.join(ext, MAIN)
+    put(main, new, os.stat(main).st_mode & 0o777)
+    if read(main) != new:
+        raise OSError("the file read back differs")
+    put(os.path.join(ext, MARKER), json.dumps({"patch": PATCH, "version": ver, "look": look, "original_sha256": digest(orig), "patched_sha256": digest(new)}).encode() + b"\n", 0o644)
+
+
 def apply(ext):
     name, ver, detail = state(ext)
     if name == "patched":
         print("already patched %s" % ver)
         return 0
+    if name == "outdated":
+        refuse("the patch in %s is outdated (%s); run --update" % (show(ext), detail))
     if name == "leftovers":
         refuse("%s from an earlier run is in %s but does not match the file; run --undo first" % (detail, show(ext)))
     if name == "anchors-missing":
@@ -229,15 +264,11 @@ def apply(ext):
     main = os.path.join(ext, MAIN)
     raw = read(main)
     new, look = patched(raw)
-    mode = os.stat(main).st_mode & 0o777
     backup = os.path.join(ext, BACKUP)
     try:
         # A hard link costs no space, and the patched file is a new inode, so the backup keeps the original.
         os.link(main, backup)
-        put(main, new, mode)
-        put(os.path.join(ext, MARKER), json.dumps({"patch": PATCH, "version": ver, "look": look, "original_sha256": digest(raw), "patched_sha256": digest(new)}).encode() + b"\n", 0o644)
-        if read(main) != new:
-            raise OSError("the file read back differs")
+        write_patch(ext, ver, raw, new, look)
     except BaseException as e:
         # Back to the original: renaming the backup over the file is atomic and needs no space (a no-op when both are still one inode).
         if os.path.lexists(backup):
@@ -245,11 +276,42 @@ def apply(ext):
         for n in (BACKUP, MARKER):
             if os.path.lexists(os.path.join(ext, n)):
                 os.unlink(os.path.join(ext, n))
-        refuse("could not patch (%s); the original is back and nothing is left over" % (e.strerror if isinstance(e, OSError) and e.strerror else type(e).__name__))
+        refuse("could not patch (%s); the original is back and nothing is left over" % reason(e))
     print("patched %s" % ver)
     print("Changed: %s (backup: %s, marker: %s, all in %s)" % (MAIN, BACKUP, MARKER, show(ext)))
     if not look:
         print("warning: the panel look is not in (%s); the folder patch is." % look_problem(raw))
+    print("Reload the VS Code window (Developer: Reload Window) to load it. Undo: run this with --undo.")
+    return 0
+
+
+def update(ext):
+    name, ver, detail = state(ext)
+    if name != "outdated":
+        return apply(ext)
+    main = os.path.join(ext, MAIN)
+    orig = read(os.path.join(ext, BACKUP))
+    new, look = patched(orig)
+    # The previous patched file stays reachable under a second name (a hard link, no space) until the new one is in: a failed write puts it back.
+    prev = os.path.join(ext, PREVIOUS)
+    if os.path.lexists(prev):
+        os.unlink(prev)
+    os.link(main, prev)
+    failed = None
+    try:
+        write_patch(ext, ver, orig, new, look)
+    except BaseException as e:
+        # A no-op when the file was never replaced (both names are one inode), so the spare name goes either way.
+        os.replace(prev, main)
+        failed = e
+    if os.path.lexists(prev):
+        os.unlink(prev)
+    if failed is not None:
+        refuse("could not update (%s); the previous patch is back and nothing else changed" % reason(failed))
+    print("updated %s" % ver)
+    print("Changed: %s and %s, rebuilt from the backup %s (not touched), all in %s" % (MAIN, MARKER, BACKUP, show(ext)))
+    if not look:
+        print("warning: the panel look is not in (%s); the folder patch is." % look_problem(orig))
     print("Reload the VS Code window (Developer: Reload Window) to load it. Undo: run this with --undo.")
     return 0
 
@@ -281,8 +343,8 @@ def undo(ext):
 def main(argv):
     args = [a for a in argv if not a.startswith("--")]
     flags = [a for a in argv if a.startswith("--")]
-    if len(args) != 1 or any(f not in ("--apply", "--undo") for f in flags) or len(flags) > 1:
-        usage("usage: patch-claude.py EXTENSION_DIR [--apply | --undo]")
+    if len(args) != 1 or any(f not in ("--apply", "--update", "--undo") for f in flags) or len(flags) > 1:
+        usage("usage: patch-claude.py EXTENSION_DIR [--apply | --update | --undo]")
     if os.geteuid() == 0:
         refuse("run this as your user, not as root")
     ext = os.path.abspath(args[0])
@@ -290,6 +352,8 @@ def main(argv):
         refuse("%s is not a folder (a link is refused too)" % show(ext))
     if flags == ["--apply"]:
         return apply(ext)
+    if flags == ["--update"]:
+        return update(ext)
     if flags == ["--undo"]:
         return undo(ext)
     name, ver, detail = state(ext)
@@ -301,7 +365,9 @@ def main(argv):
         print("warning: the panel look is not in this patch.")
     if name == "leftovers":
         print("A backup or marker from an earlier run is here and does not match the file: run --undo.")
-    return 1 if name in ("anchors-missing", "leftovers") else 0
+    if name == "outdated":
+        print("Run --update: it rebuilds the patch from the backup and swaps it in.")
+    return 1 if name in ("anchors-missing", "leftovers", "outdated") else 0
 
 
 if __name__ == "__main__":
