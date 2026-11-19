@@ -16,7 +16,7 @@ take_test_turn || exit 3
 rc=0
 step() { echo "== $1"; shift; $TEST_TURN_NICE "$@" || rc=1; }
 step "core logic" node --test mod/hooks/*.spec.ts
-step "plugin core logic" node --test plugin/hooks/*.spec.ts plugin/hooks/core/*.spec.ts
+step "plugin core logic" node --test plugin/hooks/*.spec.ts plugin/hooks/core/*.spec.ts plugin/hooks/engine/*.spec.ts
 step "prompt audit" node --test prompt-audit.test.mjs
 step "extension" node --test extension/*.test.js
 step "mod validate" claude plugin validate mod

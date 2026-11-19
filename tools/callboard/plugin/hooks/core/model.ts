@@ -29,7 +29,7 @@ export type ToolName = (typeof TOOLS)[number]
 // What a session may do beyond what every session does. Granted by rows his commands or a parent's tools wrote and by the manager-name file; never inferred.
 export type Capability = 'manager' | 'lead' | 'none'
 
-// A row of the engine's registry (`~/.claude/sessions/<pid>.json`), as the adapter reads it. `statusAt` is the engine's `statusUpdatedAt`.
+// A row of the engine's registry (`~/.claude/sessions/<pid>.json`), as the adapter reads it. `statusAt` is the engine's `statusUpdatedAt`; `kind` is `interactive` for a person's session.
 export type RegistryRow = {
   sid: Sid
   pid: number
@@ -40,6 +40,7 @@ export type RegistryRow = {
   status?: string
   statusAt?: number
   waitingFor?: string | null
+  kind?: string
 }
 // The registry read: the rows whose pid and start time `ps` confirmed, or `unknown` (a changing file, too many files, a `ps` that cannot be trusted, no row of its
 // own, a stale group, a cut `ps` confirm). A list with doubt in it is not a list.

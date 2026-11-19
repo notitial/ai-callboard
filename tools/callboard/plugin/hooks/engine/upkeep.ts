@@ -1,22 +1,203 @@
-// request_compact, compaction, PostCompact, turn marks, keepalive and nudge sends. Stubs: the tool refuses `not-built`; a hook that cannot refuse passes on to
-// the chain beneath.
-import { notBuilt } from './tools-any.ts'
+// request_compact, the compaction itself, PostCompact, the turn marks, and the keepalive and nudge sends: the adapter over core/upkeep.ts. Trust rules held here: a session compacts only
+// itself (its request carries the session id it was made in, and the tool is the main agent's); nothing is sent to a session that is not an interactive one, idle with an empty prompt box;
+// at most one text is submitted per tick; a ping or a nudge is not work and moves no stop clock.
+import type { Sid, View } from '../core/model.ts'
+import { isOff, refusal } from '../core/model.ts'
+import type { NudgeAct, ReqEvent } from '../core/upkeep.ts'
+import { compactPlan, keepalive, pushRecent, reqExpired, reqStep, sizeNudge, validateRequest } from '../core/upkeep.ts'
+import { T } from '../texts.ts'
+import { countDown, log, ownTextOf, submitOwn, toast } from './io.ts'
+import type { Up } from './mem.ts'
+import { getUp, mem, patchUp, spendStarted } from './mem.ts'
+import { cfgNow, getView } from './store.ts'
+import { deny, say } from './tools-any.ts'
 
-export async function requestCompactCall(_$: any, _e: any, _next: any) {
-  return notBuilt()
+const BUSY_AGENT = ['pending', 'running', 'waiting']
+const NUDGE_DUE_MS = 10 * 60_000
+const RESUME_MS = 120_000
+const MID_SKIP_MS = 60_000
+
+export const isSub = (e: any): boolean => (typeof e?.agentId === 'string' && e.agentId !== '') || (typeof e?.agent_id === 'string' && e.agent_id !== '')
+const rowOf = (v: View, sid: Sid) => (v.rows === 'unknown' ? undefined : v.rows.get(sid))
+export const interactive = (v: View, sid: Sid): boolean => rowOf(v, sid)?.kind === 'interactive'
+async function tokensOf($: any): Promise<number> {
+  return ((await $.session.usage()).context?.tokens as number | undefined) ?? 0
 }
-export async function turnComplete(_$: any, e: any, next: any) {
+async function busyAgents($: any): Promise<boolean> {
+  return ((await $.agent.list().catch(() => [{ status: 'running' }])) as { status: string }[]).some((a) => BUSY_AGENT.includes(a.status))
+}
+async function draft($: any): Promise<string> {
+  return (await $.prompt.read()).text
+}
+// An interactive session that is idle and waiting for nothing, with no dialog of ours open and an empty prompt box: the one place "quiet enough to be sent a turn" is decided.
+export async function idle($: any, v: View, sid: Sid): Promise<boolean> {
+  const r = rowOf(v, sid)
+  return r?.kind === 'interactive' && r.status === 'idle' && !r.waitingFor && mem.dialogs.size === 0 && (await draft($)) === ''
+}
+
+// The request after an event: the core moves its phase, the session id it was made in and the time its compaction ended stay.
+function stepReq(u: Up, ev: ReqEvent, now: number): Up['req'] {
+  const r = reqStep(u.req, ev, now)
+  return r === null || u.req === null ? null : { ...u.req, ...r }
+}
+
+// ---- the tool and the hooks that move a request ----
+export async function requestCompactCall($: any, e: any, _next: any) {
+  const sid = (await $.session.id()) as Sid
+  const no = (detail: string) => deny(refusal('refuse', 'bad-input', { tool: 'request_compact', detail }))
+  if (isSub(e)) return no('subagent')
+  const v = validateRequest(e)
+  if (!('ok' in v)) return deny(v)
+  if (!interactive(await getView($), sid)) return no('not-interactive')
+  const now = await $.clock.now()
+  const plan = compactPlan((await getUp($)).counters, await tokensOf($), now, await busyAgents($))
+  if (plan.act === 'refuse') return deny(plan)
+  await patchUp($, (u) => ({ ...u, due: null, req: { ...v.req, phase: 'called', at: now, sid } }))
+  await log($, sid, 'requested')
+  return { result: say(plan) }
+}
+
+// A size past a level at the end of an answer: one nudge is recorded, and the tick sends it once the session is quiet. A nudge that went mid-turn is sent once more (`again`).
+async function recordNudge($: any, sid: Sid, now: number): Promise<void> {
+  const again = mem.mid
+  mem.mid = false
+  const up = await getUp($)
+  if (up.req === null && up.due === null && interactive(await getView($), sid) && sizeNudge(await tokensOf($), await cfgNow($), up.counters, now, again) !== undefined)
+    await patchUp($, (u) => ({ ...u, due: { at: now, ...(again ? { again: true as const } : {}) } }))
+}
+export async function turnComplete($: any, e: any, next: any) {
+  if (!isSub(e)) {
+    try {
+      const now = await $.clock.now()
+      const kind = mem.turnKind
+      mem.turnKind = undefined
+      const answered = e.reason === 'answer'
+      await patchUp($, (u) => ({ ...u, turnEnd: now, ...(kind === undefined ? { realEnd: now } : {}), req: stepReq(u, answered ? 'turn-answer' : 'turn-other', now) }))
+      if (kind !== 'ping' && answered) await recordNudge($, (await $.session.id()) as Sid, now)
+    } catch {
+      await log($, await $.session.id(), 'error', 'turn-end').catch(() => undefined)
+    }
+  }
   return next(e)
 }
-export async function promptSubmit(_$: any, e: any, next: any) {
+export async function promptSubmit($: any, e: any, next: any) {
+  if (e.origin?.kind === 'plugin' || mem.own.has(e.text)) return next(e)
+  const now = await $.clock.now()
+  mem.lastSubmit = now
+  const up = await getUp($)
+  if (up.req !== null && up.req.phase !== 'compacting') {
+    await patchUp($, (u) => ({ ...u, req: stepReq(u, 'prompt', now) }))
+    if (up.req.phase !== 'compacted') toast($, say({ msg: 'compact.notRun', p: { reason: 'a new prompt came in' } }))
+  }
   return next(e)
 }
-export async function turnStart(_$: any, e: any, next: any) {
+// A turn that carries one of our own texts is that submit's: counted down, and not work unless it was sent as work. Any other turn is real, and ends a rest.
+export async function turnStart($: any, e: any, next: any) {
+  if (!isSub(e)) {
+    const t = ownTextOf(e.text)
+    const own = t === undefined ? undefined : mem.own.get(t)
+    if (t !== undefined) countDown(t)
+    mem.turnKind = own === undefined || own.real ? undefined : t === say({ msg: 'keepalive', p: {} }) ? 'ping' : 'unreal'
+    spendStarted(e.text, await $.clock.now())
+    if (mem.turnKind === undefined && typeof (await getUp($)).restAt === 'number') await patchUp($, (u) => ({ ...u, restAt: undefined }))
+  }
   return next(e)
 }
-export async function postToolHook(_$: any, e: any, next: any) {
+export async function postCompact($: any, e: any, next: any) {
+  const now = await $.clock.now()
+  await patchUp($, (u) => ({ ...u, counters: { ...u.counters, lastCompactMs: now }, req: ((r) => (r?.phase === 'compacted' ? { ...r, doneAt: now } : r))(stepReq(u, 'done', now)) })).catch(() => undefined)
   return next(e)
 }
-export async function postCompact(_$: any, e: any, next: any) {
-  return next(e)
+
+// ---- the tick's steps ----
+// The request: dropped when it is another session's or has waited too long, resumed with its note once the compaction ended, compacted at the end of the turn that made it.
+export async function requestTick($: any, sid: Sid): Promise<void> {
+  const up = await getUp($)
+  const r = up.req
+  if (r === null) return
+  const now = await $.clock.now()
+  const drop = async (why: string, shown?: string) => {
+    await patchUp($, (u) => ({ ...u, req: null }))
+    await log($, sid, 'dropped', why)
+    if (shown !== undefined) toast($, say({ msg: 'compact.notRun', p: { reason: shown } }))
+  }
+  if (r.sid !== sid) return drop('other-session')
+  if (r.phase === 'compacted') {
+    if (r.doneAt === undefined || now - r.doneAt > RESUME_MS) return drop('resume-expired')
+    if ((await draft($)) !== '') return drop('draft-in-box')
+    await patchUp($, (u) => ({ ...u, req: null }))
+    return submitOwn($, say({ msg: 'compact.note', p: { focus: r.focus, continuation: r.continuation } })).then(() => undefined, () => log($, sid, 'resume-failed'))
+  }
+  if (reqExpired(r, now)) {
+    await drop('expired')
+    return r.phase === 'compacting' ? toast($, say({ msg: 'compact.unconfirmed', p: { reason: 'the compaction did not report back' } })) : undefined
+  }
+  if (r.phase !== 'armed') return
+  const plan = compactPlan(up.counters, await tokensOf($), now, await busyAgents($))
+  if (plan.act === 'refuse') return drop('refused', plan.msg.slice(7))
+  if ((await draft($)) !== '') return drop('draft-in-box', 'there is a draft in the prompt box')
+  await patchUp($, (u) => ({ ...u, req: stepReq(u, 'begin', now) }))
+  toast($, say({ msg: 'compact.start', p: {} }))
+  Promise.resolve($.command.run({ command: 'compact', args: r.focus })).catch(() => drop('rejected', 'the engine refused the command'))
+}
+
+// A nudge is sent for the size it has now, once, and counted; it is not work.
+async function sendNudge($: any, sid: Sid, n: NudgeAct, now: number): Promise<void> {
+  await patchUp($, (u) => ({ ...u, due: null, counters: { ...u.counters, lastNudgeMs: now, lastNudgeKind: n.kind, nudgeTimes: pushRecent(u.counters.nudgeTimes ?? [], now) } }))
+  await submitOwn($, say(n), false).then(() => log($, sid, 'nudged', n.kind), () => log($, sid, 'nudge-failed', n.kind))
+}
+export async function nudgeTick($: any, sid: Sid, v: View): Promise<void> {
+  const up = await getUp($)
+  if (up.due === null) return
+  const now = await $.clock.now()
+  const drop = async (why: string) => {
+    await patchUp($, (u) => ({ ...u, due: null }))
+    await log($, sid, 'nudge-dropped', why)
+  }
+  if (now - up.due.at >= NUDGE_DUE_MS) return drop('expired')
+  if (up.req !== null || !interactive(v, sid) || isOff(v, sid) || mem.signed.set.has(sid)) return drop('not-eligible')
+  if (!(await idle($, v, sid))) return
+  const n = sizeNudge(await tokensOf($), await cfgNow($), up.counters, now, up.due.again === true)
+  return n === undefined ? drop('below-level') : sendNudge($, sid, n, now)
+}
+// The nudge in the middle of a turn, returned as text for the tool's result: the size alone decides, the same limits as the idle one; a session that may not be nudged is not looked at again for a minute.
+export async function midNudge($: any, e: any): Promise<string | undefined> {
+  const now = await $.clock.now()
+  if (isSub(e) || mem.midSkip > now) return undefined
+  const cfg = await cfgNow($)
+  const tokens = await tokensOf($)
+  if (tokens < cfg.idleK * 1000) return undefined
+  const v = await getView($)
+  const sid = (await $.session.id()) as Sid
+  const up = await getUp($)
+  const n = up.req === null && interactive(v, sid) && !isOff(v, sid) && !mem.signed.set.has(sid) ? sizeNudge(tokens, cfg, up.counters, now) : undefined
+  if (n === undefined) {
+    mem.midSkip = now + MID_SKIP_MS
+    return undefined
+  }
+  await patchUp($, (u) => ({ ...u, due: null, counters: { ...u.counters, lastNudgeMs: now, lastNudgeKind: n.kind, nudgeTimes: pushRecent(u.counters.nudgeTimes ?? [], now) } }))
+  mem.mid = true
+  await log($, sid, 'nudged', `${n.kind} mid-turn`)
+  return say(n)
+}
+
+// The keepalive ping, and in its slot a compaction nudge: the core decides; here the reads it needs, one stamp per gap, and a late check that a submit or a draft came meanwhile.
+export async function keepaliveTick($: any, sid: Sid, v: View, submitsAtStart: number): Promise<void> {
+  const up = await getUp($)
+  const cfg = await cfgNow($)
+  const now = await $.clock.now()
+  if (!cfg.keepalive || up.turnEnd === undefined || up.realEnd === undefined || mem.submits !== submitsAtStart) return
+  const gapStart = Math.max(up.turnEnd, mem.lastSubmit ?? 0)
+  if (now - gapStart < cfg.pingAfterMin * 60_000 || (up.pingAt ?? 0) >= gapStart) return
+  if (mem.pinged.realEnd !== up.realEnd) mem.pinged = { realEnd: up.realEnd, n: 0 }
+  const act = keepalive({
+    cfg, now, turnEnd: up.turnEnd, realEnd: up.realEnd, lastSubmit: mem.lastSubmit, pingAt: up.pingAt, woke: mem.woke, off: isOff(v, sid), rest: typeof up.restAt === 'number', signed: mem.signed.set.has(sid),
+    quiet: up.req === null && up.due === null && interactive(v, sid) && (await idle($, v, sid)), tokens: await tokensOf($), pinged: mem.pinged.n, counters: up.counters,
+  })
+  if (act.act === 'none') return
+  await patchUp($, (u) => ({ ...u, pingAt: now }))
+  if (mem.submits !== submitsAtStart || (mem.lastSubmit ?? 0) > gapStart || (await draft($)) !== '') return log($, sid, 'keepalive-skipped', 'late')
+  if (act.act === 'nudge') return sendNudge($, sid, act, now)
+  mem.pinged.n++
+  await submitOwn($, say(act), false).then(() => log($, sid, 'keepalive'), () => log($, sid, 'keepalive-failed'))
 }
