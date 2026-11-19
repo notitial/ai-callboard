@@ -1,16 +1,166 @@
-// The session start and end, the tool and command registration and the 2 s tick. Stubs: the start registers every tool and the three commands, so each can be
-// seen to refuse `not-built` (the built start gives a tool only to a session that may use it: `cap` in tool-schemas.ts), and the end passes on. This plugin and the
-// mod share the name `callboard` and the `mcp__callboard__` tool prefix, so only one of them is loaded at a time.
-import { TOOLS } from '../core/model.ts'
+// The session start and end, the registration of the tools and commands by what a session may use, the 2 s tick, and the PostToolUse hook that carries the same texts mid-turn.
+// Trust rules held here: one tick runs at a time and a step that throws is logged and does not stop the others; at most one text is submitted per tick; a notice is recomputed
+// from the sessions under this one now each time it is sent, a key is spent only when the turn carrying it starts, and nothing is sent unless the session is quiet.
+import type { Notice, Sid, ToolName, View } from '../core/model.ts'
+import { PERSON, TOOLS, capability, children, nameOf, parent } from '../core/model.ts'
+import { signedBy, tidy } from '../core/lifecycle.ts'
+import { notices } from '../core/notices.ts'
+import { SLEEP_GAP_MS } from '../core/upkeep.ts'
+import { T } from '../texts.ts'
 import { TOOL_SCHEMAS } from '../tool-schemas.ts'
+import { TICK_MS, log, submitOwn, toast } from './io.ts'
+import { getUp, mem, spendStarted } from './mem.ts'
+import { prClaim, prTick } from './pr.ts'
+import { getView, updateTable } from './store.ts'
+import { say } from './tools-any.ts'
+import { idle, isSub, keepaliveTick, midNudge, nudgeTick, requestTick } from './upkeep.ts'
+import { usageDrop, usageFlush, usageSweep } from './usage.ts'
 
+// ---- what a session is given: the five tools every session has at its start, the fourteen when it holds a capability (and, once, from the tick or from `/callboard lead`) ----
+export async function registerTools($: any, group: 'any' | 'parent'): Promise<void> {
+  for (const name of TOOLS) {
+    const s = TOOL_SCHEMAS[name as ToolName]
+    if (s.cap === group) await $.tool.register({ name, description: (T[`tool.${name}`] as (p: unknown) => string)({}), inputSchema: s.input })
+  }
+}
+export async function giveParentTools($: any, v: View, me: Sid): Promise<void> {
+  if (mem.parentTools || capability(v, me) === 'none') return
+  mem.parentTools = true
+  await registerTools($, 'parent').catch(() => void (mem.parentTools = false))
+}
+// The timer starts before anything is registered, so a registration that throws leaves the session kept warm.
 export async function sessionStart($: any, e: any, next: any) {
-  for (const name of TOOLS) await $.tool.register({ name, description: `${name}: not built yet`, inputSchema: TOOL_SCHEMAS[name].input })
-  await $.command.register({ name: 'callboard', description: 'Callboard: not built yet' })
-  await $.command.register({ name: 'rest', description: 'Same as /callboard rest: not built yet' })
-  await $.command.register({ name: 'unattended', description: 'Same as /callboard unattended: not built yet' })
+  if (mem.since === 0) mem.since = await $.clock.now()
+  if (!mem.timer) {
+    mem.timer = true
+    $.clock.every(TICK_MS, () => tick($))
+  }
+  usageSweep($).catch(() => undefined)
+  await registerTools($, 'any')
+  await $.command.register({ name: 'callboard', description: T['help.status']() })
+  await $.command.register({ name: 'rest', description: T['help.rest']() })
+  await $.command.register({ name: 'unattended', description: T['help.unattended']() })
   return next(e)
 }
-export async function sessionEnd(_$: any, e: any, next: any) {
+export async function sessionEnd($: any, e: any, next: any) {
+  await usageDrop($, await $.session.id()).catch(() => undefined)
   return next(e)
+}
+
+// ---- the notices ----
+// The inputs the ask notices read: the open asks this session is eligible for, the ask log from this process's cursor, and the sessions whose ask is open. All three are empty: asks are not built.
+async function askInputs(_$: any, _me: Sid, _v: View) {
+  return { asks: [] as { id: string; asker: Sid }[], log: [] as never[], asking: new Set<Sid>() }
+}
+// One line per event; the two ask kinds have no line here.
+function lineOf(v: View, n: Notice, now: number): string | undefined {
+  const name = nameOf(v, n.about)
+  const reg = v.rows === 'unknown' ? undefined : v.rows.get(n.about)
+  if (n.kind === 'done' || n.kind === 'gone') return say({ msg: `event.${n.kind}`, p: { name } })
+  if (n.kind === 'waiting') return say({ msg: 'event.waiting', p: { name, why: (reg?.waitingFor ?? '').slice(0, 80) } })
+  if (n.kind === 'quiet') return say({ msg: 'event.quiet', p: { name, minutes: Math.floor((now - (reg?.statusAt ?? now)) / 60_000) } })
+  return n.kind === 'report' ? say({ msg: 'event.report', p: { name, code: n.code ?? '' } }) : undefined
+}
+// The events owed now, computed again from the sessions under this one: a key already spent, or carried by a text submitted and not yet started, is left out.
+async function owed($: any, me: Sid, v: View, now: number): Promise<{ key: string; line: string }[]> {
+  spendStarted(undefined, now)
+  const held = new Set([...mem.pending.values()].flatMap((p) => p.keys))
+  const list = notices({ me, v, now, since: mem.since, reports: mem.reports, signed: mem.signed.set, ...(await askInputs($, me, v)) })
+  return list.filter((n) => !mem.spent.has(n.key) && !held.has(n.key)).flatMap((n) => ((l) => (l === undefined ? [] : [{ key: n.key, line: l }]))(lineOf(v, n, now)))
+}
+async function quiet($: any, me: Sid): Promise<boolean> {
+  return (await getUp($)).req === null && (await idle($, me))
+}
+async function eventsTick($: any, me: Sid, v: View, now: number): Promise<void> {
+  const list = await owed($, me, v, now)
+  if (list.length === 0 || !(await quiet($, me))) return
+  const text = say({ msg: 'event.turn', p: { lines: list.map((o) => o.line) } })
+  mem.pending.set(text, { keys: list.map((o) => o.key), at: now })
+  await submitOwn($, text, false).then(() => log($, me, 'events', String(list.length)), () => void mem.pending.delete(text))
+}
+async function prNoticeTick($: any, me: Sid): Promise<void> {
+  if (mem.prNotes.length === 0 || !(await quiet($, me))) return
+  const c = prClaim()
+  if (c !== undefined) await submitOwn($, c.text, false).catch(() => c.undo())
+}
+// A report about a session whose parent is the person is a toast; the manager is never told of one.
+function toasts($: any, v: View, me: Sid): void {
+  const once = (key: string, text: string) => (mem.toasted.has(key) ? undefined : (mem.toasted.add(key), toast($, text)))
+  if (v.managers.length > 1) once(`two:${v.managers.join()}`, say({ msg: 'toast.twoManagers', p: { a: nameOf(v, v.managers[0]!), b: nameOf(v, v.managers[1]!) } }))
+  if (v.manager === null && typeof v.managerName === 'string' && parent(v, me) === PERSON) once('no-manager', say({ msg: 'toast.noManager', p: {} }))
+  if (v.manager !== null) mem.toasted.delete('no-manager')
+  for (const r of mem.reports) if (parent(v, r.about) === PERSON) once(`report:${r.about}:${r.code}:${r.at}`, say({ msg: 'toast.report', p: { name: nameOf(v, r.about), code: r.code } }))
+}
+
+// ---- the table and the signed set ----
+// Every 30 s: names copied, a row no live session carries marked gone, an expired one dropped; written only if it changed, under the table's lock.
+async function tableTick($: any, v: View, now: number): Promise<void> {
+  if (v.rows === 'unknown' || now - mem.tableAt < 30_000) return
+  mem.tableAt = now
+  for (const k of Object.keys(v.table)) v.rows.has(k) ? mem.noSince.delete(k) : mem.noSince.has(k) || mem.noSince.set(k, now)
+  const next = (t: typeof v.table) => tidy(t, v, (k) => mem.noSince.get(k), now)
+  if (JSON.stringify(next(v.table)) !== JSON.stringify(v.table)) await updateTable($, next)
+}
+// Every 30 s: the sessions, this one and its children, whose report's last line is signed by their own id. The report path is the row's, inside the row's own folder.
+async function signedTick($: any, v: View, me: Sid, now: number): Promise<void> {
+  if (now - mem.signed.at < 30_000) return
+  mem.signed.at = now
+  const set = new Set<Sid>()
+  await Promise.all(
+    [me, ...(capability(v, me) === 'none' ? [] : children(v, me))].map(async (k) => {
+      const r = v.table[k]
+      if (r?.report === undefined || !r.report.startsWith(`${r.folder}/.archive/`) || r.report.includes('..')) return
+      const st = (await $.fs.stat(r.report).catch(() => undefined)) as { size: number; kind?: string } | undefined
+      const size = st?.kind === 'file' ? st.size : undefined
+      const t = size === undefined ? undefined : await $.fs.read(r.report, { offset: Math.max(0, size - 1024), length: 1024 }).catch(() => undefined)
+      if (typeof t === 'string' && signedBy(t, k)) set.add(k)
+    }),
+  )
+  mem.signed = { at: now, set }
+}
+
+// ---- the tick ----
+async function tick($: any): Promise<void> {
+  if (mem.ticking) return
+  mem.ticking = true
+  const me = (await $.session.id().catch(() => '')) as Sid
+  const step = (name: string, f: () => Promise<unknown>) => f().catch(() => log($, me, 'error', name))
+  try {
+    const now = await $.clock.now()
+    if (mem.lastTimer !== undefined && now - mem.lastTimer > SLEEP_GAP_MS) mem.woke = now
+    mem.lastTimer = now
+    const v = await getView($)
+    const start = mem.submits
+    await step('parent-tools', () => giveParentTools($, v, me))
+    await step('table', () => tableTick($, v, now))
+    await step('signed', () => signedTick($, v, me, now))
+    await step('toasts', async () => toasts($, v, me))
+    await step('request', () => requestTick($, me))
+    await step('nudge', () => nudgeTick($, me, v))
+    if (mem.submits === start) await step('events', () => eventsTick($, me, v, now))
+    await step('pr-poll', () => prTick($, me, v))
+    if (mem.submits === start) await step('pr-notice', () => prNoticeTick($, me))
+    await step('keepalive', () => keepaliveTick($, me, v, start))
+    await step('usage', () => usageFlush($, me))
+  } finally {
+    mem.ticking = false
+  }
+}
+
+// After a tool of the main agent: the nudge, the events and the PR notes owed are added to the result as context, never merged into one text, and each is claimed as it is returned.
+export async function postToolHook($: any, e: any, next: any) {
+  const r = await next(e)
+  if (isSub(e)) return r
+  const texts: string[] = []
+  try {
+    const me = (await $.session.id()) as Sid
+    const nudge = await midNudge($, e)
+    const list = await owed($, me, await getView($), await $.clock.now())
+    const pr = prClaim()
+    for (const o of list) mem.spent.add(o.key)
+    texts.push(...[nudge, list.length === 0 ? undefined : say({ msg: 'event.turn', p: { lines: list.map((o) => o.line) } }), pr?.text].filter((t): t is string => t !== undefined))
+  } catch {}
+  if (texts.length === 0) return r
+  const extra = (r as { additionalContext?: unknown } | null | undefined)?.additionalContext
+  return { ...(r ?? {}), additionalContext: [...(Array.isArray(extra) ? extra : []), ...texts] }
 }

@@ -174,12 +174,15 @@ test('the request: every phase against every event', () => {
     ['called', 'turn-answer', 'armed'], ['called', 'turn-other', null], ['called', 'prompt', null], ['called', 'begin', 'called'], ['called', 'done', 'called'],
     ['armed', 'turn-answer', 'armed'], ['armed', 'turn-other', 'armed'], ['armed', 'prompt', null], ['armed', 'begin', 'compacting'], ['armed', 'done', 'armed'],
     ['compacting', 'turn-answer', 'compacting'], ['compacting', 'turn-other', 'compacting'], ['compacting', 'prompt', 'compacting'], ['compacting', 'begin', 'compacting'], ['compacting', 'done', 'compacted'],
-    // The note is owed even if the person types first: only a prompt before the compaction began drops the request.
+    // A prompt the plugin did not send drops the request in every phase but compacting, a compacted one included: the person's turn comes first and the note is not put after it.
     ['compacted', 'turn-answer', 'compacted'], ['compacted', 'turn-other', 'compacted'], ['compacted', 'prompt', null], ['compacted', 'begin', 'compacted'], ['compacted', 'done', 'compacted'],
   ]
   for (const [phase, ev, after] of table) assert.equal(reqStep(req(phase), ev, NOW)?.phase ?? null, after, `${phase} + ${ev}`)
-  // A clock that ran back does not keep a request alive for good.
-  assert.equal(reqExpired({ ...req('called'), at: NOW + 3 * HOUR_MS }, NOW), false)
+  // A stamp from the future (a clock that ran back) does not keep a request alive: it is expired as far from now either way.
+  assert.equal(reqExpired({ ...req('called'), at: NOW + 3 * HOUR_MS }, NOW), true)
+  assert.equal(reqExpired({ ...req('called'), at: NOW + 5 * MIN }, NOW), false)
+  assert.equal(reqExpired({ ...req('called'), at: NOW + 5 * MIN }, NOW + 5 * MIN + REQUEST_TTL_MS), true)
+  assert.equal(reqExpired({ ...req('compacting'), at: NOW, compactingAt: NOW + 3 * HOUR_MS }, NOW), true)
   assert.equal(reqExpired({ ...req('called'), at: NOW - REQUEST_TTL_MS }, NOW), true)
 })
 

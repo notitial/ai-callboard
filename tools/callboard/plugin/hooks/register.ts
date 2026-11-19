@@ -2,10 +2,10 @@
 // holds no state. It names every hook and tool the plugin has; a body not written yet is a stub in engine/, and writing it does not change this file.
 import type { Register } from 'claude-code'
 import { CUE_VERBS, STOP_VERBS } from './core/model.ts'
-import { sessionStart, sessionEnd } from './engine/tick.ts'
+import { sessionStart, sessionEnd, postToolHook } from './engine/tick.ts'
 import { commandRun, commandComplete, promptCompose } from './engine/commands.ts'
 import { toolCheck, permissionRequest, doneHook } from './engine/ask-hook.ts'
-import { requestCompactCall, turnComplete, promptSubmit, turnStart, postToolHook, postCompact } from './engine/upkeep.ts'
+import { requestCompactCall, turnComplete, promptSubmit, turnStart, postCompact } from './engine/upkeep.ts'
 import { cueVerbCall, stopVerbCall, laneCreateCall, laneOpenCall, laneUnparkCall, laneAdoptCall, laneListCall } from './engine/tools-child.ts'
 import { promptListCall, promptAnswerCall, goRequestCall, goStatusCall, unattendedOffCall } from './engine/tools-ask.ts'
 import { restCall } from './engine/tools-any.ts'

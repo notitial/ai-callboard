@@ -1,5 +1,6 @@
 {
   "name": "callboard",
   "version": "0.2.0",
-  "description": "Coordinates Claude Code sessions on one machine: one manager, leads and the sessions under them."
+  "description": "Coordinates Claude Code sessions on one machine: one manager, leads and the sessions under them.",
+  "types": "./types/index.d.ts"
 }

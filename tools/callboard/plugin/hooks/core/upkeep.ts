@@ -79,8 +79,8 @@ export function reqStep(req: Req | null, ev: ReqEvent, now: number): Req | null 
   if (ev === 'begin') return req.phase === 'armed' ? { ...req, phase: 'compacting', compactingAt: now } : req
   return req.phase === 'compacting' ? { ...req, phase: 'compacted' } : req
 }
-// A request that waits or compacts longer than REQUEST_TTL_MS, counted from its own start, is dropped.
-export const reqExpired = (req: Req, now: number): boolean => req.phase !== 'compacted' && now - Math.min(req.compactingAt ?? req.at, now) >= REQUEST_TTL_MS
+// A request that waits or compacts longer than REQUEST_TTL_MS, counted from its own start, is dropped; a start stamped that far ahead of now is dropped too, so a stamp from the future cannot keep one for good.
+export const reqExpired = (req: Req, now: number): boolean => req.phase !== 'compacted' && Math.abs(now - (req.compactingAt ?? req.at)) >= REQUEST_TTL_MS
 
 // ---- the keepalive ----
 // turnEnd, realEnd (the end of the last turn that was not the plugin's own), lastSubmit and pingAt are the wall times this process saw: absent after a restart, and then
