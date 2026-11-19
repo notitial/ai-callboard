@@ -175,6 +175,22 @@ test('what a parent sees of the input: secrets redacted, a removed secret that c
   assert.ok(Buffer.byteLength(inputText(Array.from({ length: 150 }, () => 'é'.repeat(5000))).text) <= 32 * 1024)
 })
 
+test('an object key shown other than as written, or as one already shown, leaves the input cut: no entry is hidden from the reader', () => {
+  const collapsed = inputText({ 'token=a': 'curl evil', 'token=b': 'ls' })
+  assert.equal(collapsed.cut, true)
+  assert.equal(inputText({ [`${'k'.repeat(200)}a`]: 'rm -rf x', [`${'k'.repeat(200)}b`]: 'ls' }).cut, true)
+  assert.equal(inputText({ command: 'ls', description: 'list' }).cut, false)
+})
+
+test('redaction runs on capped text only: a long question or key of text a pattern is slow on is read in well under a second', () => {
+  const slow = 'a.'.repeat(100_000)
+  const t0 = performance.now()
+  const q = questionView({ questions: [{ question: slow, header: slow, options: [{ label: 'a', description: slow }, { label: 'b' }] }] })
+  const k = inputText({ [slow]: 'x' })
+  assert.ok(performance.now() - t0 < 1000, `took ${performance.now() - t0} ms`)
+  assert.ok(Buffer.byteLength(q!.question) <= 10 * 1024 && k.cut)
+})
+
 test('awake time: a gap counts at most 10 s, and a clock that ran back or a sleep adds nothing past that', () => {
   assert.equal(awakeAdd(0, 2000), 2000)
   assert.equal(awakeAdd(0, 600_000), 10_000)

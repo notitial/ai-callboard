@@ -120,7 +120,7 @@ export function questionShape(input: unknown): { ok: true } | { ok: false; code:
 export function questionView(input: unknown): Question | undefined {
   if (!questionShape(input).ok) return undefined
   const q = obj((obj(input).questions as unknown[])[0])
-  const t = (x: unknown): string => capBytes(redact(str(x)), STRING_CAP).text
+  const t = (x: unknown): string => shown(str(x), STRING_CAP).text
   return { header: t(q.header), question: t(q.question), options: (q.options as unknown[]).map((o) => ({ label: labelOf(obj(o).label), description: t(obj(o).description) })) }
 }
 // The chosen option (1-based, as prompt_answer takes it) from the LIVE input, never from the answer file: the question's text and the label as the asker wrote it.
@@ -167,6 +167,14 @@ export function capBytes(s: string, max: number): { text: string; cut: boolean }
 }
 export const STRING_CAP = 10 * 1024
 export const INPUT_CAP = 32 * 1024
+const KEY_CAP = 200
+// What a reader is shown of one string: capped before redaction (some patterns are super-linear on long text), redacted, then capped. changed: a pattern hit.
+const shown = (s: string, max: number): { text: string; cut: boolean; changed: boolean } => {
+  const head = capBytes(s, max + 512)
+  const red = redact(head.text)
+  const r = capBytes(red, max)
+  return { text: r.text, cut: head.cut || r.cut, changed: red !== head.text }
+}
 // Text a shell or an interpreter could run: a redaction that removed some of it leaves the input cut, as a reader has not seen what runs.
 const RUNNABLE_RE = /[$`(<>;|&\n\r]/
 // The input as a parent reads it: every string redacted and capped, at most 12 deep, 200 items and 100 keys a level, the whole under INPUT_CAP; never throws.
@@ -176,11 +184,9 @@ export function inputText(input: unknown): { text: string; cut: boolean } {
   const walk = (x: unknown, depth: number, secret: boolean): unknown => {
     if (typeof x === 'string') {
       if (secret) return ((cut ||= RUNNABLE_RE.test(x)), '[REDACTED]')
-      const head = capBytes(x, STRING_CAP + 512)
-      const red = redact(head.text)
-      const r = capBytes(red, STRING_CAP)
-      cut ||= head.cut || r.cut || (red !== head.text && RUNNABLE_RE.test(head.text))
-      return r.text
+      const s = shown(x, STRING_CAP)
+      cut ||= s.cut || (s.changed && RUNNABLE_RE.test(x))
+      return s.text
     }
     if (x === null || x === undefined || typeof x === 'number' || typeof x === 'boolean') return x
     if (depth > 12) return ((cut = true), '[too deep]')
@@ -188,7 +194,14 @@ export function inputText(input: unknown): { text: string; cut: boolean } {
     if (typeof x === 'object') {
       const keys = Object.keys(x).filter((k) => (x as Record<string, unknown>)[k] !== undefined)
       cut ||= keys.length > 100
-      return Object.fromEntries(keys.slice(0, 100).map((k) => [capBytes(redact(k), 200).text, walk((x as Record<string, unknown>)[k], depth + 1, secret || secretKey(k))]))
+      // A key shown other than as written, or as one already shown, hides an entry: the input is cut.
+      const out: Record<string, unknown> = {}
+      for (const k of keys.slice(0, 100)) {
+        const s = shown(k, KEY_CAP)
+        cut ||= s.cut || s.changed || Object.hasOwn(out, s.text)
+        out[s.text] = walk((x as Record<string, unknown>)[k], depth + 1, secret || secretKey(k))
+      }
+      return out
     }
     return ((cut = true), '[unsupported]')
   }
