@@ -115,6 +115,12 @@ EXT_DIR="$(ls -d "$HOME"/.vscode/extensions/anthropic.claude-code-* | sort -V | 
   (the marker's `look` field says which it was). Its selectors are the one `LOOK_CSS` constant at the top of `patch-claude.py`;
   the side-margin selector is a guess that only a rendered panel confirms, so tune it there after one look, then undo and apply.
   `--undo` takes it out with the rest.
+- An optional extra, off unless you ask: `--apply --with-pill` also adds a small pill with the folder's name (the last part of the
+  panel's folder, the full path as its tooltip) to the composer's footer, between the context meter and the Remote Control chip,
+  and hides it at the narrowest footer width like the model pill. It patches a second file, the panel's `webview/index.js`
+  (backup `webview/index.js.callboard-orig`, a `pill` field in the same marker). On an already patched extension it adds only
+  the pill. If its anchor is not found it is refused alone (exit 1) and everything else stays as it was. The same `--undo`
+  takes it out; `--with-pill` alone checks whether it would apply.
 - Claude Code updates about daily, and an update is a new folder that starts unpatched: run the check and `--apply`
   again, or type `/patch-vs-claude` in a session in this checkout: it reports the version and whether the patch is in,
   applies it when it is missing and, when an update moved the code the patch hooks into, asks you before it repairs the

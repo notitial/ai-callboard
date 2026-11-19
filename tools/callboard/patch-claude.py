@@ -1,6 +1,6 @@
 """Lets callboard open a Claude Code panel in any folder of a multi-folder VS Code window. Checks unless --apply or --undo.
 
-  /usr/bin/python3 -I patch-claude.py EXTENSION_DIR [--apply | --undo]
+  /usr/bin/python3 -I patch-claude.py EXTENSION_DIR [--apply | --undo] [--with-pill]
       EXTENSION_DIR is one installed Claude Code extension folder, for example ~/.vscode/extensions/anthropic.claude-code-<version>-<platform>.
       No flag: change nothing and print one line, the state and the extension's version, then what it means:
         patched                  the patch is in and its marker matches the file
@@ -9,7 +9,10 @@
       --apply: patch extension.js, keep the original beside it as extension.js.callboard-orig and write callboard-cwd-patch.json
       (the marker callboard's panels extension reads; its "look" field says whether the panel look below went in). Patched already: says so and stops. A window reload (Developer: Reload
       Window) loads it.
-      --undo: put the original back from the backup and remove the backup and the marker.
+      --undo: put the original back from the backup and remove the backup and the marker (and the pill's, when it is in).
+      --with-pill (with --apply, or alone as a check): also add a small pill with the folder's name to the composer's footer, in the second
+      file webview/index.js (backup webview/index.js.callboard-orig, a "pill" field in the same marker). It is never part of a plain --apply.
+      On a patched extension it adds only the pill. A miss or a failure refuses only the pill (exit 1) and leaves everything else as it was.
 
 The patch gives `claude-vscode.editor.open` a `cwd` in its sixth argument ({cwd: folder}), which becomes the working folder of the
 new panel instead of the window's first folder, when it is one of the window's folders (4 edits). A fresh panel opened by a + New session button
@@ -54,6 +57,9 @@ LOOK_CSS = (
 )
 LOOK_ID = b"callboard-look"
 
+WEB = os.path.join("webview", "index.js")
+WEB_BACKUP = WEB + ".callboard-orig"
+
 
 # (label, pattern, replacement). The replacement gets the match; each pattern is checked on the unpatched file.
 ANCHORS = (
@@ -89,6 +95,34 @@ def look_problem(raw):
     if n != 1:
         return "look anchor (%s)" % ("no match" if n == 0 else "%d matches" % n)
     return "the file already contains %s" % LOOK_ID.decode() if LOOK_ID in raw else None
+
+
+# The opt-in folder pill, in the webview bundle: the composer footer's element list, `S` the session, `ST` the footer's fit stage, `M` the element function.
+# The pill goes after the context meter (`m(aFt,{session:e})`) and before the Remote Control chip, shows the last part of the session's folder (cwd, the
+# panel's own folder) with the full path as its title, and is left out at the narrowest fit stage (2) like the model pill. Inline style, so no stylesheet is needed.
+PILL_ANCHOR = (rb'("data-fit-stage":(?P<st>ID),children:\[(?:(?!"data-fit-stage")[\s\S]){0,2500}?)(?P<jsx>ID)\((?P<comp>ID),\{session:(?P<s>ID)\}\),'
+               rb'(?P=s)\.remoteControlState\.value\.status!=="disconnected"&&').replace(b"ID", ID)
+PILL_ID = b"data-callboard"
+PILL_STYLE = (b'{display:"block",flexShrink:0,maxWidth:"11em",boxSizing:"border-box",padding:"0 8px",borderRadius:"9999px",fontSize:".85em",'
+              b'lineHeight:"var(--app-pill-min-height)",background:"var(--app-pill-background)",color:"var(--app-pill-foreground)",'
+              b'overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}')
+
+
+def pill_block(m):
+    s, cwd = m.group("s"), m.group("s") + b".cwd.value"
+    return (m.group(1) + m.group("jsx") + b"(" + m.group("comp") + b",{session:" + s + b"})," + m.group("st") + b"!==2&&" + cwd + b"&&" + m.group("jsx")
+            + b'("span",{"' + PILL_ID + b'":"folder",title:' + cwd + b",style:" + PILL_STYLE + b",children:" + cwd + rb'.split(/[\\/]/).filter(Boolean).pop()}),'
+            + s + b'.remoteControlState.value.status!=="disconnected"&&')
+
+
+def pill_problem(raw):
+    """Why the pill cannot go in (None when it can): the file is missing, its anchor does not match exactly once, or it already holds the pill."""
+    if raw is None:
+        return "%s is missing" % WEB
+    n = len(re.findall(PILL_ANCHOR, raw))
+    if n != 1:
+        return "pill anchor (%s)" % ("no match" if n == 0 else "%d matches" % n)
+    return "the file already contains %s" % PILL_ID.decode() if PILL_ID in raw else None
 
 
 def pick(sid, opt):
@@ -147,6 +181,12 @@ def put(path, content, mode):
 
 def digest(raw):
     return hashlib.sha256(raw).hexdigest()
+
+
+def pill_of(m):
+    """The marker's pill field ({original_sha256, patched_sha256} of webview/index.js), or None."""
+    p = m.get("pill") if m else None
+    return p if isinstance(p, dict) and all(isinstance(p.get(k), str) for k in ("original_sha256", "patched_sha256")) else None
 
 
 def version(ext):
@@ -208,18 +248,53 @@ def state(ext):
     m = marker_of(ext)
     if m is not None and m["patched_sha256"] == digest(raw):
         return "patched", ver, ""
-    left = [n for n in (MARKER, BACKUP) if os.path.lexists(os.path.join(ext, n))]
+    left = [n for n in (MARKER, BACKUP, WEB_BACKUP) if os.path.lexists(os.path.join(ext, n))]
     if left:
         return "leftovers", ver, ", ".join(left)
     bad = problems(raw)
     return ("anchors-missing", ver, "; ".join(bad)) if bad else ("unpatched-patchable", ver, "")
 
 
-def apply(ext):
+def add_pill(ext):
+    """The folder pill, a step of its own after the main patch: a miss or a failure refuses only the pill and leaves the rest as it was. Returns the exit code."""
+    web, marker = os.path.join(ext, WEB), os.path.join(ext, MARKER)
+    raw, old = read(web), read(marker)
+    m = marker_of(ext)
+    if m is not None and pill_of(m) is not None and raw is not None and digest(raw) == pill_of(m)["patched_sha256"]:
+        print("pill already in")
+        return 0
+    miss = pill_problem(raw)
+    if miss is None and os.path.lexists(os.path.join(ext, WEB_BACKUP)):
+        miss = "%s is left over from an earlier run; run --undo first" % WEB_BACKUP
+    if miss is not None:
+        print("pill refused: %s. Nothing was changed for it; the rest of the patch is as it was." % miss)
+        return 1
+    new = re.sub(PILL_ANCHOR, pill_block, raw)
+    backup = os.path.join(ext, WEB_BACKUP)
+    try:
+        os.link(web, backup)
+        put(web, new, os.stat(web).st_mode & 0o777)
+        put(marker, json.dumps(dict(m, pill={"original_sha256": digest(raw), "patched_sha256": digest(new)})).encode() + b"\n", 0o644)
+        if read(web) != new:
+            raise OSError("the file read back differs")
+    except BaseException as e:
+        if os.path.lexists(backup):
+            os.replace(backup, web)
+        if os.path.lexists(backup):
+            os.unlink(backup)
+        if read(marker) != old:
+            put(marker, old, 0o644)
+        print("pill refused: could not patch (%s); %s is back as it was." % (e.strerror if isinstance(e, OSError) and e.strerror else type(e).__name__, WEB))
+        return 1
+    print("pill in: %s (backup: %s, and a pill field in %s). Reload the VS Code window; --undo takes it out with the rest." % (WEB, WEB_BACKUP, MARKER))
+    return 0
+
+
+def apply(ext, with_pill=False):
     name, ver, detail = state(ext)
     if name == "patched":
         print("already patched %s" % ver)
-        return 0
+        return add_pill(ext) if with_pill else 0
     if name == "leftovers":
         refuse("%s from an earlier run is in %s but does not match the file; run --undo first" % (detail, show(ext)))
     if name == "anchors-missing":
@@ -251,29 +326,42 @@ def apply(ext):
     if not look:
         print("warning: the panel look is not in (%s); the folder patch is." % look_problem(raw))
     print("Reload the VS Code window (Developer: Reload Window) to load it. Undo: run this with --undo.")
-    return 0
+    return add_pill(ext) if with_pill else 0
+
+
+def revert_plan(ext, rel, backup, want):
+    """What putting `rel` back takes: (the original's bytes or None, whether the file must be written). Refuses when the original is in doubt.
+    `want` is the sha256 the marker records for the original, or None when it records none."""
+    orig, raw = read(os.path.join(ext, backup)), read(os.path.join(ext, rel))
+    if orig is not None and want is not None and digest(orig) != want:
+        refuse("%s does not match the marker's recorded original; left alone. Reinstall the extension instead" % backup)
+    if orig is None:
+        if want is None or raw is None or digest(raw) != want:
+            refuse("the backup is gone and %s is not known to be the original; reinstall the extension instead" % rel)
+        return None, False
+    return orig, raw != orig
 
 
 def undo(ext):
     version(ext)
-    main = os.path.join(ext, MAIN)
     m = marker_of(ext)
-    orig = read(os.path.join(ext, BACKUP))
-    if orig is None and not os.path.lexists(os.path.join(ext, MARKER)):
+    pill = pill_of(m)
+    has_web = os.path.lexists(os.path.join(ext, WEB_BACKUP))
+    if read(os.path.join(ext, BACKUP)) is None and not os.path.lexists(os.path.join(ext, MARKER)) and not has_web:
         print("nothing to undo")
         return 0
-    if orig is not None and m is not None and digest(orig) != m["original_sha256"]:
-        refuse("%s does not match the marker's recorded original; left alone. Reinstall the extension instead" % BACKUP)
-    raw = read(main)
-    if orig is None:
-        if m is None or raw is None or digest(raw) != m["original_sha256"]:
-            refuse("the backup is gone and %s is not known to be the original; reinstall the extension instead" % MAIN)
-    elif raw != orig:
-        put(main, orig, os.stat(main).st_mode & 0o777)
-    for n in (BACKUP, MARKER):
+    # Both files are checked before either is written, so a doubt about one leaves the other alone too.
+    plans = [(MAIN, BACKUP, m["original_sha256"] if m else None)]
+    if has_web or pill:
+        plans.append((WEB, WEB_BACKUP, pill["original_sha256"] if pill else None))
+    todo = [(rel, revert_plan(ext, rel, backup, want)) for rel, backup, want in plans]
+    for rel, (orig, write) in todo:
+        if write:
+            put(os.path.join(ext, rel), orig, os.stat(os.path.join(ext, rel)).st_mode & 0o777)
+    for n in (BACKUP, WEB_BACKUP, MARKER):
         if os.path.lexists(os.path.join(ext, n)):
             os.unlink(os.path.join(ext, n))
-    print("undone: the original %s is back, backup and marker removed" % MAIN)
+    print("undone: the original %s %s back, backup and marker removed" % (" and ".join(rel for rel, _ in todo), "is" if len(todo) == 1 else "are"))
     print("Reload the VS Code window to load it.")
     return 0
 
@@ -281,26 +369,35 @@ def undo(ext):
 def main(argv):
     args = [a for a in argv if not a.startswith("--")]
     flags = [a for a in argv if a.startswith("--")]
-    if len(args) != 1 or any(f not in ("--apply", "--undo") for f in flags) or len(flags) > 1:
-        usage("usage: patch-claude.py EXTENSION_DIR [--apply | --undo]")
+    pill = "--with-pill" in flags
+    modes = [f for f in flags if f != "--with-pill"]
+    if len(args) != 1 or any(f not in ("--apply", "--undo", "--with-pill") for f in flags) or len(set(flags)) != len(flags) or len(modes) > 1 or (pill and modes == ["--undo"]):
+        usage("usage: patch-claude.py EXTENSION_DIR [--apply | --undo] [--with-pill (not with --undo)]")
     if os.geteuid() == 0:
         refuse("run this as your user, not as root")
     ext = os.path.abspath(args[0])
     if os.path.islink(ext) or not os.path.isdir(ext):
         refuse("%s is not a folder (a link is refused too)" % show(ext))
-    if flags == ["--apply"]:
-        return apply(ext)
-    if flags == ["--undo"]:
+    if modes == ["--apply"]:
+        return apply(ext, pill)
+    if modes == ["--undo"]:
         return undo(ext)
     name, ver, detail = state(ext)
     print("%s %s%s" % (name, ver, ": " + detail if detail else ""))
+    if name == "leftovers":
+        print("A backup or marker from an earlier run is here and does not match the file: run --undo.")
     miss = look_problem(read(os.path.join(ext, MAIN))) if name == "unpatched-patchable" else None
     if miss:
         print("warning: the panel look would be left out (%s); the folder patch would still apply." % miss)
-    if name == "patched" and marker_of(ext).get("look") is not True:
+    m = marker_of(ext) if name == "patched" else None
+    if m is not None and m.get("look") is not True:
         print("warning: the panel look is not in this patch.")
-    if name == "leftovers":
-        print("A backup or marker from an earlier run is here and does not match the file: run --undo.")
+    if m is not None and pill_of(m) is not None:
+        web = read(os.path.join(ext, WEB))
+        print("pill: in" if web is not None and digest(web) == pill_of(m)["patched_sha256"] else "warning: the pill is not in (%s does not match the marker)." % WEB)
+    elif pill and name in ("patched", "unpatched-patchable"):
+        miss = pill_problem(read(os.path.join(ext, WEB)))
+        print("pill: would be refused (%s)" % miss if miss else "pill: --apply --with-pill would add it")
     return 1 if name in ("anchors-missing", "leftovers") else 0
 
 

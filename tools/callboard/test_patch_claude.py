@@ -381,6 +381,206 @@ class Look(Case):
         self.assertEqual(sorted(os.listdir(ext)), ["extension.js", "package.json"])
 
 
+# The composer footer of the webview bundle, as the extension writes it: the fit stage on the footer, then the element list.
+WEB_TEMPLATE = (
+    'var q="é";function F({e},{st},{m},{k}){{return {k}("div",{{className:"f","data-fit-stage":{st},children:[{m}(rFt,{{}}),{m}(aFt,{{session:{e}}}),'
+    '{e}.remoteControlState.value.status!=="disconnected"&&({e}.remoteControlState.value.status==="connected"||{e}.remoteControlAvailable.value!==!1)'
+    '&&{m}(CFt,{{session:{e}}}),qe&&{m}(sFt,{{session:{e},onOpen:l}}),{st}!==2&&{m}(nAe,{{...Vt}}),{m}(pFt,{{}})]}})}}'
+)
+W1 = dict(e="e", st="_", m="m", k="k")
+W2 = dict(e="$s", st="$t", m="$j", k="$k")
+# Runs the footer of a patched stand-in for a folder and a fit stage and prints its element list and the pill.
+FOOTER = r"""
+const vm = require('vm'), fs = require('fs')
+const ctx = vm.createContext({ rFt: 'rFt', aFt: 'aFt', CFt: 'CFt', sFt: 'sFt', nAe: 'nAe', pFt: 'pFt', qe: true, l: 0, Vt: {} })
+vm.runInContext(fs.readFileSync(process.argv[1], 'utf8') + ';globalThis.F=F', ctx)
+const j = (c, p) => ({ c, p }), k = (c, p) => p.children
+const out = {}
+for (const [name, cwd] of Object.entries({ unix: '/a/b/proj', win: 'C:\\x\\y\\win', slash: '/a/b/', none: undefined })) {
+  for (const stage of [0, 1, 2]) {
+    const sess = { cwd: { value: cwd }, remoteControlAvailable: { value: true }, remoteControlState: { value: { status: 'connected' } } }
+    const kids = ctx.F(sess, stage, j, k).filter(Boolean)
+    const pill = kids.find((x) => x.p && x.p['data-callboard'])
+    out[name + stage] = { order: kids.map((x) => x.c), text: pill ? pill.p.children : null, title: pill ? pill.p.title : null }
+  }
+}
+console.log(JSON.stringify(out))
+"""
+
+
+class Pill(Case):
+    """The opt-in folder pill: a second file, its own marker field, and a miss that costs only the pill."""
+
+    def web(self, ext, variant=W1, raw=None):
+        os.makedirs(os.path.join(ext, "webview"), exist_ok=True)
+        with open(os.path.join(ext, "webview", "index.js"), "wb") as f:
+            f.write(raw if raw is not None else WEB_TEMPLATE.format(**variant).encode("utf-8"))
+        return ext
+
+    def webjs(self, ext=None):
+        return slurp(os.path.join(ext or self.ext, "webview", "index.js"))
+
+    def marker(self, ext=None):
+        return json.loads(slurp(os.path.join(ext or self.ext, "callboard-cwd-patch.json")))
+
+    def test_a_plain_apply_never_touches_the_webview(self):
+        self.web(self.ext)
+        web = self.webjs()
+        self.run_script(self.ext, "--apply")
+        self.assertEqual((self.rc, self.webjs(), "pill" in self.marker()), (0, web, False))
+        self.assertFalse(os.path.exists(os.path.join(self.ext, "webview", "index.js.callboard-orig")))
+
+    def test_apply_with_the_pill_patches_both_files_and_one_undo_removes_both(self):
+        self.web(self.ext)
+        orig, web = self.js(), self.webjs()
+        self.run_script(self.ext, "--apply", "--with-pill")
+        self.assertEqual(self.rc, 0, self.err)
+        self.assertEqual(self.out.splitlines()[0], "patched 2.1.328")
+        self.assertIn("pill in: webview/index.js", self.out)
+        new = self.webjs()
+        self.assertEqual(new.count(b"data-callboard"), 1)
+        self.assertIn("é".encode("utf-8"), new)
+        self.assertEqual(slurp(os.path.join(self.ext, "webview", "index.js.callboard-orig")), web)
+        m = self.marker()
+        self.assertEqual(m["pill"], {"original_sha256": hashlib.sha256(web).hexdigest(), "patched_sha256": hashlib.sha256(new).hexdigest()})
+        self.assertEqual(m["patched_sha256"], hashlib.sha256(self.js()).hexdigest(), "the main file's fields are what they were")
+        self.assertEqual(os.stat(os.path.join(self.ext, "webview", "index.js")).st_mode & 0o777, os.stat(os.path.join(self.ext, "webview", "index.js.callboard-orig")).st_mode & 0o777)
+        self.run_script(self.ext)
+        self.assertEqual((self.rc, self.out.splitlines()), (0, ["patched 2.1.328", "pill: in"]))
+        self.assertUnchanged(self.ext, "--apply", "--with-pill")
+        self.assertEqual((self.rc, self.out), (0, "already patched 2.1.328\npill already in\n"))
+        self.run_script(self.ext, "--undo")
+        self.assertEqual(self.rc, 0)
+        self.assertIn("the original extension.js and webview/index.js are back", self.out)
+        self.assertEqual((self.js(), self.webjs()), (orig, web))
+        self.assertEqual(sorted(os.listdir(self.ext)), ["extension.js", "package.json", "webview"])
+        self.assertEqual(os.listdir(os.path.join(self.ext, "webview")), ["index.js"])
+
+    def test_the_pill_can_be_added_later_and_touches_only_the_webview_then(self):
+        self.web(self.ext)
+        self.run_script(self.ext, "--apply")
+        main = self.js()
+        self.run_script(self.ext, "--with-pill")
+        self.assertEqual((self.rc, self.out.splitlines()[-1]), (0, "pill: --apply --with-pill would add it"))
+        self.run_script(self.ext, "--apply", "--with-pill")
+        self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "already patched 2.1.328"))
+        self.assertEqual(self.js(), main)
+        self.assertIn(b"data-callboard", self.webjs())
+        self.run_script(self.ext, "--undo")
+        self.assertEqual(sorted(os.listdir(self.ext)), ["extension.js", "package.json", "webview"])
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_the_patched_footer_shows_the_folder_name_and_leaves_at_the_narrowest_stage(self):
+        for variant in (W1, W2):
+            ext = self.web(self.make(V327, name="w" + variant["e"].strip("$")), variant)
+            self.run_script(ext, "--apply", "--with-pill")
+            self.assertEqual(self.rc, 0, self.err)
+            p = subprocess.run(["node", "-e", FOOTER, os.path.join(ext, "webview", "index.js")], capture_output=True, text=True, timeout=60)
+            self.assertEqual(p.returncode, 0, p.stderr)
+            got = json.loads(p.stdout)
+            full = ["rFt", "aFt", "span", "CFt", "sFt", "nAe", "pFt"]
+            self.assertEqual(got["unix0"], {"order": full, "text": "proj", "title": "/a/b/proj"}, "after the context meter, before the Remote Control chip")
+            self.assertEqual(got["unix1"]["order"], full)
+            self.assertEqual(got["unix2"], {"order": ["rFt", "aFt", "CFt", "sFt", "pFt"], "text": None, "title": None}, "gone at the narrowest stage, like the model pill")
+            self.assertEqual((got["win0"]["text"], got["win0"]["title"]), ("win", "C:\\x\\y\\win"))
+            self.assertEqual(got["slash0"]["text"], "b")
+            for stage in "012":
+                self.assertNotIn("span", got["none" + stage]["order"], "no folder known yet: no pill")
+
+    def test_a_pill_miss_refuses_only_the_pill(self):
+        base = WEB_TEMPLATE.format(**W1)
+        misses = {
+            "anchor gone": base.replace('"disconnected"&&', '"gone"&&'),
+            "stage gone": base.replace('"data-fit-stage"', '"data-fit"'),
+            "two footers": base + base.replace("function F", "function G"),
+            "already there": base + 'var z="data-callboard";',
+        }
+        for label, raw in misses.items():
+            ext = self.web(self.make(V327, name="pm%d" % len(os.listdir(self.t))), raw=raw.encode("utf-8"))
+            self.run_script(ext, "--with-pill")
+            self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "unpatched-patchable 2.1.328"), label)
+            self.assertIn("pill: would be refused (", self.out, label)
+            self.run_script(ext, "--apply", "--with-pill")
+            self.assertEqual(self.rc, 1, label)
+            self.assertEqual(self.out.splitlines()[0], "patched 2.1.328", label)
+            self.assertIn("pill refused: ", self.out, label)
+            self.assertEqual(self.js(ext).count(b"cbCwd"), 5, label)
+            self.assertEqual(self.webjs(ext), raw.encode("utf-8"), label)
+            self.assertNotIn("pill", self.marker(ext), label)
+            self.assertFalse(os.path.exists(os.path.join(ext, "webview", "index.js.callboard-orig")), label)
+            self.run_script(ext)
+            self.assertEqual((self.rc, self.out), (0, "patched 2.1.328\n"), label)
+            self.run_script(ext, "--undo")
+            self.assertEqual((self.rc, self.webjs(ext)), (0, raw.encode("utf-8")), label)
+
+    def test_no_webview_file_refuses_only_the_pill(self):
+        self.run_script(self.ext, "--apply", "--with-pill")
+        self.assertEqual((self.rc, self.out.splitlines()[0]), (1, "patched 2.1.328"))
+        self.assertIn("pill refused: webview/index.js is missing", self.out)
+        self.assertEqual(self.js().count(b"cbCwd"), 5)
+
+    def test_a_failed_pill_write_puts_the_webview_and_the_marker_back_and_keeps_the_patch(self):
+        for failing in ("index.js", "callboard-cwd-patch.json"):
+            ext = self.web(self.make(V327, name="pf-" + failing))
+            mod = load_module()
+            self.assertEqual(mod.apply(ext), 0)
+            web, marker, main = self.webjs(ext), slurp(os.path.join(ext, "callboard-cwd-patch.json")), self.js(ext)
+            real = mod.put
+
+            def put(path, content, mode, failing=failing, real=real):
+                if os.path.basename(path) == failing:
+                    raise OSError(28, "No space left on device")
+                real(path, content, mode)
+
+            mod.put = put
+            self.assertEqual(mod.add_pill(ext), 1, failing)
+            self.assertEqual((self.webjs(ext), slurp(os.path.join(ext, "callboard-cwd-patch.json")), self.js(ext)), (web, marker, main), failing)
+            self.assertEqual(sorted(os.listdir(os.path.join(ext, "webview"))), ["index.js"], failing)
+            self.assertEqual(sorted(os.listdir(ext)), ["callboard-cwd-patch.json", "extension.js", "extension.js.callboard-orig", "package.json", "webview"], failing)
+
+    def test_a_webview_that_no_longer_matches_the_marker_is_reported(self):
+        self.web(self.ext)
+        self.run_script(self.ext, "--apply", "--with-pill")
+        with open(os.path.join(self.ext, "webview", "index.js"), "ab") as f:
+            f.write(b"//")
+        self.run_script(self.ext)
+        self.assertEqual(self.rc, 0)
+        self.assertIn("warning: the pill is not in (webview/index.js does not match the marker).", self.out)
+
+    def test_undo_checks_both_files_before_it_changes_either(self):
+        self.web(self.ext)
+        self.run_script(self.ext, "--apply", "--with-pill")
+        os.unlink(os.path.join(self.ext, "webview", "index.js.callboard-orig"))
+        self.assertUnchanged(self.ext, "--undo")
+        self.assertEqual(self.rc, 1)
+        self.assertIn(b"cbCwd", self.js())
+        self.assertIn("backup is gone and webview/index.js is not known", self.err)
+
+    def test_a_webview_backup_that_is_not_the_recorded_original_is_refused(self):
+        self.web(self.ext)
+        self.run_script(self.ext, "--apply", "--with-pill")
+        with open(os.path.join(self.ext, "webview", "index.js.callboard-orig"), "ab") as f:
+            f.write(b"x")
+        self.assertUnchanged(self.ext, "--undo")
+        self.assertEqual(self.rc, 1)
+
+    def test_a_lone_webview_backup_is_a_leftover_and_undo_restores_from_it(self):
+        self.web(self.ext)
+        web = self.webjs()
+        self.run_script(self.ext, "--apply", "--with-pill")
+        os.unlink(os.path.join(self.ext, "callboard-cwd-patch.json"))
+        self.run_script(self.ext)
+        self.assertEqual((self.rc, self.out.split(":")[0]), (1, "leftovers 2.1.328"))
+        self.run_script(self.ext, "--undo")
+        self.assertEqual((self.rc, self.webjs()), (0, web))
+        self.assertEqual(sorted(os.listdir(self.ext)), ["extension.js", "package.json", "webview"])
+
+    def test_the_pill_flag_is_for_check_and_apply_only(self):
+        for args in ([self.ext, "--undo", "--with-pill"], [self.ext, "--with-pill", "--with-pill"], [self.ext, "--apply", "--undo", "--with-pill"]):
+            self.run_script(*args)
+            self.assertEqual(self.rc, 2, args)
+
+
 class Refusals(Case):
     def test_not_a_claude_extension_folder(self):
         for pkg in ({"name": "other", "publisher": "Anthropic", "version": "1.0.0"}, {"name": "claude-code", "publisher": "x", "version": "1.0.0"},
