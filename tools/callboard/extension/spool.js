@@ -109,7 +109,7 @@ async function readStores(dir, { uid = process.getuid(), home = os.homedir() } =
     if (bad) continue
     for (const l of j.lanes) {
       if ((await fsp.realpath(l.folder).catch(() => '')) !== l.folder) continue
-      out.push({ name: l.name, folder: l.folder, repo: j.repo, store: n, ...(l.sid !== undefined ? { sid: l.sid } : {}), ...(l.parked !== undefined ? { parked: l.parked } : {}), ...(l.lead !== undefined ? { lead: l.lead } : {}) })
+      out.push({ name: l.name, folder: l.folder, repo: j.repo, store: n, ...(l.sid !== undefined ? { sid: l.sid } : {}), ...(l.parked !== undefined ? { parked: l.parked } : {}), ...(l.lead !== undefined ? { leadSid: l.lead } : {}) })
     }
   }
   return out
@@ -121,7 +121,7 @@ async function allLanes({ storeDir, uid, home } = {}) {
   const stores = await readStores(storeDir, { uid, home })
   const stored = new Map()
   for (const l of stores) stored.set(l.name, new Set([...(stored.get(l.name) ?? []), l.store]))
-  for (const l of stores) if (stored.get(l.name).size === 1) out.push({ name: l.name, folder: l.folder, repo: l.repo, ...(l.sid !== undefined ? { sid: l.sid } : {}), ...(l.parked !== undefined ? { parked: l.parked } : {}), ...(l.lead !== undefined ? { lead: l.lead } : {}) })
+  for (const l of stores) if (stored.get(l.name).size === 1) out.push({ name: l.name, folder: l.folder, repo: l.repo, ...(l.sid !== undefined ? { sid: l.sid } : {}), ...(l.parked !== undefined ? { parked: l.parked } : {}), ...(l.leadSid !== undefined ? { leadSid: l.leadSid } : {}) })
   return out
 }
 

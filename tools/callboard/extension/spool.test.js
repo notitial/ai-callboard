@@ -281,6 +281,14 @@ test('allLanes reads the stores, and a missing store folder is no lanes', async 
   assert.deepEqual(await allLanes({ storeDir: path.join(w.dir, 'nothere') }), [])
 })
 
+test('allLanes carries an adopted lane\'s lead session id as leadSid and its parked time, never as lead (that key marks a lead record)', async () => {
+  const w = storeWorld()
+  const lead = '5a1b2c3d-0000-4000-8000-123456789abc'
+  const att = { name: 'ATT', folder: w.repo, brief: `${w.repo}/.callboard-attached`, createdAt: 1, adopted: true, lead, sid: '6a1b2c3d-0000-4000-8000-123456789abc', parked: 5 }
+  w.put({ ...w.good, lanes: [att] })
+  assert.deepEqual(await allLanes({ storeDir: w.dir }), [{ name: 'ATT', folder: w.repo, repo: w.repo, sid: att.sid, parked: 5, leadSid: lead }])
+})
+
 test('reserved names are matched by skeleton', async () => {
   for (const n of ['MANAGER', 'manager_', 'MANAGER-2', 'MANAG3R', 'rnANAGER']) assert.equal(reservedHit(n), true, n)
   for (const n of ['LAB', 'API', 'HARBOR', 'MANAGER-API']) assert.equal(reservedHit(n), false, n)
@@ -547,6 +555,14 @@ test('a reopen request for a listed lane whose record names that sid reopens it 
   assert.equal(w.result('LAB'), `ok ${SID}\n`)
   assert.equal(fs.existsSync(f), false)
   assert.deepEqual(fs.readdirSync(w.dir).filter((x) => x.startsWith('.')), [])
+})
+
+test('a reopen of an adopted lane that carries a lead session id and no parked mark reopens it (only a lead record is held to its park window)', async () => {
+  const w = world({ lanes: [{ ...PARKED[0], leadSid: '5a1b2c3d-0000-4000-8000-123456789abc' }] })
+  w.putReopen('LAB')
+  assert.deepEqual(await w.spool.scan(), [['LAB', 'reopened']])
+  assert.deepEqual(w.reopened, [SID])
+  assert.equal(w.result('LAB'), `ok ${SID}\n`)
 })
 
 test('a reopen whose sid is not the record\'s, for a lane with no saved session, or with a bad body is answered with a fixed code and reopens nothing', async () => {

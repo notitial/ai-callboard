@@ -37,7 +37,7 @@ function buildEntries({ table, lanes, rows, now, alive = pidAlive }) {
   for (const [sid, r] of Object.entries(table)) {
     if (SID_RE.test(sid) && r && typeof r.name === 'string' && typeof r.folder === 'string' && r.off !== true) known.set(sid, { sid, name: r.name, folder: r.folder, under: r.under, parked: finite(r.parked), goneAt: finite(r.goneAt) })
   }
-  for (const l of lanes) if (l.sid && !known.has(l.sid)) known.set(l.sid, { sid: l.sid, name: l.name, folder: l.folder, under: l.lead, parked: finite(l.parked) })
+  for (const l of lanes) if (l.sid && !known.has(l.sid)) known.set(l.sid, { sid: l.sid, name: l.name, folder: l.folder, under: l.leadSid, parked: finite(l.parked) })
   const live = new Map(rows.filter((r) => r && typeof r.sessionId === 'string' && (!Number.isInteger(r.pid) || alive(r.pid))).map((r) => [r.sessionId, r]))
   const out = []
   for (const e of known.values()) {

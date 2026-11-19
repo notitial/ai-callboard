@@ -48,7 +48,7 @@ test('buildEntries: the table wins over a lane store, a store lane without a ses
 
 test('buildEntries: a store lane keeps its parked time and lead; a row under itself, or with a text time, still shows', () => {
   const table = { [sid(1)]: { name: 'LEAD', folder: '/w/a' }, [sid(5)]: { name: 'SELF', folder: '/w/a', under: sid(5) }, [sid(6)]: { name: 'TXT', folder: '/w/a', goneAt: 'soon', parked: 'x' } }
-  const lanes = [{ name: 'STORED', folder: '/w/a', sid: sid(4), lead: sid(1), parked: NOW - MIN }]
+  const lanes = [{ name: 'STORED', folder: '/w/a', sid: sid(4), leadSid: sid(1), parked: NOW - MIN }]
   const got = build({ table, lanes })
   assert.deepEqual(got.map((e) => [e.name, e.state, e.lead, e.age]), [['LEAD', 'closed', undefined, undefined], ['SELF', 'closed', undefined, undefined], ['STORED', 'parked', 'LEAD', '1m'], ['TXT', 'closed', undefined, undefined]])
 })
