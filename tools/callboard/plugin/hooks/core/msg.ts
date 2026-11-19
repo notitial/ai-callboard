@@ -33,6 +33,7 @@ export type RefuseCode =
   | 'not-eligible'
   | 'person-only'
   | 'ask-closed'
+  | 'input-cut' // an allow of an ask whose input a reader has not seen whole
   | 'compact-rate'
   | 'compact-floor'
   | 'compact-busy'
@@ -40,6 +41,7 @@ export type RefuseCode =
   | 'go-declined'
   | 'cue-held'
   | 'cue-refused'
+  | 'cue-stale'
 
 // The command forms. One help row each: `help.<name>`.
 export type CommandName = 'status' | 'lanes' | 'help' | 'lead' | 'lead-off' | 'off' | 'on' | 'go' | 'go-off' | 'unattended' | 'config' | 'rest'
@@ -95,6 +97,9 @@ type Fixed = {
   'ask.denied': { ask: string }
   'ask.answered': { ask: string }
   'ask.escalated': { ask: string; to: string }
+  // What the asker reads when a session or the person decides its ask: a deny with its note, or the chosen label (bare when by is the person).
+  'ask.denyText': { by: string; note: string }
+  'ask.answerText': { label: string; by: string }
 
   // The child tools' results (a refusal is `refuse.<code>`).
   'lane.cued': { verb: CueVerb; name: string }
