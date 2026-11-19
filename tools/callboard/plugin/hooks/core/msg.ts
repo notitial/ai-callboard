@@ -1,7 +1,8 @@
-// Every string a person or a model reads, by message id, and the parameters its text takes. The core returns `{ act, msg, p }`; `texts.ts` (not written yet) is typed
+// Every string a person or a model reads, by message id, and the parameters its text takes. The core returns `{ act, msg, p }`; `texts.ts` is typed
 // `T: { [K in MsgId]: (p: Params[K]) => string }`, so a missing id or a wrong parameter fails the type check. The ids are listed by group;
 // a family written `${...}` is one id per member of the named union. Types only.
-import type { Config, CueVerb, StopVerb, ToolName } from './model.ts'
+import type { AskEvent, Capability, Config, CueVerb, Question, RaisedBy, StopVerb, ToolName } from './model.ts'
+import type { PrNote } from './pr.ts'
 
 // The codes a refusal carries. One id per code: `refuse.<code>`.
 export type RefuseCode =
@@ -50,12 +51,20 @@ export type CommandName = 'status' | 'lanes' | 'help' | 'lead' | 'lead-off' | 'o
 export type UiColumn = 'name' | 'role' | 'state' | 'parent' | 'folder' | 'context' | 'fiveHour' | 'sevenDay' | 'cost' | 'read'
 export type UiState = 'live' | 'busy' | 'parked' | 'gone' | 'done' | 'off' | 'notOpened' | 'unknown'
 
+// One row of /callboard status: what is shown and its value, as the person reads it (a name, `PERSON` or `unknown` for a parent; a window's end as a time, or null).
+export type StatusRow =
+  | { field: 'role'; value: Capability }
+  | { field: 'parent' | 'manager'; value: string | null }
+  | { field: 'off' | 'keepalive'; value: boolean }
+  | { field: 'unattended'; value: string | null }
+  | { field: 'goes'; value: number }
+
 type E = Record<never, never>
 type RefuseP = { tool: string; target?: string; detail?: string }
 type Names = { name: string }
 type AskRef = { ask: string }
 
-type Fixed = {
+export type Fixed = {
   // Notes and briefings: the plugin's frame around a briefing, then the three briefings (a parent with the ask rubric, the manager with its rules file, a child).
   'note.frame': { body: string }
   'brief.parent': { name: string; repos: string[] }
@@ -68,8 +77,10 @@ type Fixed = {
   'cue.resume': Names
   'compact.queued': E
   'compact.note': { focus: string; continuation: string }
-  'compact.cut': E
-  'compact.start': E
+  'compact.notRun': { reason: string }
+  'compact.unconfirmed': { reason: string }
+  'compact.cut': E // toast: a restart may have cut a compaction off
+  'compact.start': E // toast: callboard starts this session's own compaction
 
   // Nudges (the 300k, 400k and 150k kinds) and the keepalive ping.
   'nudge.idle': { k: number }
@@ -86,8 +97,9 @@ type Fixed = {
   'event.waiting': Names & { why: string }
   'event.quiet': Names & { minutes: number }
   'event.report': Names & { code: string }
+  'pr.turn': { lines: string[] }
   'pr.watching': { pr: string }
-  'pr.note': { pr: string; change: string }
+  'pr.note': Omit<PrNote, 'at'>
 
   // The ask: the two close texts, the subagent deny, and what each prompt tool answers.
   'ask.expired': { parent: string }
@@ -135,7 +147,7 @@ type Fixed = {
   'dialog.stop.header': E
   'dialog.stop.question': { name: string; verb: StopVerb }
   'dialog.relay.header': { asker: string }
-  'dialog.relay.question': { asker: string; tool: string; input: string }
+  'dialog.relay.question': { asker: string; tool: string; input: string; cut: boolean }
   'dialog.allow': E
   'dialog.deny': E
   'dialog.yes': E
@@ -156,16 +168,23 @@ type Fixed = {
   'toast.noManager': E // the manager is off, renamed away from the file's name, or gone
   'toast.report': Names & { code: string } // a refusal or fallback `report()`, where the parent is the person
 
-  // UI: the status page, the lane list, prompt_list (the rules file first), the unattended and go lists.
+  // UI: the status page, the lane list, prompt_list (the rules file first), the unattended and go lists. A status row is its label and its value in one text.
   'ui.status.head': E
+  'ui.status.row': StatusRow
+  'ui.person': E
   'ui.lanes.head': E
   'ui.lanes.none': E
   'ui.rules': { rules: string; cut: boolean }
   'ui.rules.none': E
   'ui.asks.none': E
+  'ui.ask': { id: string; asker: string; tool: string; ageMin: number; raisedBy: RaisedBy; yours: boolean; personOnly: boolean; input: string; cut: boolean; question?: Question }
   'ui.unattended.head': { end: string }
+  'ui.unattended.open': E
+  'ui.unattended.decided': E
+  'ui.unattended.row': { time: string; ev: AskEvent; asker: string; ask: string; by?: string }
   'ui.unattended.none': E
   'ui.goes.head': E
+  'ui.goes.row': { id: string; giver: string; text: string; end: string }
   'ui.goes.none': E
   'ui.usage.footnote': E
 }
@@ -176,6 +195,7 @@ export type Params = Fixed &
   { [K in `tool.${ToolName}`]: E } &
   { [K in `help.${CommandName}`]: E } &
   { [K in `ui.col.${UiColumn}`]: E } &
+  { [K in `ui.role.${Capability}`]: E } &
   { [K in `ui.state.${UiState}`]: E }
 
 export type MsgId = keyof Params
