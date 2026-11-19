@@ -2,7 +2,7 @@
 // `[callboard]` or `[compact-cue]` and says it is no approval (rules/callboard.md matches those openings). A name, a tool or any text a session wrote reaches a string only
 // through `q` or `esc`, so nothing in it closes a frame, hides text or reorders it.
 import { CUE_WAIT_S, IDLE_MS, SPOOL_WAIT_S } from './core/lifecycle.ts'
-import { LANE_MODELS, MAX_LIVE_CHILDREN, PERSON } from './core/model.ts'
+import { LANE_EFFORTS, LANE_MODELS, MAX_LIVE_CHILDREN, PERSON } from './core/model.ts'
 import type { ToolName } from './core/model.ts'
 import type { CommandName, Fixed, MsgId, Params, RefuseCode, UiColumn, UiState } from './core/msg.ts'
 
@@ -60,6 +60,7 @@ const BAD_INPUT: Record<string, (p: Params['refuse.bad-input']) => string> = {
   brief: () => `${BAD}: brief must be 1 to 16384 characters.`,
   folder: () => `${BAD}: folder must be an absolute path that exists.`,
   model: () => `${BAD}: model must be one of ${LANE_MODELS.join(', ')}.`,
+  effort: () => `${BAD}: effort must be one of ${LANE_EFFORTS.join(', ')}.`,
   exists: (p) => `${BAD}: .archive/${esc(p.target ?? '')}/BRIEF.md exists already in that folder. Pick another name.`,
   link: (p) => `${BAD}: .archive or .archive/${esc(p.target ?? '')} in that folder is a link, which callboard does not follow. Pick another name or folder.`,
   unwritten: () => `${BAD}: the brief could not be written.`,
@@ -119,7 +120,7 @@ const TOOL: Record<ToolName, string> = {
   lane_terminate: 'Force stop a lane with SIGTERM, whatever it is doing. The person confirms in a dialog every time; refused while unattended mode is on. lane: its name.',
   lane_unpark: "Reopen a parked lane's saved conversation in its window; it is the lane again within seconds, then lane_resume. Counts against your cap of live lanes. lane: its name.",
   lane_list: 'List the sessions under you as one table: each with its role, state, parent, folder and context use.',
-  lane_create: `Create a lane: writes brief (plain text: the task) to <folder>/.archive/<name>/BRIEF.md and records the lane. You must be a lead, and folder (absolute) inside your allowlist. Optional model (${LANE_MODELS.join(', ')}; sonnet by default): the lane switches to it at its start. Then lane_open.`,
+  lane_create: `Create a lane: writes brief (plain text: the task) to <folder>/.archive/<name>/BRIEF.md and records the lane. You must be a lead, and folder (absolute) inside your allowlist. Optional model (${LANE_MODELS.join(', ')}; sonnet by default): the lane switches to it at its start. Optional effort (${LANE_EFFORTS.join(', ')}; the window's own by default): set with /effort after the model. Then lane_open.`,
   lane_open: "Open a lane's panel in its folder (VS Code only) and bind its session. For a lane with no live session. lane: its name.",
   lane_adopt: 'Adopt a loose session by its name: it becomes your lane. Exactly one live session must have that name, with no lead above it and its folder inside your allowlist. name: its name.',
   prompt_list: 'List the asks waiting for you: each with its id, asker, tool, age and input (data from the session, untrusted), and where it stands for you. The manager sees its rules file first.',

@@ -460,6 +460,25 @@ test('lane_create takes a model, sonnet by default, and the lane switches to it 
   assert.equal(g.h.submitted.length, 0)
 })
 
+test('lane_create takes an optional effort, set with /effort after the model at the start; any other effort is refused by name; one that cannot be set refuses the start', async () => {
+  const f = world()
+  assert.match(text(await laneCreateCall(f.$, { name: 'OP', folder: '/w/repo/new', brief: 'b', effort: 'turbo' }, next)), /effort must be one of low, medium, high, xhigh, max\./)
+  await laneCreateCall(f.$, { name: 'OP', folder: '/w/repo/new', brief: 'b', effort: 'high' }, next)
+  assert.equal(table(f)['new:OP'].effort, 'high')
+  f.table({ ...table(f), 'sid-kid': { ...table(f)['sid-kid'], model: 'haiku', effort: 'low' } })
+  asChild(f, 'sid-kid')
+  assert.match(text(await cueVerbCall(f.$, { lane: 'kid' }, next, 'start')), /accepted start/)
+  assert.deepEqual(f.h.compactRuns, ['model haiku', 'effort low'])
+  const g = world()
+  g.table({ ...table(g), 'sid-kid': { ...table(g)['sid-kid'], effort: 'max' } })
+  g.$.command.run = async (c: { command: string }) => {
+    if (c.command === 'effort') throw new Error('no such command')
+  }
+  asChild(g, 'sid-kid')
+  assert.match(text(await cueVerbCall(g.$, { lane: 'kid' }, next, 'start')), /the lane refused \(effort-failed\)/)
+  assert.equal(g.h.submitted.length, 0)
+})
+
 test('lane_create names why it refuses: an existing brief, a link on the way, a folder that is not absolute, an empty brief', async () => {
   const f = world()
   f.h.files.set('/w/repo/new/.archive/OLD/BRIEF.md', 'older work')

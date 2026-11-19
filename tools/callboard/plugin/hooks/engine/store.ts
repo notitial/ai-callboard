@@ -3,8 +3,8 @@
 // its parse is no file; the table is written under one lock by read-modify-write, and an unreadable table is never overwritten.
 import { parseConfig } from '../core/commands.ts'
 import { parseGo } from '../core/go.ts'
-import type { Answer, Ask, AskLogRow, Config, Go, LaneModel, ManagerName, RaisedBy, Registry, RegistryRow, Row, Sid, Table, UpMark, View } from '../core/model.ts'
-import { LANE_MODELS, liveView } from '../core/model.ts'
+import type { Answer, Ask, AskLogRow, Config, Go, LaneEffort, LaneModel, ManagerName, RaisedBy, Registry, RegistryRow, Row, Sid, Table, UpMark, View } from '../core/model.ts'
+import { LANE_EFFORTS, LANE_MODELS, liveView } from '../core/model.ts'
 import { createExcl, home, locked, path, readText, rm, run, writeFile } from './io.ts'
 import { mem, staleView } from './mem.ts'
 
@@ -79,6 +79,7 @@ function parseTable(text: string): Table | undefined {
     if (typeof lead === 'object' && lead !== null && Array.isArray(lead.repos)) row.lead = { repos: lead.repos.filter((x): x is string => typeof x === 'string') }
     if (o.off === true) row.off = true
     if ((LANE_MODELS as readonly unknown[]).includes(o.model)) row.model = o.model as LaneModel
+    if ((LANE_EFFORTS as readonly unknown[]).includes(o.effort)) row.effort = o.effort as LaneEffort
     t[k] = row
   }
   return t

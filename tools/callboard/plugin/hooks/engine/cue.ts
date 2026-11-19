@@ -53,7 +53,7 @@ async function act($: any, me: Sid, v: View, cue: Cue): Promise<CueResult> {
   const brief = row?.brief
   if (cue.verb === 'start' && (brief === undefined || !brief.startsWith(`${row!.folder}/.archive/`) || brief.includes('..'))) return refused('no-brief')
   if (own?.name !== name && !(await ran($, 'rename', name, 10_000))) return refused('rename-failed')
-  if (cue.verb === 'start' && row!.model !== undefined && !(await ran($, 'model', row!.model, 5_000))) return refused('model-failed')
+  for (const k of ['model', 'effort'] as const) if (cue.verb === 'start' && row![k] !== undefined && !(await ran($, k, row![k]!, 5_000))) return refused(`${k}-failed`)
   if (cue.verb === 'start' && !(await submitOwn($, T['cue.start']({ name, brief: brief!, parent: nameOf(v, cue.from) })).then(() => true, () => false))) return refused('failed')
   return { id: cue.id, outcome: 'ok' }
 }

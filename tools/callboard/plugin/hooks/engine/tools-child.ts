@@ -2,8 +2,8 @@
 // (the tools stay registered after `lead off`): the main agent only, a fresh reading of the machine, the lead capability or the manager; a lane is named by `lane` and a name more than one
 // session carries is refused, never guessed; the core's gates (`verbPlan`, `mayCreate`, `mayAdopt`) decide, and a stop is decided again after the person's dialog and just before the signal;
 // a force stop always opens the person's dialog; a reply that makes or takes a lane names its lead.
-import type { Decision, LaneModel, Row, Sid, StopVerb, View } from '../core/model.ts'
-import { LANE_MODELS, MAX_LIVE_CHILDREN, capRefusal, capability, liveChildren, liveness, mayActOn, mayAdopt, mayCreate, nameOf, parent, refusal } from '../core/model.ts'
+import type { Decision, LaneEffort, LaneModel, Row, Sid, StopVerb, View } from '../core/model.ts'
+import { LANE_EFFORTS, LANE_MODELS, MAX_LIVE_CHILDREN, capRefusal, capability, liveChildren, liveness, mayActOn, mayAdopt, mayCreate, nameOf, parent, refusal } from '../core/model.ts'
 import type { CueVerb } from '../core/model.ts'
 import { NEW_KEY, reportPath, verbPlan } from '../core/lifecycle.ts'
 import type { Verb } from '../core/lifecycle.ts'
@@ -166,6 +166,8 @@ export async function laneCreateCall($: any, e: any, _next: any) {
   if (text.length < 1 || text.length > BRIEF_MAX) return bad('brief')
   const model = (e.model ?? 'sonnet') as LaneModel
   if (!LANE_MODELS.includes(model)) return bad('model')
+  const effort = e.effort as LaneEffort | undefined
+  if (effort !== undefined && !LANE_EFFORTS.includes(effort)) return bad('effort')
   const folder = await real($, want)
   if (folder === undefined) return bad('folder')
   const no = mayCreate(v, me, name, folder)
@@ -175,7 +177,7 @@ export async function laneCreateCall($: any, e: any, _next: any) {
   const [dir, key] = [`${folder}/.archive/${name}`, `${NEW_KEY}${name}`]
   const brief = `${dir}/BRIEF.md`
   let taken = false
-  const row: Row = { name, folder, report: reportPath(folder, name), under: me, brief, model }
+  const row: Row = { name, folder, report: reportPath(folder, name), under: me, brief, model, ...(effort === undefined ? {} : { effort }) }
   const written = await updateTable($, (t) => ((taken = Object.values(t).some((r) => r.name === name)) ? t : { ...t, [key]: row }))
   if (taken || !written) return deny(refusal('refuse', taken ? 'name-taken' : 'table-unwritten', { tool, target: name }))
   const linked = !(await plainPath($, `${folder}/.archive`)) || !(await plainPath($, dir))

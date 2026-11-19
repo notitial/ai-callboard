@@ -59,6 +59,7 @@ export type Row = {
   parked?: number
   goneAt?: number
   model?: LaneModel
+  effort?: LaneEffort
 }
 export type Table = { [key: string]: Row }
 
@@ -148,6 +149,9 @@ export const MAX_LIVE_CHILDREN = 8
 // The models a lead may give a lane at lane_create; the lane switches to it at its start.
 export const LANE_MODELS = ['opus', 'sonnet', 'haiku', 'fable'] as const
 export type LaneModel = (typeof LANE_MODELS)[number]
+// The efforts a lead may give a lane at lane_create; the lane sets it with /effort at its start, after the model.
+export const LANE_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const
+export type LaneEffort = (typeof LANE_EFFORTS)[number]
 
 // The manager-name file as read: its one line, null for no file, `unknown` for a file that could not be read.
 export type ManagerName = string | null | 'unknown'
