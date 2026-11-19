@@ -1,5 +1,5 @@
 ---
-description: "Report whether callboard's patch of the Claude Code VS Code extension is in and current, apply it when it is missing, and, only after one question, repair the patch script when an update moved the code it hooks into. The patch lets one multi-folder VS Code window open lanes in any of its folders and ask which folder a new session starts in. Use on '/patch-vs-claude' after the Claude Code extension updated, and '/patch-vs-claude undo' to take the patch out."
+description: "Report whether callboard's patch of the Claude Code VS Code extension is in and current, apply it when it is missing, and, only after a question, repair the patch script when an update moved the code it hooks into. The patch lets one multi-folder VS Code window open lanes in any of its folders and ask which folder a new session starts in. Use on '/patch-vs-claude' after the Claude Code extension updated, and '/patch-vs-claude undo' to take the patch out."
 disable-model-invocation: true
 ---
 
@@ -8,7 +8,7 @@ disable-model-invocation: true
 Keeps `tools/callboard/patch-claude.py` applied to the person's Claude Code extension. The script is the only place that
 knows what the patch is, how it is checked and how it is undone: read its header first, and never copy its logic here.
 The person's own typed `/patch-vs-claude` is the go for the one apply in step 3, and for the undo (it only puts the
-original back), and for nothing else. The argument is empty or `undo`; anything else, say what the skill does and stop.
+original back, which step 5 may run on a doubtful result), and for nothing else. The argument is empty or `undo`; anything else, say what the skill does and stop.
 
 Never touch `~/.claude/settings.json`, any VS Code setting, or callboard's state or ledger files. Say exactly what was
 changed and where (the file, its backup and the marker) whenever something is changed.

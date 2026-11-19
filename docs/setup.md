@@ -111,12 +111,14 @@ EXT_DIR="$(ls -d "$HOME"/.vscode/extensions/anthropic.claude-code-* | sort -V | 
   `already patched`.
 - Claude Code updates about daily, and an update is a new folder that starts unpatched: run the check and `--apply`
   again, or type `/patch-vs-claude` in a session in this checkout: it reports the version and whether the patch is in,
-  applies it when it is missing and, when an update moved the code the patch hooks into, asks you once before it
-  repairs the script in a clone, shows you the diff and opens a PR.
-- With the patch, `+ New session` (and Claude Code: Open in New Tab) in a window with several folders opens VS Code's
-  own folder list first and starts the session in the folder you pick; Escape opens nothing. Callboard's own lane
-  opens pass their folder and never ask. Separately from the patch, the status bar shows the folder of the Claude
-  panel in front, in a window with several folders, whenever the panel's session is known by its name.
+  applies it when it is missing and, when an update moved the code the patch hooks into, asks you before it repairs the
+  script in a clone and again before it applies the repair, shows you the diff and opens a PR.
+- With the patch, the `+ New session` buttons (the Session Manager's, and the one in a panel's header) in a window with
+  several folders open VS Code's own folder list first and start the session in the folder you pick; Escape opens
+  nothing. Callboard's own lane opens pass their folder and never ask. The palette's Open in New Tab, Open and an
+  @-mention are bare calls that cannot be told from Claude Code's own internal ones: they never ask and start in the
+  first folder. Separately from the patch, the status bar shows the folder of the Claude panel in front, in a window
+  with several folders, whenever the panel's session is known by its name.
 - It serves the plugin build's lanes (the old mod keeps one repo per window), and covers only the open command: a tab
   that Claude Code itself restores at a window reload, or reopens, starts in the window's first folder.
 - The patch is made for 2.1.327 and 2.1.328. A later version may rename or restructure the code it hooks into; then

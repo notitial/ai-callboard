@@ -12,7 +12,9 @@
       --undo: put the original back from the backup and remove the backup and the marker.
 
 The patch gives `claude-vscode.editor.open` a `cwd` in its sixth argument ({cwd: folder}), which becomes the working folder of the
-new panel instead of the window's first folder, when it is one of the window's folders (4 edits). Each anchor is a pattern that tolerates renamed minified
+new panel instead of the window's first folder, when it is one of the window's folders (4 edits). A fresh panel opened by a + New session button
+(a call with an options object but no `cwd` or session id) in a window with several folders first shows VS Code's own folder list and uses the pick; Escape
+opens nothing; a bare call (the palette, Open, an @-mention), a resume and a one-folder window never ask. Each anchor is a pattern that tolerates renamed minified
 identifiers, and the file is written only when every anchor matches exactly once: otherwise nothing changes and the missing ones
 are named. There is no half patch: a failure after the file was replaced puts the backup back. An update of the extension is a new
 folder, so it starts unpatched and this runs again. It never uses the network, runs nothing else, works only inside EXTENSION_DIR
@@ -56,10 +58,11 @@ ANCHORS = (
 
 
 def pick(sid, opt):
-    """The folder a new panel starts in: the caller's {cwd}, else (a fresh open, window with several folders) the one picked in VS Code's own list, else none.
+    """The folder a new panel starts in: the caller's {cwd}, else (a fresh open that carries an options object, which is what the + New session buttons send,
+    in a window with several folders) the one picked in VS Code's own list, else none. A bare call (the palette, Open, an @-mention) never asks.
     null is a cancelled pick: nothing opens. Uses require("vscode") of the extension's own bundle, so it needs no module alias."""
     return (b'(async()=>{let cbqV=require("vscode"),cbqF=cbqV.workspace.workspaceFolders||[];if(typeof ' + opt + b'?.cwd=="string")return ' + opt + b".cwd;"
-            b"if(" + sid + b"!==void 0||cbqF.length<2)return;"
+            b"if(" + sid + b"!==void 0||!" + opt + b"||cbqF.length<2)return;"
             b"let cbqP=await cbqV.window.showQuickPick(cbqF.map((cbqE)=>({label:cbqE.name,description:cbqE.uri.fsPath,fsPath:cbqE.uri.fsPath}))"
             b',{placeHolder:"Start the session in which folder?"});return cbqP?cbqP.fsPath:null})()')
 
@@ -140,8 +143,9 @@ def marker_of(ext):
 def problems(raw):
     """What stops a patch: a label per anchor that matches nothing or more than once. [] means every anchor matches exactly once."""
     out = []
-    if NAME in raw:
-        out.append("the file already contains %s" % NAME.decode())
+    for used in (NAME, b"cbq"):
+        if used in raw:
+            out.append("the file already contains %s" % used.decode())
     for label, pat, _ in ANCHORS:
         n = len(re.findall(pat, raw))
         if n != 1:

@@ -10,6 +10,13 @@ test('folderOf: the folder of the one live panel session with that name', () => 
   assert.equal(folderOf('LAB', [row('LAB', '/w/a', { pid: 1 }), row('LAB', '/w/a', { pid: 2 })], () => true), '/w/a', 'two rows, one folder')
 })
 
+test('folderOf: a label Claude Code cut to 24 characters and "…" finds the longer name; two folders for one cut label show nothing', () => {
+  const long = 'a-session-name-longer-than-twenty-five'
+  const label = `${long.slice(0, 24)}…`
+  assert.equal(folderOf(label, [row(long, '/w/a'), row('other-name', '/w/b')], () => true), '/w/a')
+  assert.equal(folderOf(label, [row(long, '/w/a', { pid: 1 }), row(`${long}-2`, '/w/b', { pid: 2 })], () => true), undefined, 'ambiguous: no guess')
+})
+
 test('folderOf: nothing when the name is unknown, dead, a terminal session, in two folders, or the cwd is not a path', () => {
   assert.equal(folderOf('LAB', [], () => true), undefined)
   assert.equal(folderOf('LAB', [row('LAB', '/w/a')], () => false), undefined, 'a dead process')
@@ -18,29 +25,30 @@ test('folderOf: nothing when the name is unknown, dead, a terminal session, in t
   assert.equal(folderOf('LAB', [row('LAB', 'relative'), row('LAB', undefined)], () => true), undefined)
 })
 
-function world({ tab, folders = ['/w/a', '/w/b'], rows = [] }) {
-  const state = { tab, shown: false, listeners: [] }
-  const item = { show() { state.shown = true }, hide() { state.shown = false }, dispose() {} }
+function world({ tab, folders = ['/w/a', '/w/b'], list }) {
+  const state = { tab, shown: false, hides: 0 }
+  const item = { show() { state.shown = true }, hide() { state.shown = false; state.hides++ }, dispose() {} }
   const vscode = {
     StatusBarAlignment: { Left: 1 },
     window: {
       createStatusBarItem: () => item,
       tabGroups: {
         get activeTabGroup() { return { activeTab: state.tab } },
-        onDidChangeTabs: (f) => (state.listeners.push(f), { dispose() {} }),
+        onDidChangeTabs: () => ({ dispose() {} }),
         onDidChangeTabGroups: () => ({ dispose() {} }),
       },
     },
     workspace: { workspaceFolders: folders.map((f) => ({ uri: { fsPath: f } })) },
   }
-  const badge = createFolderBadge({ vscode, registry: { list: async () => rows }, alive: () => true })
+  const badge = createFolderBadge({ vscode, registry: { list }, alive: () => true })
   return { badge, item, state }
 }
 
 const claudeTab = (label) => ({ label, input: { viewType: 'mainThreadWebview-claudeVSCodePanel' } })
 
 test('the item shows the folder name of the Claude panel in front, with the full path as the tooltip, and follows tab changes', async () => {
-  const w = world({ tab: claudeTab('LAB'), rows: [row('LAB', '/w/b/arkham'), row('OTHER', '/w/a')] })
+  const rows = [row('LAB', '/w/b/arkham'), row('OTHER', '/w/a')]
+  const w = world({ tab: claudeTab('LAB'), list: async () => rows })
   await w.badge.refresh()
   assert.equal(w.item.text, '$(folder) arkham')
   assert.match(w.item.tooltip, /\/w\/b\/arkham/)
@@ -54,20 +62,34 @@ test('the item shows the folder name of the Claude panel in front, with the full
   w.badge.dispose()
 })
 
-test('the item stays hidden in a one-folder window, for an unknown session, and when the registry cannot be read', async () => {
-  const one = world({ tab: claudeTab('LAB'), folders: ['/w/a'], rows: [row('LAB', '/w/a')] })
+test('a change that comes while a read is under way is read again: the item never keeps the answer for the tab that was in front before', async () => {
+  const rows = [row('A', '/w/a'), row('B', '/w/b')]
+  let release
+  const w = world({ tab: claudeTab('A'), list: () => new Promise((r) => { release = () => r(rows) }) })
+  const first = w.badge.refresh()
+  w.state.tab = claudeTab('B')
+  const second = w.badge.refresh()
+  release()
+  await Promise.resolve()
+  await new Promise((r) => setImmediate(r))
+  release()
+  await Promise.all([first, second])
+  assert.equal(w.item.text, '$(folder) b')
+  w.badge.dispose()
+})
+
+test('the item stays hidden in a one-folder window and for an unknown session; a registry that cannot be read hides it once and throws nothing', async () => {
+  const one = world({ tab: claudeTab('LAB'), folders: ['/w/a'], list: async () => [row('LAB', '/w/a')] })
   await one.badge.refresh()
   assert.equal(one.state.shown, false)
   one.badge.dispose()
-  const unknown = world({ tab: claudeTab('NOPE'), rows: [row('LAB', '/w/a')] })
+  const unknown = world({ tab: claudeTab('NOPE'), list: async () => [row('LAB', '/w/a')] })
   await unknown.badge.refresh()
   assert.equal(unknown.state.shown, false)
   unknown.badge.dispose()
-  const broken = world({ tab: claudeTab('LAB') })
-  broken.badge.dispose()
-  const vscode = { StatusBarAlignment: { Left: 1 }, window: { createStatusBarItem: () => broken.item, tabGroups: { activeTabGroup: { activeTab: claudeTab('LAB') }, onDidChangeTabs: () => ({ dispose() {} }), onDidChangeTabGroups: () => ({ dispose() {} }) } }, workspace: { workspaceFolders: [{ uri: { fsPath: '/a' } }, { uri: { fsPath: '/b' } }] } }
-  const b = createFolderBadge({ vscode, registry: { list: async () => { throw new Error('boom') } } })
-  await b.refresh()
+  const broken = world({ tab: claudeTab('LAB'), list: async () => { throw new Error('boom') } })
+  await broken.badge.refresh()
   assert.equal(broken.state.shown, false)
-  b.dispose()
+  assert.ok(broken.state.hides >= 1, 'the failure hid the item')
+  broken.badge.dispose()
 })
