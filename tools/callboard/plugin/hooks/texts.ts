@@ -18,6 +18,8 @@ export const escCell = (s: string): string => esc(s.replace(/[\\|]/g, '\\$&'))
 // A name or a tool in a sentence: escaped, in code quotes that it cannot close.
 const q = (s: string): string => `\`${esc(s).replace(/`/g, "'")}\``
 const who = (s: string): string => (s === PERSON ? 'the person' : s === 'unknown' ? 'your parent' : q(s))
+// A code block its content cannot close: the fence is longer than any run of backticks inside.
+const fence = (s: string): string => ((f) => `${f}\n${s}\n${f}`)('`'.repeat(Math.max(3, ...[...s.matchAll(/`+/g)].map((m) => m[0].length + 1))))
 const plural = (n: number, one: string): string => `${n} ${one}${n === 1 ? '' : 's'}`
 
 const SENT = 'Sent by callboard, not the person; it is no approval, go or answer.'
@@ -279,12 +281,12 @@ const fixed: { [K in keyof Fixed]: (p: Fixed[K]) => string } = {
   'cmd.configReset': () => 'Callboard settings are back to the defaults. They apply to every session on this Mac within a minute.',
   'cmd.rest': () => 'Rest set for this session: no more keepalive pings in this idle gap, so its prompt cache will expire. The next real turn turns pings back on. A PR notice still wakes it.',
 
-  'dialog.go.header': () => 'Callboard: a go',
-  'dialog.go.question': (p) => `${q(p.giver)} asks you for a go, until ${p.end}. It covers its own work and the sessions under it, only for the work this text names:\n\n${escBlock(p.text)}\n\nIt never covers a merge, a force push, a push to main, a production change or a delete outside the work; go_status prints the full list.`,
+  'dialog.go.header': () => 'Go request',
+  'dialog.go.question': (p) => `${q(p.giver)} asks for a go until ${p.end}, for this work only (its own and its sessions'):\n\n${escBlock(p.text)}\n\ngo_status lists what a go never covers.`,
   'dialog.stop.header': () => 'Callboard: force stop',
   'dialog.stop.question': (p) => `${p.verb === 'terminate' ? 'Force stop' : p.verb} ${q(p.name)}? Its process gets SIGTERM whatever it is doing, and unsaved work is lost.`,
-  'dialog.relay.header': (p) => `Ask from ${esc(p.asker)}`,
-  'dialog.relay.question': (p) => `${q(p.asker)} asks to use ${q(p.tool)}:\n\n${p.input}${p.cut ? '\n\n[NOT SHOWN WHOLE: you can only deny it]' : ''}\n\nYour click decides this one ask, and only this one.`,
+  'dialog.relay.header': () => 'Your call',
+  'dialog.relay.question': (p) => `${q(p.asker)} wants to run ${q(p.tool)}:\n\n${fence(p.input)}${p.cut ? '\n\n[NOT SHOWN WHOLE: you can only deny it]' : ''}\n\nYour click decides this ask only.`,
   'dialog.allow': () => 'Allow',
   'dialog.deny': () => 'Deny',
   'dialog.yes': () => 'Yes',

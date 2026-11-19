@@ -37,7 +37,7 @@ test('by day an ask escalated past the manager shows one pop-up in the manager\'
   }
   assert.deepEqual(await permissionRequest(f.$, { tool_name: 'Bash', tool_input: { command: 'make' }, tool_use_id: 't1' }, noop), { decision: { behavior: 'allow' } })
   assert.equal(boss.h.asked.length, 1)
-  assert.equal(boss.h.asked[0]!.header, 'Ask from lane')
+  assert.equal(boss.h.asked[0]!.header, 'Your call')
   assert.deepEqual(boss.h.asked[0]!.options, ['Allow', 'Deny'])
   const last = (await readAskLog(f.$, 0))!.at(-1)!
   assert.deepEqual([last.ev, last.by], ['answered', 'PERSON'])
