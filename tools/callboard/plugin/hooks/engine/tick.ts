@@ -28,17 +28,18 @@ export async function giveParentTools($: any, v: View, me: Sid): Promise<void> {
   mem.parentTools = true
   await registerTools($, 'parent').catch(() => void (mem.parentTools = false))
 }
+// The timer starts before anything is registered, so a registration that throws leaves the session kept warm.
 export async function sessionStart($: any, e: any, next: any) {
-  await registerTools($, 'any')
-  await $.command.register({ name: 'callboard', description: T['help.status']() })
-  await $.command.register({ name: 'rest', description: T['help.rest']() })
-  await $.command.register({ name: 'unattended', description: T['help.unattended']() })
-  mem.since = await $.clock.now()
-  usageSweep($).catch(() => undefined)
+  if (mem.since === 0) mem.since = await $.clock.now()
   if (!mem.timer) {
     mem.timer = true
     $.clock.every(TICK_MS, () => tick($))
   }
+  usageSweep($).catch(() => undefined)
+  await registerTools($, 'any')
+  await $.command.register({ name: 'callboard', description: T['help.status']() })
+  await $.command.register({ name: 'rest', description: T['help.rest']() })
+  await $.command.register({ name: 'unattended', description: T['help.unattended']() })
   return next(e)
 }
 export async function sessionEnd($: any, e: any, next: any) {
@@ -67,18 +68,18 @@ async function owed($: any, me: Sid, v: View, now: number): Promise<{ key: strin
   const list = notices({ me, v, now, since: mem.since, reports: mem.reports, signed: mem.signed.set, ...(await askInputs($, me, v)) })
   return list.filter((n) => !mem.spent.has(n.key) && !held.has(n.key)).flatMap((n) => ((l) => (l === undefined ? [] : [{ key: n.key, line: l }]))(lineOf(v, n, now)))
 }
-async function quiet($: any, v: View, me: Sid): Promise<boolean> {
-  return (await getUp($)).req === null && (await idle($, v, me))
+async function quiet($: any, me: Sid): Promise<boolean> {
+  return (await getUp($)).req === null && (await idle($, me))
 }
 async function eventsTick($: any, me: Sid, v: View, now: number): Promise<void> {
   const list = await owed($, me, v, now)
-  if (list.length === 0 || !(await quiet($, v, me))) return
+  if (list.length === 0 || !(await quiet($, me))) return
   const text = say({ msg: 'event.turn', p: { lines: list.map((o) => o.line) } })
   mem.pending.set(text, { keys: list.map((o) => o.key), at: now })
   await submitOwn($, text, false).then(() => log($, me, 'events', String(list.length)), () => void mem.pending.delete(text))
 }
-async function prNoticeTick($: any, me: Sid, v: View): Promise<void> {
-  if (mem.prNotes.length === 0 || !(await quiet($, v, me))) return
+async function prNoticeTick($: any, me: Sid): Promise<void> {
+  if (mem.prNotes.length === 0 || !(await quiet($, me))) return
   const c = prClaim()
   if (c !== undefined) await submitOwn($, c.text, false).catch(() => c.undo())
 }
@@ -137,7 +138,7 @@ async function tick($: any): Promise<void> {
     await step('nudge', () => nudgeTick($, me, v))
     if (mem.submits === start) await step('events', () => eventsTick($, me, v, now))
     await step('pr-poll', () => prTick($, me, v))
-    if (mem.submits === start) await step('pr-notice', () => prNoticeTick($, me, v))
+    if (mem.submits === start) await step('pr-notice', () => prNoticeTick($, me))
     await step('keepalive', () => keepaliveTick($, me, v, start))
     await step('usage', () => usageFlush($, me))
   } finally {

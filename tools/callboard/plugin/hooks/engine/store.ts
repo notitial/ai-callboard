@@ -6,7 +6,7 @@ import { parseGo } from '../core/go.ts'
 import type { AskLogRow, Config, Go, ManagerName, Registry, RegistryRow, Row, Sid, Table, View } from '../core/model.ts'
 import { liveView } from '../core/model.ts'
 import { run, home, path, readText, writeFile, locked, rm } from './io.ts'
-import { mem } from './mem.ts'
+import { mem, staleView } from './mem.ts'
 
 const SID_RE = /^[A-Za-z0-9-]{1,64}$/
 const KEY_RE = /^[A-Za-z0-9][A-Za-z0-9:_-]{0,79}$/
@@ -21,7 +21,7 @@ function rowOf(j: any, file: string): RegistryRow | undefined {
   return { sid: j.sessionId, pid: Number(j.pid), procStart: j.procStart, folder: j.cwd, name: str(j.name), nameSource: str(j.nameSource), status: str(j.status), statusAt: num(j.statusUpdatedAt), waitingFor: str(j.waitingFor) ?? null, kind: str(j.kind) }
 }
 const squash = (s: string): string => s.replace(/\s+/g, ' ').trim()
-// The rows whose pid is alive with the same start time, or `unknown`: too many files, a file that stays unparseable, a `ps` that failed or printed nothing, or no row of the
+// The rows whose pid is alive with the same start time, or `unknown`: too many files, a file that is there and stays unreadable or unparseable, a `ps` that failed or printed nothing, or no row of the
 // reading session's own (a live session always has one, so a read without it is in doubt).
 export async function readRegistry($: any, self: Sid): Promise<Registry> {
   const h = await home($)
@@ -34,9 +34,9 @@ export async function readRegistry($: any, self: Sid): Promise<Registry> {
     files.map(async (f) => {
       for (let i = 0; i < 2; i++) {
         const t = await $.fs.read(`${dir}/${f.name}`, { length: 16_385 }).catch(() => null)
-        if (t === null) return undefined
+        if (t === null && !(await $.fs.exists(`${dir}/${f.name}`).catch(() => true))) return undefined
         try {
-          return rowOf(JSON.parse(t), f.name)
+          if (t !== null) return rowOf(JSON.parse(t), f.name)
         } catch {}
       }
       doubt = true
@@ -88,7 +88,7 @@ export async function updateTable($: any, f: (t: Table) => Table): Promise<boole
     const cur = await readTable($)
     return cur !== undefined && (await writeFile($, p, JSON.stringify(f(cur))))
   })
-  mem.view = undefined
+  staleView()
   return done === true
 }
 
@@ -129,6 +129,7 @@ export async function writeConfig($: any, c: Config): Promise<boolean> {
 export async function listGoes($: any): Promise<Go[]> {
   const d = await path($, 'go')
   const names = d === undefined ? [] : (((await $.fs.list(d).catch(() => [])) as { name: string }[]) ?? []).filter((f) => /^[A-Za-z0-9]{4,32}\.json$/.test(f.name)).slice(0, 64)
+  const now = await $.clock.now()
   const goes = await Promise.all(
     names.map(async (f) => {
       const t = await readText($, `${d}/${f.name}`, 2048)
@@ -136,7 +137,9 @@ export async function listGoes($: any): Promise<Go[]> {
       return g?.id === f.name.slice(0, -5) ? g : undefined
     }),
   )
-  return goes.filter((g): g is Go => g !== undefined)
+  const ended = goes.filter((g): g is Go => g !== undefined && g.end < now - 3_600_000)
+  await Promise.all(ended.map((g) => rmGo($, g.id)))
+  return goes.filter((g): g is Go => g !== undefined && !ended.includes(g))
 }
 export const safeJson = (t: string): unknown => {
   try {
@@ -159,14 +162,15 @@ export async function writeWindow($: any, w: { start: number; end: number; readA
   if (p === undefined) return false
   return w === null ? ((await rm($, [p])), true) : writeFile($, p, JSON.stringify(w))
 }
-// The ask log's rows since a time, from the last 256 KB of this month's file and of the month before when the time reaches back to it; a line that is not a row is dropped.
-export async function readAskLog($: any, since: number): Promise<AskLogRow[]> {
+// The ask log's rows since a time, from the last 256 KB of this month's file and of the month before when the time reaches back to it; a line that is not a row is dropped. undefined: a file is there and could not be read.
+export async function readAskLog($: any, since: number): Promise<AskLogRow[] | undefined> {
   const out: AskLogRow[] = []
   for (const at of [new Date(since), new Date()]) {
     const p = await path($, `asks-${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, '0')}.jsonl`)
     const size = p === undefined ? undefined : ((await $.fs.stat(p).catch(() => undefined)) as { size: number } | undefined)?.size
     if (p === undefined || size === undefined) continue
-    const t = (await $.fs.read(p, { offset: Math.max(0, size - 262_144), length: 262_144 }).catch(() => '')) as string
+    const t = (await $.fs.read(p, { offset: Math.max(0, size - 262_144), length: 262_144 }).catch(() => undefined)) as string | undefined
+    if (t === undefined) return undefined
     for (const l of t.split('\n')) {
       const r = safeJson(l) as Partial<AskLogRow> | undefined
       if (r && typeof r.t === 'number' && r.t >= since && typeof r.ev === 'string' && typeof r.ask === 'string' && typeof r.asker === 'string' && !out.some((o) => o.t === r.t && o.ask === r.ask && o.ev === r.ev)) out.push(r as AskLogRow)
@@ -176,13 +180,15 @@ export async function readAskLog($: any, since: number): Promise<AskLogRow[]> {
 }
 
 // ---- the reading of the machine ----
-// The registry, the table and the manager's name, as one view kept VIEW_MS: every step of a tick and every tool call in it share one read. A table that cannot be read keeps the last good one.
+// The registry, the table and the manager's name, as one view kept VIEW_MS: every step of a tick and every tool call in it share one read. A table that cannot be read keeps the last good
+// one; with none, nothing is known of who is whose, so the whole reading is `unknown`.
 export async function getView($: any, force = false): Promise<View> {
   const now = await $.clock.now()
   if (!force && mem.view !== undefined && now - mem.view.at < VIEW_MS) return mem.view.v
   const me = (await $.session.id()) as Sid
   const [reg, table, name] = await Promise.all([readRegistry($, me), readTable($), readManagerName($)])
-  const v = liveView(reg, table ?? mem.view?.v.table ?? {}, name)
+  const last = table ?? mem.view?.v.table
+  const v = liveView(last === undefined ? 'unknown' : reg, last ?? {}, name)
   mem.view = { at: now, v }
   return v
 }

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { HOME, MIN, T0, V2, fake } from '../../test/fake.ts'
 import { mem, getUp, patchUp } from './mem.ts'
 import { postToolHook, sessionEnd, sessionStart } from './tick.ts'
-import { turnComplete, turnStart } from './upkeep.ts'
+import { requestTick, turnComplete, turnStart } from './upkeep.ts'
 import { TOOL_SCHEMAS } from '../tool-schemas.ts'
 
 const next = async (e: unknown) => e
@@ -81,11 +81,13 @@ test('an event is spent when the turn carrying it starts, not when it is submitt
   await tick(f)
   const text = f.h.submitted[0]
   f.h.now += 130_000
+  f.idle()
   await tick(f)
   assert.equal(f.h.submitted.length, 2)
   assert.equal(f.h.submitted[1], text)
   await turnStart(f.$, { text: `[callboard] note\n${text}` }, next)
   f.h.now += 130_000
+  f.idle()
   await tick(f)
   assert.equal(f.h.submitted.length, 2)
 })
@@ -141,6 +143,14 @@ test('at most one text is sent in a tick: owed events go before the keepalive pi
   await tick(f)
   assert.equal(f.h.submitted.length, 1)
   assert.match(f.h.submitted[0], /Check-in/)
+  f.h.now += 2000
+  await tick(f)
+  assert.equal(f.h.submitted.length, 1)
+  await turnStart(f.$, { text: f.h.submitted[0] }, next)
+  f.h.now += 2000
+  await tick(f)
+  assert.equal(f.h.submitted.length, 1)
+  f.idle()
   f.h.now += 2000
   await tick(f)
   assert.equal(f.h.submitted.length, 2)
@@ -210,4 +220,64 @@ test('the session end removes the usage file; a restart-safe state: a rest ends 
   await patchUp(f.$, (u) => ({ ...u, restAt: T0 }))
   await turnStart(f.$, { text: 'a person typed this' }, next)
   assert.equal((await getUp(f.$)).restAt, undefined)
+})
+test('nothing is sent into a turn that began inside the 10 s the machine reading is kept: the own row is read again before a send', async () => {
+  const f = lead({ 'sid-ghost': kid({ name: 'ghost', goneAt: T0 - 1000 }) })
+  await start(f)
+  mem.since = T0 - MIN
+  f.h.draft = 'x'
+  await tick(f)
+  f.h.draft = ''
+  f.h.files.set('/Users/x/.claude/sessions/10.json', JSON.stringify({ sessionId: 'sid-me', pid: 10, procStart: 'Tue Oct 27 20:37:50 2026', cwd: '/w/me', status: 'busy', kind: 'interactive' }))
+  f.h.now += 2000
+  await tick(f)
+  assert.equal(f.h.submitted.length, 0)
+  f.idle()
+  f.h.now += 2000
+  await tick(f)
+  assert.equal(f.h.submitted.length, 1)
+})
+test('the resume note waits for a quiet session for up to 2 min: not over a draft, not into a running turn, and never after that', async () => {
+  const f = fake()
+  f.seed({ sid: 'sid-me', pid: 10, name: 'me', kind: 'interactive' })
+  const req = (at: number) => patchUp(f.$, (u) => ({ ...u, req: { focus: 'f', continuation: 'c', phase: 'compacted', at, sid: 'sid-me', doneAt: at } }))
+  await req(T0)
+  f.h.draft = 'half'
+  await requestTick(f.$, 'sid-me')
+  assert.equal(f.h.submitted.length, 0)
+  assert.equal((await getUp(f.$)).req?.phase, 'compacted')
+  f.h.draft = ''
+  f.h.files.set('/Users/x/.claude/sessions/10.json', JSON.stringify({ sessionId: 'sid-me', pid: 10, procStart: 'Tue Oct 27 20:37:50 2026', cwd: '/w/me', status: 'busy', kind: 'interactive' }))
+  f.h.now += 30_000
+  await requestTick(f.$, 'sid-me')
+  assert.equal(f.h.submitted.length, 0)
+  f.idle()
+  f.h.now += 30_000
+  await requestTick(f.$, 'sid-me')
+  assert.equal(f.h.submitted.length, 1)
+  await req(f.h.now)
+  f.h.draft = 'still typing'
+  f.h.now += 121_000
+  await requestTick(f.$, 'sid-me')
+  assert.equal(f.h.submitted.length, 1)
+  assert.equal((await getUp(f.$)).req, null)
+})
+test('a PR tracker is kept while the session is off, and a manager clears the tracker of a gone loose session', async () => {
+  const f = lead()
+  f.table({ 'sid-me': { name: 'me', folder: '/w/me', off: true } })
+  const entry = { owner: 'acme', repo: 'app', number: 5, at: T0, seen: { sha: 'a'.repeat(40), state: 'open', draft: false, checks: 'pending', mergeable: false, reviews: 0, comments: 0, threads: 0 } }
+  f.h.files.set(`${V2}/prs/sid-me.json`, JSON.stringify({ sid: 'sid-me', prs: [entry] }))
+  await start(f)
+  f.h.now += 3 * MIN
+  await tick(f)
+  assert.ok(f.h.files.has(`${V2}/prs/sid-me.json`))
+  const m = fake()
+  m.seed({ sid: 'sid-me', pid: 10, name: 'BOSS', kind: 'interactive' })
+  m.h.files.set(`${HOME}/.claude/callboard/manager-name`, 'BOSS\n')
+  m.table({ 'sid-dead': { name: 'dead', folder: '/w/d', goneAt: T0 - 1000 } })
+  m.h.files.set(`${V2}/prs/sid-dead.json`, JSON.stringify({ sid: 'sid-dead', prs: [entry] }))
+  await start(m)
+  m.h.now += 3 * MIN
+  await tick(m)
+  assert.equal(m.h.files.has(`${V2}/prs/sid-dead.json`), false)
 })

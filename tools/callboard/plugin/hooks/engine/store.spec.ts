@@ -2,9 +2,9 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { HOME, MIN, T0, V2, fake } from '../../test/fake.ts'
 import { locked, personDialog, windowNow } from './io.ts'
-import { getView, readRegistry, updateTable } from './store.ts'
+import { getView, listGoes, readRegistry, updateTable } from './store.ts'
 import { usageFlush, usageRead } from './usage.ts'
-import { mem } from './mem.ts'
+import { mem, staleView } from './mem.ts'
 import { goDialog } from '../ui.ts'
 
 test('the registry: rows whose process is alive with the same start; anything in doubt is unknown, never an empty list', async () => {
@@ -114,4 +114,55 @@ test('the fake: a file written is read back, a plain mkdir fails twice, a regist
   assert.equal((await f.$.process.run(['/bin/mkdir', '/d'])).exitCode, 1)
   f.seed({ sid: 'sid-me', pid: 7 })
   assert.match(f.h.ps, /7 /)
+})
+test('a registry file that is there and cannot be read makes the reading unknown; one that vanished is skipped', async () => {
+  const f = fake()
+  f.seed({ sid: 'sid-me', pid: 10 })
+  f.seed({ sid: 'sid-a', pid: 11 })
+  f.h.unreadable.add(`${HOME}/.claude/sessions/11.json`)
+  assert.equal(await readRegistry(f.$, 'sid-me'), 'unknown')
+  f.h.unreadable.clear()
+  const gone = fake()
+  gone.seed({ sid: 'sid-me', pid: 10 })
+  gone.$.fs.list = async () => [{ name: '10.json' }, { name: '11.json' }]
+  const reg = await readRegistry(gone.$, 'sid-me')
+  assert.ok(reg !== 'unknown')
+  assert.equal(reg.length, 1)
+})
+test('a table that cannot be read keeps the last good one, also after a write marked the reading stale; with none the reading is unknown', async () => {
+  const f = fake()
+  f.seed({ sid: 'sid-me', pid: 10, name: 'me', kind: 'interactive' })
+  f.h.files.set(`${V2}/sessions.json`, '{"broken": ')
+  assert.equal((await getView(f.$, true)).rows, 'unknown')
+  f.table({ 'sid-me': { name: 'me', folder: '/w/me', lead: { repos: [] } } })
+  assert.ok((await getView(f.$, true)).table['sid-me']?.lead)
+  f.h.files.set(`${V2}/sessions.json`, '{"broken": ')
+  staleView()
+  const v = await getView(f.$)
+  assert.ok(v.table['sid-me']?.lead)
+  assert.ok(v.rows !== 'unknown')
+})
+test('the lock: two writers at once both land, a holder whose lock was taken over does not remove its successor\'s, and a stale lock has one breaker', async () => {
+  const f = fake()
+  f.table({})
+  await Promise.all([updateTable(f.$, (t) => ({ ...t, a: { name: 'A', folder: '/a' } })), updateTable(f.$, (t) => ({ ...t, b: { name: 'B', folder: '/b' } }))])
+  assert.deepEqual(Object.keys(JSON.parse(f.file('sessions.json')!)).sort(), ['a', 'b'])
+  await locked(f.$, 'y', async () => {
+    f.h.files.set(`${V2}/y.lock/owner`, 'someone-else')
+  })
+  assert.ok(f.h.dirs.has(`${V2}/y.lock`))
+  f.h.mtimes.set(`${V2}/y.lock`, T0 - 11_000)
+  assert.equal(await locked(f.$, 'y', async () => 'got'), 'got')
+  assert.equal(f.h.dirs.has(`${V2}/y.lock`), false)
+  assert.equal([...f.h.dirs].filter((d) => d.endsWith('.stale')).length, 0)
+})
+test('a go that ended an hour ago is removed when the goes are listed; a live one and a recent end stay', async () => {
+  const f = fake()
+  const go = (id: string, end: number) => f.h.files.set(`${V2}/go/${id}.json`, JSON.stringify({ id, giver: 'sid-me', text: 'work', end }))
+  go('old1', T0 - 2 * 60 * MIN)
+  go('new1', T0 - 10 * MIN)
+  go('live', T0 + 60 * MIN)
+  f.h.dirs.add(`${V2}/go`)
+  assert.deepEqual((await listGoes(f.$)).map((g) => g.id).sort(), ['live', 'new1'])
+  assert.equal(f.h.files.has(`${V2}/go/old1.json`), false)
 })

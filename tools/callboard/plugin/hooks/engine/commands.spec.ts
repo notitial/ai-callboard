@@ -39,6 +39,8 @@ test('lead: the row gets the real folder and real repo paths, the lead tools are
   assert.deepEqual(t['sid-me'], { name: 'me', folder: '/w/me', lead: { repos: ['/w/repo2', `${HOME}/code`] } })
   assert.equal(f.h.tools.filter((n) => n.startsWith('lane_')).length, 8 + 3)
   assert.match((await run(f, 'lead /no/such/dir', 'composer')).text, /input is not valid/)
+  await run(f, 'lead /w/repo2', 'composer')
+  assert.deepEqual(JSON.parse(f.h.files.get(`${V2}/sessions.json`)!)['sid-me'].lead.repos, ['/w/repo2', `${HOME}/code`])
   await run(f, 'lead off', 'composer')
   assert.equal(JSON.parse(f.h.files.get(`${V2}/sessions.json`)!)['sid-me'].lead, undefined)
   await run(f, 'off', 'composer')
@@ -51,7 +53,7 @@ test('a write that does not land is said, not reported as done', async () => {
   const f = fake()
   me(f)
   f.h.files.set(`${V2}/sessions.json`, '{"broken": ')
-  assert.match((await run(f, 'off', 'composer')).text, /input is not valid/)
+  assert.match((await run(f, 'off', 'composer')).text, /could not read which sessions are live/)
   assert.equal(f.h.files.get(`${V2}/sessions.json`), '{"broken": ')
 })
 test('go: one file with the giver and 24 h; go off ends every live go, one by id, and an unknown id ends none', async () => {
@@ -75,8 +77,12 @@ test('unattended: on writes the window, bare shows it, off removes it; config ch
   assert.match((await run(f, 'unattended 2h', 'composer')).text, /Unattended mode is on until/)
   assert.deepEqual(JSON.parse(f.h.files.get(`${V2}/unattended.json`)!), { start: T0, end: T0 + 120 * MIN, readAt: T0 })
   mem.win = undefined
-  assert.match((await run(f, 'unattended', undefined)).text, /nothing waits|Unattended|until/i)
-  assert.match((await run(f, 'unattended off', 'bridge')).text, /off/)
+  f.h.files.set(`${V2}/asks-${new Date(T0).getFullYear()}-${String(new Date(T0).getMonth() + 1).padStart(2, '0')}.jsonl`, `${JSON.stringify({ t: T0 + MIN, ev: 'expired', ask: 'a1', asker: 'sid-me' })}\n`)
+  const shown = (await run(f, 'unattended', undefined)).text
+  assert.match(shown, /^\*\*Unattended until /)
+  assert.match(shown, /Closed with nobody to decide/)
+  assert.match(shown, /expired a1 from .me./)
+  assert.match((await run(f, 'unattended off', 'bridge')).text, /^Unattended mode is off\.\n\n\*\*Unattended until/)
   assert.equal(f.h.files.has(`${V2}/unattended.json`), false)
   assert.match((await run(f, 'config idle 200', 'composer')).text, /idleK 200/)
   assert.equal(JSON.parse(f.h.files.get(`${V2}/config.json`)!).idleK, 200)

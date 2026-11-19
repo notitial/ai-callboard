@@ -1,6 +1,6 @@
 // pr_watch, the one GitHub call, the trackers and the notes. Trust rules held here: the CLI runs with no shell, at a fixed path, with an argv built from checked values and an
 // environment that empties every variable that would change who it is or where it connects; only its stdout is read, within a size cap, and only through parseAnswer; one tracker file
-// per session id; a note is kept only when the tracker that made it was written; a note goes where prRoute says, and a gone or off row routes none.
+// per session id; a note is kept only when the tracker that made it was written; a note goes where prRoute says, and a gone row routes none (its tracker is removed; an off row's is left).
 import type { Sid, View } from '../core/model.ts'
 import { capability, children, isOff, liveness, nameOf, refusal } from '../core/model.ts'
 import { NEW_KEY } from '../core/lifecycle.ts'
@@ -91,7 +91,7 @@ async function round($: any, v: View, me: Sid, sid: Sid, now: number): Promise<v
   const to = prRoute(v, sid)
   const t = to === 'hold' ? undefined : await readTracker($, sid)
   if (t === undefined) return
-  if (to !== me) return to === 'none' ? void (await writeTracker($, { sid, prs: [] })) : undefined
+  if (to !== me) return to === 'none' && !isOff(v, sid) ? void (await writeTracker($, { sid, prs: [] })) : undefined
   const lane = sid === me ? {} : { lane: nameOf(v, sid) }
   const looks = new Map<string, Look>()
   for (const g of byRepo(t.prs.filter((p) => !trackExpired(p, now)))) for (const [n, l] of (await look($, g[0]!, g.map((p) => p.number))) ?? []) looks.set(`${repoKey(g[0]!)}#${n}`, l)
@@ -113,12 +113,12 @@ async function round($: any, v: View, me: Sid, sid: Sid, now: number): Promise<v
   })
   if (ok === true) mem.prNotes = [...mem.prNotes, ...notes].slice(-50)
 }
-// The trackers this session polls: its own, and a lead's also those of its children that no live session carries.
+// The trackers this session polls: its own, and those of its children that no live session carries (a lead's are polled for it, a manager's are only cleared).
 export async function prTick($: any, me: Sid, v: View): Promise<void> {
   const now = await $.clock.now()
   if (now - mem.prPollAt < PR_POLL_MS) return
   mem.prPollAt = now
-  const dead = capability(v, me) === 'lead' ? children(v, me).filter((c) => liveness(v, c) === 'no' && !c.startsWith(NEW_KEY)) : []
+  const dead = capability(v, me) !== 'none' ? children(v, me).filter((c) => liveness(v, c) === 'no' && !c.startsWith(NEW_KEY)) : []
   for (const sid of [me, ...dead]) if (await $.fs.exists((await path($, 'prs', `${sid}.json`)) ?? '/').catch(() => false)) await round($, v, me, sid, now)
 }
 // The owed notes as one turn's text, claimed at once; `undo` puts them back when the turn could not be sent.

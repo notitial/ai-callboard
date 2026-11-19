@@ -61,7 +61,7 @@ function setRow($: any, v: View, me: Sid, folder: string, f: (r: Row) => Row): P
 
 async function perform($: any, cmd: Cmd, me: Sid, v: View, now: number): Promise<string> {
   const fail = (detail: string) => say(refusal('refuse', 'bad-input', { tool: 'callboard', target: cmd.op, detail }))
-  const saved = (ok: boolean, text: string) => (ok ? text : fail('unsaved'))
+  const saved = (ok: boolean, text: string) => (ok ? text : say(refusal('refuse', 'unknown-liveness', { tool: 'callboard', target: cmd.op })))
   const folder = v.rows === 'unknown' ? undefined : v.rows.get(me)?.folder
   const w = await windowNow($)
   switch (cmd.op) {
@@ -76,7 +76,7 @@ async function perform($: any, cmd: Cmd, me: Sid, v: View, now: number): Promise
     case 'lead': {
       const [own, ...repos] = (await realPaths($, v, me, cmd.paths)) ?? []
       if (own === undefined) return fail('path')
-      const ok = await setRow($, v, me, own, (r) => ({ ...r, folder: own, lead: { repos } }))
+      const ok = await setRow($, v, me, own, (r) => ({ ...r, folder: own, lead: { repos: [...new Set([...(r.lead?.repos ?? []), ...repos])] } }))
       if (ok) await giveParentTools($, await getView($, true), me)
       return saved(ok, T['cmd.lead']({ repos }))
     }
@@ -93,7 +93,10 @@ async function perform($: any, cmd: Cmd, me: Sid, v: View, now: number): Promise
       return T['cmd.goOff']({ n: live.length })
     }
     case 'unattended': {
-      const list = async () => (w.state === 'on' ? unattendedList(stamp(w.window.end), returnList(await readAskLog($, w.window.start), w.window), (s) => nameOf(v, s), clock) : T['cmd.unattendedOff']({}))
+      const list = async () => {
+        const log = w.state === 'on' ? await readAskLog($, w.window.start) : undefined
+        return w.state !== 'on' ? T['cmd.unattendedOff']({}) : log === undefined ? say(refusal('refuse', 'unknown-liveness', { tool: 'callboard', target: 'unattended' })) : unattendedList(stamp(w.window.end), returnList(log, w.window), (s) => nameOf(v, s), clock)
+      }
       if (cmd.span.op === 'state') return w.state === 'unknown' ? say(refusal('refuse', 'unknown-liveness', { tool: 'callboard', target: 'unattended' })) : list()
       if (cmd.span.op === 'off') return saved(await writeWindow($, null), w.state === 'on' ? `${T['cmd.unattendedOff']({})}\n\n${await list()}` : T['cmd.unattendedOff']({}))
       return saved(await writeWindow($, { start: now, end: cmd.span.end, readAt: now }), T['cmd.unattendedOn']({ end: stamp(cmd.span.end) }))

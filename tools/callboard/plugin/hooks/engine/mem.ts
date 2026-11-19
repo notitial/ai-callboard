@@ -49,7 +49,6 @@ const fresh = () => ({
   spent: new Set<string>(),
   reports: [] as { about: Sid; code: string; at: number }[],
   signed: { at: 0, set: new Set<Sid>() },
-  eventsAt: 0,
   since: 0,
   prNotes: [] as PrNote[],
   prLost: new Map<string, number>(),
@@ -57,7 +56,7 @@ const fresh = () => ({
   prPollAt: 0,
   prBin: undefined as { at: number; path: string | undefined } | undefined,
   toasted: new Set<string>(),
-  logged: new Set<string>(),
+  logged: '',
   parentTools: false,
   dialogs: new Set<string>(),
   usageAt: 0,
@@ -65,6 +64,10 @@ const fresh = () => ({
   dirs: new Set<string>(),
 })
 export const mem = fresh()
+// The reading of the machine is kept but read again at the next use; the last good table stays its fallback.
+export function staleView(): void {
+  if (mem.view !== undefined) mem.view = { ...mem.view, at: 0 }
+}
 export const resetMem = (): void => void Object.assign(mem, fresh())
 
 // A turn that starts with a pending text spends the keys that text carried; a pending text that never started expires, its keys owed again. The spent set is capped.

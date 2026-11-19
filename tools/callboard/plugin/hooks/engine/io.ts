@@ -4,7 +4,7 @@
 import type { Sid, WindowReading } from '../core/model.ts'
 import { readWindow } from '../core/unattended.ts'
 import type { DialogSpec } from '../ui.ts'
-import { mem } from './mem.ts'
+import { mem, staleView } from './mem.ts'
 
 export const TICK_MS = 2000
 const MV = '/bin/mv'
@@ -71,40 +71,43 @@ export async function writeFile($: any, p: string, text: string): Promise<boolea
   await rm($, [tmp])
   return false
 }
-// One writer at a time: a lock folder made by `mkdir`, taken over once 10 s old. undefined: the lock was not got.
+// One writer at a time: a lock folder made by `mkdir` that holds its owner's token, removed only by that owner. One 10 s old is moved aside by whoever gets there first (a move
+// that finds nothing fails), so a stale lock has one breaker. undefined: the lock was not got.
 export async function locked<T>($: any, name: string, f: () => Promise<T>): Promise<T | undefined> {
   const dir = await path($, `${name}.lock`)
+  const token = Math.random().toString(36).slice(2)
   if (dir === undefined) return undefined
   await ensureDir($, dir.slice(0, dir.lastIndexOf('/')))
   for (let i = 0; i < 40; i++) {
     if ((await run($, ['/bin/mkdir', dir]).catch(() => undefined))?.exitCode === 0) {
+      await $.fs.write(`${dir}/owner`, token).catch(() => undefined)
       try {
         return await f()
       } finally {
-        await rm($, [dir])
+        if ((await readText($, `${dir}/owner`, 64)) === token) await rm($, [dir])
       }
     }
     const st = await $.fs.stat(dir).catch(() => undefined)
-    if (st !== undefined && (await $.clock.now()) - st.mtimeMs > 10_000) await rm($, [dir])
+    const aside = `${dir}.${token}.stale`
+    if (st !== undefined && (await $.clock.now()) - st.mtimeMs > 10_000) (await run($, [MV, '-f', '--', dir, aside]).catch(() => undefined))?.exitCode === 0 && (await rm($, [aside]))
     else await pause($, 100)
   }
   return undefined
 }
 
-// One log file per session id; a fixed event and reason code, never free text. A repeat of the last line is dropped.
+// One log file per session id; a fixed event and reason code, never free text. A repeat of the line just written is dropped.
 export async function log($: any, sid: Sid, event: string, reason = ''): Promise<void> {
   const p = await path($, 'log', `${sid}.jsonl`)
   const key = `${sid}|${event}|${reason}`
-  if (p === undefined || mem.logged.has(key)) return
-  if (mem.logged.size >= 200) mem.logged.clear()
-  mem.logged.add(key)
+  if (p === undefined || mem.logged === key) return
+  mem.logged = key
   await ensureDir($, p.slice(0, p.lastIndexOf('/')))
   await run($, ['/usr/bin/tee', '-a', '--', p], { stdin: `${JSON.stringify({ t: new Date(await $.clock.now()).toISOString(), event, reason })}\n` }).catch(() => undefined)
 }
 // A refusal or fallback about a session: logged and queued as a `report` event for the session above it (RECEIVES gives it to a lead).
 export async function report($: any, me: Sid, about: Sid, code: string): Promise<void> {
   mem.reports = [...mem.reports, { about, code, at: await $.clock.now() }].slice(-50)
-  await log($, me, 'report', `${code}`)
+  await log($, me, 'report', `${code}:${about}`)
 }
 
 // ---- the plugin's own turns ----
@@ -117,7 +120,7 @@ export function countDown(text: string): void {
 export async function submitOwn($: any, text: string, real = true): Promise<void> {
   mem.own.set(text, { n: (mem.own.get(text)?.n ?? 0) + 1, real })
   mem.submits++
-  mem.view = undefined
+  staleView()
   try {
     await $.prompt.submit({ text })
   } catch (e) {
