@@ -104,7 +104,7 @@ EXT_DIR="$(ls -d "$HOME"/.vscode/extensions/anthropic.claude-code-* | sort -V | 
 /usr/bin/python3 -I "$CHECKOUT/tools/callboard/patch-claude.py" "$EXT_DIR" --undo
 ```
 
-- The check prints `patched`, `unpatched-patchable` or `anchors-missing` and the extension's version, and changes
+- The check prints `patched`, `outdated`, `unpatched-patchable` or `anchors-missing` and the extension's version, and changes
   nothing. `--apply` changes `extension.js` only when every one of its four anchors matches exactly once; otherwise it
   changes nothing and names the anchor that is missing. It keeps the original as `extension.js.callboard-orig` and writes
   `callboard-cwd-patch.json` (the marker the panels extension reads), both in the extension's folder. A second run says
@@ -113,8 +113,13 @@ EXT_DIR="$(ls -d "$HOME"/.vscode/extensions/anthropic.claude-code-* | sort -V | 
   box use the panel's width (no 680 px cap, a smaller side margin) and the Remote Control chip is always icon-only. It is optional
   inside the patch: when its anchor is not found the check and `--apply` print a warning line and the folder patch still applies
   (the marker's `look` field says which it was). Its selectors are the one `LOOK_CSS` constant at the top of `patch-claude.py`;
-  the side-margin selector is a guess that only a rendered panel confirms, so tune it there after one look, then undo and apply.
+  the side-margin selector is a guess that only a rendered panel confirms, so tune it there after one look, then `--update`.
   `--undo` takes it out with the rest.
+- An install patched by an older version of the script (before the panel look, say) shows `outdated` with a line saying what
+  differs, or the old warning that the look is not in. The check compares the installed file with what the current script
+  builds from the backup original. `--update` (or `/patch-vs-claude`, which runs it) rebuilds the patch from the backup and
+  swaps in `extension.js` and the marker, so no undo and apply by hand is needed; the backup is not touched, and a failed
+  write puts the previous patch back. `--undo` stays the way out.
 - Claude Code updates about daily, and an update is a new folder that starts unpatched: run the check and `--apply`
   again, or type `/patch-vs-claude` in a session in this checkout: it reports the version and whether the patch is in,
   applies it when it is missing and, when an update moved the code the patch hooks into, asks you before it repairs the

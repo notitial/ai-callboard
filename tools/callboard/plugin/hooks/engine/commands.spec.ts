@@ -24,7 +24,7 @@ test('the origin: his typed turn (composer, bridge) runs a form that widens what
     assert.equal(f.h.files.has(`${V2}/sessions.json`), false)
     assert.equal(f.h.files.has(`${V2}/unattended.json`), false)
     assert.equal(f.h.files.has(`${V2}/config.json`), false)
-    assert.ok(!f.h.runs.some((r) => r.argv[0] === '/usr/bin/tee' && r.argv.includes('go')))
+    assert.deepEqual([...f.h.files.keys()].filter((p) => p.startsWith(`${V2}/go/`)), [])
     for (const args of ['status', 'lanes', 'help', 'rest', 'config', 'unattended']) assert.doesNotMatch((await run(f, args, kind)).text, /types it themselves/, `${kind} ${args}`)
   }
 })
@@ -77,12 +77,8 @@ test('unattended: on writes the window, bare shows it, off removes it; config ch
   assert.match((await run(f, 'unattended 2h', 'composer')).text, /Unattended mode is on until/)
   assert.deepEqual(JSON.parse(f.h.files.get(`${V2}/unattended.json`)!), { start: T0, end: T0 + 120 * MIN, readAt: T0 })
   mem.win = undefined
-  f.h.files.set(`${V2}/asks-${new Date(T0).getFullYear()}-${String(new Date(T0).getMonth() + 1).padStart(2, '0')}.jsonl`, `${JSON.stringify({ t: T0 + MIN, ev: 'expired', ask: 'a1', asker: 'sid-me' })}\n`)
-  const shown = (await run(f, 'unattended', undefined)).text
-  assert.match(shown, /^\*\*Unattended until /)
-  assert.match(shown, /Closed with nobody to decide/)
-  assert.match(shown, /expired a1 from .me./)
-  assert.match((await run(f, 'unattended off', 'bridge')).text, /^Unattended mode is off\.\n\n\*\*Unattended until/)
+  assert.match((await run(f, 'unattended', undefined)).text, /^Unattended mode is on until /)
+  assert.match((await run(f, 'unattended off', 'bridge')).text, /^Unattended mode is off\.$/)
   assert.equal(f.h.files.has(`${V2}/unattended.json`), false)
   assert.match((await run(f, 'config idle 200', 'composer')).text, /idleK 200/)
   assert.equal(JSON.parse(f.h.files.get(`${V2}/config.json`)!).idleK, 200)

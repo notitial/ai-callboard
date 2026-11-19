@@ -31,7 +31,7 @@ function engine(on: any, f: ReturnType<typeof fake>) {
 const start = ($: any) => $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
 const own = (f: ReturnType<typeof fake>) => f.seed({ sid: 'sid-me', pid: 10, name: 'me', cwd: '/w/me', kind: 'interactive' })
 
-test('a session starts with the five tools every session has and the three commands; a lead row adds the fourteen at the next tick', async ($, on) => {
+test('a session starts with the five tools every session has and the three commands; a lead row adds the thirteen at the next tick', async ($, on) => {
   const f = fake()
   own(f)
   const clock = engine(on, f)
@@ -40,7 +40,7 @@ test('a session starts with the five tools every session has and the three comma
   expect(f.h.commands.sort()).toEqual(['callboard', 'rest', 'unattended'])
   f.table({ 'sid-me': { name: 'me', folder: '/w/me', lead: { repos: [] } } })
   await clock.advance(12_000)
-  expect(f.h.tools.length).toBe(19)
+  expect(f.h.tools.length).toBe(18)
   expect(f.h.tools).toContain('lane_list')
 })
 test('only his typed turn runs a form that widens what a session may do; the engine-stamped origin decides', async ($, on) => {
@@ -67,10 +67,20 @@ test('the keepalive: at the configured 30 minutes after a turn ends, one ping is
   await clock.advance(10 * MIN)
   expect(f.h.submitted.filter((t) => t.includes('keepalive:')).length).toBe(1)
 })
-test('a tool of a later step still refuses not-built, whatever the caller', async ($, on) => {
+test('a child tool is wired: lane_list answers for a session that is not a lead with its own refusal', async ($, on) => {
   const f = fake()
   own(f)
   engine(on, f)
   await start($)
-  for (const name of ['lane_list', 'prompt_list', 'go_status']) expect((await $.tool.call({ tool: `mcp__callboard__${name}` } as any)).deny).toBe('callboard: not-built')
+  const r = await $.tool.call({ tool: 'mcp__callboard__lane_list' } as any)
+  expect(r.deny).toContain('only a lead or the manager')
+})
+test('the ask tools are wired: a lead\'s prompt_list answers and go_status says the guard is missing', async ($, on) => {
+  const f = fake()
+  own(f)
+  f.table({ 'sid-me': { name: 'me', folder: '/w/me', lead: { repos: [] } } })
+  engine(on, f)
+  await start($)
+  expect((await $.tool.call({ tool: 'mcp__callboard__prompt_list' } as any)).result).toContain('No asks are waiting')
+  expect((await $.tool.call({ tool: 'mcp__callboard__go_status' } as any)).result).toContain('guard')
 })

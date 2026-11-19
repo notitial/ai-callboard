@@ -1,5 +1,5 @@
 ---
-description: "Report whether callboard's patch of the Claude Code VS Code extension is in and current, apply it when it is missing, and, only after a question, repair the patch script when an update moved the code it hooks into. The patch lets one multi-folder VS Code window open lanes in any of its folders and ask which folder a new session starts in. Use on '/patch-vs-claude' after the Claude Code extension updated, and '/patch-vs-claude undo' to take the patch out."
+description: "Report whether callboard's patch of the Claude Code VS Code extension is in and current, apply it when it is missing, bring it up to date when an older version of the script built it, and, only after a question, repair the patch script when an update moved the code it hooks into. The patch has two parts: the folder patch, which lets one multi-folder VS Code window open lanes in any of its folders and ask which folder a new session starts in, and the panel look, a wider composer and an icon-only Remote Control chip. Use on '/patch-vs-claude' after the Claude Code extension updated, and '/patch-vs-claude undo' to take the patch out."
 disable-model-invocation: true
 ---
 
@@ -7,7 +7,8 @@ disable-model-invocation: true
 
 Keeps `tools/callboard/patch-claude.py` applied to the person's Claude Code extension. The script is the only place that
 knows what the patch is, how it is checked and how it is undone: read its header first, and never copy its logic here.
-The person's own typed `/patch-vs-claude` is the go for the one apply in step 3, and for the undo (it only puts the
+The person's own typed `/patch-vs-claude` is the go for the one apply or update in step 3 (the same one-file change
+either way: `extension.js`, its backup and the marker in the extension's folder), and for the undo (it only puts the
 original back, which step 5 may run on a doubtful result), and for nothing else. The argument is empty or `undo`; anything else, say what the skill does and stop.
 
 Never touch `~/.claude/settings.json`, any VS Code setting, or callboard's state or ledger files. Say exactly what was
@@ -22,10 +23,14 @@ Callboard is then back to one repo per window. This is the person's way out at a
    (`pwd -P`); it must match `^/[A-Za-z0-9._/-]+$` or stop. The folder must contain no single quote or newline, or stop.
 2. **Check and report first.** Run `/usr/bin/python3 -I <checkout>/tools/callboard/patch-claude.py '<folder>'` (single
    quotes; no flag: changes nothing). Tell the person, before anything else: the extension version, whether it is patched
-   (the first word of the output: `patched`, `unpatched-patchable`, `anchors-missing` or `leftovers`), whether the marker
+   (the first word of the output: `patched`, `outdated`, `unpatched-patchable`, `anchors-missing` or `leftovers`), whether the marker
    `callboard-cwd-patch.json` is in that folder, and, when the output has a `warning:` line, that the panel look (the wider composer and
    the icon-only Remote Control chip) is not in or would be left out while the folder patch still applies.
-3. **`patched`:** say so and stop. **`unpatched-patchable`:** run the same command with `--apply`, say the version and what
+3. **`patched`:** is up to date (an older build reads `outdated`, below): say so, with the warning if there is one, and stop. **`outdated`:** an older version of the script
+   built the patch. Say what the line after the colon says differs, then run the same command with `--update` (it rebuilds the
+   patch from the backup original and swaps `extension.js` and the marker; the backup is not touched; a failed write puts the
+   previous patch back), say what it printed and that each VS Code window needs Developer: Reload Window. If `--update`
+   refuses, nothing was changed: report its message and stop. **`unpatched-patchable`:** run the same command with `--apply`, say the version and what
    was changed (`extension.js`, backup `extension.js.callboard-orig`, marker `callboard-cwd-patch.json`, all in that
    folder), whether the panel look went in (a `warning:` line says it did not), and that each VS Code window needs Developer: Reload Window.
 4. **The check or the apply refuses** (`anchors-missing`: an update moved the minified code; nothing was changed): ask once

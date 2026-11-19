@@ -3,9 +3,11 @@
 Each case builds a small stand-in for the Claude Code extension's minified file in a temporary folder (one variant with the
 names of 2.1.327, one with other minified names, as in 2.1.328) and runs the script on it, so nothing outside the
 temporary folder is touched."""
+import contextlib
 import glob
 import hashlib
 import importlib.util
+import io
 import json
 import os
 import shutil
@@ -509,17 +511,23 @@ class Groups(Case):
         self.assertEqual((self.rc, marker["groups"]), (0, False))
         self.assertEqual(self.js(ext).count(b"callboard assign group"), 1)
 
-    def test_a_patch_from_before_the_command_reads_as_patched_and_says_how_to_bring_it_in(self):
+    def test_a_patch_from_before_the_command_reads_outdated_and_update_brings_it_in(self):
+        mod = load_module()
         ext = self.make(V327, name="old")
-        self.run_script(ext, "--apply")
-        m = os.path.join(ext, "callboard-cwd-patch.json")
-        marker = json.loads(slurp(m))
-        del marker["groups"]
-        with open(m, "w") as f:
-            json.dump(marker, f)
-        self.run_script(ext)
-        self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "patched 2.1.328"))
-        self.assertIn("undo, then apply, brings it in", self.out)
+        with contextlib.redirect_stdout(io.StringIO()):
+            old = load_module()
+            old.GROUPS_ANCHOR = rb"(NO)(MATCH)(HERE)"
+            old.apply(ext)
+        self.assertNotIn(b"callboard assign group", self.js(ext))
+        self.assertEqual(json.loads(slurp(os.path.join(ext, "callboard-cwd-patch.json")))["groups"], False)
+        self.assertUnchanged(ext)
+        self.assertEqual((self.rc, self.out.splitlines()[0]), (1, "outdated 2.1.328: the group command is not in"))
+        self.run_script(ext, "--update")
+        self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "updated 2.1.328"))
+        self.assertEqual(self.js(ext), mod.patched(slurp(os.path.join(ext, "extension.js.callboard-orig")))[0])
+        self.assertEqual(json.loads(slurp(os.path.join(ext, "callboard-cwd-patch.json")))["groups"], True)
+        self.assertUnchanged(ext)
+        self.assertEqual((self.rc, self.out), (0, "patched 2.1.328\n"))
 
     def test_undo_takes_the_command_out_with_the_rest(self):
         raw = build(V328)
@@ -559,6 +567,137 @@ class Groups(Case):
             self.assertEqual(p.returncode, 0, "%s: %s" % (d, p.stderr))
             self.run_script(ext, "--undo")
             self.assertEqual(self.js(ext), raw)
+
+
+class Update(Case):
+    """An install made by an older script reads outdated; --update rebuilds it from the backup original and never leaves a half patch."""
+
+    def older(self, ext, **attrs):
+        """Patches ext in this process with a stand-in for an older script: the module's own apply, with some of its constants changed."""
+        mod = load_module()
+        for k, v in attrs.items():
+            setattr(mod, k, v)
+        with contextlib.redirect_stdout(io.StringIO()):
+            mod.apply(ext)
+
+    def current(self, raw):
+        return load_module().patched(raw)[0]
+
+    def test_an_up_to_date_install_reads_patched_and_update_has_nothing_to_do(self):
+        self.run_script(self.ext, "--apply")
+        self.assertUnchanged(self.ext)
+        self.assertEqual((self.rc, self.out), (0, "patched 2.1.328\n"))
+        self.assertUnchanged(self.ext, "--update")
+        self.assertEqual((self.rc, self.out), (0, "already patched 2.1.328\n"))
+
+    def test_an_install_made_by_an_older_script_reads_outdated_and_apply_refuses_it(self):
+        for name, attrs, why in (
+            ("code", dict(LOOK_CSS='[class*="x_"]{margin:0!important}'), "the patch code differs from this script's"),
+            ("look", dict(LOOK_ANCHOR=rb"(NO)(MATCH)(HERE)"), "the panel look is not in"),
+        ):
+            ext = self.make(V327, name=name)
+            self.older(ext, **attrs)
+            self.assertUnchanged(ext)
+            self.assertEqual((self.rc, self.out.splitlines()[0]), (1, "outdated 2.1.328: " + why), name)
+            self.assertIn("--update", self.out)
+            self.assertUnchanged(ext, "--apply")
+            self.assertEqual(self.rc, 1)
+            self.assertIn("run --update", self.err)
+
+    def test_update_brings_it_to_the_current_bytes_and_keeps_the_backup_byte_identical(self):
+        orig = self.js()
+        self.older(self.ext, LOOK_CSS="a{b:c}")
+        backup = slurp(os.path.join(self.ext, "extension.js.callboard-orig"))
+        self.run_script(self.ext, "--update")
+        self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "updated 2.1.328"))
+        self.assertEqual(self.js(), self.current(orig))
+        self.assertEqual(slurp(os.path.join(self.ext, "extension.js.callboard-orig")), backup)
+        self.assertEqual(backup, orig)
+        marker = json.loads(slurp(os.path.join(self.ext, "callboard-cwd-patch.json")))
+        self.assertEqual((marker["look"], marker["original_sha256"], marker["patched_sha256"]),
+                         (True, hashlib.sha256(orig).hexdigest(), hashlib.sha256(self.js()).hexdigest()))
+        self.assertEqual(sorted(os.listdir(self.ext)), ["callboard-cwd-patch.json", "extension.js", "extension.js.callboard-orig", "package.json"])
+        self.assertUnchanged(self.ext)
+        self.assertEqual((self.rc, self.out), (0, "patched 2.1.328\n"))
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_the_updated_code_still_runs(self):
+        self.older(self.ext, LOOK_CSS="a{b:c}")
+        self.run_script(self.ext, "--update")
+        p = subprocess.run(["node", "-e", RUNNER, os.path.join(self.ext, "extension.js")], capture_output=True, text=True, timeout=60)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual(json.loads(p.stdout)["setup"], ["/b", "/a", "/a"])
+
+    def test_undo_after_an_update_restores_the_original_byte_for_byte(self):
+        orig = self.js()
+        self.older(self.ext, LOOK_CSS="a{b:c}")
+        self.run_script(self.ext, "--update")
+        self.run_script(self.ext, "--undo")
+        self.assertEqual((self.rc, self.js()), (0, orig))
+        self.assertEqual(sorted(os.listdir(self.ext)), ["extension.js", "package.json"])
+
+    def test_an_update_this_script_cannot_build_changes_nothing(self):
+        orig = self.js()
+        self.older(self.ext, LOOK_CSS="a{b:c}")
+        mod = load_module()
+        mod.ANCHORS = mod.ANCHORS + (("extra anchor", rb"zzz", lambda m: b""),)
+        before = snap(self.ext)
+        self.assertEqual(mod.state(self.ext)[::2], ("outdated", "this script no longer fits the backup: extra anchor (no match)"))
+        with self.assertRaises(SystemExit) as cm:
+            mod.update(self.ext)
+        self.assertEqual(cm.exception.code, 1)
+        self.assertEqual(snap(self.ext), before)
+        self.assertEqual(slurp(os.path.join(self.ext, "extension.js.callboard-orig")), orig)
+
+    def test_check_and_update_agree_when_the_names_collide(self):
+        self.older(self.ext, LOOK_CSS="a{b:c}")
+        mod = load_module()
+        mod.NAME = "é".encode("utf-8")
+        before = snap(self.ext)
+        self.assertEqual(mod.state(self.ext)[::2], ("outdated", "this script no longer fits the backup: the file already contains é"))
+        with self.assertRaises(SystemExit) as cm:
+            mod.update(self.ext)
+        self.assertEqual((cm.exception.code, snap(self.ext)), (1, before))
+
+    def test_without_a_matching_backup_the_marker_decides(self):
+        self.older(self.ext, LOOK_CSS="a{b:c}")
+        os.unlink(os.path.join(self.ext, "extension.js.callboard-orig"))
+        self.assertUnchanged(self.ext)
+        self.assertEqual((self.rc, self.out), (0, "patched 2.1.328\n"))
+
+    def test_a_spare_link_left_by_a_killed_update_goes_with_the_next_update_or_undo(self):
+        orig = self.js()
+        for last in ("--update", "--undo"):
+            ext = self.make(V327, name="spare" + last)
+            self.older(ext, LOOK_CSS="a{b:c}")
+            os.link(os.path.join(ext, "extension.js.callboard-orig"), os.path.join(ext, "extension.js.callboard-prev"))
+            self.run_script(ext, last)
+            self.assertEqual(self.rc, 0, last)
+            self.assertNotIn("extension.js.callboard-prev", os.listdir(ext), last)
+        self.assertEqual(self.js(ext), orig)
+
+    def test_a_failed_write_keeps_the_previous_patch_intact(self):
+        for failing in ("extension.js", "callboard-cwd-patch.json"):
+            ext = self.make(V327, name="f-" + failing)
+            self.older(ext, LOOK_CSS="a{b:c}")
+            before = snap(ext)
+            mod = load_module()
+            real = mod.put
+
+            def put(path, content, mode, failing=failing, real=real):
+                if os.path.basename(path) == failing:
+                    raise OSError(28, "No space left on device")
+                real(path, content, mode)
+
+            mod.put = put
+            with self.assertRaises(SystemExit) as cm:
+                mod.update(ext)
+            self.assertEqual(cm.exception.code, 1, failing)
+            self.assertEqual(snap(ext), before, failing)
+            self.run_script(ext)
+            self.assertEqual((self.rc, self.out.split(":")[0]), (1, "outdated 2.1.328"), failing)
+            self.run_script(ext, "--undo")
+            self.assertEqual((self.rc, sorted(os.listdir(ext))), (0, ["extension.js", "package.json"]), failing)
 
 
 class Refusals(Case):

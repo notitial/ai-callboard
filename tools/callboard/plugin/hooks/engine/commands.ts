@@ -8,13 +8,12 @@ import { configNext, planCommand } from '../core/commands.ts'
 import { GO_HOURS, covers } from '../core/go.ts'
 import { childState } from '../core/lifecycle.ts'
 import type { StatusRow } from '../core/msg.ts'
-import { returnList } from '../core/unattended.ts'
 import { T } from '../texts.ts'
 import type { LaneRow } from '../ui.ts'
-import { RULES_CAP, lanesTable, printed, statusPage, unattendedList } from '../ui.ts'
-import { home, run, windowNow } from './io.ts'
+import { RULES_CAP, lanesTable, printed, stamp, statusPage } from '../ui.ts'
+import { home, newId, run, windowNow } from './io.ts'
 import { mem } from './mem.ts'
-import { cfgNow, getView, listGoes, readAskLog, readRules, rmGo, updateTable, writeConfig, writeGo, writeWindow } from './store.ts'
+import { cfgNow, getView, listGoes, readRules, rmGo, updateTable, writeConfig, writeGo, writeWindow } from './store.ts'
 import { restSet, say } from './tools-any.ts'
 import { giveParentTools } from './tick.ts'
 import { usageRead } from './usage.ts'
@@ -22,9 +21,6 @@ import { usageRead } from './usage.ts'
 const TYPED_ORIGINS = ['composer', 'bridge']
 // A command is typed when the engine stamped its origin as one of his own typed turns; any other origin, or none, is not.
 const originOf = (e: any): Origin => (TYPED_ORIGINS.includes(e?.origin?.kind) ? 'typed' : 'other')
-const two = (n: number): string => String(n).padStart(2, '0')
-const clock = (t: number): string => `${two(new Date(t).getHours())}:${two(new Date(t).getMinutes())}`
-const stamp = (t: number): string => `${new Date(t).getFullYear()}-${two(new Date(t).getMonth() + 1)}-${two(new Date(t).getDate())} ${clock(t)}`
 const person = (v: View, s: Sid | 'unknown' | null): string | null => (s === null ? null : s === 'unknown' ? 'unknown' : s === PERSON ? PERSON : nameOf(v, s))
 const helpRow = (k: string): string => (T as Record<string, (p: unknown) => string>)[k]!({})
 const help = (): string => [T['help.head']({}), ...Object.keys(T).filter((k) => k.startsWith('help.') && k !== 'help.head').map((k) => helpRow(k))].join('\n')
@@ -84,7 +80,7 @@ async function perform($: any, cmd: Cmd, me: Sid, v: View, now: number): Promise
     case 'off': return saved(await setRow($, v, me, folder ?? '', (r) => ({ ...r, off: true })), T['cmd.off']({}))
     case 'on': return saved(await setRow($, v, me, folder ?? '', ({ off: _, ...r }) => r), T['cmd.on']({}))
     case 'go': {
-      const g = { id: (Math.random().toString(36) + '00000000').slice(2, 10), giver: me, text: cmd.text, end: now + GO_HOURS * 3_600_000 }
+      const g = { id: newId(), giver: me, text: cmd.text, end: now + GO_HOURS * 3_600_000 }
       return saved(await writeGo($, g), T['cmd.go']({ id: g.id, end: stamp(g.end) }))
     }
     case 'go-off': {
@@ -94,12 +90,8 @@ async function perform($: any, cmd: Cmd, me: Sid, v: View, now: number): Promise
       return saved(left === 0, T['cmd.goOff']({ n: live.length }))
     }
     case 'unattended': {
-      const list = async () => {
-        const log = w.state === 'on' ? await readAskLog($, w.window.start) : undefined
-        return w.state !== 'on' ? T['cmd.unattendedOff']({}) : log === undefined ? say(refusal('refuse', 'unknown-liveness', { tool: 'callboard', target: 'unattended' })) : unattendedList(stamp(w.window.end), returnList(log, w.window), (s) => nameOf(v, s), clock)
-      }
-      if (cmd.span.op === 'state') return w.state === 'unknown' ? say(refusal('refuse', 'unknown-liveness', { tool: 'callboard', target: 'unattended' })) : list()
-      if (cmd.span.op === 'off') return saved(await writeWindow($, null), w.state === 'on' ? `${T['cmd.unattendedOff']({})}\n\n${await list()}` : T['cmd.unattendedOff']({}))
+      if (cmd.span.op === 'state') return w.state === 'unknown' ? say(refusal('refuse', 'unknown-liveness', { tool: 'callboard', target: 'unattended' })) : w.state === 'on' ? T['cmd.unattendedOn']({ end: stamp(w.window.end) }) : T['cmd.unattendedOff']({})
+      if (cmd.span.op === 'off') return saved(await writeWindow($, null), T['cmd.unattendedOff']({}))
       return saved(await writeWindow($, { start: now, end: cmd.span.end, readAt: now }), T['cmd.unattendedOn']({ end: stamp(cmd.span.end) }))
     }
     case 'config': {

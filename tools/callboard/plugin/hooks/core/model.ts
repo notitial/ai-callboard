@@ -21,7 +21,7 @@ export type StopVerb = (typeof STOP_VERBS)[number]
 export const TOOLS = [
   'lane_rename', 'lane_start', 'lane_resume', 'lane_park', 'lane_retire', 'lane_terminate', 'lane_unpark', 'lane_list',
   'lane_create', 'lane_open', 'lane_adopt',
-  'prompt_list', 'prompt_answer', 'unattended_off',
+  'prompt_list', 'prompt_answer',
   'go_request', 'go_status', 'pr_watch', 'request_compact', 'rest',
 ] as const
 export type ToolName = (typeof TOOLS)[number]
@@ -72,14 +72,12 @@ export type RaisedBy = 'mode' | 'rule' | 'guard' | 'hook' | 'setting' | 'plugin'
 export type Question = { header: string; question: string; options: { label: string; description?: string }[]; multi?: boolean }
 
 // `asks/<id>.json`, rewritten only by the asker's hook. `awake` is the time the asker's hook has counted awake, and the 5 and 15 minute steps run on it; `t0` and `beat`
-// are wall time. `window` is the start of the window on when the ask was raised, or null. `input` is redacted and capped; `cut` says a reader has not seen all of it.
+// are wall time. `input` is redacted and capped; `cut` says a reader has not seen all of it.
 export type Ask = {
   id: string
   asker: Sid
   t0: number
   awake: number
-  window: number | null
-  personOnly: boolean
   tool: string
   raisedBy: RaisedBy
   input: string
@@ -103,7 +101,7 @@ export type Answer = {
 // `asks/<id>.up.<sid>`: an escalation, or a "told" mark, by that session; created exclusively. `reach` is derived from these and from `awake`.
 export type UpMark = { kind: 'escalated' | 'told'; by: Sid; at: number }
 
-export type AskEvent = 'raised' | 'told' | 'escalated' | 'answered' | 'expired' | 'closed' | 'swept' | 'relay-unanswered' | 'left-for-person'
+export type AskEvent = 'raised' | 'told' | 'escalated' | 'answered' | 'expired' | 'closed' | 'swept' | 'relay-unanswered'
 // A row of `asks-YYYY-MM.jsonl`, the one append-only ask log.
 export type AskLogRow = { t: number; ev: AskEvent; ask: string; asker: Sid; by?: Owner; code?: string }
 
@@ -126,7 +124,7 @@ export type SpoolReply = { ok: true; sid?: Sid } | { ok: false; code: string }
 export type Go = { id: string; giver: Sid; text: string; end: number }
 // `unattended.json`. The window's `start` is its id.
 export type Window = { start: number; end: number; readAt: number }
-// What a reader makes of the window: on (with the file), off, or a failed read (by day for every close).
+// What a reader makes of the window: on (with the file), off, or a failed read (a dialog opens only on off).
 export type WindowReading = { state: 'on'; window: Window } | { state: 'off' } | { state: 'unknown' }
 // `config.json`.
 export type Config = { keepalive: boolean; pingAfterMin: number; stopAfterH: number; idleK: number; workingK: number }

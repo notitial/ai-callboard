@@ -1,13 +1,13 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { PRINT_CAP, goDialog, goList, lanesTable, printed, promptList, refusalToast, relayDialog, statusPage, stopDialog, unattendedList } from './ui.ts'
+import { PRINT_CAP, goDialog, goList, lanesTable, printed, promptList, refusalToast, relayDialog, statusPage, stopDialog } from './ui.ts'
 import type { AskView, LaneRow } from './ui.ts'
 import { refusal } from './core/model.ts'
-import type { Ask, AskLogRow } from './core/model.ts'
+import type { Ask } from './core/model.ts'
 import { NOW } from './core/gen.spec.ts'
 
 const RLO = String.fromCodePoint(0x202e)
-const ask = (x: Partial<Ask> = {}): Ask => ({ id: 'a1', asker: 's1', t0: NOW, awake: 0, window: null, personOnly: false, tool: 'Bash', raisedBy: 'rule', input: '{"command":"ls"}', cut: false, beat: NOW, ...x })
+const ask = (x: Partial<Ask> = {}): Ask => ({ id: 'a1', asker: 's1', t0: NOW, awake: 0, tool: 'Bash', raisedBy: 'rule', input: '{"command":"ls"}', cut: false, beat: NOW, ...x })
 const view = (a: Ask): AskView => ({ ask: a, asker: 'lane-a', ageMin: 2, yours: true })
 
 test('printed: escaped, and cut with a mark when the printed form is over the cap', () => {
@@ -56,16 +56,10 @@ test('the lane table: one row per session with the usage columns, a gap for a mi
   assert.ok(lanesTable([]).includes('No sessions'))
 })
 
-test('the status page, the unattended list and the go list', () => {
+test('the status page and the go list', () => {
   const s = statusPage([{ field: 'role', value: 'lead' }, { field: 'parent', value: 'PERSON' }, { field: 'manager', value: null }, { field: 'off', value: false }, { field: 'keepalive', value: true }, { field: 'unattended', value: null }, { field: 'goes', value: 2 }])
   assert.equal(s.split('\n').filter((l) => l.startsWith('| ') && l !== '| | |').length, 7)
   assert.ok(s.includes('| Role | lead |') && s.includes('| Parent | the person |') && s.includes('| Unattended | off |'))
-  const row = (ev: AskLogRow['ev'], by?: string): AskLogRow => ({ t: NOW, ev, ask: 'a1', asker: 's1', ...(by === undefined ? {} : { by }) })
-  const name = (s: string): string => (s === 's1' ? 'lane-a' : s)
-  const u = unattendedList('07:00', { open: [row('expired')], decided: [row('answered', 'PERSON'), row('answered', 'lead')] }, name, () => '03:10')
-  assert.ok(u.includes('Unattended until 07:00') && u.includes('left for you') && u.includes('Decided while you were away'))
-  assert.ok(u.includes('- 03:10 expired a1 from `lane-a`') && u.includes('by `the person`') && u.includes('by `lead`'))
-  assert.ok(unattendedList('07:00', { open: [], decided: [] }, name, () => '').includes('Nothing happened'))
   const g = goList([{ id: 'g1', giver: 'lead', text: 'one\ntwo<', end: '12:00' }])
   assert.ok(g.includes('- g1 from `lead`, until 12:00: one / two') && g.includes('A go never covers these') && !g.includes('<'))
   assert.ok(goList([]).includes('No go is live') && !goList([]).includes('never covers'))
@@ -89,4 +83,9 @@ test('the dialogs: yes and no for a go and a stop; a relay pop-up allows only an
 test('the refusal toast: a refusal has one, another decision has none', () => {
   assert.equal(refusalToast(refusal('refuse', 'bad-origin', { tool: 'callboard' })), 'callboard refused (bad-origin).')
   assert.equal(refusalToast({ act: 'queue', msg: 'compact.queued', p: {} }), undefined)
+})
+test('a relay pop-up offers Allow only for an input a dialog shows whole: past a few KB it is Deny only', () => {
+  const d = relayDialog('lane-a', 'Bash', 'x'.repeat(5000), false)
+  assert.deepEqual(d.options.map((o) => o.label), ['Deny'])
+  assert.equal(d.cut, true)
 })

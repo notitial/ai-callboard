@@ -1,7 +1,7 @@
 // Every string a person or a model reads, by message id, and the parameters its text takes. The core returns `{ act, msg, p }`; `texts.ts` is typed
 // `T: { [K in MsgId]: (p: Params[K]) => string }`, so a missing id or a wrong parameter fails the type check. The ids are listed by group;
 // a family written `${...}` is one id per member of the named union. Types only.
-import type { AskEvent, Capability, Config, CueVerb, Question, RaisedBy, StopVerb, ToolName } from './model.ts'
+import type { Capability, Config, CueVerb, Question, RaisedBy, StopVerb, ToolName } from './model.ts'
 import type { PrNote } from './pr.ts'
 
 // The codes a refusal carries. One id per code: `refuse.<code>`.
@@ -32,14 +32,18 @@ export type RefuseCode =
   | 'unattended' // a force stop while a window is on
   | 'no-such-ask'
   | 'not-eligible'
-  | 'person-only'
   | 'ask-closed'
+  | 'no-guard' // an answer while the protected-paths guard is not in place
   | 'input-cut' // an allow of an ask whose input a reader has not seen whole
   | 'compact-rate'
   | 'compact-floor'
   | 'compact-busy'
   | 'go-bad-text'
   | 'go-declined'
+  | 'stop-declined' // a force stop the person did not confirm
+  | 'signal-failed' // the signal to the session's process did not go
+  | 'table-unwritten' // the lane table could not be written
+  | 'window-refused' // the window answered a spool request with a refusal code
   | 'cue-held'
   | 'cue-refused'
   | 'cue-stale'
@@ -73,7 +77,7 @@ export type Fixed = {
 
   // Cue and compaction notes: the turns a parent's cue and a session's own compaction submit. There is no order nudge and no on-cue note.
   'cue.rename': Names
-  'cue.start': { name: string; brief: string }
+  'cue.start': { name: string; brief: string; parent: string }
   'cue.resume': Names
   'compact.queued': E
   'compact.note': { focus: string; continuation: string }
@@ -103,7 +107,7 @@ export type Fixed = {
 
   // The ask: the two close texts, the subagent deny, and what each prompt tool answers.
   'ask.expired': { parent: string }
-  'ask.leftForPerson': { parent: string }
+  'ask.away': E
   'ask.subagent': E
   'ask.allowed': { ask: string }
   'ask.denied': { ask: string }
@@ -118,10 +122,12 @@ export type Fixed = {
   // `done`: the process ended (or there was none, so no pid) and, for a retire or terminate, the row is removed; `alive`: it outlived its signal, call again.
   'lane.stopped': { verb: StopVerb; name: string; pid?: number; outcome: 'done' | 'alive' }
   'lane.unparked': { name: string; sid: string }
-  'lane.created': { name: string; folder: string }
+  'lane.created': { name: string; folder: string; lead: string }
   'lane.opened': { name: string; sid: string }
   'lane.notOpened': Names
-  'lane.adopted': Names
+  'lane.adopted': { name: string; lead: string }
+  // The file a lane's brief is written to: the lead's name and the task.
+  'lane.brief': { name: string; lead: string; text: string }
 
   // Help: its heading; one row per command is `help.<name>`.
   'help.head': E
@@ -158,6 +164,7 @@ export type Fixed = {
   'go.status': { covers: { giver: string; text: string; end: string }[] }
   'go.none': E
   'go.requested': { text: string; end: string }
+  'go.noGuard': E // the protected-paths guard is not in place, so no go counts
 
   // Toasts.
   'toast.refused': { tool: string; code: RefuseCode }
@@ -168,7 +175,7 @@ export type Fixed = {
   'toast.noManager': E // the manager is off, renamed away from the file's name, or gone
   'toast.report': Names & { code: string } // a refusal or fallback `report()`, where the parent is the person
 
-  // UI: the status page, the lane list, prompt_list (the rules file first), the unattended and go lists. A status row is its label and its value in one text.
+  // UI: the status page, the lane list, prompt_list (the rules file first), the go list. A status row is its label and its value in one text.
   'ui.status.head': E
   'ui.status.row': StatusRow
   'ui.person': E
@@ -177,12 +184,7 @@ export type Fixed = {
   'ui.rules': { rules: string; cut: boolean }
   'ui.rules.none': E
   'ui.asks.none': E
-  'ui.ask': { id: string; asker: string; tool: string; ageMin: number; raisedBy: RaisedBy; yours: boolean; personOnly: boolean; input: string; cut: boolean; question?: Question }
-  'ui.unattended.head': { end: string }
-  'ui.unattended.open': E
-  'ui.unattended.decided': E
-  'ui.unattended.row': { time: string; ev: AskEvent; asker: string; ask: string; by?: string }
-  'ui.unattended.none': E
+  'ui.ask': { id: string; asker: string; tool: string; ageMin: number; raisedBy: RaisedBy; yours: boolean; input: string; cut: boolean; question?: Question }
   'ui.goes.head': E
   'ui.goes.row': { id: string; giver: string; text: string; end: string }
   'ui.goes.none': E

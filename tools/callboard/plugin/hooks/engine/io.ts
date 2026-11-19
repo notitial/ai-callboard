@@ -45,7 +45,7 @@ export async function path($: any, ...parts: string[]): Promise<string | undefin
   return r === undefined ? undefined : [r, ...parts].join('/')
 }
 // A folder of ours, made once per process and set 0700, with the root above it.
-async function ensureDir($: any, d: string): Promise<void> {
+export async function ensureDir($: any, d: string): Promise<void> {
   if (mem.dirs.has(d)) return
   const top = (await v2($))!
   await run($, ['/bin/mkdir', '-p', d])
@@ -64,7 +64,7 @@ export async function readText($: any, p: string, max = 65_536): Promise<string 
 }
 // Written whole under a temporary name and renamed over the file.
 export async function writeFile($: any, p: string, text: string): Promise<boolean> {
-  const tmp = `${p}.${Math.random().toString(36).slice(2, 10)}.tmp`
+  const tmp = `${p}.${newId()}.tmp`
   try {
     await ensureDir($, p.slice(0, p.lastIndexOf('/')))
     const st = await $.fs.stat(p).catch(() => undefined)
@@ -76,6 +76,22 @@ export async function writeFile($: any, p: string, text: string): Promise<boolea
   await rm($, [tmp])
   return false
 }
+// Created only if `p` does not exist, so the first writer wins: written under a temporary name and hard-linked into place, which fails when `p` is there.
+export async function createExcl($: any, p: string, text: string): Promise<'ok' | 'exists' | 'error'> {
+  const tmp = `${p}.${newId()}.tmp`
+  try {
+    await ensureDir($, p.slice(0, p.lastIndexOf('/')))
+    await $.fs.write(tmp, text)
+    await run($, ['/bin/chmod', '600', tmp])
+    return (await run($, ['/bin/ln', '--', tmp, p])).exitCode === 0 ? 'ok' : (await $.fs.exists(p)) ? 'exists' : 'error'
+  } catch {
+    return 'error'
+  } finally {
+    await rm($, [tmp])
+  }
+}
+// A fresh random id for an ask, a go or a temporary name: 10 characters of 0-9 and a-z.
+export const newId = (): string => (Math.random().toString(36) + '0000000000').slice(2, 12)
 // One writer at a time: a lock folder made by `mkdir` that holds its owner's token, removed only by that owner. One 10 s old is moved aside by a waiter (a move that finds
 // nothing fails), so a stale lock is normally broken once; two waiters that both saw it stale can still both break it. undefined: the lock was not got.
 export async function locked<T>($: any, name: string, f: () => Promise<T>): Promise<T | undefined> {

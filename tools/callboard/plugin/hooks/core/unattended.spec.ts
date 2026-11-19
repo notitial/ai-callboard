@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { WINDOW_MAX_MS, WINDOW_MIN_MS, parseSpan, readWindow, returnList } from './unattended.ts'
-import type { AskLogRow, WindowReading } from './model.ts'
+import { WINDOW_MAX_MS, WINDOW_MIN_MS, parseSpan, readWindow } from './unattended.ts'
+import type { WindowReading } from './model.ts'
 import { NOW } from './gen.spec.ts'
 
 test('the span: Nm, Nh and HH:MM, between 30 minutes and 14 hours from now; anything else is refused', () => {
@@ -35,13 +35,4 @@ test('the window file: on only inside its span; no file is off; a failed read ke
   assert.deepEqual(readWindow('unreadable', NOW, on), on)
   assert.deepEqual(readWindow('unreadable', w.end, on), { state: 'off' })
   assert.deepEqual(readWindow(null, NOW, { state: 'off' }), { state: 'off' })
-})
-
-test('the list for his return: what nobody decided and what a session decided, inside the window only', () => {
-  const w = { start: NOW, end: NOW + 3_600_000, readAt: 0 }
-  const row = (t: number, ev: AskLogRow['ev']): AskLogRow => ({ t, ev, ask: `${ev}-${t}`, asker: 's' })
-  const log = [row(NOW - 1, 'expired'), row(NOW + 1, 'expired'), row(NOW + 2, 'left-for-person'), row(NOW + 3, 'answered'), row(NOW + 4, 'raised'), row(w.end + 1, 'expired')]
-  const l = returnList(log, w)
-  assert.deepEqual(l.open.map((r) => r.t), [NOW + 1, NOW + 2])
-  assert.deepEqual(l.decided.map((r) => r.t), [NOW + 3])
 })

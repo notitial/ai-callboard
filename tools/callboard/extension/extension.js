@@ -12,6 +12,7 @@ const { pidAlive } = require('./reserved.js')
 const { claudePatched } = require('./claude-patch.js')
 const { createFolderBadge } = require('./folder-badge.js')
 const { createGroups } = require('./groups.js')
+const { createLaneView } = require('./lane-view.js')
 
 const CLAUDE = path.join(os.homedir(), '.claude')
 const SESSIONS = path.join(CLAUDE, 'sessions')
@@ -55,9 +56,10 @@ function activate(context) {
   const lanes = createLanes({ vscode, registry, sleep: (ms) => new Promise((r) => setTimeout(r, ms)), now: Date.now,
     workspaceFolders: windowFolders, passCwd: patched,
   })
+  const loadLanes = () => allLanes({ storeDir: path.join(CLAUDE, 'callboard', 'lanes') })
   const spool = createSpool({
     dir: path.join(CLAUDE, 'callboard', 'open'),
-    loadLanes: () => allLanes({ storeDir: path.join(CLAUDE, 'callboard', 'lanes') }),
+    loadLanes,
     loadLeads: () => allLeads({ recordDir: path.join(CLAUDE, 'callboard', 'lead-records') }),
     openLane: (folder) => lanes.open(folder, { timeoutMs: SPOOL_OPEN_MS, refuseUnnamed: true }),
     openLead: (folder) => lanes.open(folder, { timeoutMs: LEAD_OPEN_MS, refuseUnnamed: true }),
@@ -72,6 +74,11 @@ function activate(context) {
     context.subscriptions.push(createFolderBadge({ vscode, registry }))
   } catch {
     // no folder item
+  }
+  try {
+    context.subscriptions.push(createLaneView({ vscode, registry, lanes, loadLanes, tablePath: path.join(CLAUDE, 'callboard', 'v2', 'sessions.json'), projectsDir: path.join(CLAUDE, 'projects'), workspaceFolders: windowFolders }))
+  } catch {
+    // no lane list
   }
   const sweep = setInterval(() => lanes.sweep().catch(() => undefined), 2000)
   context.subscriptions.push({ dispose: () => clearInterval(sweep) })

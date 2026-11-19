@@ -3,9 +3,9 @@
 // its parse is no file; the table is written under one lock by read-modify-write, and an unreadable table is never overwritten.
 import { parseConfig } from '../core/commands.ts'
 import { parseGo } from '../core/go.ts'
-import type { AskLogRow, Config, Go, ManagerName, Registry, RegistryRow, Row, Sid, Table, View } from '../core/model.ts'
+import type { Answer, Ask, AskLogRow, Config, Go, ManagerName, RaisedBy, Registry, RegistryRow, Row, Sid, Table, UpMark, View } from '../core/model.ts'
 import { liveView } from '../core/model.ts'
-import { run, home, path, readText, writeFile, locked, rm } from './io.ts'
+import { createExcl, home, locked, path, readText, rm, run, writeFile } from './io.ts'
 import { mem, staleView } from './mem.ts'
 
 const SID_RE = /^[A-Za-z0-9-]{1,64}$/
@@ -47,7 +47,16 @@ export async function readRegistry($: any, self: Sid): Promise<Registry> {
   if (doubt || ps === undefined || ps.exitCode !== 0 || ps.isStdoutTruncated === true) return 'unknown'
   const starts = new Map([...ps.stdout.matchAll(/^\s*(\d+)\s+(.+?)\s*$/gm)].map((m) => [Number(m[1]), squash(m[2]!)] as const))
   const live = rows.filter((r): r is RegistryRow => r !== undefined && starts.get(r.pid) === squash(r.procStart))
-  return starts.size > 0 && live.some((r) => r.sid === self) && new Set(live.map((r) => r.sid)).size === live.length ? live : 'unknown'
+  const own = live.find((r) => r.sid === self)
+  mem.ownPid = own?.pid
+  return starts.size > 0 && own !== undefined && new Set(live.map((r) => r.sid)).size === live.length ? live : 'unknown'
+}
+// This session's own registry row, by one file read (not the whole registry): the row of the pid the last full read found, if it still names this session.
+export async function readOwnRow($: any, self: Sid): Promise<RegistryRow | undefined> {
+  const h = await home($)
+  const t = h === undefined || mem.ownPid === undefined ? undefined : await readText($, `${h}/.claude/sessions/${mem.ownPid}.json`, 16_385)
+  const r = t === undefined ? undefined : rowOf(safeJson(t), `${mem.ownPid}.json`)
+  return r?.sid === self ? r : undefined
 }
 
 // ---- the session table ----
@@ -162,18 +171,146 @@ export async function writeWindow($: any, w: { start: number; end: number; readA
   if (p === undefined) return false
   return w === null ? (await rm($, [p])) && !(await $.fs.exists(p).catch(() => true)) : writeFile($, p, JSON.stringify(w))
 }
+function askLogPath($: any, at: Date): Promise<string | undefined> {
+  return path($, `asks-${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, '0')}.jsonl`)
+}
+// One row appended to this month's ask log. The raised and expired rows carry the tool name in `code`, so a notice can name it.
+export async function logAsk($: any, row: Omit<AskLogRow, 't'>): Promise<void> {
+  const now = await $.clock.now()
+  const p = await askLogPath($, new Date(now))
+  if (p !== undefined) await run($, ['/usr/bin/tee', '-a', '--', p], { stdin: `${JSON.stringify({ t: now, ...row })}\n` }).catch(() => undefined)
+}
+// Log files older than 90 days are removed.
+export async function tidyAskLogs($: any): Promise<void> {
+  const d = await path($)
+  const now = await $.clock.now()
+  const old = d === undefined ? [] : (((await $.fs.list(d).catch(() => [])) as { name: string }[]) ?? []).filter((f) => /^asks-\d{4}-\d{2}\.jsonl$/.test(f.name))
+  for (const f of old) if (now - (((await $.fs.stat(`${d}/${f.name}`).catch(() => undefined)) as { mtimeMs: number } | undefined)?.mtimeMs ?? now) > 90 * 86_400_000) await rm($, [`${d}/${f.name}`])
+}
+
+// ---- the asks: asks/<id>.json (the asker's), <id>.answer (created exclusively), <id>.up.<session> (an escalation or a told mark, by that session) ----
+const ASK_ID_RE = /^[a-z0-9]{8,32}$/
+const RAISED: readonly RaisedBy[] = ['mode', 'rule', 'guard', 'hook', 'setting', 'plugin', 'ceiling', 'unknown']
+function askPath($: any, id: string, ext = 'json'): Promise<string | undefined> {
+  return ASK_ID_RE.test(id) ? path($, 'asks', `${id}.${ext}`) : Promise.resolve(undefined)
+}
+const isNum = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x)
+// An ask file read leniently: anything that is not an ask is no ask.
+function parseAsk(j: any): Ask | undefined {
+  if (typeof j !== 'object' || j === null || typeof j.id !== 'string' || !ASK_ID_RE.test(j.id) || typeof j.asker !== 'string' || !SID_RE.test(j.asker) || ![j.t0, j.awake, j.beat].every(isNum)) return undefined
+  if (typeof j.cut !== 'boolean' || typeof j.tool !== 'string' || typeof j.input !== 'string' || !RAISED.includes(j.raisedBy)) return undefined
+  const q = j.question
+  const good = typeof q === 'object' && q !== null && typeof q.header === 'string' && typeof q.question === 'string' && Array.isArray(q.options) && q.options.every((o: any) => typeof o?.label === 'string')
+  const question = good ? { header: q.header, question: q.question, options: q.options.map((o: any) => ({ label: o.label, ...(typeof o.description === 'string' ? { description: o.description } : {}) })) } : undefined
+  return { id: j.id, asker: j.asker, t0: j.t0, awake: j.awake, tool: j.tool, raisedBy: j.raisedBy, input: j.input, cut: j.cut, beat: j.beat, ...(question === undefined ? {} : { question }) }
+}
+export async function writeAsk($: any, a: Ask): Promise<boolean> {
+  const p = await askPath($, a.id)
+  return p !== undefined && writeFile($, p, JSON.stringify(a))
+}
+export async function readAsk($: any, id: string): Promise<Ask | undefined> {
+  const p = await askPath($, id)
+  const t = p === undefined ? undefined : await readText($, p, 262_144)
+  const a = t === undefined ? undefined : parseAsk(safeJson(t))
+  return a?.id === id ? a : undefined
+}
+async function readUps($: any, d: string, names: string[], id: string): Promise<UpMark[]> {
+  const mine = names.filter((n) => n.startsWith(`${id}.up.`) && SID_RE.test(n.slice(id.length + 4))).slice(0, 8)
+  const ups = await Promise.all(mine.map(async (n) => {
+    const j = safeJson((await readText($, `${d}/${n}`, 1024)) ?? '') as { kind?: unknown; at?: unknown } | undefined
+    return (j?.kind === 'escalated' || j?.kind === 'told') && isNum(j.at) ? { kind: j.kind, by: n.slice(id.length + 4), at: j.at } : undefined
+  }))
+  return ups.filter((u): u is UpMark => u !== undefined)
+}
+async function askNames($: any): Promise<{ d: string; names: string[] } | undefined> {
+  const d = await path($, 'asks')
+  const l = d === undefined ? undefined : ((await $.fs.list(d).catch(() => [])) as { name: string }[])
+  return d === undefined ? undefined : { d, names: (l ?? []).map((f) => f.name).slice(0, 512) }
+}
+// Every ask file with the marks beside it, and the ids already answered. A mark's session is its file's name, never its content.
+export async function readAsks($: any): Promise<{ asks: Ask[]; ups: Map<string, UpMark[]>; answered: Set<string> }> {
+  const f = await askNames($)
+  const asks = f === undefined ? [] : (await Promise.all(f.names.filter((n) => n.endsWith('.json')).slice(0, 64).map((n) => readAsk($, n.slice(0, -5))))).filter((a): a is Ask => a !== undefined)
+  const ups = new Map<string, UpMark[]>()
+  for (const a of asks) ups.set(a.id, await readUps($, f!.d, f!.names, a.id))
+  return { asks, ups, answered: new Set(f?.names.filter((n) => n.endsWith('.answer')).map((n) => n.slice(0, -7))) }
+}
+// One ask's marks and whether it is answered: the asker's poll and an answer's check read this and nothing more.
+export async function askState($: any, id: string): Promise<{ ups: UpMark[]; answered: boolean }> {
+  const f = await askNames($)
+  return f === undefined ? { ups: [], answered: false } : { ups: await readUps($, f.d, f.names, id), answered: f.names.includes(`${id}.answer`) }
+}
+// Whether an ask is still open: its file is there and no answer is.
+export async function askOpen($: any, id: string): Promise<boolean> {
+  const f = await askNames($)
+  return f !== undefined && f.names.includes(`${id}.json`) && !f.names.includes(`${id}.answer`)
+}
+export async function readAnswer($: any, id: string): Promise<Answer | undefined> {
+  const p = await askPath($, id, 'answer')
+  const j = (p === undefined ? undefined : safeJson((await readText($, p, 4096)) ?? '')) as Partial<Answer> | null | undefined
+  if (!j || j.ask !== id || typeof j.by !== 'string' || !['allow', 'deny', 'answer'].includes(j.decision as string) || !isNum(j.at)) return undefined
+  return { ask: id, by: j.by, decision: j.decision!, at: j.at, ...(typeof j.note === 'string' ? { note: j.note } : {}), ...(Number.isInteger(j.option) ? { option: j.option } : {}) }
+}
+// The first writer wins: 'exists' says an answer is already there.
+export async function writeAnswer($: any, a: Answer): Promise<'ok' | 'exists' | 'error'> {
+  const p = await askPath($, a.ask, 'answer')
+  return p === undefined ? 'error' : createExcl($, p, JSON.stringify(a))
+}
+export async function rmAnswer($: any, id: string): Promise<void> {
+  const p = await askPath($, id, 'answer')
+  if (p !== undefined) await rm($, [p])
+}
+// A mark by one session, its own, written whole (a told mark gives way to its escalation).
+export async function writeUp($: any, id: string, by: Sid, kind: UpMark['kind'], at: number): Promise<boolean> {
+  const p = SID_RE.test(by) ? await askPath($, id, `up.${by}`) : undefined
+  return p !== undefined && writeFile($, p, JSON.stringify({ kind, at }))
+}
+// Entries of the ask folder whose ask file is gone (a late answer or mark) and temporary files left by a killed writer, once two minutes old.
+export async function tidyAsks($: any): Promise<void> {
+  const d = await path($, 'asks')
+  const now = await $.clock.now()
+  const all = d === undefined ? [] : (((await $.fs.list(d).catch(() => [])) as { name: string }[]) ?? []).map((f) => f.name)
+  const gone = all.filter((n) => n.endsWith('.tmp') || !all.includes(`${n.split('.')[0]}.json`))
+  for (const n of gone.slice(0, 64)) if (now - (((await $.fs.stat(`${d}/${n}`).catch(() => undefined)) as { mtimeMs: number } | undefined)?.mtimeMs ?? now) > 120_000) await rm($, [`${d}/${n}`])
+}
+// An ask's files, all of them.
+export async function rmAsk($: any, id: string): Promise<void> {
+  const f = await askNames($)
+  if (f !== undefined && ASK_ID_RE.test(id)) await rm($, f.names.filter((n) => n === `${id}.json` || n === `${id}.answer` || n.startsWith(`${id}.up.`)).map((n) => `${f.d}/${n}`))
+}
+// The machine-wide OFF file: while it is there no tier answers an ask. A read that fails counts as there.
+export async function offFile($: any): Promise<boolean> {
+  const h = await home($)
+  return h === undefined || (await $.fs.exists(`${h}/.claude/callboard/OFF`).catch(() => true))
+}
+type Settings = { disableAllHooks?: unknown; hooks?: { PreToolUse?: { hooks?: { type?: unknown; command?: unknown }[] }[] } }
+// The guard go_status reads before it reports a go: settings wire a PreToolUse command hook that runs protected-paths-guard.sh with hooks not disabled, and the callboard folder carries
+// the `.protected-checkout` marker. Kept 60 s; a failed read is a missing guard.
+export async function guardOk($: any): Promise<boolean> {
+  const now = await $.clock.now()
+  if (mem.guard !== undefined && now - mem.guard.at < 60_000) return mem.guard.ok
+  const h = await home($)
+  const s = h === undefined ? undefined : (safeJson((await readText($, `${h}/.claude/settings.json`, 262_144)) ?? '') as Settings | undefined)
+  const pre = s?.hooks?.PreToolUse
+  const wired = s?.disableAllHooks !== true && Array.isArray(pre) && pre.some((m) => Array.isArray(m?.hooks) && m.hooks.some((x) => x?.type === 'command' && typeof x.command === 'string' && x.command.includes('protected-paths-guard.sh')))
+  const ok = wired && ((await $.fs.stat(`${h}/.claude/callboard/.protected-checkout`).catch(() => undefined)) as { kind?: string } | undefined)?.kind === 'file'
+  mem.guard = { at: now, ok }
+  return ok
+}
+
 // The ask log's rows since a time, from the last 256 KB of this month's file and of the month before when the time reaches back to it; a line that is not a row is dropped. undefined: a file is there and could not be read.
 export async function readAskLog($: any, since: number): Promise<AskLogRow[] | undefined> {
   const out: AskLogRow[] = []
-  for (const at of [new Date(since), new Date()]) {
-    const p = await path($, `asks-${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, '0')}.jsonl`)
-    const size = p === undefined ? undefined : ((await $.fs.stat(p).catch(() => undefined)) as { size: number } | undefined)?.size
+  const paths = new Set([await askLogPath($, new Date(since)), await askLogPath($, new Date(await $.clock.now()))])
+  for (const p of paths) {
+    const st = p === undefined ? undefined : ((await $.fs.stat(p).catch(() => undefined)) as { size: number; kind?: string } | undefined)
+    const size = st?.kind === 'file' ? st.size : undefined
     if (p === undefined || size === undefined) continue
     const t = (await $.fs.read(p, { offset: Math.max(0, size - 262_144), length: 262_144 }).catch(() => undefined)) as string | undefined
     if (t === undefined) return undefined
     for (const l of t.split('\n')) {
       const r = safeJson(l) as Partial<AskLogRow> | undefined
-      if (r && typeof r.t === 'number' && r.t >= since && typeof r.ev === 'string' && typeof r.ask === 'string' && typeof r.asker === 'string' && !out.some((o) => o.t === r.t && o.ask === r.ask && o.ev === r.ev)) out.push(r as AskLogRow)
+      if (r && typeof r.t === 'number' && r.t >= since && typeof r.ev === 'string' && typeof r.ask === 'string' && typeof r.asker === 'string' && !out.some((o) => o.t === r.t && o.ask === r.ask && o.ev === r.ev && o.by === r.by)) out.push(r as AskLogRow)
     }
   }
   return out
