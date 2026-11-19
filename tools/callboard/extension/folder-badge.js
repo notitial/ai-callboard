@@ -1,5 +1,5 @@
 'use strict'
-// A status bar item that names the folder (the repo) of the Claude panel in front, in a window that has more than one folder. The panel's session is found
+// A status bar item, on the right side of the status bar, that names the folder (the repo) of the Claude panel in front, in a window that has more than one folder. The panel's session is found
 // by its tab label: a Claude panel's tab carries the session's name (cut to 24 characters and "…" when it is longer than 25, as Claude Code does), which the
 // registry row also holds (the sweep in lanes.js relies on it too). A tab that is not a Claude panel, a name no live session carries, or one that two live
 // sessions in different folders carry, shows nothing rather than a guess.
@@ -20,7 +20,7 @@ function folderOf(label, rows, alive = pidAlive) {
 }
 
 function createFolderBadge({ vscode, registry, alive = pidAlive }) {
-  const item = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100)
+  const item = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100)
   item.name = 'Callboard: folder of this Claude panel'
   let running
   let again = false

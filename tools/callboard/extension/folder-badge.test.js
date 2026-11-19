@@ -29,9 +29,9 @@ function world({ tab, folders = ['/w/a', '/w/b'], list }) {
   const state = { tab, shown: false, hides: 0 }
   const item = { show() { state.shown = true }, hide() { state.shown = false; state.hides++ }, dispose() {} }
   const vscode = {
-    StatusBarAlignment: { Left: 1 },
+    StatusBarAlignment: { Left: 1, Right: 2 },
     window: {
-      createStatusBarItem: () => item,
+      createStatusBarItem: (alignment) => { state.alignment = alignment; return item },
       tabGroups: {
         get activeTabGroup() { return { activeTab: state.tab } },
         onDidChangeTabs: () => ({ dispose() {} }),
@@ -50,6 +50,7 @@ test('the item shows the folder name of the Claude panel in front, with the full
   const rows = [row('LAB', '/w/b/arkham'), row('OTHER', '/w/a')]
   const w = world({ tab: claudeTab('LAB'), list: async () => rows })
   await w.badge.refresh()
+  assert.equal(w.state.alignment, 2, 'on the right side of the status bar')
   assert.equal(w.item.text, '$(folder) arkham')
   assert.match(w.item.tooltip, /\/w\/b\/arkham/)
   assert.equal(w.state.shown, true)
