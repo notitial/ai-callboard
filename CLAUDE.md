@@ -22,7 +22,9 @@ never overlap: a second run waits for the first, and one that finds a stale turn
 
 - `tools/callboard/` — `bash tools/callboard/test.sh` after changing anything under it. Needs node 22.18 or later
   and the `claude` CLI (`claude plugin validate`, `claude plugin test`). CI (`.github/workflows/ci.yml`) runs
-  `claude plugin test mod` too, in full. `CALLBOARD_SKIP_MOD_TESTS=1` skips it for a quick local run (it is the slow
+  `claude plugin test mod` too, in full. `tools/callboard/plugin/` is the next build, beside `mod/` until it replaces it
+  (its tools and commands refuse `not-built` until built); the script runs its specs, validation and kit tests too, and
+  `CALLBOARD_SKIP_MOD_TESTS` never skips them. `CALLBOARD_SKIP_MOD_TESTS=1` skips it for a quick local run (it is the slow
   part, about 2 minutes); run the script without it before any PR that touches `tools/callboard/mod`. The mod tests
   drive a fake clock through thousands of 2 s ticks: a test that takes a second or more (it ticks through 30 simulated minutes or
   more) is declared with `longTest` (from `mod/test/harness.ts`), which gives it a 60 s limit in place of the kit's 5 s, so a slow
