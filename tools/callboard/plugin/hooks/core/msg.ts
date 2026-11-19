@@ -42,6 +42,8 @@ export type RefuseCode =
   | 'go-declined'
   | 'stop-declined' // a force stop the person did not confirm
   | 'signal-failed' // the signal to the session's process did not go
+  | 'table-unwritten' // the lane table could not be written
+  | 'window-refused' // the window answered a spool request with a refusal code
   | 'cue-held'
   | 'cue-refused'
   | 'cue-stale'

@@ -84,6 +84,8 @@ const RULE: Record<RefuseCode, (p: Params['refuse.bad-input']) => string> = {
   'go-declined': () => 'the person declined.',
   'stop-declined': () => 'the person did not confirm the force stop.',
   'signal-failed': () => 'the signal to the session did not go; it may already be gone. Check lane_list.',
+  'table-unwritten': () => 'the lane table could not be written, so the lane is not recorded as asked. Check lane_list, then call again.',
+  'window-refused': (p) => `the window refused (${esc(p.detail ?? 'no code')}). If a panel is already open in that folder, lane_start it first; otherwise tell the person. Calling again does not change it.`,
   'cue-held': () => 'the lane is in a turn. Try once more in a moment.',
   'cue-refused': (p) => `the lane refused${p.detail === undefined ? '' : ` (${esc(p.detail)})`}.`,
   'cue-stale': () => 'the cue was too old. Send it again.',

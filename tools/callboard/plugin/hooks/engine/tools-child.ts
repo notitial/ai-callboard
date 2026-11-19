@@ -3,7 +3,7 @@
 // session carries is refused, never guessed; the core's gates (`verbPlan`, `mayCreate`, `mayAdopt`) decide, and a stop is decided again after the person's dialog and just before the signal;
 // a force stop always opens the person's dialog; a reply that makes or takes a lane names its lead.
 import type { Decision, Row, Sid, StopVerb, View } from '../core/model.ts'
-import { capRefusal, capability, liveness, mayActOn, mayAdopt, mayCreate, nameOf, parent, refusal } from '../core/model.ts'
+import { MAX_LIVE_CHILDREN, capRefusal, capability, liveChildren, liveness, mayActOn, mayAdopt, mayCreate, nameOf, parent, refusal } from '../core/model.ts'
 import type { CueVerb } from '../core/model.ts'
 import { NEW_KEY, reportPath, verbPlan } from '../core/lifecycle.ts'
 import type { Verb } from '../core/lifecycle.ts'
@@ -34,7 +34,7 @@ async function gate($: any, e: any, tool: string): Promise<Ctx | { deny: string 
 // The one session of this name among the live ones and the table's rows.
 function target(v: View, tool: string, lane: unknown): { key: Sid } | { deny: string } {
   const name = typeof lane === 'string' ? lane : ''
-  const keys = [...new Set([...(v.rows === 'unknown' ? [] : v.rows.keys()), ...Object.keys(v.table)])].filter((k) => nameOf(v, k) === name)
+  const keys = [...new Set([...(v.rows === 'unknown' ? [] : v.rows.keys()), ...Object.keys(v.table)])].filter((k) => name !== '' && nameOf(v, k) === name)
   return keys.length === 1 ? { key: keys[0]! } : deny(refusal('refuse', keys.length === 0 ? 'no-such-lane' : 'ambiguous', { tool, target: name }))
 }
 async function planOf($: any, verb: Verb, v: View, me: Sid, key: Sid, name?: string) {
@@ -57,7 +57,7 @@ export async function cueVerbCall($: any, e: any, _next: any, verb: CueVerb) {
   if (plan.act !== 'cue') return deny(plan)
   const name = verb === 'rename' ? e.name : nameOf(v, key)
   if (verb === 'start' && v.table[key]?.brief === undefined) return deny(refusal('refuse', 'bad-input', { tool, target: name, detail: 'no-brief' }))
-  const out = cueReply((await sendCue($, me, key, verb, name, await $.clock.now())) ?? { id: '', outcome: 'held' }, verb, nameOf(v, key))
+  const out = cueReply((await sendCue($, me, key, verb, name, await $.clock.now())) ?? { id: '', outcome: 'refused', code: 'no-answer' }, verb, nameOf(v, key))
   return out.act === 'done' ? { result: say(out) } : deny(out)
 }
 
@@ -88,7 +88,7 @@ export async function stopVerbCall($: any, e: any, _next: any, verb: StopVerb) {
   let plan = await planOf($, verb, v, me, key)
   const name = nameOf(v, key)
   if (plan.act === 'refuse') return deny(plan)
-  if (plan.dialog) {
+  if (plan.dialog || verb === 'terminate') {
     const a = await personDialog($, stopDialog(name, verb))
     if (!('label' in a) || a.label !== T['dialog.yes']({})) return deny(refusal('refuse', 'no' in a && a.no === 'unattended' ? 'unattended' : 'stop-declined', { tool, target: name }))
     v = await getView($, true)
@@ -99,7 +99,7 @@ export async function stopVerbCall($: any, e: any, _next: any, verb: StopVerb) {
   const outcome = reg === undefined ? 'done' : await signal($, reg.pid, key)
   if (outcome === 'failed') return deny(refusal('refuse', 'signal-failed', { tool, target: name }))
   if (reg !== undefined) await spoolSend($, { op: 'close', sid: key, pid: reg.pid, name, folder: reg.folder })
-  if (outcome === 'done') await (verb === 'park' ? parkRow($, key) : dropRow($, key))
+  if (outcome === 'done' && !(await (verb === 'park' ? parkRow($, key) : dropRow($, key)))) return deny(refusal('refuse', 'table-unwritten', { tool, target: name }))
   return { result: say({ msg: 'lane.stopped', p: { verb, name, outcome, ...(reg === undefined ? {} : { pid: reg.pid }) } }) }
 }
 
@@ -122,9 +122,12 @@ async function bringUp($: any, e: any, tool: 'lane_open' | 'lane_unpark') {
   const name = nameOf(v, key)
   const fresh = key.startsWith(NEW_KEY)
   const r = await spool($, fresh ? { op: 'open', folder: row!.folder } : { op: 'reopen', sid: key, folder: row!.folder }, me)
+  if (r?.ok === false) return deny(refusal('refuse', 'window-refused', { tool, target: name, detail: r.code }))
   const sid = r?.ok !== true ? undefined : fresh ? r.sid : r.sid === undefined || r.sid === key ? key : undefined
-  const bound = sid !== undefined && (await updateTable($, (t) => (t[key] === undefined ? t : { ...Object.fromEntries(Object.entries(t).filter(([k]) => k !== key)), [sid]: { ...t[key]!, parked: undefined } })))
-  return sid === undefined || !bound ? { deny: say({ msg: 'lane.notOpened', p: { name } }) } : { result: say({ msg: tool === 'lane_open' ? 'lane.opened' : 'lane.unparked', p: { name, sid } }) }
+  let clash = false
+  const bound = sid !== undefined && (await updateTable($, (t) => (t[key] === undefined || (sid !== key && (clash = t[sid] !== undefined)) ? t : { ...Object.fromEntries(Object.entries(t).filter(([k]) => k !== key)), [sid]: { ...t[key]!, parked: undefined } })))
+  if (sid === undefined) return { deny: say({ msg: 'lane.notOpened', p: { name } }) }
+  return clash || !bound ? deny(refusal('refuse', 'table-unwritten', { tool, target: name })) : { result: say({ msg: tool === 'lane_open' ? 'lane.opened' : 'lane.unparked', p: { name, sid } }) }
 }
 export async function laneOpenCall($: any, e: any, _next: any) {
   return bringUp($, e, 'lane_open')
@@ -138,6 +141,11 @@ async function real($: any, p: string): Promise<string | undefined> {
   const r = p.startsWith('/') ? await run($, ['/bin/realpath', '--', p]).catch(() => undefined) : undefined
   return r?.exitCode === 0 && r.stdout.trim().startsWith('/') ? r.stdout.trim() : undefined
 }
+// A path is plain when it does not exist yet or resolves to itself: a link on the way to the brief is not followed.
+async function plainPath($: any, p: string): Promise<boolean> {
+  const r = await run($, ['/bin/realpath', '--', p]).catch(() => undefined)
+  return r === undefined || r.exitCode !== 0 || r.stdout.trim() === p
+}
 export async function laneCreateCall($: any, e: any, _next: any) {
   const tool = 'lane_create'
   const g = await gate($, e, tool)
@@ -150,12 +158,19 @@ export async function laneCreateCall($: any, e: any, _next: any) {
   if (folder === undefined) return bad('folder')
   const no = mayCreate(v, me, name, folder)
   if (no !== undefined) return deny(refusal('refuse', no, { tool, target: name }))
-  const brief = `${folder}/.archive/${name}/BRIEF.md`
-  if (!(await writeFile($, brief, T['lane.brief']({ name, lead: nameOf(v, me), text })))) return bad('unwritten')
+  const pending = Object.entries(v.table).filter(([k, r]) => k.startsWith(NEW_KEY) && r.under === me).length
+  if (liveChildren(v, me) + pending >= MAX_LIVE_CHILDREN) return deny(refusal('refuse', 'cap', { tool, target: name }))
+  const [dir, key] = [`${folder}/.archive/${name}`, `${NEW_KEY}${name}`]
+  const brief = `${dir}/BRIEF.md`
   let taken = false
   const row: Row = { name, folder, report: reportPath(folder, name), under: me, brief }
-  const written = await updateTable($, (t) => ((taken = Object.values(t).some((r) => r.name === name)) ? t : { ...t, [`${NEW_KEY}${name}`]: row }))
-  if (taken || !written) return deny(refusal('refuse', taken ? 'name-taken' : 'unknown-liveness', { tool, target: name }))
+  const written = await updateTable($, (t) => ((taken = Object.values(t).some((r) => r.name === name)) ? t : { ...t, [key]: row }))
+  if (taken || !written) return deny(refusal('refuse', taken ? 'name-taken' : 'table-unwritten', { tool, target: name }))
+  const free = (await plainPath($, `${folder}/.archive`)) && (await plainPath($, dir)) && !(await $.fs.exists(brief).catch(() => false))
+  if (!free || !(await writeFile($, brief, T['lane.brief']({ name, lead: nameOf(v, me), text })))) {
+    await dropRow($, key)
+    return bad('unwritten')
+  }
   await log($, me, 'lane-created', name)
   return { result: say({ msg: 'lane.created', p: { name, folder, lead: nameOf(v, me) } }) }
 }
@@ -169,7 +184,10 @@ export async function laneAdoptCall($: any, e: any, _next: any) {
   if ('no' in a) return deny(refusal('refuse', a.no, { tool, target: name }))
   const folder = v.rows === 'unknown' ? '' : v.rows.get(a.ok)!.folder
   const before = v.table[a.ok]?.under
-  const written = await updateTable($, (t) => (t[a.ok]?.under !== before ? t : { ...t, [a.ok]: { name, folder, report: reportPath(folder, name), under: me } }))
+  const written = await updateTable($, (t) => {
+    const r = t[a.ok]
+    return r?.under !== before || r?.off || r?.lead !== undefined ? t : { ...t, [a.ok]: { ...r, name, folder, report: r?.report ?? reportPath(folder, name), under: me } }
+  })
   if (!written || (await getView($, true)).table[a.ok]?.under !== me) return deny(refusal('refuse', 'not-loose', { tool, target: name }))
   await log($, me, 'lane-adopted', name)
   return { result: say({ msg: 'lane.adopted', p: { name, lead: nameOf(v, me) } }) }

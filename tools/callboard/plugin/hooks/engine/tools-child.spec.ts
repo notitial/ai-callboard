@@ -131,7 +131,7 @@ test('a window that answers with an error, or with another session id for a reop
   const f = world()
   f.table({ ...table(f), 'sid-old': { name: 'old', folder: '/w/repo/old', under: 'sid-me', parked: T0 - MIN } })
   window(f, () => ({ ok: false, code: 'not-workspace' }))
-  assert.match(text(await laneUnparkCall(f.$, { lane: 'old' }, next)), /did not answer/)
+  assert.match(text(await laneUnparkCall(f.$, { lane: 'old' }, next)), /the window refused \(not-workspace\)/)
   assert.equal(table(f)['sid-old'].parked, T0 - MIN)
   window(f, () => ({ ok: true, sid: 'sid-other' }))
   assert.match(text(await laneUnparkCall(f.$, { lane: 'old' }, next)), /did not answer/)
@@ -319,6 +319,53 @@ test('a lead row gone three days keeps its capability and allowlist, a plain lan
   mem.view = undefined
   assert.deepEqual(table(f)['sid-a'].lead, { repos: ['/w/repo'] })
   assert.match(text(await laneListCall(f.$, {}, next)), /No sessions are under you/)
+})
+
+test('lane_create refuses a link on the way to the brief, an existing brief and a full house of lanes and rows to open, and leaves no row behind', async () => {
+  const f = world()
+  f.h.real.set('/w/repo/new/.archive', '/w/elsewhere/.archive')
+  assert.match(text(await laneCreateCall(f.$, { name: 'LINK', folder: '/w/repo/new', brief: 'b' }, next)), /input is not valid/)
+  assert.equal(table(f)['new:LINK'], undefined)
+  assert.equal(f.h.files.has('/w/repo/new/.archive/LINK/BRIEF.md'), false)
+  f.h.real.delete('/w/repo/new/.archive')
+  f.h.files.set('/w/repo/new/.archive/OLD/BRIEF.md', 'older work')
+  assert.match(text(await laneCreateCall(f.$, { name: 'OLD', folder: '/w/repo/new', brief: 'b' }, next)), /input is not valid/)
+  assert.equal(f.h.files.get('/w/repo/new/.archive/OLD/BRIEF.md'), 'older work')
+  assert.equal(table(f)['new:OLD'], undefined)
+  const g = world()
+  for (let i = 1; i <= 7; i++) assert.match((await laneCreateCall(g.$, { name: `P${i}`, folder: '/w/repo/new', brief: 'b' }, next)).result, /is now a lane of/)
+  assert.match(text(await laneCreateCall(g.$, { name: 'P8', folder: '/w/repo/new', brief: 'b' }, next)), /already have 8 live lanes/)
+})
+
+test('a window that names a session which already has a row does not overwrite it; a cue nobody answers is a refusal, not "in a turn"; the child itself refuses a start with no brief of its own', async () => {
+  const f = world()
+  await laneCreateCall(f.$, { name: 'NEW', folder: '/w/repo/new', brief: 'b' }, next)
+  window(f, () => ({ ok: true, sid: 'sid-kid' }))
+  assert.match(text(await laneOpenCall(f.$, { lane: 'NEW' }, next)), /lane table could not be written/)
+  assert.equal(table(f)['sid-kid'].name, 'kid')
+  assert.ok(table(f)['new:NEW'])
+  assert.match(text(await cueVerbCall(f.$, { lane: 'kid' }, next, 'resume')), /the lane refused \(no-answer\)/)
+  const g = world()
+  g.table({ ...table(g), 'sid-kid': { name: 'kid', folder: '/w/repo/kid', under: 'sid-me' } })
+  g.h.files.set(`${V2}/cue/sid-kid.json`, JSON.stringify({ id: 'abcdefgh1234', verb: 'start', from: 'sid-me', at: T0, name: 'kid', brief: '/etc/passwd' }))
+  g.h.sid = 'sid-kid'
+  await cueTick(g.$, 'sid-kid', await getView(g.$, true), T0)
+  assert.deepEqual(JSON.parse(g.h.files.get(`${V2}/result/abcdefgh1234.json`)!), { id: 'abcdefgh1234', outcome: 'refused', code: 'no-brief' })
+  assert.equal(g.h.submitted.length, 0)
+})
+
+test('adopting a lane of a gone lead keeps its report path and brief; a force stop of a row with no live session still asks the person', async () => {
+  const f = world()
+  f.seed({ sid: 'sid-l2', pid: 21, name: 'L2', cwd: '/w/repo/l2', kind: 'interactive' })
+  f.table({ ...table(f), 'sid-a': { name: 'A', folder: '/w/a', lead: { repos: ['/w/repo'] } }, 'sid-l2': { name: 'L1', folder: '/w/repo/l2', under: 'sid-a', report: '/w/repo/l2/.archive/L1/REPORT.md', brief: '/w/repo/l2/.archive/L1/BRIEF.md' } })
+  assert.match(text(await laneAdoptCall(f.$, { name: 'L2' }, next)), /`L2` is now a lane of `lead`/)
+  assert.deepEqual(table(f)['sid-l2'], { name: 'L2', folder: '/w/repo/l2', report: '/w/repo/l2/.archive/L1/REPORT.md', brief: '/w/repo/l2/.archive/L1/BRIEF.md', under: 'sid-me' })
+  const g = world()
+  g.table({ ...table(g), 'sid-gone': { name: 'gone', folder: '/w/repo/gone', under: 'sid-me' } })
+  g.h.askAnswer = async () => 'No'
+  assert.match(text(await stopVerbCall(g.$, { lane: 'gone' }, next, 'terminate')), /did not confirm/)
+  assert.equal(g.h.asked.length, 1)
+  assert.ok(table(g)['sid-gone'])
 })
 
 test('a loose session\'s pr_watch works; a lead polling a lane whose row is gone routes nothing and the tracker is removed', async () => {

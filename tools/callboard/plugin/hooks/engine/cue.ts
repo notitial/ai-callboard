@@ -1,6 +1,6 @@
 // The two files a parent and a child talk through (a cue to the child's own process, and the window's spool), and the child's side of a cue. Trust rules held here: a cue is acted on
-// only when its sender is above the child now and it is fresh (`cueAnswer`), and is taken off the disk before it is acted on, so a failed act is never repeated; a doubtful registry
-// read does nothing; the brief a `start` points at is the child's own row's, never the cue's; every file name is built from an id this file checks first.
+// only when its sender is above the child now and it is fresh (`cueAnswer`), and is taken off the disk before it is acted on, so a failed act is never repeated; a busy child answers `held` and leaves the cue for its sender to take away; a doubtful
+// registry read does nothing; the brief a `start` points at is the child's own row's, never the cue's; every file name is built from an id this file checks first.
 // The spool: `open/<id>.req` is written as a dot-file and renamed, with a fresh random id, and the folder is named exactly as the lane's row holds it; the window that serves it answers
 // `open/<id>.result` within its own 20 s, so the writer waits one budget (SPOOL_WAIT_S) and, with no answer, takes its own request back so a window that wakes later opens nothing.
 // Bounds that hold for the same user (ADR 0002): the window opens only a folder of its own workspace, drops a request older than 60 s, reads plain files up to 1200 bytes and takes one
@@ -11,7 +11,7 @@ import { cueAnswer, parseCue, parseResult } from '../core/lifecycle.ts'
 import { T } from '../texts.ts'
 import { ensureDir, log, path, pause, readText, rm, run, submitOwn, writeFile } from './io.ts'
 import { idle } from './upkeep.ts'
-import { safeJson } from './store.ts'
+import { getView, safeJson } from './store.ts'
 
 export const CUE_WAIT_S = 20
 export const SPOOL_WAIT_S = 30
@@ -54,13 +54,13 @@ export async function cueTick($: any, me: Sid, v: View, now: number): Promise<vo
   if (p === undefined || !(await $.fs.exists(p).catch(() => false))) return
   const cue = parseCue(json(await readText($, p, 2048)))
   if (cue === undefined || !ID_RE.test(cue.id)) return void (await rm($, [p]))
-  const answer = cueAnswer(v, me, cue, !(await idle($, me)), now)
-  if (answer.outcome === 'held') return
-  await rm($, [p])
-  const result = answer.outcome === 'ok' ? await act($, me, v, cue) : answer
+  const fresh = await getView($, true)
+  const answer = cueAnswer(fresh, me, cue, !(await idle($, me)), now)
+  if (answer.outcome !== 'held') await rm($, [p])
+  const result = answer.outcome === 'ok' ? await act($, me, fresh, cue) : answer
   const rp = await path($, 'result', `${cue.id}.json`)
   if (rp !== undefined) await writeFile($, rp, JSON.stringify(result))
-  await log($, me, 'cue', `${cue.verb}:${result.outcome}`)
+  if (result.outcome !== 'held') await log($, me, 'cue', `${cue.verb}:${result.outcome}`)
 }
 
 // ---- the window's spool ----

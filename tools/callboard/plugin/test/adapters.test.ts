@@ -80,6 +80,5 @@ test('a child tool is wired: lane_list answers for a session that is not a lead 
   engine(on, f)
   await start($)
   const r = await $.tool.call({ tool: 'mcp__callboard__lane_list' } as any)
-  expect(r.deny).toBeDefined()
-  expect(r.deny).not.toBe('callboard: not-built')
+  expect(r.deny).toContain('only a lead or the manager')
 })
