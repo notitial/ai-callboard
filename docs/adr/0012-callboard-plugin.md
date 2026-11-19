@@ -91,12 +91,15 @@ guard's own ask) is an ordinary ask that rises like any other; the rubric of the
 not an ask is what the person starts themselves, such as creating a lead or a lane and giving a go. Those are their own acts,
 not requests to a tier: a tier never answers them, and none of them works while they are away.
 
-**Unattended mode, final shape.** The behaviour is the one of a day with the person at their desk. Two reads of the one
+**Unattended mode, final shape.** The behaviour is the one of a day with the person at their desk. Three reads of the one
 flag remain. The first is in the one place that opens the person's dialog: while it is on, none opens (no relay pop-up,
 and `go_request` is refused at once, since its dialog would not run). The second is a subagent's dialog: it is not an
 ask, so nothing times it out, and left alone it would sit on the person's screen for as long as they are away. While the
 flag is on it is denied with "run it yourself", as it is when a lead is above the session, and the main session's own
-ask rises to the manager and closes at 15 minutes like any other. Everything else is the manager's
+ask rises to the manager and closes at 15 minutes like any other. The third is the manager's own dialog: nobody is
+above it to rise to, and its turn answers every ask below it, so a 15-minute wait would stall them all. While the flag
+is on it is denied at once with a message that the person is away; a flag that cannot be read closes nothing, and a
+lane's ask is never closed early. Everything else is the manager's
 instructions: because every blocking ask rises to the manager and the person is away, the manager closes an ask it may
 not or cannot decide by replying to it at once (a deny, or an answer, with a note that the person is away and the session
 must not ask them), and it never asks them. The 15-minute close stays the backstop for an ask nobody answers. There is no

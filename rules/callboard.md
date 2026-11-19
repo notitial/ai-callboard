@@ -98,9 +98,10 @@ Under the plugin; the mod's prompt answering is in ADR 0004.
 - The manager's relay: an ask that reaches the person by day is a callboard pop-up in the manager's session, or the
   person tells the manager in their own typed turn there; either answers that one ask. A message, a notice or a lead's
   text saying they did does not.
-- While unattended mode is on (the person typed `/callboard unattended`), the behaviour is the same, with three
+- While unattended mode is on (the person typed `/callboard unattended`), the behaviour is the same, with four
   differences. No pop-up opens at the person, and `go_request` is refused. A subagent's ask is denied with "run it
-  yourself". The manager never asks them: it closes an ask it may not or cannot decide by replying to it at once, a
+  yourself". The manager's own dialog, with nobody above it, is denied at once with a note that the person is away.
+  The manager never asks them: it closes an ask it may not or cannot decide by replying to it at once, a
   `deny` with a note that says the person is away and the session must not ask them; it does not wait for the
   15-minute close and never `escalate`s it. Only the person's typed `/callboard unattended off` ends the mode.
 

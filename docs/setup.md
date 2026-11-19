@@ -150,9 +150,8 @@ per window folder lists its newest saved chats, and a click opens one the same w
 and refreshes every 3 seconds while it is visible. Nothing is needed for it beyond the extension, and a session marked
 off is left out.
 
-The view arrived in extension 1.5.0, whose manifest gained `contributes.views`. VS Code caches the manifest, so an
-update that reaches 1.5.0 needs the link made again: quit VS Code (Cmd+Q), fast-forward the checkout
-([Updating](#updating)), run this in a plain Terminal, then reopen VS Code:
+VS Code caches the extension's manifest, and the view is declared in it. After an update that changes the manifest, quit
+VS Code (Cmd+Q), fast-forward the checkout ([Updating](#updating)), run this in a plain Terminal, then reopen VS Code:
 
 ```
 /usr/bin/python3 -I <checkout>/tools/callboard/link-extension.py --apply
