@@ -13,9 +13,11 @@ const CHATS_MS = 30000
 const CHATS_MAX = 15
 const GONE_MS = 7 * 86400000
 const NAME_LIMIT = 200
+const STAT_BATCH = 64
 const OPEN = 'callboardPanels.openLane'
 const ICON = { live: 'circle-filled', working: 'sync~spin', waiting: 'bell', parked: 'debug-pause', closed: 'circle-outline', gone: 'circle-slash' }
 
+const finite = (x) => (Number.isFinite(x) ? x : undefined)
 const ago = (ms) => (ms < 60000 ? 'now' : ms < 3600000 ? `${Math.floor(ms / 60000)}m` : ms < 86400000 ? `${Math.floor(ms / 3600000)}h` : `${Math.floor(ms / 86400000)}d`)
 
 // The session table as the plugin wrote it: an object keyed by session id. No file, or one that does not parse, is no table.
@@ -33,17 +35,18 @@ async function readTable(file) {
 function buildEntries({ table, lanes, rows, now, alive = pidAlive }) {
   const known = new Map()
   for (const [sid, r] of Object.entries(table)) {
-    if (SID_RE.test(sid) && r && typeof r.name === 'string' && typeof r.folder === 'string' && r.off !== true) known.set(sid, { sid, name: r.name, folder: r.folder, under: r.under, parked: r.parked, goneAt: r.goneAt })
+    if (SID_RE.test(sid) && r && typeof r.name === 'string' && typeof r.folder === 'string' && r.off !== true) known.set(sid, { sid, name: r.name, folder: r.folder, under: r.under, parked: finite(r.parked), goneAt: finite(r.goneAt) })
   }
-  for (const l of lanes) if (l.sid && !known.has(l.sid)) known.set(l.sid, { sid: l.sid, name: l.name, folder: l.folder })
+  for (const l of lanes) if (l.sid && !known.has(l.sid)) known.set(l.sid, { sid: l.sid, name: l.name, folder: l.folder, under: l.lead, parked: finite(l.parked) })
   const live = new Map(rows.filter((r) => r && typeof r.sessionId === 'string' && (!Number.isInteger(r.pid) || alive(r.pid))).map((r) => [r.sessionId, r]))
   const out = []
   for (const e of known.values()) {
     const reg = live.get(e.sid)
+    const leadSid = e.under !== e.sid && known.has(e.under) ? e.under : undefined
     const state = reg ? (reg.waitingFor ? 'waiting' : reg.status === 'busy' ? 'working' : 'live') : e.goneAt ? 'gone' : e.parked ? 'parked' : 'closed'
     const at = reg ? (reg.statusAt ?? reg.startedAt) : (e.goneAt ?? e.parked)
     if (state === 'gone' && now - e.goneAt > GONE_MS) continue
-    out.push({ sid: e.sid, name: e.name, folder: e.folder, state, lead: known.get(e.under)?.name, leadSid: known.has(e.under) ? e.under : undefined, age: Number.isFinite(at) ? ago(Math.max(0, now - at)) : undefined })
+    out.push({ sid: e.sid, name: e.name, folder: e.folder, state, lead: leadSid && known.get(leadSid).name, leadSid, age: Number.isFinite(at) ? ago(Math.max(0, now - at)) : undefined })
   }
   return out.sort((a, b) => a.name.localeCompare(b.name))
 }
@@ -55,11 +58,10 @@ async function recentChats(projectsDir, folder, max = CHATS_MAX) {
   if (key.length > NAME_LIMIT) return []
   const dir = path.join(projectsDir, key)
   const out = []
-  for (const n of await fs.promises.readdir(dir).catch(() => [])) {
-    const sid = n.endsWith('.jsonl') ? n.slice(0, -6) : ''
-    if (!SID_RE.test(sid)) continue
-    const st = await fs.promises.stat(path.join(dir, n)).catch(() => undefined)
-    if (st && st.isFile()) out.push({ sid, at: st.mtimeMs })
+  const names = (await fs.promises.readdir(dir).catch(() => [])).filter((n) => n.endsWith('.jsonl') && SID_RE.test(n.slice(0, -6)))
+  for (let i = 0; i < names.length; i += STAT_BATCH) {
+    const batch = await Promise.all(names.slice(i, i + STAT_BATCH).map((n) => fs.promises.stat(path.join(dir, n)).then((st) => (st.isFile() ? { sid: n.slice(0, -6), at: st.mtimeMs } : undefined), () => undefined)))
+    out.push(...batch.filter(Boolean))
   }
   return out.sort((a, b) => b.at - a.at).slice(0, max)
 }
@@ -75,6 +77,8 @@ function createLaneView({ vscode, registry, lanes, loadLanes, tablePath, project
 
   async function once() {
     const rows = await registry.list()
+    // A read that could not see every row would show live sessions as closed for one tick; the last list stays.
+    if (rows.complete === false) return
     const entries = buildEntries({ table: await readTable(tablePath), lanes: await loadLanes().catch(() => []), rows, now: now(), alive })
     const names = new Map(rows.filter((r) => typeof r.name === 'string').map((r) => [r.sessionId, r.name]))
     for (const e of entries) names.set(e.sid, e.name)
@@ -82,8 +86,8 @@ function createLaneView({ vscode, registry, lanes, loadLanes, tablePath, project
     const top = []
     for (const n of nodes.values()) (nodes.get(n.leadSid)?.kids ?? top).push(n)
     if (now() - chatsAt >= CHATS_MS) {
-      chatsAt = now()
       chats = new Map(await Promise.all(workspaceFolders().map(async (f) => [f, await recentChats(projectsDir, f)])))
+      chatsAt = now()
     }
     const groups = [...chats].filter(([, list]) => list.length).map(([folder, list]) => ({
       kind: 'group', folder, kids: list.map((c) => ({ kind: 'chat', sid: c.sid, folder, name: names.get(c.sid), age: ago(Math.max(0, now() - c.at)) })),
@@ -123,7 +127,7 @@ function createLaneView({ vscode, registry, lanes, loadLanes, tablePath, project
         return item
       }
       const chat = node.kind === 'chat'
-      const item = new vscode.TreeItem(node.name ?? node.sid.slice(0, 8), node.kids?.length ? kinds.Expanded : kinds.None)
+      const item = new vscode.TreeItem(node.name || node.sid.slice(0, 8), node.kids?.length ? kinds.Expanded : kinds.None)
       item.id = chat ? `chat:${node.folder}:${node.sid}` : `lane:${node.sid}`
       item.description = chat ? node.age : `${base} · ${node.state}`
       item.iconPath = new vscode.ThemeIcon(chat ? 'comment' : ICON[node.state])
@@ -133,8 +137,11 @@ function createLaneView({ vscode, registry, lanes, loadLanes, tablePath, project
     },
   }
 
-  const subs = [vscode.window.createTreeView('callboardLanes', { treeDataProvider: provider }), vscode.commands.registerCommand(OPEN, open), changed]
-  const timer = setInterval(() => void refresh(), REFRESH_MS)
+  const view = vscode.window.createTreeView('callboardLanes', { treeDataProvider: provider })
+  const subs = [view, vscode.commands.registerCommand(OPEN, open), changed]
+  if (view.onDidChangeVisibility) subs.push(view.onDidChangeVisibility(() => void refresh()))
+  // A collapsed or hidden view is not read.
+  const timer = setInterval(() => (view.visible === false ? undefined : void refresh()), REFRESH_MS)
   timer.unref?.()
   return { refresh, dispose: () => { clearInterval(timer); for (const s of subs) s.dispose() } }
 }

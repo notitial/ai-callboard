@@ -55,9 +55,10 @@ function activate(context) {
   const lanes = createLanes({ vscode, registry, sleep: (ms) => new Promise((r) => setTimeout(r, ms)), now: Date.now,
     workspaceFolders: windowFolders, passCwd: patched,
   })
+  const loadLanes = () => allLanes({ storeDir: path.join(CLAUDE, 'callboard', 'lanes') })
   const spool = createSpool({
     dir: path.join(CLAUDE, 'callboard', 'open'),
-    loadLanes: () => allLanes({ storeDir: path.join(CLAUDE, 'callboard', 'lanes') }),
+    loadLanes,
     loadLeads: () => allLeads({ recordDir: path.join(CLAUDE, 'callboard', 'lead-records') }),
     openLane: (folder) => lanes.open(folder, { timeoutMs: SPOOL_OPEN_MS, refuseUnnamed: true }),
     openLead: (folder) => lanes.open(folder, { timeoutMs: LEAD_OPEN_MS, refuseUnnamed: true }),
@@ -74,7 +75,7 @@ function activate(context) {
     // no folder item
   }
   try {
-    context.subscriptions.push(createLaneView({ vscode, registry, lanes, loadLanes: () => allLanes({ storeDir: path.join(CLAUDE, 'callboard', 'lanes') }), tablePath: path.join(CLAUDE, 'callboard', 'v2', 'sessions.json'), projectsDir: path.join(CLAUDE, 'projects'), workspaceFolders: windowFolders }))
+    context.subscriptions.push(createLaneView({ vscode, registry, lanes, loadLanes, tablePath: path.join(CLAUDE, 'callboard', 'v2', 'sessions.json'), projectsDir: path.join(CLAUDE, 'projects'), workspaceFolders: windowFolders }))
   } catch {
     // no lane list
   }

@@ -46,6 +46,13 @@ test('buildEntries: the table wins over a lane store, a store lane without a ses
   assert.deepEqual(got.map((e) => [e.name, e.folder, e.lead]), [['LAB', '/w/a', 'LEAD'], ['LEAD', '/w/a', undefined], ['LOOSE', '/w/a', undefined], ['STORED', '/w/b', undefined]])
 })
 
+test('buildEntries: a store lane keeps its parked time and lead; a row under itself, or with a text time, still shows', () => {
+  const table = { [sid(1)]: { name: 'LEAD', folder: '/w/a' }, [sid(5)]: { name: 'SELF', folder: '/w/a', under: sid(5) }, [sid(6)]: { name: 'TXT', folder: '/w/a', goneAt: 'soon', parked: 'x' } }
+  const lanes = [{ name: 'STORED', folder: '/w/a', sid: sid(4), lead: sid(1), parked: NOW - MIN }]
+  const got = build({ table, lanes })
+  assert.deepEqual(got.map((e) => [e.name, e.state, e.lead, e.age]), [['LEAD', 'closed', undefined, undefined], ['SELF', 'closed', undefined, undefined], ['STORED', 'parked', 'LEAD', '1m'], ['TXT', 'closed', undefined, undefined]])
+})
+
 test('readTable: no file or a bad file is an empty table', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cb-view-'))
   assert.deepEqual(await readTable(path.join(dir, 'none.json')), {})
@@ -154,5 +161,17 @@ test('the tree is told only when what it shows changed', async () => {
   w.rows = [reg(1, { status: 'busy' })]
   await w.view.refresh()
   assert.equal(w.fires, base + 1)
+  w.view.dispose()
+})
+
+test('a registry read that is not complete leaves the list as it was', async () => {
+  const w = world({ table: { [sid(1)]: { name: 'LAB', folder: '/w/a' } }, rows: [reg(1, { status: 'idle' })] })
+  assert.equal((await w.items())[0].item.description, 'a · live')
+  w.rows = Object.defineProperty([], 'complete', { value: false })
+  await w.view.refresh()
+  assert.equal((await w.items())[0].item.description, 'a · live')
+  w.rows = []
+  await w.view.refresh()
+  assert.equal((await w.items())[0].item.description, 'a · closed')
   w.view.dispose()
 })
