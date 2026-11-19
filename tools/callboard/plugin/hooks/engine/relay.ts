@@ -37,7 +37,7 @@ async function relayRun($: any, ask: Ask, v: View): Promise<void> {
 export async function relayTick($: any, me: Sid, v: View, now: number): Promise<void> {
   // A plugin cannot close a pop-up, so one whose ask was decided or closed elsewhere is named once in a toast.
   const s = mem.shown
-  if (s !== undefined && !mem.toasted.has(`shown:${s.id}`) && !(await askOpen($, s.id))) (mem.toasted.add(`shown:${s.id}`), toast($, say({ msg: 'toast.askDecided', p: { name: s.name } })))
+  if (s !== undefined && !mem.toasted.has(`shown:${s.id}`) && !(await askOpen($, s.id)) && mem.shown?.id === s.id) (mem.toasted.add(`shown:${s.id}`), toast($, say({ msg: 'toast.askDecided', p: { name: s.name } })))
   if (v.manager !== me || (await offFile($)) || !(await guardOk($)) || !(await idle($, me))) return
   let hit: { ask: Ask } | undefined
   for (const o of (await openAsks($, me, v, now)).open) if (o.st.relay && o.ask.asker !== me && !mem.relayed.has(o.ask.id) && (o.ask.tool !== QUESTION_TOOL || o.ask.question !== undefined) && (await askOpen($, o.ask.id))) {

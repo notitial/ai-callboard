@@ -103,6 +103,23 @@ test('a pop-up whose ask closed elsewhere is named once in a toast while it stay
   assert.equal(boss.h.toasts.length, 1)
   assert.match(boss.h.toasts[0]!, /^The pop-up for .+'s ask is out of date/)
 })
+test('his own click on a pop-up names nothing out of date', async () => {
+  const f = tiers()
+  const boss = peer(f, 'sid-boss')
+  f.h.sleepMoves = false
+  await writeAsk(f.$, mk('aa11bb22cc'))
+  await reach(f, 'aa11bb22cc')
+  let click: (l: string) => void = () => undefined
+  boss.h.askAnswer = () => new Promise((r) => (click = r))
+  await tickRelay(boss)
+  await settle()
+  click('Allow')
+  await settle()
+  await tickRelay(boss)
+  await tickRelay(boss)
+  assert.equal((await readAnswer(f.$, 'aa11bb22cc'))?.by, 'PERSON')
+  assert.deepEqual(boss.h.toasts, [])
+})
 test('the OFF file and a busy manager open no pop-up', async () => {
   const f = tiers()
   const boss = peer(f, 'sid-boss')
