@@ -9,7 +9,7 @@ const { createSpool, allLanes, allLeads } = require('./spool.js')
 const { createSpool: createWindowSpool } = require('./spool-v2.js')
 const { createRegistry } = require('./registry.js')
 const { pidAlive } = require('./reserved.js')
-const { cwdPatched } = require('./claude-patch.js')
+const { claudePatched } = require('./claude-patch.js')
 
 const CLAUDE = path.join(os.homedir(), '.claude')
 const SESSIONS = path.join(CLAUDE, 'sessions')
@@ -43,8 +43,7 @@ function activate(context) {
     // no build line
   }
   // Read once, as the Claude extension is: a patch applied or undone takes effect in both at the next window reload.
-  const claude = vscode.extensions.getExtension('anthropic.claude-code')
-  const patched = !!claude && cwdPatched(claude.extensionPath)
+  const patched = claudePatched(vscode.extensions)
   const windowFolders = patched ? allFolders : primaryFolder
   try {
     log.appendLine(`claude cwd patch: ${patched ? 'present, every workspace folder is served' : 'absent, only the first workspace folder is served'}`)

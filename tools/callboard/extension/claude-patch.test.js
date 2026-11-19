@@ -5,7 +5,7 @@ const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
 const crypto = require('node:crypto')
-const { cwdPatched } = require('./claude-patch.js')
+const { cwdPatched, claudePatched } = require('./claude-patch.js')
 
 const sha = (text) => crypto.createHash('sha256').update(text).digest('hex')
 // A Claude extension folder as patch-claude.py leaves it: extension.js and the marker that records its sha256.
@@ -28,6 +28,20 @@ test('no marker, a file that no longer matches it, another patch number, or a ma
   assert.equal(cwdPatched(folder({ marker: { patch: 2, patched_sha256: sha('patched code') } })), false)
   assert.equal(cwdPatched(folder({ marker: 'not json' })), false)
   assert.equal(cwdPatched(folder({ marker: 'null' })), false)
+})
+
+// What the window reads at start: the Claude extension VS Code loaded. An update is a new folder without the marker, so the patch and its marker leave together.
+test('claudePatched: only the loaded Claude extension with a marker that matches its file counts; every other case is unpatched and never throws', () => {
+  const ext = (dir) => ({ getExtension: (id) => (id === 'anthropic.claude-code' ? { extensionPath: dir } : undefined) })
+  assert.equal(claudePatched(ext(folder())), true)
+  assert.equal(claudePatched(ext(folder({ marker: false }))), false, 'an updated extension: a new folder, no marker')
+  const replaced = folder()
+  fs.writeFileSync(path.join(replaced, 'extension.js'), 'a newer file under the old marker')
+  assert.equal(claudePatched(ext(replaced)), false, 'a stale marker never counts')
+  assert.equal(claudePatched({ getExtension: () => undefined }), false, 'Claude not installed')
+  assert.equal(claudePatched({ getExtension: () => ({}) }), false, 'no path')
+  assert.equal(claudePatched({ getExtension: () => { throw new Error('boom') } }), false)
+  assert.equal(claudePatched(undefined), false)
 })
 
 test('a missing folder or file is unpatched, never an error', () => {

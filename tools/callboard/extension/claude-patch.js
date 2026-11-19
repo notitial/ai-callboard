@@ -15,4 +15,14 @@ function cwdPatched(dir) {
   }
 }
 
-module.exports = { cwdPatched }
+// Whether the installed Claude Code extension (vscode.extensions) carries the patch. Anything that goes wrong, a missing extension included, means no.
+function claudePatched(extensions) {
+  try {
+    const claude = extensions.getExtension('anthropic.claude-code')
+    return !!claude && cwdPatched(claude.extensionPath)
+  } catch {
+    return false
+  }
+}
+
+module.exports = { cwdPatched, claudePatched }

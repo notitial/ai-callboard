@@ -1,5 +1,5 @@
 ---
-description: "Check the installed Claude Code VS Code extension for callboard's cwd patch, apply it when it is missing, and repair the patch script when an update moved the code it hooks into. The patch lets one multi-folder VS Code window open lanes in any of its folders. Use on '/patch Claude' after the Claude Code extension updated."
+description: "Check the installed Claude Code VS Code extension for callboard's cwd patch, apply it when it is missing, and repair the patch script when an update moved the code it hooks into. The patch lets one multi-folder VS Code window open lanes in any of its folders. Use on '/patch Claude' after the Claude Code extension updated, and '/patch Claude undo' to take the patch out."
 disable-model-invocation: true
 ---
 
@@ -8,8 +8,12 @@ disable-model-invocation: true
 Keeps `tools/callboard/patch-claude.py` applied to the person's Claude Code extension. The script is the only place that
 knows what the patch is, how it is checked and how it is undone: read its header first, and never copy its logic here.
 The person's own typed `/patch Claude` is the go for the one apply in step 3, and for the undo of step 6 (it only
-puts the original back), and for nothing else. The argument must be
-exactly `Claude`; anything else, say what the skill does and stop.
+puts the original back), and for nothing else. The argument must be exactly `Claude` or `Claude undo`; anything
+else, say what the skill does and stop.
+
+**`/patch Claude undo`:** do step 1, then run the script with `--undo` and nothing else. Say what it printed (the original
+`extension.js` is back, the backup and marker are gone) and that each VS Code window needs Developer: Reload Window.
+Callboard is then back to one repo per window. This is the person's way out at any time.
 
 Never touch `~/.claude/settings.json`, any VS Code setting, or callboard's state or ledger files. Tell the person the
 exact file, backup and marker whenever something is changed.

@@ -23,7 +23,7 @@ function trackTabs(w, ...tabs) {
 // `tabs`: { column, activeColumn, failFocus } gives the fake an active tab at index 0, to test switching back to it.
 // `cwd`: the folder each panel it opens registers under (the folder the caller asks for, A, unless a test says otherwise); setCwd changes it between opens.
 // `patched`: the Claude extension carries the cwd patch, so lanes passes {cwd: folder} and a panel registers under that folder (as the patched command does); `ws` is the window's folders.
-function world({ delays = [], extra = [], tabs, guardMs, alive, pids = false, startOf, cwd = A, settleMs = 0, rewrites = [], patched = false, ws } = {}) {
+function world({ delays = [], extra = [], tabs, guardMs, alive, pids = false, startOf, cwd = A, settleMs = 0, rewrites = [], patched = false, ignoreCwd = false, ws } = {}) {
   const entries = []
   const focusCalls = []
   const calls = []
@@ -46,7 +46,7 @@ function world({ delays = [], extra = [], tabs, guardMs, alive, pids = false, st
         calls.push([s, rest[4]])
         const i = opens++
         const id = s ?? sid()
-        const cwdOf = patched ? rest[4].cwd : cwd
+        const cwdOf = patched && !ignoreCwd ? rest[4].cwd : cwd
         const entry = { sessionId: id, cwd: cwdOf, entrypoint: 'claude-vscode', name: `auto-${i}`, nameSource: 'auto', startedAt: t, ...(pids ? { pid: 5000 + i } : {}) }
         pending.push({ at: t + (delays[i] ?? 1), entry })
         // A rewrite: `after` ticks into the open the panel's row takes another session id and start time, as a real panel's does once its session is up.
@@ -370,6 +370,14 @@ test('unpatched: only the first folder is served, nothing is passed, and a reope
   const sid = 'abcdef01-0000-4000-8000-00000000000d'
   assert.equal(await w.lanes.reopen(sid, { folder: A }), sid)
   assert.deepEqual(w.calls, [[undefined, undefined], [sid, undefined]])
+})
+
+// A marker that says patched while the Claude extension ignores the folder (`ignoreCwd`): the panel registers in the first folder. It ends as today's timeout, once, with no retry.
+test('patched but ignored: the open fails as the usual timeout, runs the command once and does not retry', async () => {
+  const w = world({ patched: true, ignoreCwd: true, ws: [A, B] })
+  await assert.rejects(w.lanes.open(B), /^Error: timeout: no new panel registered/)
+  assert.equal(w.calls.length, 1)
+  assert.equal(world.opens(), 1)
 })
 
 test('patched: a reopen carries the lane\'s folder, so the conversation resumes there', async () => {

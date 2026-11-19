@@ -95,7 +95,8 @@ EXT_DIR="$(ls -d "$HOME"/.vscode/extensions/anthropic.claude-code-* | sort -V | 
 /usr/bin/python3 -I "$CHECKOUT/tools/callboard/patch-claude.py" "$EXT_DIR" --apply
 ```
 
-To take it out again (the original file comes back from its backup):
+To take it out again (the original file comes back from its backup; `/patch Claude undo` in a session in this checkout
+runs the same command):
 
 ```
 CHECKOUT='<checkout>'
@@ -115,6 +116,10 @@ EXT_DIR="$(ls -d "$HOME"/.vscode/extensions/anthropic.claude-code-* | sort -V | 
   that Claude Code itself restores at a window reload, or reopens, starts in the window's first folder.
 - The patch is made for 2.1.327 and 2.1.328. A later version may rename or restructure the code it hooks into; then
   `anchors-missing` is printed and nothing is touched, and the panels extension keeps its one-repo-per-window behavior.
+- Nothing depends on it. The marker lives in the Claude extension's own folder, so an update (a new folder) drops the
+  patch and its marker together, and the panels extension counts the patch only when the marker's checksum matches the
+  file beside it. Without the patch, open one VS Code window per repo and use callboard as before. If a patched open
+  does not bring up its panel, it fails as the usual open timeout, once.
 
 ### Load it in every session
 
