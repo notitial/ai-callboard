@@ -24,6 +24,9 @@ TEMPLATE = (
     'if(this.setupPanel(d,e,t,p,s===!0,a),e)this.sessionPanels.set(e,d);return{{startedInNewColumn:l}}}}'
     'setupPanel(e,t,n,r,o,s=!1){{this.panelFullEditor.set(e,!!r);let i={vs}.workspace.workspaceFolders?.map((h)=>h.uri.fsPath)||[],'
     'a={nc}(i);return a}}}}'
+    'function Act(c){{{vs}.window.registerWebviewPanelSerializer("claudeVSCodePanel",{{deserializeWebviewPanel:(w,T)=>nL(()=>{{c.notePanelRevived();'
+    'let C=T,A=c.restoredTabSetup(C??{{}},w.title),k=A.fullEditor,x=sw(A.openSession)?A.openSession:void 0;c.setupPanel(w,x,void 0,k);'
+    'let R=typeof C?.sessionID==="string"?C.sessionID:x;if(sw(R)&&ice(R,C?.sessionUpdatedAt))c.registerPanelSession(R,w)}})}})}}'
     'x.push(Wp("claude-vscode.editor.open",async({a},{b},{c},{d},{e},{f})=>{{let O=F({{programmatic:{f}?.programmatic}});'
     'if(O.target==="sidebar"){{let M=c.activateInSidebar({a},{b});try{{await rl("claude-vscode.sidebar.focus")}}catch(V){{throw c.clearPendingSidebarActivation(M),V}}return}}'
     'let{{startedInNewColumn:L,shownInSidebar:N}}=await c.createPanel({a},{b},{c},{d},{e},O.focusInput);if(L)await kS();'
@@ -57,7 +60,7 @@ const open = async (folders, pickResult, target, ...args) => {
 }
 ;(async () => {
   const r = run(['/a', '/b'])
-  const sp = (cwd) => r.ctx.W.prototype.setupPanel.call({ panelFullEditor: new Map() }, 1, 2, 3, 4, 5, false, cwd)
+  const sp = (cwd) => r.ctx.W.prototype.setupPanel.call(Object.assign(Object.create(r.ctx.W.prototype), { panelFullEditor: new Map() }), 1, 2, 3, 4, 5, false, cwd)
   const out = { setup: [sp('/b'), sp('/x'), sp(undefined)] }
   out.cwdGiven = await open(['/a', '/b'], undefined, 'panel', undefined, undefined, undefined, undefined, true, { cwd: '/b' })
   out.picked = await open(['/a', '/b'], { fsPath: '/b' }, 'panel', undefined, undefined, undefined, undefined, true, {})
@@ -177,7 +180,7 @@ class Apply(Case):
         self.run_script(self.ext, "--apply")
         self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "patched 2.1.328"))
         new = self.js()
-        self.assertEqual(new.count(b"cbCwd"), 5)
+        self.assertEqual(new.count(b"cbCwd"), 6)
         for part in (b"a=!1,cbCwd){", b"s===!0,a,cbCwd)", b"s=!1,cbCwd){", b"nC(i.includes(cbCwd)?[cbCwd]:i)", b"if(cbqC===null)return;let{startedInNewColumn:L,shownInSidebar:N}=await c.createPanel(w,A,C,T,R,O.focusInput,void 0,!1,cbqC)"):
             self.assertIn(part, new)
         self.assertIn("é".encode("utf-8"), new)
@@ -246,7 +249,7 @@ class Apply(Case):
     def test_every_anchor_must_match_once_on_the_bytes_that_are_written(self):
         mod = load_module()
         raw = build(V327)
-        self.assertEqual(mod.patched(raw)[0].count(b"cbCwd"), 5)
+        self.assertEqual(mod.patched(raw)[0].count(b"cbCwd"), 6)
         doubled = raw + raw[raw.index(b"x.push(Wp("):raw.index(b'x.push(Wp("claude-vscode.editor.openLast')]
         with self.assertRaises(SystemExit):
             mod.patched(doubled)
@@ -357,7 +360,7 @@ class Look(Case):
             self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "patched 2.1.328"), label)
             self.assertIn("warning: the panel look is not in (look anchor (", self.out, label)
             new = self.js(ext)
-            self.assertEqual(new.count(b"cbCwd"), 5, label)
+            self.assertEqual(new.count(b"cbCwd"), 6, label)
             self.assertNotIn(b"callboard-look", new, label)
             self.assertEqual(json.loads(slurp(os.path.join(ext, "callboard-cwd-patch.json")))["look"], False, label)
             self.run_script(ext)
@@ -512,6 +515,168 @@ class Update(Case):
             self.assertEqual((self.rc, self.out.split(":")[0]), (1, "outdated 2.1.328"), failing)
             self.run_script(ext, "--undo")
             self.assertEqual((self.rc, sorted(os.listdir(ext))), (0, ["extension.js", "package.json"]), failing)
+
+
+# Runs the patched stand-in's panel serializer and setupPanel under a fake vscode, with a real config folder, and prints the folder each panel was set up in.
+RESTORE_RUNNER = r"""
+const vm = require('vm'), fs = require('fs'), path = require('path')
+const [file, cfg, ...folders] = process.argv.slice(1)
+const code = fs.readFileSync(file, 'utf8')
+const SB = process.env.SID_B, SA = process.env.SID_A
+function boot(list) {
+  const fake = { workspace: { workspaceFolders: list.map((f) => ({ name: path.basename(f), uri: { fsPath: f } })) },
+    window: { registerWebviewPanelSerializer: (id, h) => { fake.serializer = h } } }
+  const ctx = vm.createContext({ x: [], Wp: () => {}, F: () => ({}), $e: fake, Pe: fake, process: { env: { CLAUDE_CONFIG_DIR: cfg } },
+    nL: (f) => f(), sw: (v) => typeof v === 'string', ice: () => true,
+    require: (m) => (m === 'vscode' ? fake : require(m)) })
+  vm.runInContext(code + ';globalThis.W=W;globalThis.Act=Act', ctx)
+  const seen = []
+  const c = Object.create(ctx.W.prototype)
+  c.panelFullEditor = new Map()
+  Object.assign(c, { notePanelRevived() {}, registerPanelSession() {}, restoredTabSetup: (st) => ({ fullEditor: false, openSession: st.openedFor }) })
+  const real = ctx.W.prototype.setupPanel
+  c.setupPanel = function (...a) { seen.push(real.apply(this, a)) }
+  ctx.Act(c)
+  return { c, fake, seen, real: (...a) => real.apply(c, a) }
+}
+const restore = (list, state) => { const b = boot(list); b.fake.serializer.deserializeWebviewPanel({ title: 't' }, state); return b.seen[0] }
+const out = {}
+out.inB = restore(folders, { sessionID: SB })
+out.inA = restore(folders, { sessionID: SA })
+out.none = restore(folders, { sessionID: '00000000-0000-4000-8000-000000000000' })
+out.opened = restore(folders, { openedFor: SB })
+out.noState = restore(folders, undefined)
+out.single = restore([folders[1]], { sessionID: SB })
+out.bad = restore(folders, { sessionID: 'x/../' + SB })
+const b = boot(folders)
+out.create = [b.real(1, SB, 3, 4, 5, false, undefined), b.real(1, SB, 3, 4, 5, false, folders[0]), b.real(1, undefined, 3, 4, 5, false, undefined)]
+out.method = [b.c.cbFolderOf(SB), b.c.cbFolderOf(7), b.c.cbFolderOf('x'), boot([folders[1]]).c.cbFolderOf(SB)]
+console.log(JSON.stringify(out))
+"""
+
+
+class Restore(Case):
+    """The restore fix is one optional group of three edits: a restored or reopened panel finds the window folder that holds its session's transcript."""
+
+    SID_A = "11111111-1111-4111-8111-111111111111"
+    SID_B = "22222222-2222-4222-8222-222222222222"
+
+    def applied(self, raw=None, name="restore"):
+        ext = self.make(V327, name=name, raw=raw if raw is not None else build(V327))
+        self.run_script(ext, "--apply")
+        return ext, json.loads(slurp(os.path.join(ext, "callboard-cwd-patch.json")))
+
+    def test_the_three_edits_go_in_once_and_the_marker_says_so(self):
+        ext, marker = self.applied()
+        self.assertEqual((self.rc, marker["restore"], marker["look"]), (0, True, True))
+        self.assertEqual(self.out.count("warning"), 0)
+        new = self.js(ext)
+        self.assertEqual(new.count(b"cbFolderOf(cbrS){"), 1)
+        self.assertEqual(new.count(b"cbCwd??=this.cbFolderOf(t);"), 1)
+        self.assertEqual(new.count(b",void 0,!1,c.cbFolderOf(R));"), 1)
+        self.assertLess(new.index(b"let R=typeof C?.sessionID"), new.index(b"c.setupPanel(w,x,void 0,k,void 0,!1"))
+        self.assertIn(b"}cbFolderOf(cbrS){", new)
+        self.assertIn(b"}setupPanel(e,t,n,r,o,s=!1,cbCwd){cbCwd??=this.cbFolderOf(t);this.panelFullEditor.set", new)
+
+    def test_other_minified_names_still_match(self):
+        raw = build(V328).replace(b"nL(", b"qZ(").replace(b"(c)", b"(Q9)").replace(b"c.notePanelRevived", b"Q9.notePanelRevived").replace(b"c.restoredTabSetup", b"Q9.restoredTabSetup")
+        raw = raw.replace(b"c.setupPanel(w,x,void 0,k)", b"Q9.setupPanel(w,x,void 0,k)").replace(b"let C=T", b"let Z=T").replace(b"C?.sessionID", b"Z?.sessionID").replace(b"C.sessionID", b"Z.sessionID")
+        raw = raw.replace(b"C??{}", b"Z??{}").replace(b"C?.sessionUpdatedAt", b"Z?.sessionUpdatedAt").replace(b"c.registerPanelSession", b"Q9.registerPanelSession").replace(b"let R=", b"let Y=").replace(b":x;if(sw(R)&&ice(R,", b":x;if(sw(Y)&&ice(Y,").replace(b"registerPanelSession(R,w)", b"registerPanelSession(Y,w)")
+        ext, marker = self.applied(raw, name="names")
+        self.assertEqual((self.rc, marker["restore"]), (0, True))
+        self.assertIn(b"Q9.setupPanel(w,x,void 0,k,void 0,!1,Q9.cbFolderOf(Y));", self.js(ext))
+
+    def test_a_missing_restore_anchor_costs_only_the_restore_fix(self):
+        raw = build(V327)
+        misses = {
+            "no serializer": raw.replace(b"c.setupPanel(w,x,void 0,k);", b"c.setupPanel(w,x,void 0,k,1);"),
+            "id read differently": raw.replace(b'typeof C?.sessionID==="string"', b'C?.sessionID!==void 0'),
+            "two serializers": raw + raw[raw.index(b"function Act"):raw.index(b'x.push(Wp("claude-vscode.editor.open"')].replace(b"Act", b"Act2"),
+        }
+        for label, bad in misses.items():
+            ext = self.make(V327, name="m%d" % len(os.listdir(self.t)), raw=bad)
+            before = snap(ext)
+            self.run_script(ext)
+            self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "unpatched-patchable 2.1.328"), label)
+            self.assertIn("warning: the restore fix would be left out (restore anchor ", self.out, label)
+            self.assertEqual(snap(ext), before, label)
+            self.run_script(ext, "--apply")
+            self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "patched 2.1.328"), label)
+            self.assertIn("warning: the restore fix is not in (restore anchor ", self.out, label)
+            new = self.js(ext)
+            self.assertNotIn(b"cbFolderOf", new, label)
+            self.assertEqual(new.count(b"cbCwd"), 5, label)
+            self.assertIn(b"callboard-look", new, label)
+            marker = json.loads(slurp(os.path.join(ext, "callboard-cwd-patch.json")))
+            self.assertEqual((marker["restore"], marker["look"]), (False, True), label)
+            self.run_script(ext)
+            self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "patched 2.1.328"), label)
+            self.assertIn("warning: the restore fix is not in this patch.", self.out, label)
+            self.run_script(ext, "--undo")
+            self.assertEqual((self.rc, self.js(ext)), (0, bad), label)
+            self.assertEqual(sorted(os.listdir(ext)), ["extension.js", "package.json"], label)
+
+    def test_a_file_that_already_has_the_method_is_left_alone(self):
+        raw = build(V327).replace(b"class W{", b"class W{cbFolderOf(){}")
+        ext, marker = self.applied(raw, name="have")
+        self.assertEqual((self.rc, marker["restore"]), (0, False))
+        self.assertEqual(self.js(ext).count(b"cbFolderOf("), 1)
+        self.assertIn("the file already contains cbFolderOf", self.out)
+
+    def test_undo_takes_the_restore_fix_out_with_the_rest(self):
+        raw = build(V327)
+        ext, _ = self.applied(raw, name="undo")
+        self.run_script(ext, "--undo")
+        self.assertEqual((self.rc, self.js(ext)), (0, raw))
+        self.assertEqual(sorted(os.listdir(ext)), ["extension.js", "package.json"])
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_a_restored_or_reopened_panel_starts_in_the_folder_of_its_transcript(self):
+        ext, _ = self.applied(name="run")
+        fa, fb = os.path.join(self.t, "repo-a"), os.path.join(self.t, "repo b.x")
+        cfg = os.path.join(self.t, "cfg")
+        for folder, sid in ((fa, self.SID_A), (fb, self.SID_B)):
+            os.makedirs(folder)
+            d = os.path.join(cfg, "projects", "".join(c if c.isalnum() and c.isascii() else "-" for c in folder))
+            os.makedirs(d)
+            open(os.path.join(d, sid + ".jsonl"), "w").close()
+        env = dict(os.environ, SID_A=self.SID_A, SID_B=self.SID_B)
+        p = subprocess.run(["node", "-e", RESTORE_RUNNER, os.path.join(ext, "extension.js"), cfg, fa, fb], capture_output=True, text=True, timeout=60, env=env)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        got = json.loads(p.stdout)
+        self.assertEqual((got["inB"], got["inA"]), (fb, fa))
+        self.assertEqual((got["none"], got["noState"], got["bad"]), (fa, fa, fa))
+        self.assertEqual(got["opened"], fb)
+        self.assertEqual(got["single"], fb)
+        self.assertEqual(got["create"], [fb, fa, fa])
+        self.assertEqual(got["method"], [fb, None, None, None])
+
+    def test_an_install_made_by_an_older_script_reads_outdated_and_update_brings_the_restore_fix_in(self):
+        mod = load_module()
+        ext = self.make(V327, name="older")
+        with contextlib.redirect_stdout(io.StringIO()):
+            mod.PIECES = mod.PIECES[:1]
+            mod.apply(ext)
+        orig = self.js(ext)
+        self.assertNotIn("restore", json.loads(slurp(os.path.join(ext, "callboard-cwd-patch.json"))))
+        self.assertNotIn(b"cbFolderOf", orig)
+        self.assertUnchanged(ext)
+        self.assertEqual((self.rc, self.out.splitlines()[0]), (1, "outdated 2.1.328: the restore fix is not in"))
+        self.run_script(ext, "--update")
+        self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "updated 2.1.328"))
+        self.assertEqual(self.js(ext).count(b"cbFolderOf(cbrS)"), 1)
+        self.assertTrue(json.loads(slurp(os.path.join(ext, "callboard-cwd-patch.json")))["restore"])
+        self.run_script(ext)
+        self.assertEqual((self.rc, self.out), (0, "patched 2.1.328\n"))
+        self.run_script(ext, "--undo")
+        self.assertEqual(self.js(ext), build(V327))
+
+    def test_a_restore_fix_that_cannot_go_in_does_not_make_an_up_to_date_install_outdated(self):
+        raw = build(V327).replace(b"c.setupPanel(w,x,void 0,k);", b"c.setupPanel(w,x,void 0,k,1);")
+        ext, marker = self.applied(raw, name="stay")
+        self.assertFalse(marker["restore"])
+        self.run_script(ext)
+        self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "patched 2.1.328"))
 
 
 class Refusals(Case):
