@@ -195,7 +195,8 @@ export function inputText(input: unknown): { text: string; cut: boolean } {
       const keys = Object.keys(x).filter((k) => (x as Record<string, unknown>)[k] !== undefined)
       cut ||= keys.length > 100
       // A key shown other than as written, or as one already shown, hides an entry: the input is cut.
-      const out: Record<string, unknown> = {}
+      // No prototype: a `__proto__` key is then an ordinary entry, found by hasOwn and shown, not a silent change of the object's prototype.
+      const out: Record<string, unknown> = Object.create(null)
       for (const k of keys.slice(0, 100)) {
         const s = shown(k, KEY_CAP)
         cut ||= s.cut || s.changed || Object.hasOwn(out, s.text)
