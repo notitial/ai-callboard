@@ -5,7 +5,7 @@ import { capBytes } from './core/asks.ts'
 import type { Ask, AskLogRow, Capability, Decision, Sid, StopVerb } from './core/model.ts'
 import { PERSON } from './core/model.ts'
 import type { RefuseCode, StatusRow, UiColumn, UiState } from './core/msg.ts'
-import { esc, escBlock, T } from './texts.ts'
+import { escBlock, escCell, T } from './texts.ts'
 
 export const PRINT_CAP = 32 * 1024
 export const RULES_CAP = 8 * 1024
@@ -18,8 +18,7 @@ export const statusPage = (rows: readonly StatusRow[]): string => `${T['ui.statu
 // parent: a name, PERSON, or null. The usage figures are the engine's own; a figure that is absent or not a number reads `-`.
 export type LaneRow = { name: string; role: Capability; state: UiState; parent: string | null; folder: string; context?: number; fiveHour?: number; sevenDay?: number; cost?: number; readAgeMin?: number }
 const COLS: readonly UiColumn[] = ['name', 'role', 'state', 'parent', 'folder', 'context', 'fiveHour', 'sevenDay', 'cost', 'read']
-const cell = (s: string): string => esc(s).replace(/\|/g, '\\|')
-const line = (v: readonly string[]): string => `| ${v.map(cell).join(' | ')} |`
+const line = (v: readonly string[]): string => `| ${v.map(escCell).join(' | ')} |`
 const num = (n: number | undefined, f: (n: number) => string): string => (n !== undefined && Number.isFinite(n) ? f(n) : '-')
 
 export function lanesTable(rows: readonly LaneRow[]): string {
@@ -62,19 +61,21 @@ export function goList(goes: readonly { id: string; giver: string; text: string;
   return goes.length === 0 ? `${T['ui.goes.head']({})}\n${T['ui.goes.none']({})}` : [T['ui.goes.head']({}), ...goes.map((g) => T['ui.goes.row'](g)), '', T['go.neverCovers']({})].join('\n')
 }
 
-// ---- the dialogs: a header, a question and buttons; the first button is the one the person's click must choose to allow ----
+// ---- the dialogs: a header, a question and buttons. The adapter maps a click by its label; only a dialog that offers Allow can allow, and anything else is a deny ----
 export type DialogSpec = { header: string; question: string; options: { label: string }[] }
 const yesNo = (): { label: string }[] => [{ label: T['dialog.yes']({}) }, { label: T['dialog.no']({}) }]
 export const goDialog = (giver: string, text: string, end: string): DialogSpec => ({ header: T['dialog.go.header']({}), question: T['dialog.go.question']({ giver, text, end }), options: yesNo() })
 export const stopDialog = (name: string, verb: StopVerb): DialogSpec => ({ header: T['dialog.stop.header']({}), question: T['dialog.stop.question']({ name, verb }), options: yesNo() })
-// The relay pop-up: an input not shown whole (cut, or too large to print) gets Deny only, as `decide` refuses its allow.
-export function relayDialog(asker: string, tool: string, input: string, cut: boolean): DialogSpec {
+// The relay pop-up: an input not shown whole (cut, or too large to print) gets Deny only, as `decide` refuses its allow. `cut` is that finding: the adapter stores it on the
+// ask, as it stores promptList's cutIds, so no other path allows the input.
+export function relayDialog(asker: string, tool: string, input: string, cut: boolean): DialogSpec & { cut: boolean } {
   const p = printed(input, PRINT_CAP)
   const whole = !cut && !p.cut
   return {
     header: T['dialog.relay.header']({ asker }),
     question: T['dialog.relay.question']({ asker, tool, input: p.text, cut: !whole }),
     options: [...(whole ? [{ label: T['dialog.allow']({}) }] : []), { label: T['dialog.deny']({}) }],
+    cut: !whole,
   }
 }
 

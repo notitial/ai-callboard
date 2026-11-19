@@ -43,13 +43,15 @@ test('the lane table: one row per session with the usage columns, a gap for a mi
     { name: 'lane-a', role: 'none', state: 'busy', parent: 'lead', folder: '/Users/x/repo', context: 123_456, fiveHour: 41.6, sevenDay: 12, cost: 1.5, readAgeMin: 3 },
     { name: 'lead', role: 'lead', state: 'live', parent: 'PERSON', folder: '/Users/x/a|b' },
     { name: 'x', role: 'none', state: 'unknown', parent: null, folder: `/y${RLO}`, context: NaN },
+    { name: 'y', role: 'none', state: 'gone', parent: 'lead', folder: '/Users/x/a\\|b' },
   ]
   const lines = lanesTable(rows).split('\n')
-  assert.deepEqual(lines.filter((l) => l.startsWith('|')).map((l) => l.split(/(?<!\\)\|/).length), [12, 12, 12, 12, 12])
-  assert.ok(lines[3].startsWith('| Name') || lines[2].startsWith('| Name'))
+  assert.deepEqual(lines.filter((l) => l.startsWith('|')).map((l) => l.split(/(?<!\\)\|/).length), [12, 12, 12, 12, 12, 12])
+  assert.ok(lines[2].startsWith('| Name'))
   const t = lanesTable(rows)
   assert.ok(t.includes('123k') && t.includes('42%') && t.includes('$1.50') && t.includes('3m'))
-  assert.ok(t.includes('/Users/x/a\\|b') && t.includes('the person') && !t.includes(RLO))
+  // A backslash is escaped too, so it cannot undo the pipe's escape.
+  assert.ok(t.includes('/Users/x/a\\\\\\|b') && t.includes('/Users/x/a\\|b') && t.includes('the person') && !t.includes(RLO))
   assert.ok(t.trimEnd().endsWith("Read says how old they are."))
   assert.ok(lanesTable([]).includes('No sessions'))
 })
@@ -76,10 +78,10 @@ test('the dialogs: yes and no for a go and a stop; a relay pop-up allows only an
   assert.ok(stopDialog('lane-a', 'terminate').question.includes('Force stop `lane-a`'))
   const whole = relayDialog('lane-a', 'Bash', '{"command":"ls"}', false)
   assert.deepEqual(whole.options.map((o) => o.label), ['Allow', 'Deny'])
-  assert.ok(!whole.question.includes('NOT SHOWN WHOLE'))
+  assert.ok(!whole.question.includes('NOT SHOWN WHOLE') && whole.cut === false)
   for (const d of [relayDialog('lane-a', 'Bash', 'x', true), relayDialog('lane-a', 'Bash', '<'.repeat(6000), false)]) {
     assert.deepEqual(d.options.map((o) => o.label), ['Deny'])
-    assert.ok(d.question.includes('NOT SHOWN WHOLE'))
+    assert.ok(d.question.includes('NOT SHOWN WHOLE') && d.cut === true)
   }
   assert.ok(!relayDialog(`a${RLO}<`, 'Bash<', `x${RLO}`, false).question.includes('<'))
 })
