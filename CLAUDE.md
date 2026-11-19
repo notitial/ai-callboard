@@ -22,9 +22,7 @@ never overlap: a second run waits for the first, and one that finds a stale turn
 
 - `tools/callboard/` — `bash tools/callboard/test.sh` after changing anything under it. Needs node 22.18 or later
   and the `claude` CLI (`claude plugin validate`, `claude plugin test`). CI (`.github/workflows/ci.yml`) runs
-  `claude plugin test mod` too, in full. `tools/callboard/plugin/` is the next build, beside `mod/` until it replaces it
-  (its tools and commands refuse `not-built` until built); the script runs its specs, validation and kit tests too, and
-  `CALLBOARD_SKIP_MOD_TESTS` never skips them. `CALLBOARD_SKIP_MOD_TESTS=1` skips it for a quick local run (it is the slow
+  `claude plugin test mod` too, in full. `CALLBOARD_SKIP_MOD_TESTS=1` skips it for a quick local run (it is the slow
   part, about 2 minutes); run the script without it before any PR that touches `tools/callboard/mod`. The mod tests
   drive a fake clock through thousands of 2 s ticks: a test that takes a second or more (it ticks through 30 simulated minutes or
   more) is declared with `longTest` (from `mod/test/harness.ts`), which gives it a 60 s limit in place of the kit's 5 s, so a slow
@@ -32,7 +30,9 @@ never overlap: a second run waits for the first, and one that finds a stale turn
   (`mod/test/fixtures.ts`). The kit runs each `*.test.ts` file in its own process, side by side, and kills one after
   10 minutes: the tests sit in topic files (`mod/test/<topic>.test.ts`) over a shared harness (`harness.ts`, with the
   state object `h`, and `fixtures.ts`). A test goes in the file of its topic; one that needs a state the harness does
-  not reset gets its setup in its own body.
+  not reset gets its setup in its own body. `tools/callboard/plugin/` sits beside `mod/`: its tools and commands refuse
+  `not-built` where the body is not written. The script validates and tests it too (specs, `claude plugin validate`,
+  `claude plugin test`), and `CALLBOARD_SKIP_MOD_TESTS` never skips those.
 - `tools/usage-watcher/` — `/usr/bin/python3 -I tools/usage-watcher/test_watch.py` after changing `watch.py`;
   `bash tools/usage-watcher/test-install.sh` after changing `install.sh`.
 - `docs/`, `rules/` and `.claude/skills/` have no suite: check them by reading against the ADRs.
@@ -48,7 +48,7 @@ Outside those directories, do not search for `package.json`, `Makefile`, or simi
 - `.claude/skills/` — the manager's project skills; `.claude/skills/setup-manager/` walks a person through
   `docs/setup.md`.
 - `rules/callboard.md` — an always-on global rule for callboard's turns, linked into `~/.claude/rules/` by hand.
-- `tools/` — the callboard mod and the usage watcher, each with its own tests;
+- `tools/` — the callboard mod, the plugin beside it and the usage watcher, each with its own tests;
   `tools/test-all.sh` runs them all.
 - `assets/icon/` — the project icon (SVG, mono variant, colour PNGs from 16 to 1024 px).
 - `.archive/` — gitignored local working area: the manager's state, tracker and audit records, lane reports.

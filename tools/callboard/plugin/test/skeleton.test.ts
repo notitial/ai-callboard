@@ -6,17 +6,21 @@ const start = ($: any) => $.session.start({ cwd: '/', surface: 'terminal', isInt
 // The engine beneath the plugin: it answers the session start and a tool's registration.
 const engine = (on: any, registered: string[] = []) => {
   on('session.start', (_: any, e: any) => ({ cwd: e.cwd }))
+  on('command.register', (_: any, e: any) => {
+    registered.push(`/${e.name}`)
+    return { value: { command: e.name } }
+  })
   on('tool.register', (_: any, e: any) => {
     registered.push(e.name)
     return { value: { tool: e.name } }
   })
 }
 
-test('every tool is registered at the session start, and each refuses not-built', async ($, on) => {
+test('every tool and the three commands are registered at the session start, and each tool refuses not-built', async ($, on) => {
   const registered: string[] = []
   engine(on, registered)
   await start($)
-  expect(registered.sort()).toEqual([...TOOLS].sort())
+  expect(registered.sort()).toEqual([...TOOLS, '/callboard', '/rest', '/unattended'].sort())
   for (const name of TOOLS) expect((await $.tool.call({ tool: `mcp__callboard__${name}` } as any)).deny).toBe(NOT_BUILT)
 })
 

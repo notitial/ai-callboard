@@ -37,7 +37,7 @@ export type RegistryRow = {
   folder: Folder
   name?: string
   nameSource?: string
-  status?: 'idle' | 'busy' | 'waiting' | string
+  status?: string
   waitingFor?: string
 }
 // The registry read: a list, or `unknown` (a changing file, too many files, a `ps` that cannot be trusted, no row of its own, a stale group, a cut `ps` confirm).
@@ -143,5 +143,5 @@ export type EventKind = 'ask' | 'expired' | 'done' | 'gone' | 'waiting' | 'quiet
 // One event a parent is told, computed from its own observation of its children now. `key` keeps "once" per event and process and is spent when the turn
 // carrying it starts. `about` is the child; `ask` is the ask's id for the two ask kinds; `code` is the refusal or fallback code of a `report`.
 export type Notice = { kind: EventKind; key: string; about: Sid; ask?: string; code?: string }
-// Whose events a capability receives: a lead its children's, the manager its descendants'. The table itself is the next step's (notices.ts).
+// Whose events a capability receives: a lead its children's, the manager its descendants'. Only the shape is here; the table is not written yet.
 export type Receives = { [C in Exclude<Capability, 'none'>]: { from: 'children' | 'descendants'; kinds: readonly EventKind[] } }

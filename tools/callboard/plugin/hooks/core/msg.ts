@@ -1,4 +1,4 @@
-// Every string a person or a model reads, by message id, and the parameters its text takes. The core returns `{ act, msg, p }`; `texts.ts` will hold
+// Every string a person or a model reads, by message id, and the parameters its text takes. The core returns `{ act, msg, p }`; `texts.ts` (not written yet) is typed
 // `T: { [K in MsgId]: (p: Params[K]) => string }`, so a missing id or a wrong parameter fails the type check. The ids are listed by group;
 // a family written `${...}` is one id per member of the named union. Types only.
 import type { Config, CueVerb, StopVerb, ToolName } from './model.ts'
@@ -61,6 +61,7 @@ type Fixed = {
   'brief.child': { name: string; parent: string }
 
   // Cue and compaction notes: the turns a parent's cue and a session's own compaction submit. There is no order nudge and no on-cue note.
+  'cue.rename': Names
   'cue.start': { name: string; brief: string }
   'cue.resume': Names
   'compact.queued': E
@@ -97,7 +98,8 @@ type Fixed = {
 
   // The child tools' results (a refusal is `refuse.<code>`).
   'lane.cued': { verb: CueVerb; name: string }
-  'lane.stopped': { verb: StopVerb; name: string; pid: number }
+  // `done`: the process ended (or there was none, so no pid) and, for a retire or terminate, the row is removed; `alive`: it outlived its signal, call again.
+  'lane.stopped': { verb: StopVerb; name: string; pid?: number; outcome: 'done' | 'alive' }
   'lane.unparked': { name: string; sid: string }
   'lane.created': { name: string; folder: string }
   'lane.opened': { name: string; sid: string }

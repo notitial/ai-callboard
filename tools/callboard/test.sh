@@ -1,5 +1,5 @@
 #!/bin/bash
-# Runs every callboard suite, the mod and the plugin that will replace it side by side. Needs nothing outside tools/callboard but ../test-turn.sh.
+# Runs every callboard suite, the mod and the plugin beside it, side by side. Needs nothing outside tools/callboard but ../test-turn.sh.
 # CALLBOARD_SKIP_MOD_TESTS=1 skips only `claude plugin test mod` (the slow part: about 2 minutes), and says so. It is for a quick
 # local run; CI does not set it. Run this script without it before any PR that touches tools/callboard/mod.
 # It takes the machine-wide test turn first (../test-turn.sh) and waits while another run holds it, then runs every
