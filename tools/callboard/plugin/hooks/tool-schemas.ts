@@ -20,7 +20,7 @@ export const TOOL_SCHEMAS: Record<ToolName, { cap: 'any' | 'parent'; input: Sche
   lane_open: { cap: 'parent', input: lane },
   lane_adopt: { cap: 'parent', input: { type: 'object', properties: { name: text }, required: ['name'] } },
   prompt_list: { cap: 'parent', input: none },
-  prompt_answer: { cap: 'parent', input: { type: 'object', properties: { id: text, decision: { type: 'string', enum: ['allow', 'deny', 'answer', 'escalate'] }, note: text, option: { type: 'integer', minimum: 1, maximum: 4 }, answer: text }, required: ['id', 'decision'] } },
+  prompt_answer: { cap: 'parent', input: { type: 'object', properties: { id: text, decision: { type: 'string', enum: ['allow', 'deny', 'answer', 'escalate'] }, note: text, option: { type: 'integer', minimum: 1, maximum: 4 } }, required: ['id', 'decision'] } },
   unattended_off: { cap: 'parent', input: none },
   go_request: { cap: 'any', input: { type: 'object', properties: { text }, required: ['text'] } },
   go_status: { cap: 'any', input: none },

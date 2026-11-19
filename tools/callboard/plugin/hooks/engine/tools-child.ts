@@ -16,8 +16,7 @@ import { sendCue, spool, spoolSend } from './cue.ts'
 import { log, pause, personDialog, run, windowNow, writeFile } from './io.ts'
 import { getView, updateTable } from './store.ts'
 import { signedNow } from './tick.ts'
-import { deny, say } from './tools-any.ts'
-import { isSub } from './upkeep.ts'
+import { deny, isSub, say } from './tools-any.ts'
 
 const BRIEF_MAX = 16_384
 const STOP_WAIT_S = 10
