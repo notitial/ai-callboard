@@ -192,3 +192,33 @@ test('a turn that carries the plugin\'s own text is counted down; a text of a pe
   await turnStart(f.$, { text: KEEP }, next)
   assert.equal(mem.own.size, 0)
 })
+test('a prompt that lands while the compaction starts, or while the resume note is claimed, stops it: no command, no note', async () => {
+  const f = session(150_000)
+  await requestCompactCall(f.$, GOOD, next)
+  await turnComplete(f.$, { reason: 'answer' }, next)
+  const set = f.$.state.set
+  let raced = false
+  f.$.state.set = async (key: unknown, value: any, o: unknown) => {
+    if (!raced && value?.req?.phase === 'compacting') {
+      raced = true
+      await set(key, { ...value, req: null }, undefined)
+    }
+    return set(key, value, o)
+  }
+  await requestTick(f.$, 'sid-me')
+  assert.equal(raced, true)
+  assert.equal(f.h.compactRuns.length, 0)
+  assert.equal(f.h.toasts.length, 0)
+  f.$.state.set = set
+  await patchUp(f.$, (u) => ({ ...u, req: { ...GOOD, phase: 'compacted', at: f.h.now, sid: 'sid-me', doneAt: f.h.now } }))
+  raced = false
+  f.$.state.set = async (key: unknown, value: any, o: unknown) => {
+    if (!raced && value?.req === null) {
+      raced = true
+      await set(key, { ...value, req: null }, undefined)
+    }
+    return set(key, value, o)
+  }
+  await requestTick(f.$, 'sid-me')
+  assert.equal(f.h.submitted.length, 0)
+})

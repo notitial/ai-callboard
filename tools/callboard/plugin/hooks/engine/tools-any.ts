@@ -1,5 +1,5 @@
 // The tools every session has (`rest`) and the helpers the tool and command bodies share: a decision said as text, a refusal as a tool's deny, the rest mark. NOT_BUILT and notBuilt
-// are what the bodies of later steps refuse with until they are built.
+// are what a tool or command body that is not written refuses with.
 import type { Decision } from '../core/model.ts'
 import { refusal } from '../core/model.ts'
 import type { Say } from '../core/msg.ts'

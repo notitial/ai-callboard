@@ -48,11 +48,11 @@ export async function sessionEnd($: any, e: any, next: any) {
 }
 
 // ---- the notices ----
-// The inputs the ask steps add: the open asks this session is eligible for, the ask log from this process's cursor, and the sessions whose ask is open. No ask exists yet.
+// The inputs the ask notices read: the open asks this session is eligible for, the ask log from this process's cursor, and the sessions whose ask is open. All three are empty: asks are not built.
 async function askInputs(_$: any, _me: Sid, _v: View) {
   return { asks: [] as { id: string; asker: Sid }[], log: [] as never[], asking: new Set<Sid>() }
 }
-// One line per event; the two ask kinds are the ask steps' and have none here.
+// One line per event; the two ask kinds have no line here.
 function lineOf(v: View, n: Notice, now: number): string | undefined {
   const name = nameOf(v, n.about)
   const reg = v.rows === 'unknown' ? undefined : v.rows.get(n.about)

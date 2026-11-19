@@ -127,7 +127,9 @@ export async function requestTick($: any, sid: Sid): Promise<void> {
   if (r.phase === 'compacted') {
     if (r.doneAt === undefined || now - r.doneAt > RESUME_MS) return drop('resume-expired')
     if (!(await idle($, sid))) return
-    await patchUp($, (u) => ({ ...u, req: null }))
+    let took = false
+    await patchUp($, (u) => ((took = u.req?.phase === 'compacted' && u.req.doneAt === r.doneAt), took ? { ...u, req: null } : u))
+    if (!took) return
     return submitOwn($, say({ msg: 'compact.note', p: { focus: r.focus, continuation: r.continuation } })).then(() => undefined, () => log($, sid, 'resume-failed'))
   }
   if (reqExpired(r, now)) {
@@ -138,7 +140,7 @@ export async function requestTick($: any, sid: Sid): Promise<void> {
   const plan = compactPlan(up.counters, await tokensOf($), now, await busyAgents($))
   if (plan.act === 'refuse') return drop('refused', plan.msg.slice(7))
   if ((await draft($)) !== '') return drop('draft-in-box', 'there is a draft in the prompt box')
-  await patchUp($, (u) => ({ ...u, req: stepReq(u, 'begin', now) }))
+  if ((await patchUp($, (u) => ({ ...u, req: stepReq(u, 'begin', now) }))).req?.phase !== 'compacting') return
   toast($, say({ msg: 'compact.start', p: {} }))
   Promise.resolve($.command.run({ command: 'compact', args: r.focus })).catch(() => drop('rejected', 'the engine refused the command'))
 }
