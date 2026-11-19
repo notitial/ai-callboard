@@ -197,7 +197,7 @@ function askPath($: any, id: string, ext = 'json'): Promise<string | undefined> 
 const isNum = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x)
 // An ask file read leniently: anything that is not an ask is no ask.
 function parseAsk(j: any): Ask | undefined {
-  if (typeof j !== 'object' || j === null || !ASK_ID_RE.test(j.id) || typeof j.asker !== 'string' || !SID_RE.test(j.asker) || ![j.t0, j.awake, j.beat].every(isNum)) return undefined
+  if (typeof j !== 'object' || j === null || typeof j.id !== 'string' || !ASK_ID_RE.test(j.id) || typeof j.asker !== 'string' || !SID_RE.test(j.asker) || ![j.t0, j.awake, j.beat].every(isNum)) return undefined
   if (typeof j.personOnly !== 'boolean' || typeof j.cut !== 'boolean' || typeof j.tool !== 'string' || typeof j.input !== 'string' || !RAISED.includes(j.raisedBy) || !(j.window === null || isNum(j.window))) return undefined
   const q = j.question
   const good = typeof q === 'object' && q !== null && typeof q.header === 'string' && typeof q.question === 'string' && Array.isArray(q.options) && q.options.every((o: any) => typeof o?.label === 'string')
@@ -211,7 +211,8 @@ export async function writeAsk($: any, a: Ask): Promise<boolean> {
 export async function readAsk($: any, id: string): Promise<Ask | undefined> {
   const p = await askPath($, id)
   const t = p === undefined ? undefined : await readText($, p, 262_144)
-  return t === undefined ? undefined : parseAsk(safeJson(t))
+  const a = t === undefined ? undefined : parseAsk(safeJson(t))
+  return a?.id === id ? a : undefined
 }
 async function readUps($: any, d: string, names: string[], id: string): Promise<UpMark[]> {
   const mine = names.filter((n) => n.startsWith(`${id}.up.`) && SID_RE.test(n.slice(id.length + 4))).slice(0, 8)

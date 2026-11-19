@@ -25,6 +25,7 @@ export function fake(o: { sid?: string } = {}) {
     askAnswer: (() => Promise.resolve('Yes')) as (q: string) => Promise<unknown>,
     sleepDone: false,
     sleepMoves: false,
+    sleepFails: false,
     draft: '',
     usage: { context: { tokens: 0 }, cost: { usd: 1.5 }, rateLimits: [{ kind: 'five_hour', percentUsed: 12 }, { kind: 'seven_day', percentUsed: 40 }] } as unknown,
     agents: [] as { status: string }[],
@@ -41,7 +42,6 @@ export function fake(o: { sid?: string } = {}) {
     every: undefined as undefined | (() => unknown),
     submitFails: false,
     unreadable: new Set<string>(),
-    hung: new Set<string>(),
     kinds: new Map<string, string>(),
     undeletable: new Set<string>(),
     onSleep: undefined as undefined | (() => unknown),
@@ -105,6 +105,7 @@ export function fake(o: { sid?: string } = {}) {
       return ok()
     }
     if (cmd === '/bin/sleep') {
+      if (h.sleepFails) return bad
       if (h.sleepMoves) h.now += Number(paths[0]) * 1000
       await h.onSleep?.()
       return ok()
@@ -120,7 +121,6 @@ export function fake(o: { sid?: string } = {}) {
     session: { id: async () => h.sid, usage: async () => h.usage, root: async () => h.root },
     fs: {
       read: async (p: string, o: { offset?: number; length?: number } = {}) => {
-        if (h.hung.has(p)) return new Promise<string>(() => undefined)
         const t = h.files.get(p)
         if (t === undefined || h.unreadable.has(p)) throw new Error('EIO')
         return t.slice(o.offset ?? 0, o.length === undefined ? undefined : (o.offset ?? 0) + o.length)

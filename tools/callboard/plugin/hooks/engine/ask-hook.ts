@@ -3,6 +3,7 @@
 // session leaves the dialog with the person; a throw returns the chain beneath, so the dialog stays; the answer returned is built from the live input, never from a file.
 import type { Ask, AskEvent, Owner, Sid } from '../core/model.ts'
 import { capability, isOff, parent } from '../core/model.ts'
+import type { CheckFacts } from '../core/asks.ts'
 import { QUESTION_TOOL, awakeAdd, classify, decide, inputText, questionView, stage } from '../core/asks.ts'
 import { PRINT_CAP, printed } from '../ui.ts'
 import { log, newId, pause, toast, windowNow } from './io.ts'
@@ -27,16 +28,16 @@ const sorted = (_k: string, v: unknown): unknown => {
 const joinKey = (tool: string, input: unknown): string => `${tool}\n${JSON.stringify(input, sorted)}`
 const decided = (x: any): boolean => x?.decision !== undefined || x?.hookSpecificOutput?.decision !== undefined
 
-// tool.check only observes: it keeps what it saw for an ask, 60 s, and returns the engine's verdict unchanged, every time.
+// tool.check only observes: it keeps what it saw for a call that is neither allowed nor denied (a dialog may follow), 60 s, and returns the engine's verdict unchanged, every time.
 export async function toolCheck($: any, e: any, next: any) {
   const r = await next(e)
   try {
-    if (r?.decision === 'ask' && typeof e.tool_use_id === 'string' && !isSub(e)) {
+    if (r?.decision !== 'allow' && r?.decision !== 'deny' && typeof e.tool_use_id === 'string' && !isSub(e)) {
       const key = joinKey(String(e.tool), e.input)
       const now = await $.clock.now()
       const old = mem.checks.get(key)
       const dup = old !== undefined && now - old.at <= JOIN_TTL_MS && old.toolUseId !== e.tool_use_id
-      if (key.length <= JOIN_KEY_MAX) mem.checks.set(key, { toolUseId: e.tool_use_id, at: now, dup, approver: e.approver, facts: { decision: r.decision, reason: r.reason, rule: r.rule, hook: r.hook, setting: r.setting, plugin: r.plugin, ceiling: r.ceiling } })
+      if (key.length <= JOIN_KEY_MAX) mem.checks.set(key, { toolUseId: e.tool_use_id, at: now, dup, approver: e.approver, facts: { decision: r?.decision, reason: r?.reason, rule: r?.rule, hook: r?.hook, setting: r?.setting, plugin: r?.plugin, ceiling: r?.ceiling } })
       for (const [k, c] of mem.checks) if (now - c.at > JOIN_TTL_MS || mem.checks.size > JOIN_MAX) mem.checks.delete(k)
     }
   } catch {}
@@ -73,21 +74,23 @@ export async function permissionRequest($: any, e: any, next: any) {
     const lead = capability(v, parent(v, me) as Sid) === 'lead'
     return decided(under) || !(lead || (await windowNow($)).state === 'on') ? under : { decision: { behavior: 'deny', message: say({ msg: 'ask.subagent', p: {} }) } }
   }
+  const t0 = await $.clock.now()
+  const key = joinKey(String(e.tool_name), e.tool_input)
+  const c = mem.checks.get(key)
+  mem.checks.delete(key)
   const beneath = await next(e)
   if (decided(beneath)) return beneath
   try {
-    return await hold($, e, beneath, next.signal, me)
+    return await hold($, e, beneath, next.signal, me, t0, c !== undefined && !c.dup && t0 - c.at <= JOIN_TTL_MS ? c : undefined)
   } catch {
     return beneath
   }
 }
 
 // The loop. Each poll: a click, the OFF file, the close, the beat, an answer. Awake time is the polls' own gaps, capped, so a Mac that slept adds nothing.
-async function hold($: any, e: any, beneath: any, signal: AbortSignal | undefined, me: Sid): Promise<unknown> {
+async function hold($: any, e: any, beneath: any, signal: AbortSignal | undefined, me: Sid, t0: number, entry: { toolUseId: string; approver: unknown; facts: CheckFacts } | undefined): Promise<unknown> {
   const tool = String(e.tool_name)
   const input = e.tool_input
-  const t0 = await $.clock.now()
-  const entry = ((k) => ((c) => (mem.checks.delete(k), c !== undefined && !c.dup && t0 - c.at <= JOIN_TTL_MS ? c : undefined))(mem.checks.get(k)))(joinKey(tool, input))
   // A host (a hook, a mode) answers: nobody waits on the person, so it is not ours.
   if (entry !== undefined && entry.approver !== 'person') return beneath
   const tid = entry?.toolUseId
@@ -117,41 +120,45 @@ async function hold($: any, e: any, beneath: any, signal: AbortSignal | undefine
     if (waiting && (row.statusAt ?? 0) >= t0) seen = true
     return seen && !waiting
   }
-  for (;;) {
-    const now = await $.clock.now()
-    if (signal?.aborted || (tid !== undefined && mem.done.has(tid)) || (await clicked())) return finish('closed', beneath, undefined, 'click')
-    const v = await getView($)
-    if (isOff(v, me) || (await offFile($))) return finish('closed', beneath, undefined, 'off')
-    const ask: Ask = { ...base, awake }
-    const { ups, answered } = await askState($, ask.id)
-    const st = stage({ ask, now, win: await windowNow($), ups, v, held })
-    if (!st.open) return finish(st.msg === 'ask.expired' ? 'expired' : 'left-for-person', { ...beneath, decision: { behavior: 'deny', message: say(st) } }, undefined, tool)
-    held = st.noManager ? held + gap : 0
-    if (now - beatAt >= BEAT_MS) {
-      beatAt = now
-      const ok = await writeAsk($, { ...ask, beat: now })
-      if (!ok && wrote) toast($, say({ msg: 'toast.askNoFile', p: { ask: ask.id } }))
-      wrote = ok
-    }
-    const a = answered ? await readAnswer($, ask.id) : undefined
-    if (answered) {
-      const d = a === undefined ? undefined : decide(a, ask, st, v, input)
-      if (a === undefined || d === undefined || d.act === 'ignore') {
-        await rmAnswer($, ask.id)
-        await log($, me, 'answer-dropped', d === undefined ? 'shape' : d.msg.slice(7))
-      } else if (await clicked()) return finish('closed', beneath, undefined, 'click')
-      else {
-        const decision = d.act === 'allow' ? { behavior: 'allow' } : d.act === 'deny' ? { behavior: 'deny', message: say(d) } : { behavior: 'allow', updatedInput: { ...input, answers: { [d.question]: say(d) } } }
-        return finish('answered', { ...beneath, decision }, a.by)
+  try {
+    for (;;) {
+      const now = await $.clock.now()
+      if (signal?.aborted || (tid !== undefined && mem.done.has(tid)) || (await clicked())) return finish('closed', beneath, undefined, 'click')
+      const v = await getView($)
+      if (isOff(v, me) || (await offFile($))) return finish('closed', beneath, undefined, 'off')
+      const ask: Ask = { ...base, awake }
+      const { ups, answered } = await askState($, ask.id)
+      const st = stage({ ask, now, win: await windowNow($), ups, v, held })
+      if (!st.open) return finish(st.msg === 'ask.expired' ? 'expired' : 'left-for-person', { ...beneath, decision: { behavior: 'deny', message: say(st) } }, undefined, tool)
+      held = st.noManager ? held + gap : 0
+      if (now - beatAt >= BEAT_MS) {
+        beatAt = now
+        const ok = await writeAsk($, { ...ask, beat: now })
+        if (!ok && wrote) toast($, say({ msg: 'toast.askNoFile', p: { ask: ask.id } }))
+        wrote = ok
       }
+      const a = answered ? await readAnswer($, ask.id) : undefined
+      if (answered) {
+        const d = a === undefined ? undefined : decide(a, ask, st, v, input)
+        if (a === undefined || d === undefined || d.act === 'ignore') {
+          await rmAnswer($, ask.id)
+          await log($, me, 'answer-dropped', d === undefined ? 'shape' : d.msg.slice(7))
+        } else if (await clicked()) return finish('closed', beneath, undefined, 'click')
+        else {
+          const decision = d.act === 'allow' ? { behavior: 'allow' } : d.act === 'deny' ? { behavior: 'deny', message: say(d) } : { behavior: 'allow', updatedInput: { ...input, answers: { [d.question]: say(d) } } }
+          return finish('answered', { ...beneath, decision }, a.by)
+        }
+      }
+      const ran = await pause($, POLL_MS)
+      const after = await $.clock.now()
+      if (ran) {
+        fails = 0
+        gap = awakeAdd(awake, after - last) - awake
+        awake += gap
+      } else if (!signal?.aborted && ++fails >= PAUSE_FAILS_MAX) return finish('closed', beneath, undefined, 'hook-failed')
+      last = after
     }
-    const ran = await pause($, POLL_MS)
-    const after = await $.clock.now()
-    if (ran) {
-      fails = 0
-      gap = awakeAdd(awake, after - last) - awake
-      awake += gap
-    } else if (!signal?.aborted && ++fails >= PAUSE_FAILS_MAX) return finish('closed', beneath, undefined, 'hook-failed')
-    last = after
+  } catch {
+    return finish('closed', beneath, undefined, 'error')
   }
 }

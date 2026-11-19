@@ -56,8 +56,7 @@ async function ensureDir($: any, d: string): Promise<void> {
 export async function readText($: any, p: string, max = 65_536): Promise<string | undefined> {
   try {
     if ((await $.fs.stat(p)).kind !== 'file') return undefined
-    // A file swapped for a FIFO after the stat would block the read for good: a read that gives up after 3 s is a failed read.
-    const t = await Promise.race([$.fs.read(p, { length: max + 1 }), $.clock.sleep(3000).then(() => undefined)])
+    const t = await $.fs.read(p, { length: max + 1 })
     return typeof t === 'string' && t.length <= max ? t : undefined
   } catch {
     return undefined

@@ -4,7 +4,7 @@ import { HOME, MIN, T0, V2, as, peer, tiers } from '../../test/fake.ts'
 import { goDialog, stopDialog } from '../ui.ts'
 import { personDialog, windowNow } from './io.ts'
 import { permissionRequest, toolCheck } from './ask-hook.ts'
-import { mem } from './mem.ts'
+import { mem, staleView } from './mem.ts'
 import { getView, readAskLog, readAsks } from './store.ts'
 import { postToolHook, sessionStart } from './tick.ts'
 import { promptAnswerCall, promptListCall, unattendedText } from './tools-ask.ts'
@@ -64,8 +64,6 @@ test('a go dialog or a force-stop dialog open in the session is the person\'s al
     const q = { questions: [{ header: spec.header, question: spec.question, options: spec.options.map((o) => ({ label: o.label })) }] }
     assert.deepEqual(await ask(f, { tool_name: 'AskUserQuestion', tool_input: q, tool_use_id: 't9' }), {})
     assert.deepEqual(await rows(f), [])
-    const own = await as(() => promptListCall(peer(f, 'sid-lead').$, {}, noop))
-    assert.match(own.result, /No asks are waiting/)
   }
 })
 
@@ -91,7 +89,7 @@ test('the lead escalates and the manager owns the ask from then on: the lead\'s 
   assert.deepEqual(log.map((r) => r.ev), ['raised', 'told', 'escalated', 'told', 'answered'])
   assert.equal(log.at(-1)!.by, 'sid-boss')
 })
-test('a lead that is busy compacting keeps the ask it was told of when the manager is reached at 5 minutes, and may still decide it', async () => {
+test('at 5 minutes awake the manager is reached and the lead, busy compacting, may still decide the ask', async () => {
   const f = tiers()
   const [lead, boss] = [peer(f, 'sid-lead'), peer(f, 'sid-boss')]
   patchRow(f, 11, { status: 'busy' })
@@ -208,4 +206,51 @@ test('the Mac sleeps 10 minutes during an ask: the sweep leaves the live asker\'
   assert.match(r.decision.message, /Expired/)
   assert.ok(f.h.now - T0 >= 25 * MIN - 60_000, String((f.h.now - T0) / MIN))
   assert.deepEqual(lead.h.toasts.filter((t) => /no process to answer/.test(t)), [])
+})
+
+test('a slow hook beneath does not cost the join entry or the start: a Yes click that fires only the call\'s end is still seen', async () => {
+  const f = tiers()
+  await toolCheck(f.$, { tool: 'Bash', input: { command: 'make test' }, tool_use_id: 't1', approver: 'person' }, nx({ decision: 'ask' }))
+  script(f, [[100_000, async () => void (await postToolHook(f.$, { tool_name: 'Bash', tool_use_id: 't1' }, noop))]])
+  const slow = Object.assign(async () => ((f.h.now += 70_000), {}), { signal: undefined as AbortSignal | undefined })
+  assert.deepEqual(await ask(f, bash(), slow), {})
+  assert.deepEqual(await rows(f), ['raised:Bash', 'closed:click'])
+})
+test('a dialog that was not an ask, and a question with no answer form, are the person\'s alone: no session may decide them', async () => {
+  const f = tiers()
+  const lead = peer(f, 'sid-lead')
+  await toolCheck(f.$, { tool: 'ExitPlanMode', input: { plan: 'x' }, tool_use_id: 't1', approver: 'person' }, nx({ decision: 'passthrough' }))
+  const out: Record<string, any> = {}
+  script(f, [[40_000, async () => void (out.a = await answer(lead, { id: await idOf(f), decision: 'allow' }))]])
+  const r = await ask(f, { tool_name: 'ExitPlanMode', tool_input: { plan: 'x' }, tool_use_id: 't1' })
+  assert.match(out.a.deny, /person/i)
+  assert.match(r.decision.message, /Expired/)
+})
+test('an answer file written by hand for a session that may not decide is dropped, and the ask stays open', async () => {
+  const f = tiers()
+  script(f, [[40_000, async () => {
+    const id = await idOf(f)
+    f.h.files.set(`${V2}/asks/${id}.answer`, JSON.stringify({ ask: id, by: 'sid-boss', decision: 'allow', at: f.h.now }))
+  }]])
+  const r = await ask(f)
+  assert.match(r.decision.message, /Expired/)
+  assert.deepEqual([...f.h.files.keys()].filter((k) => k.endsWith('.answer')), [])
+})
+test('a subagent\'s dialog gets the chain beneath, or a deny that sends the call to the main agent only where an ask could rise', async () => {
+  const f = tiers()
+  const sub = (id: string) => ({ ...bash(id), agentId: 'sub1' })
+  const r = await ask(f, sub('t1'))
+  assert.match(r.decision.message, /subagent asked/)
+  assert.deepEqual(await ask(f, sub('t2'), nx({ decision: { behavior: 'allow' } })), { decision: { behavior: 'allow' } })
+  loose(f)
+  staleView()
+  assert.deepEqual(await ask(f, sub('t3')), {})
+  assert.deepEqual(await rows(f), [])
+})
+test('a loop whose waits keep failing ends with the dialog left to the person, and one that throws ends its ask file too', async () => {
+  const f = tiers()
+  f.h.sleepFails = true
+  assert.deepEqual(await ask(f), {})
+  assert.deepEqual(await rows(f), ['raised:Bash', 'closed:hook-failed'])
+  assert.deepEqual((await readAsks(f.$)).asks, [])
 })

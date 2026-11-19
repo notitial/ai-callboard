@@ -8,7 +8,7 @@ import { T } from '../texts.ts'
 import { relayDialog } from '../ui.ts'
 import { personDialog, toast, windowNow } from './io.ts'
 import { mem } from './mem.ts'
-import { getView, logAsk, offFile } from './store.ts'
+import { askOpen, getView, logAsk, offFile } from './store.ts'
 import { answerAsk, openAsks } from './tools-ask.ts'
 import { say } from './tools-any.ts'
 import { idle } from './upkeep.ts'
@@ -32,7 +32,11 @@ async function relayRun($: any, ask: Ask, v: View): Promise<void> {
 
 export async function relayTick($: any, me: Sid, v: View, now: number): Promise<void> {
   if (v.manager !== me || (await windowNow($)).state !== 'off' || (await offFile($)) || !(await idle($, me))) return
-  const hit = (await openAsks($, me, v, now)).open.find((o) => o.st.relay && o.ask.asker !== me && !mem.relayed.has(o.ask.id) && (o.ask.tool !== QUESTION_TOOL || o.ask.question !== undefined))
+  let hit: { ask: Ask } | undefined
+  for (const o of (await openAsks($, me, v, now)).open) if (o.st.relay && o.ask.asker !== me && !mem.relayed.has(o.ask.id) && (o.ask.tool !== QUESTION_TOOL || o.ask.question !== undefined) && (await askOpen($, o.ask.id))) {
+      hit = o
+      break
+    }
   if (hit === undefined) return
   if (mem.relayed.size > 500) mem.relayed.clear()
   mem.relayed.add(hit.ask.id)

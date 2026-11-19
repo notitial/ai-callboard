@@ -132,7 +132,7 @@ async function signedTick($: any, v: View, me: Sid, now: number): Promise<void> 
 
 // Every 30 s, by any session: the ask files of a dead asker are removed, and so is one whose live asker no longer waits; one the sweeper itself has been awake long enough to judge stale is
 // told once to the person. Ask logs older than 90 days go once a day.
-async function sweepTick($: any, v: View, now: number): Promise<void> {
+async function sweepTick($: any, v: View, me: Sid, now: number): Promise<void> {
   if (now - mem.sweepAt < 30_000) return
   mem.sweepAt = now
   if (now - mem.tidyAt >= 86_400_000) {
@@ -140,12 +140,15 @@ async function sweepTick($: any, v: View, now: number): Promise<void> {
     await tidyAskLogs($)
   }
   for (const ask of (await readAsks($)).asks) {
-    const r = sweep(ask, v, now, now - Math.max(mem.woke ?? 0, mem.since))
-    const waiting = v.rows === 'unknown' ? undefined : v.rows.get(ask.asker)?.status === 'waiting'
+    const awake = now - Math.max(mem.woke ?? 0, mem.since)
+    // The view kept 10 s may predate the asker's row: an end is decided on a reading made now.
+    const fresh = sweep(ask, v, now, awake) === 'keep' ? v : await getView($, true)
+    const r = sweep(ask, fresh, now, awake)
+    const waiting = fresh.rows === 'unknown' ? undefined : fresh.rows.get(ask.asker)?.status === 'waiting'
     if (r === 'sweep' || (r === 'stale' && waiting === false)) {
       await logAsk($, { ev: 'swept', ask: ask.id, asker: ask.asker })
       await rmAsk($, ask.id)
-    } else if (r === 'stale' && !mem.toasted.has(`stuck:${ask.id}`)) {
+    } else if (r === 'stale' && capability(v, me) !== 'none' && !mem.toasted.has(`stuck:${ask.id}`)) {
       mem.toasted.add(`stuck:${ask.id}`)
       toast($, say({ msg: 'toast.askStuck', p: { ask: ask.id, name: nameOf(v, ask.asker) } }))
     }
@@ -171,7 +174,7 @@ async function tick($: any): Promise<void> {
     await step('request', () => requestTick($, me))
     await step('nudge', () => nudgeTick($, me, v))
     if (mem.submits === start) await step('events', () => eventsTick($, me, v, now))
-    await step('asks', () => sweepTick($, v, now))
+    await step('asks', () => sweepTick($, v, me, now))
     await step('relay', () => relayTick($, me, v, now))
     await step('pr-poll', () => prTick($, me, v))
     if (mem.submits === start) await step('pr-notice', () => prNoticeTick($, me))

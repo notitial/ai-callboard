@@ -35,7 +35,7 @@ export async function openAsks($: any, me: Sid, v: View, now: number, fresh = fa
     mem.told.add(ask.id)
     if (await writeUp($, ask.id, me, 'told', now)) await logAsk($, { ev: 'told', ask: ask.id, asker: ask.asker, by: me })
   }
-  const rows = (await readAskLog($, mem.since)) ?? mem.asks?.log ?? []
+  const rows = (await readAskLog($, Math.max(mem.since, now - 3_600_000))) ?? mem.asks?.log ?? []
   return (mem.asks = { at: now, open, log: rows })
 }
 
@@ -83,24 +83,25 @@ export async function promptAnswerCall($: any, e: any, _next: any) {
   if (!isCaller(c)) return deny(c)
   if (await offFile($)) return deny(refusal('refuse', 'is-off', { tool: 'prompt_answer' }))
   const no = (code: RefuseCode, detail?: string) => deny(refusal('refuse', code, { tool: 'prompt_answer', ...(typeof e.id === 'string' ? { target: e.id.slice(0, 32) } : {}), ...(detail === undefined ? {} : { detail }) }))
-  if (capability(c.v, c.me) === 'none') return no('no-capability')
+  const v = await getView($, true)
+  if (capability(v, c.me) === 'none') return no('no-capability')
   const id = typeof e.id === 'string' ? e.id : ''
   if (e.decision === 'escalate') {
     const ask = await readAsk($, id)
     const { ups, answered } = await askState($, id)
     const now = await $.clock.now()
-    const st = ask === undefined ? undefined : answered ? undefined : stage({ ask, now, win: await windowNow($, true), ups, v: c.v, held: 0 })
+    const st = ask === undefined ? undefined : answered ? undefined : stage({ ask, now, win: await windowNow($, true), ups, v, held: 0 })
     if (ask === undefined) return no('no-such-ask')
     if (st?.open !== true) return no('ask-closed')
     if (!st.eligible.includes(c.me)) return no('not-eligible')
     if (!(await writeUp($, id, c.me, 'escalated', now))) return no('unknown-liveness')
     await logAsk($, { ev: 'escalated', ask: id, asker: ask.asker, by: c.me })
-    const up = chain(c.v, ask.asker)
+    const up = chain(v, ask.asker)
     const next = up.up[up.up.indexOf(c.me) + 1]
-    return { result: say({ msg: 'ask.escalated', p: { ask: id, to: next === undefined ? up.top : nameOf(c.v, next) } }) }
+    return { result: say({ msg: 'ask.escalated', p: { ask: id, to: next === undefined ? up.top : nameOf(v, next) } }) }
   }
   if (e.decision !== 'allow' && e.decision !== 'deny' && e.decision !== 'answer') return no('bad-input', 'decision')
-  const r = await answerAsk($, c.v, id, { decision: e.decision, ...(typeof e.note === 'string' ? { note: e.note } : {}), ...(Number.isInteger(e.option) ? { option: e.option } : {}) }, c.me)
+  const r = await answerAsk($, v, id, { decision: e.decision, ...(typeof e.note === 'string' ? { note: e.note } : {}), ...(Number.isInteger(e.option) ? { option: e.option } : {}) }, c.me)
   return r.act === 'ok' ? { result: say(r) } : deny(r)
 }
 

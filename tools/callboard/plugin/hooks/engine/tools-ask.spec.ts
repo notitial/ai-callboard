@@ -82,7 +82,7 @@ test('an ask already answered is not told again', async () => {
   await put()
   await call(lead, promptAnswerCall, { id: ID, decision: 'allow' })
   const said = async (g: typeof lead) => JSON.stringify(await as(() => postToolHook(g.$, { tool_name: 'Read' }, noop)))
-  assert.doesNotMatch(await said(boss), /yours to decide/)
+  assert.doesNotMatch(await said(lead), /yours to decide/)
   assert.deepEqual((await readAsks(f.$)).answered, new Set([ID]))
 })
 test('go_request opens one dialog and its Yes writes a go for 24 h; No, a bad text, a window and an open dialog write nothing', async () => {
@@ -101,6 +101,9 @@ test('go_request opens one dialog and its Yes writes a go for 24 h; No, a bad te
   const [file] = goes()
   const g = JSON.parse(f.h.files.get(file!)!)
   assert.deepEqual([g.giver, g.text, g.end], ['sid-lead', 'Build the ask tools', T0 + 24 * 60 * MIN])
+  mem.dialogs.add('open')
+  assert.match((await call(lead, goRequestCall, { text: 'Another go' })).deny!, /go/i)
+  mem.dialogs.clear()
   f.h.files.set(`${V2}/unattended.json`, JSON.stringify({ start: T0, end: T0 + 60 * MIN, readAt: T0 }))
   mem.win = undefined
   assert.match((await call(lead, goRequestCall, { text: 'Another go' })).deny!, /unattended|window/i)

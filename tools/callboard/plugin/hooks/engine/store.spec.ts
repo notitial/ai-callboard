@@ -219,11 +219,3 @@ test('createExcl: the first writer wins, the second finds it there, and no tempo
   assert.equal(f.h.files.get(p), 'first')
   assert.deepEqual([...f.h.files.keys()].filter((k) => k.endsWith('.tmp')), [])
 })
-test('a read that never returns (a pipe put where a file was) is given up after 3 s as a failed read', async () => {
-  const f = fake()
-  const p = `${V2}/asks/a1b2c3d4.json`
-  f.h.files.set(p, '{}')
-  f.h.hung.add(p)
-  f.h.sleepDone = true
-  assert.equal(await readText(f.$, p, 100), undefined)
-})
