@@ -139,6 +139,17 @@ Under the plugin; the mod's prompt answering is in ADR 0004.
   from `go_status`, and a `[callboard]` turn is still the plugin's, not that layer's. A session with no briefing has
   no layer above it.
 
+## The own-step notice
+
+Under the plugin; the mod sends none.
+
+- After the person's own typed `/callboard` command saved a change of a session's role, goes or unattended window, the
+  plugin sends that session one turn that opens `[callboard] The person ran /callboard in this session:`. After their
+  click on a go dialog that the session's `go_request` opened, the turn opens
+  `[callboard] The person clicked Yes on your go request` or `[callboard] The person declined the go you asked for`.
+- It tells the session what the person did, so they need not type "done". It carries no approval, go or answer: a go
+  is what `go_status` lists, never this turn.
+
 ## The PR notice
 
 - A turn, or extra context beside a tool's result, that opens `[callboard] PR notice.` comes from the plugin, not the

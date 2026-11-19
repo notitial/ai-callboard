@@ -148,5 +148,5 @@ test('his click on the go dialog owes the session that asked one notice: given (
   await settle()
   assert.equal(mem.owed.length, 2)
   assert.match(mem.owed[0]!, /^\[callboard\] The person declined the go you asked for\. Sent by callboard/)
-  assert.match(mem.owed[1]!, /^\[callboard\] The person gave the go you asked for; call go_status to read it\./)
+  assert.match(mem.owed[1]!, /^\[callboard\] The person clicked Yes on your go request; the go is what go_status lists\./)
 })

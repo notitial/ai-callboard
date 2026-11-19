@@ -97,7 +97,7 @@ async function prNoticeTick($: any, me: Sid): Promise<void> {
 }
 async function owedTick($: any, me: Sid): Promise<void> {
   const text = mem.owed[0]
-  if (text !== undefined && (await quiet($, me))) await submitOwn($, text, false).then(() => void mem.owed.shift(), () => undefined)
+  if (text !== undefined && (await quiet($, me))) await submitOwn($, text, false).then(() => void mem.owed.shift(), () => log($, me, 'error', 'owed'))
 }
 // A report about a session whose parent is the person is a toast; the manager is never told of one.
 function toasts($: any, v: View, me: Sid): void {
