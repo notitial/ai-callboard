@@ -4,16 +4,20 @@
 import type { Notice, Sid, ToolName, View } from '../core/model.ts'
 import { PERSON, TOOLS, capability, children, nameOf, parent } from '../core/model.ts'
 import { signedBy, tidy } from '../core/lifecycle.ts'
+import { sweep } from '../core/asks.ts'
 import { notices } from '../core/notices.ts'
 import { SLEEP_GAP_MS } from '../core/upkeep.ts'
 import { T } from '../texts.ts'
 import { TOOL_SCHEMAS } from '../tool-schemas.ts'
 import { TICK_MS, log, submitOwn, toast } from './io.ts'
 import { getUp, mem, spendStarted } from './mem.ts'
+import { markDone } from './ask-hook.ts'
 import { prClaim, prTick } from './pr.ts'
-import { getView, updateTable } from './store.ts'
-import { say } from './tools-any.ts'
-import { idle, isSub, keepaliveTick, midNudge, nudgeTick, requestTick } from './upkeep.ts'
+import { relayTick } from './relay.ts'
+import { askOpen, getView, logAsk, readAsks, rmAsk, tidyAsks, tidyAskLogs, updateTable } from './store.ts'
+import { isSub, say } from './tools-any.ts'
+import { openAsks } from './tools-ask.ts'
+import { idle, keepaliveTick, midNudge, nudgeTick, requestTick } from './upkeep.ts'
 import { usageDrop, usageFlush, usageSweep } from './usage.ts'
 
 // ---- what a session is given: the five tools every session has at its start, the fourteen when it holds a capability (and, once, from the tick or from `/callboard lead`) ----
@@ -48,24 +52,31 @@ export async function sessionEnd($: any, e: any, next: any) {
 }
 
 // ---- the notices ----
-// The inputs the ask notices read: the open asks this session is eligible for, the ask log from this process's cursor, and the sessions whose ask is open. All three are empty: asks are not built.
-async function askInputs(_$: any, _me: Sid, _v: View) {
-  return { asks: [] as { id: string; asker: Sid }[], log: [] as never[], asking: new Set<Sid>() }
+// The inputs the ask notices read: the open asks this session is eligible for (each checked open again now), the ask log from this process's cursor, and the sessions whose ask is open.
+async function askInputs($: any, me: Sid, v: View, now: number) {
+  if (capability(v, me) === 'none') return { asks: [] as { id: string; asker: Sid }[], log: [] as never[], asking: new Set<Sid>() }
+  const { open, log: rows } = await openAsks($, me, v, now)
+  const asks: { id: string; asker: Sid }[] = []
+  for (const o of open) if (o.st.eligible.includes(me) && (await askOpen($, o.ask.id))) asks.push({ id: o.ask.id, asker: o.ask.asker })
+  return { asks, log: rows, asking: new Set(open.map((o) => o.ask.asker)) }
 }
-// One line per event; the two ask kinds have no line here.
+// One line per event.
 function lineOf(v: View, n: Notice, now: number): string | undefined {
   const name = nameOf(v, n.about)
   const reg = v.rows === 'unknown' ? undefined : v.rows.get(n.about)
   if (n.kind === 'done' || n.kind === 'gone') return say({ msg: `event.${n.kind}`, p: { name } })
   if (n.kind === 'waiting') return say({ msg: 'event.waiting', p: { name, why: (reg?.waitingFor ?? '').slice(0, 80) } })
   if (n.kind === 'quiet') return say({ msg: 'event.quiet', p: { name, minutes: Math.floor((now - (reg?.statusAt ?? now)) / 60_000) } })
-  return n.kind === 'report' ? say({ msg: 'event.report', p: { name, code: n.code ?? '' } }) : undefined
+  if (n.kind === 'report') return say({ msg: 'event.report', p: { name, code: n.code ?? '' } })
+  const ask = n.ask ?? ''
+  if (n.kind === 'ask') return say({ msg: 'event.ask', p: { ask, name, tool: mem.asks?.open.find((o) => o.ask.id === ask)?.ask.tool ?? '' } })
+  return say({ msg: 'event.expired', p: { ask, name, tool: mem.asks?.log.find((l) => l.ask === ask && l.code !== undefined && (l.ev === 'expired' || l.ev === 'left-for-person'))?.code ?? '' } })
 }
 // The events owed now, computed again from the sessions under this one: a key already spent, or carried by a text submitted and not yet started, is left out.
 async function owed($: any, me: Sid, v: View, now: number): Promise<{ key: string; line: string }[]> {
   spendStarted(undefined, now)
   const held = new Set([...mem.pending.values()].flatMap((p) => p.keys))
-  const list = notices({ me, v, now, since: mem.since, reports: mem.reports, signed: mem.signed.set, ...(await askInputs($, me, v)) })
+  const list = notices({ me, v, now, since: mem.since, reports: mem.reports, signed: mem.signed.set, ...(await askInputs($, me, v, now)) })
   return list.filter((n) => !mem.spent.has(n.key) && !held.has(n.key)).flatMap((n) => ((l) => (l === undefined ? [] : [{ key: n.key, line: l }]))(lineOf(v, n, now)))
 }
 async function quiet($: any, me: Sid): Promise<boolean> {
@@ -119,6 +130,32 @@ async function signedTick($: any, v: View, me: Sid, now: number): Promise<void> 
   mem.signed = { at: now, set }
 }
 
+// Every 30 s, by any session: the ask files of a dead asker are removed, and so is one whose live asker no longer waits; one the sweeper itself has been awake long enough to judge stale is
+// told once to the person. Ask logs older than 90 days go once a day.
+async function sweepTick($: any, v: View, me: Sid, now: number): Promise<void> {
+  if (now - mem.sweepAt < 30_000) return
+  mem.sweepAt = now
+  if (now - mem.tidyAt >= 86_400_000) {
+    mem.tidyAt = now
+    await tidyAskLogs($)
+  }
+  await tidyAsks($)
+  for (const ask of (await readAsks($)).asks) {
+    const awake = now - Math.max(mem.woke ?? 0, mem.since)
+    // The view kept 10 s may predate the asker's row: an end is decided on a reading made now.
+    const fresh = sweep(ask, v, now, awake) === 'keep' ? v : await getView($, true)
+    const r = sweep(ask, fresh, now, awake)
+    const waiting = fresh.rows === 'unknown' ? undefined : fresh.rows.get(ask.asker)?.status === 'waiting'
+    if (r === 'sweep' || (r === 'stale' && waiting === false)) {
+      await logAsk($, { ev: 'swept', ask: ask.id, asker: ask.asker })
+      await rmAsk($, ask.id)
+    } else if (r === 'stale' && capability(v, me) !== 'none' && !mem.toasted.has(`stuck:${ask.id}`)) {
+      mem.toasted.add(`stuck:${ask.id}`)
+      toast($, say({ msg: 'toast.askStuck', p: { ask: ask.id, name: nameOf(v, ask.asker) } }))
+    }
+  }
+}
+
 // ---- the tick ----
 async function tick($: any): Promise<void> {
   if (mem.ticking) return
@@ -138,6 +175,8 @@ async function tick($: any): Promise<void> {
     await step('request', () => requestTick($, me))
     await step('nudge', () => nudgeTick($, me, v))
     if (mem.submits === start) await step('events', () => eventsTick($, me, v, now))
+    await step('asks', () => sweepTick($, v, me, now))
+    await step('relay', () => relayTick($, me, v, now))
     await step('pr-poll', () => prTick($, me, v))
     if (mem.submits === start) await step('pr-notice', () => prNoticeTick($, me))
     await step('keepalive', () => keepaliveTick($, me, v, start))
@@ -147,8 +186,9 @@ async function tick($: any): Promise<void> {
   }
 }
 
-// After a tool of the main agent: the nudge, the events and the PR notes owed are added to the result as context, never merged into one text, and each is claimed as it is returned.
+// After a tool (its end is marked for the asker's loop first): for the main agent the nudge, the events and the PR notes owed are added to the result as context, never merged into one text, and each is claimed as it is returned.
 export async function postToolHook($: any, e: any, next: any) {
+  markDone(e)
   const r = await next(e)
   if (isSub(e)) return r
   const texts: string[] = []

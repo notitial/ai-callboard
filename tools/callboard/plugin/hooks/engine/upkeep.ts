@@ -10,14 +10,13 @@ import { countDown, log, ownTextOf, submitOwn, toast } from './io.ts'
 import type { Up } from './mem.ts'
 import { getUp, mem, patchUp, spendStarted } from './mem.ts'
 import { cfgNow, getView } from './store.ts'
-import { deny, say } from './tools-any.ts'
+import { deny, isSub, say } from './tools-any.ts'
 
 const BUSY_AGENT = ['pending', 'running', 'waiting']
 const NUDGE_DUE_MS = 10 * 60_000
 const RESUME_MS = 120_000
 const MID_SKIP_MS = 60_000
 
-export const isSub = (e: any): boolean => (typeof e?.agentId === 'string' && e.agentId !== '') || (typeof e?.agent_id === 'string' && e.agent_id !== '')
 const rowOf = (v: View, sid: Sid) => (v.rows === 'unknown' ? undefined : v.rows.get(sid))
 export const interactive = (v: View, sid: Sid): boolean => rowOf(v, sid)?.kind === 'interactive'
 async function tokensOf($: any): Promise<number> {

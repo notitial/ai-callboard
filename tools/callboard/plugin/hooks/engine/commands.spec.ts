@@ -24,7 +24,7 @@ test('the origin: his typed turn (composer, bridge) runs a form that widens what
     assert.equal(f.h.files.has(`${V2}/sessions.json`), false)
     assert.equal(f.h.files.has(`${V2}/unattended.json`), false)
     assert.equal(f.h.files.has(`${V2}/config.json`), false)
-    assert.ok(!f.h.runs.some((r) => r.argv[0] === '/usr/bin/tee' && r.argv.includes('go')))
+    assert.deepEqual([...f.h.files.keys()].filter((p) => p.startsWith(`${V2}/go/`)), [])
     for (const args of ['status', 'lanes', 'help', 'rest', 'config', 'unattended']) assert.doesNotMatch((await run(f, args, kind)).text, /types it themselves/, `${kind} ${args}`)
   }
 })

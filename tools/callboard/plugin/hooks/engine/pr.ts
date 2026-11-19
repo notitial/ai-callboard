@@ -10,8 +10,7 @@ import { PR_FIELDS, PR_MAX, PR_POLL_MS, mergeNotes, notesOf, parseAnswer, parseR
 import { home, locked, log, path, readText, rm, run, writeFile } from './io.ts'
 import { mem } from './mem.ts'
 import { getView } from './store.ts'
-import { deny, say } from './tools-any.ts'
-import { isSub } from './upkeep.ts'
+import { deny, isSub, say } from './tools-any.ts'
 
 const BINS = ['/opt/homebrew/bin/gh', '/usr/local/bin/gh']
 const UNSET = ['GH_TOKEN', 'GITHUB_TOKEN', 'GH_ENTERPRISE_TOKEN', 'GITHUB_ENTERPRISE_TOKEN', 'GH_HOST', 'GH_CONFIG_DIR', 'XDG_CONFIG_HOME', 'XDG_STATE_HOME', 'XDG_DATA_HOME', 'XDG_CACHE_HOME', 'GH_DEBUG', 'DEBUG', 'GODEBUG', 'GH_FORCE_TTY', 'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY', 'http_proxy', 'https_proxy', 'all_proxy', 'no_proxy']

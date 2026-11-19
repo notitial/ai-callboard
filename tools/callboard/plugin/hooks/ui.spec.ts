@@ -90,3 +90,8 @@ test('the refusal toast: a refusal has one, another decision has none', () => {
   assert.equal(refusalToast(refusal('refuse', 'bad-origin', { tool: 'callboard' })), 'callboard refused (bad-origin).')
   assert.equal(refusalToast({ act: 'queue', msg: 'compact.queued', p: {} }), undefined)
 })
+test('a relay pop-up offers Allow only for an input a dialog shows whole: past a few KB it is Deny only', () => {
+  const d = relayDialog('lane-a', 'Bash', 'x'.repeat(5000), false)
+  assert.deepEqual(d.options.map((o) => o.label), ['Deny'])
+  assert.equal(d.cut, true)
+})

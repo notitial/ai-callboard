@@ -76,6 +76,7 @@ const RULE: Record<RefuseCode, (p: Params['refuse.bad-input']) => string> = {
   'not-eligible': () => 'that ask is not yours to decide now.',
   'person-only': () => 'only the person decides this ask.',
   'ask-closed': () => 'that ask is closed.',
+  'no-guard': () => 'the protected-paths guard is missing from the settings, so no answer counts. Tell the person.',
   'input-cut': () => 'you were not shown all of this input, so you may deny or escalate it but not allow it.',
   'compact-rate': (p) => `one compaction in 30 minutes. Try again in about ${plural(Number(p.detail) || 1, 'minute')}.`,
   'compact-floor': (p) => `below ${p.detail ?? '100'}k tokens. Do not call request_compact again until the context is larger.`,
@@ -278,6 +279,7 @@ const fixed: { [K in keyof Fixed]: (p: Fixed[K]) => string } = {
     ].join('\n'),
   'go.none': () => "No go of the person's covers this session. Risk-list work needs the person's own go: ask them once, with one AskUserQuestion.",
   'go.requested': (p) => `The go dialog is open in the person's session until ${p.end}. Their click records a go for this work, and go_status then lists it; nothing else is a go:\n${escBlock(p.text)}`,
+  'go.noGuard': () => 'No go counts while the protected-paths guard is missing from the settings. Tell the person.',
 
   'toast.refused': (p) => `${esc(p.tool)} refused (${p.code}).`,
   'toast.askClosed': () => 'That ask is closed; your click wrote nothing.',
