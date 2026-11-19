@@ -125,6 +125,8 @@ EXT_DIR="$(ls -d "$HOME"/.vscode/extensions/anthropic.claude-code-* | sort -V | 
   `callboard assign group`, which the panels extension calls to file a lead's session in the Session Manager group Lead
   and a lane's in Lanes, from the plugin's session table (a group of that name in any letter case, such as LEAD, is the
   same one; a missing one is created). Each session is filed once, so one you move out of its group stays out.
+- The fifth piece is the session command, optional in the same way (the marker's `session` field): `callboard active session`
+  returns the session id of the Claude panel in front, so the folder badge below finds an unnamed session too.
 - An install patched by an older version of the script (before the panel look or the restore fix, say) shows `outdated` with a
   line saying what differs, or the old warning that a piece is not in. The check compares the installed file with what the current script
   builds from the backup original. `--update` (or `/patch-vs-claude`, which runs it) rebuilds the patch from the backup and
@@ -138,10 +140,10 @@ EXT_DIR="$(ls -d "$HOME"/.vscode/extensions/anthropic.claude-code-* | sort -V | 
   several folders open VS Code's own folder list first and start the session in the folder you pick; Escape opens
   nothing. Callboard's own lane opens pass their folder and never ask. The palette's Open in New Tab, Open and an
   @-mention are bare calls that cannot be told from Claude Code's own internal ones: they never ask and start in the
-  first folder. Separately from the patch, the status bar shows the folder of the Claude panel in front, in a window
-  with several folders, when the panel's session has a name it was given (`/rename`, or a lane's own name, which
-  callboard gives its panel): it matches the tab to the session by that name, and a tab still showing the title Claude
-  generated names no session.
+  first folder. The status bar shows the folder of the Claude panel in front, in a window with several folders: it finds
+  the session by its id through the session command; without that piece, only a session with a name it was given
+  (`/rename`, or a lane's own name, which callboard gives its panel), matched by the tab's label, since a tab still
+  showing the title Claude generated names no session.
 - It serves the plugin build's lanes (the old mod keeps one repo per window). A tab that Claude Code itself restores or reopens
   resumes in its conversation's folder through the restore fix; where that fix is not in or finds no transcript, it starts in
   the window's first folder.

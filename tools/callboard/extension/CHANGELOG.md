@@ -4,7 +4,7 @@ The version stays fixed between these entries: a change to the code is an update
 
 ## 1.6.0
 
-- The lane view sits in Claude Code's Session Manager, below its session list, when that list is on (`claude-vscode.sessionsListEnabled`), and in the Explorer otherwise: two view ids for one tree. It lists only the sessions of the window's served folders, shows a waiting session as the live dot in orange, and puts a session whose lead chain comes back to it at the top. The groups are filed from the plugin's session table too. The manifest changes, so this version needs the quit, pull, `link-extension.py --apply` update.
+- The lane view sits in Claude Code's Session Manager, below its session list, when that list is on (`claude-vscode.sessionsListEnabled`), and in the Explorer otherwise: two view ids for one tree. It lists only the sessions of the window's served folders, shows a waiting session as the live dot in orange, and puts a session whose lead chain comes back to it at the top. The groups are filed from the plugin's session table too. The folder badge finds the panel in front by its session id through the patch's session command (`callboard active session`), so an unnamed session shows its folder too; without that piece it matches the tab label as before. The manifest changes, so this version needs the quit, pull, `link-extension.py --apply` update.
 
 ## 1.5.0
 

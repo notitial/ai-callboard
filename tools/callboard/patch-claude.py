@@ -9,7 +9,7 @@
         unpatched-patchable      every anchor was found exactly once: --apply would patch it
         anchors-missing <names>  an update moved the code the patch hooks into (a name is missing or matches twice): --apply refuses
       --apply: patch extension.js, keep the original beside it as extension.js.callboard-orig and write callboard-cwd-patch.json
-      (the marker callboard's panels extension reads; its "look", "restore" and "groups" fields say whether the panel look, the restore fix and the group command below went in). Patched already: says so and stops; outdated: refuses and names --update. A window reload (Developer: Reload
+      (the marker callboard's panels extension reads; its "look", "restore", "groups" and "session" fields say whether the panel look, the restore fix, the group command and the session command below went in). Patched already: says so and stops; outdated: refuses and names --update. A window reload (Developer: Reload
       Window) loads it.
       --update: for an `outdated` install, build the patch again from the backup original and swap it in: extension.js and the marker are
       replaced, the backup is not touched. The new bytes are built before anything is written (a refusal changes nothing), and a failed write puts the
@@ -22,10 +22,11 @@ new panel instead of the window's first folder, when it is one of the window's f
 opens nothing; a bare call (the palette, Open, an @-mention), a resume and a one-folder window never ask. The panel look (LOOK_CSS below, a style block added to the webview page the extension builds) lets the composer and its permission box use the panel's
 width and keeps the Remote Control chip icon-only. Each anchor is a pattern that tolerates renamed minified
 identifiers, and the file is written only when every anchor matches exactly once: otherwise nothing changes and the missing ones
-are named. The three optional pieces are separate: the panel look's style block goes in when its one anchor matches exactly once, the restore fix
+are named. The four optional pieces are separate: the panel look's style block goes in when its one anchor matches exactly once, the restore fix
 (RESTORE_ANCHORS below: a panel that VS Code restores or Claude reopens keeps the folder of its conversation, found from the session's transcript) goes in
 when its two anchors do, and the group command (GROUPS_ANCHOR below) registers `callboard assign group` (session id, group name), so callboard's panels
-extension can put a lead, lane or conductor session in the sidebar's Lead, Lanes or Conductor group, when its one anchor matches exactly once; when one does not, a warning line says so and the folder patch still applies. There is no half patch: a failure after the file was replaced puts the backup back. An update of the extension is a new
+extension can put a lead, lane or conductor session in the sidebar's Lead, Lanes or Conductor group, when its one anchor matches exactly once, and the session command (at the same anchor) registers `callboard active session`, which
+returns the session id of the Claude panel in front, for the panels extension's folder badge; when one does not, a warning line says so and the folder patch still applies. There is no half patch: a failure after the file was replaced puts the backup back. An update of the extension is a new
 folder, so it starts unpatched and this runs again. It never uses the network, runs nothing else, works only inside EXTENSION_DIR
 and changes no setting. Run it as your user: it refuses root. Tests: /usr/bin/python3 -I tools/callboard/test_patch_claude.py
 Exit codes: 0 done or nothing to do (patched, patchable), 1 refused, outdated or anchors missing, 2 usage.
@@ -163,16 +164,24 @@ def groups_command(m):
             b':[...cbqG,{id:require("crypto").randomUUID(),name:cbqN,collapsed:!1,sessionIds:[cbqS]}]);return!0}),' + m.group(0))
 
 
-def groups_problem(raw):
-    """Why the group command cannot go in (None when it can): its anchor does not match exactly once, or the file already has it."""
+def command_problem(raw, command):
+    """Why a command at the groups anchor cannot go in (None when it can): the anchor does not match exactly once, or the file already has the command."""
     n = len(re.findall(GROUPS_ANCHOR, raw))
     if n != 1:
         return "groups anchor (%s)" % ("no match" if n == 0 else "%d matches" % n)
-    return "the file already contains %s" % GROUPS_COMMAND if GROUPS_COMMAND.encode() in raw else None
+    return "the file already contains %s" % command if command.encode() in raw else None
 
 
 def groups_in(raw):
     return re.sub(GROUPS_ANCHOR, groups_command, raw)
+
+
+SESSION_COMMAND = "callboard active session"
+
+
+def session_in(raw):
+    """`callboard active session`: the session id of the Claude panel in front, from the provider's own lookup that the stock tab commands use, or undefined."""
+    return re.sub(GROUPS_ANCHOR, lambda m: m.group("vs") + b'.commands.registerCommand("' + SESSION_COMMAND.encode() + b'",()=>' + m.group("prov") + b".activePanelSessionId())," + m.group(0), raw)
 
 
 # The optional pieces, in the order they go in: (marker field, name in messages, why it cannot go in, how it goes in). A piece that cannot go in is left out
@@ -180,7 +189,8 @@ def groups_in(raw):
 PIECES = (
     ("look", "panel look", look_problem, look_in),
     ("restore", "restore fix", restore_problem, restore_in),
-    ("groups", "group command", groups_problem, groups_in),
+    ("groups", "group command", lambda raw: command_problem(raw, GROUPS_COMMAND), groups_in),
+    ("session", "session command", lambda raw: command_problem(raw, SESSION_COMMAND), session_in),
 )
 
 

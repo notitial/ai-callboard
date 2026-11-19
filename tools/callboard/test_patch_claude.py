@@ -402,12 +402,12 @@ const code = fs.readFileSync(process.argv[1], 'utf8')
 const start = JSON.parse(process.argv[2])
 async function run(groups, sid, name) {
   const H = {}, saved = []
-  const provider = { settings: { getSessionGroups: () => groups, getArchivedSessionIds: () => start.archived || [] }, persistGroupsFromHost: (g) => saved.push(g), addActiveSessionTabToGroup: async () => true }
+  const provider = { settings: { getSessionGroups: () => groups, getArchivedSessionIds: () => start.archived || [] }, persistGroupsFromHost: (g) => saved.push(g), addActiveSessionTabToGroup: async () => true, activePanelSessionId: () => 'sid-front' }
   const fake = { workspace: {}, window: {}, commands: { registerCommand: (id, fn) => { H[id] = fn; return {} } } }
   const ctx = vm.createContext({ x: [], Wp: () => {}, F: () => ({}), G: provider, Gq: provider, $e: fake, Pe: fake, require: (m) => (m === 'crypto' ? { randomUUID: () => 'new-id' } : fake) })
   vm.runInContext(code, ctx)
   const result = await H['callboard assign group'](sid, name)
-  return { result, saved, stock: typeof H['claude-vscode.addSessionTabToGroup'], other: typeof H['claude-vscode.toggleFocusView'] }
+  return { result, saved, front: H['callboard active session'](), stock: typeof H['claude-vscode.addSessionTabToGroup'], other: typeof H['claude-vscode.toggleFocusView'] }
 }
 ;(async () => {
   const out = []
@@ -441,9 +441,9 @@ class Groups(Case):
             self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "patched 2.1.328"))
             self.assertEqual(self.out.count("warning"), 0)
             marker = json.loads(slurp(os.path.join(ext, "callboard-cwd-patch.json")))
-            self.assertEqual((marker["patch"], marker["look"], marker["groups"]), (1, True, True))
+            self.assertEqual((marker["patch"], marker["look"], marker["groups"], marker["session"]), (1, True, True, True))
             new = self.js(ext)
-            self.assertEqual(new.count(b"callboard assign group"), 1)
+            self.assertEqual((new.count(b"callboard assign group"), new.count(b"callboard active session")), (1, 1))
             self.assertEqual(new.count(b"cbCwd"), 6)
 
     def test_the_command_goes_in_front_of_the_stock_one_inside_its_push_call(self):
@@ -451,9 +451,9 @@ class Groups(Case):
         new = self.js(ext).decode("utf-8")
         i, j = new.index("Pe.commands.registerCommand(\"callboard assign group\""), new.index("Pe.commands.registerCommand(\"claude-vscode.addSessionTabToGroup\"")
         self.assertLess(i, j)
-        self.assertEqual(new[i:j].count("registerCommand"), 1)
+        self.assertEqual(new[i:j].count("registerCommand"), 2, "the group command, then the session command")
         self.assertTrue(new[:i].endswith("x.push("))
-        self.assertTrue(new[i:j].endswith("}),"))
+        self.assertTrue(new[i:j].endswith('Pe.commands.registerCommand("callboard active session",()=>Gq.activePanelSessionId()),'))
 
     @unittest.skipUnless(shutil.which("node"), "needs node")
     def test_the_command_puts_a_session_in_a_group_by_name_creates_a_missing_one_and_leaves_a_grouped_session(self):
@@ -470,6 +470,7 @@ class Groups(Case):
             self.assertEqual(r[6]["saved"], [[G1, joined(G2, "s1", 0)]])
             self.assertEqual([x["result"] for x in (r[0], r[1], r[6])], [True, True, True])
             self.assertEqual((r[0]["stock"], r[0]["other"]), ("function", "function"), "the stock commands are still registered")
+            self.assertEqual(r[0]["front"], "sid-front", "the session command returns the provider's panel in front")
 
     @unittest.skipUnless(shutil.which("node"), "needs node")
     def test_the_command_refuses_an_archived_session_and_the_stock_list_limits(self):
@@ -566,6 +567,8 @@ class Groups(Case):
                 self.assertEqual(self.js(ext).count(b"callboard assign group"), 1, d)
                 for member in (b".settings.getSessionGroups()", b".settings.getArchivedSessionIds()", b"persistGroupsFromHost("):
                     self.assertIn(member, raw, "%s: the members the command uses" % d)
+            if marker["session"]:
+                self.assertIn(b"activePanelSessionId(){", raw, "%s: the member the session command uses" % d)
             p = subprocess.run(["node", "--check", os.path.join(ext, "extension.js")], capture_output=True, text=True, timeout=120)
             self.assertEqual(p.returncode, 0, "%s: %s" % (d, p.stderr))
             self.run_script(ext, "--undo")
