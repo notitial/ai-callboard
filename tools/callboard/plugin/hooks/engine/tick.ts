@@ -14,7 +14,7 @@ import { getUp, mem, spendStarted } from './mem.ts'
 import { markDone } from './ask-hook.ts'
 import { prClaim, prTick } from './pr.ts'
 import { relayTick } from './relay.ts'
-import { askOpen, getView, logAsk, readAsks, rmAsk, tidyAskLogs, updateTable } from './store.ts'
+import { askOpen, getView, logAsk, readAsks, rmAsk, tidyAsks, tidyAskLogs, updateTable } from './store.ts'
 import { isSub, say } from './tools-any.ts'
 import { openAsks } from './tools-ask.ts'
 import { idle, keepaliveTick, midNudge, nudgeTick, requestTick } from './upkeep.ts'
@@ -139,6 +139,7 @@ async function sweepTick($: any, v: View, me: Sid, now: number): Promise<void> {
     mem.tidyAt = now
     await tidyAskLogs($)
   }
+  await tidyAsks($)
   for (const ask of (await readAsks($)).asks) {
     const awake = now - Math.max(mem.woke ?? 0, mem.since)
     // The view kept 10 s may predate the asker's row: an end is decided on a reading made now.

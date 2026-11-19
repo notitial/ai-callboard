@@ -13,6 +13,8 @@ const two = (n: number): string => String(n).padStart(2, '0')
 export const clock = (t: number): string => `${two(new Date(t).getHours())}:${two(new Date(t).getMinutes())}`
 export const stamp = (t: number): string => `${new Date(t).getFullYear()}-${two(new Date(t).getMonth() + 1)}-${two(new Date(t).getDate())} ${clock(t)}`
 export const RULES_CAP = 8 * 1024
+// What a pop-up is trusted to show whole: a longer input gets Deny only.
+export const DIALOG_CAP = 4 * 1024
 // The text as printed: escaped, then cut to `max` bytes. cut: what is shown is not the whole.
 export const printed = (s: string, max: number): { text: string; cut: boolean } => capBytes(escBlock(s), max)
 
@@ -73,7 +75,7 @@ export const stopDialog = (name: string, verb: StopVerb): DialogSpec => ({ heade
 // The relay pop-up: an input not shown whole (cut, or too large to print) gets Deny only, as `decide` refuses its allow. `cut` is that finding: the adapter stores it on the
 // ask, as it stores promptList's cutIds, so no other path allows the input. A question offers its own options (a click on one is that answer) in place of Allow.
 export function relayDialog(asker: string, tool: string, input: string, cut: boolean, q?: Question): DialogSpec & { cut: boolean } {
-  const p = printed(input, PRINT_CAP)
+  const p = printed(input, DIALOG_CAP)
   const whole = !cut && !p.cut
   return {
     header: T['dialog.relay.header']({ asker }),

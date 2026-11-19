@@ -111,6 +111,8 @@ test('go_request opens one dialog and its Yes writes a go for 24 h; No, a bad te
 })
 test('go_status reports a go only while the protected-paths guard is in place, and only to the giver and the sessions under it', async () => {
   const { f, lead, boss } = world()
+  f.h.files.delete(`${HOME}/.claude/settings.json`)
+  f.h.files.delete(`${HOME}/.claude/callboard/.protected-checkout`)
   await writeGo(f.$, { id: 'g0ab12', giver: 'sid-lead', text: 'Build the ask tools', end: T0 + 60 * MIN })
   assert.match((await call(lead, goStatusCall)).result!, /guard/)
   f.h.files.set(`${HOME}/.claude/settings.json`, JSON.stringify({ hooks: { PreToolUse: [{ matcher: '', hooks: [{ type: 'command', command: 'bash ~/guards/protected-paths-guard.sh' }] }] } }))

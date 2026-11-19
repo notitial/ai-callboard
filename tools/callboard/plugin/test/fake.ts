@@ -196,6 +196,11 @@ export async function as<T>(fn: () => Promise<T>): Promise<T> {
     mem.ownPid = own
   }
 }
+// The protected-paths guard in place: wired in the settings, with its marker.
+export function guard(f: ReturnType<typeof fake>) {
+  f.h.files.set(`${HOME}/.claude/settings.json`, JSON.stringify({ hooks: { PreToolUse: [{ matcher: '', hooks: [{ type: 'command', command: 'bash ~/guards/protected-paths-guard.sh' }] }] } }))
+  f.h.files.set(`${HOME}/.claude/callboard/.protected-checkout`, '')
+}
 // The machine of the ask specs: a lane (`sid-me`) under a lead, the manager `BOSS`, the lane waiting on a prompt, and the lane's sleeps moving the clock.
 export function tiers() {
   const f = fake()
@@ -203,6 +208,7 @@ export function tiers() {
   f.seed({ sid: 'sid-lead', pid: 11, name: 'lead', cwd: '/w/lead', kind: 'interactive' })
   f.seed({ sid: 'sid-boss', pid: 12, name: 'BOSS', cwd: '/w/boss', kind: 'interactive' })
   f.h.files.set(`${HOME}/.claude/callboard/manager-name`, 'BOSS\n')
+  guard(f)
   f.table({ 'sid-me': { name: 'lane', folder: '/w/me', under: 'sid-lead' }, 'sid-lead': { name: 'lead', folder: '/w/lead', lead: { repos: [] } } })
   f.h.sleepMoves = true
   return f

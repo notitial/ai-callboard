@@ -265,6 +265,14 @@ export async function writeUp($: any, id: string, by: Sid, kind: UpMark['kind'],
   const p = SID_RE.test(by) ? await askPath($, id, `up.${by}`) : undefined
   return p !== undefined && writeFile($, p, JSON.stringify({ kind, at }))
 }
+// Entries of the ask folder whose ask file is gone (a late answer or mark) and temporary files left by a killed writer, once two minutes old.
+export async function tidyAsks($: any): Promise<void> {
+  const d = await path($, 'asks')
+  const now = await $.clock.now()
+  const all = d === undefined ? [] : (((await $.fs.list(d).catch(() => [])) as { name: string }[]) ?? []).map((f) => f.name)
+  const gone = all.filter((n) => n.endsWith('.tmp') || !all.includes(`${n.split('.')[0]}.json`))
+  for (const n of gone.slice(0, 64)) if (now - (((await $.fs.stat(`${d}/${n}`).catch(() => undefined)) as { mtimeMs: number } | undefined)?.mtimeMs ?? now) > 120_000) await rm($, [`${d}/${n}`])
+}
 // An ask's files, all of them.
 export async function rmAsk($: any, id: string): Promise<void> {
   const f = await askNames($)
@@ -295,7 +303,8 @@ export async function readAskLog($: any, since: number): Promise<AskLogRow[] | u
   const out: AskLogRow[] = []
   const paths = new Set([await askLogPath($, new Date(since)), await askLogPath($, new Date(await $.clock.now()))])
   for (const p of paths) {
-    const size = p === undefined ? undefined : ((await $.fs.stat(p).catch(() => undefined)) as { size: number } | undefined)?.size
+    const st = p === undefined ? undefined : ((await $.fs.stat(p).catch(() => undefined)) as { size: number; kind?: string } | undefined)
+    const size = st?.kind === 'file' ? st.size : undefined
     if (p === undefined || size === undefined) continue
     const t = (await $.fs.read(p, { offset: Math.max(0, size - 262_144), length: 262_144 }).catch(() => undefined)) as string | undefined
     if (t === undefined) return undefined

@@ -254,3 +254,16 @@ test('a loop whose waits keep failing ends with the dialog left to the person, a
   assert.deepEqual(await rows(f), ['raised:Bash', 'closed:hook-failed'])
   assert.deepEqual((await readAsks(f.$)).asks, [])
 })
+test('without the protected-paths guard an answer file is dropped: the ask stays with the person', async () => {
+  const f = tiers()
+  const lead = peer(f, 'sid-lead')
+  const out: Record<string, any> = {}
+  script(f, [[40_000, async () => {
+    f.h.files.delete(`${HOME}/.claude/settings.json`)
+    mem.guard = undefined
+    out.a = await answer(lead, { id: await idOf(f), decision: 'allow' })
+  }]])
+  const r = await ask(f)
+  assert.match(out.a.result, /allowed/)
+  assert.match(r.decision.message, /Expired/)
+})

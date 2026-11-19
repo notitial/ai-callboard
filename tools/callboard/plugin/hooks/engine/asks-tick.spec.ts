@@ -1,8 +1,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { MIN, T0, as, peer, tiers } from '../../test/fake.ts'
+import { MIN, T0, V2, as, peer, tiers } from '../../test/fake.ts'
 import type { Ask } from '../core/model.ts'
-import { readAskLog, readAsks, writeAsk } from './store.ts'
+import { readAskLog, readAsks, tidyAsks, writeAsk } from './store.ts'
 import { sessionStart } from './tick.ts'
 
 const noop = Object.assign(async () => ({}), { signal: undefined })
@@ -26,4 +26,15 @@ test('the sweep: a dead asker\'s ask is removed and logged; a stale beat of a li
   f.h.now += 40_000
   await as(async () => void (await lead.h.every!()))
   assert.equal(lead.h.toasts.filter((t) => /no process to answer/.test(t)).length, 1)
+})
+test('the ask folder is tidied: a late answer or mark of an ask that is gone and an old temporary file go, a young one and a live ask\'s files stay', async () => {
+  const f = tiers()
+  const d = `${V2}/asks`
+  await writeAsk(f.$, mk('aa11bb22cc', 'sid-me', T0))
+  f.h.dirs.add(d)
+  for (const n of ['aa11bb22cc.answer', 'zz11yy22xx.answer', 'zz11yy22xx.up.sid-lead', 'aa11bb22cc.json.k3j4h5g6f7.tmp', 'bb11bb22cc.json.k3j4h5g6f7.tmp']) f.h.files.set(`${d}/${n}`, '{}')
+  f.h.mtimes.set(`${d}/bb11bb22cc.json.k3j4h5g6f7.tmp`, T0)
+  for (const n of ['zz11yy22xx.answer', 'zz11yy22xx.up.sid-lead', 'aa11bb22cc.json.k3j4h5g6f7.tmp']) f.h.mtimes.set(`${d}/${n}`, T0 - 5 * MIN)
+  await tidyAsks(f.$)
+  assert.deepEqual([...f.h.files.keys()].filter((k) => k.startsWith(d)).map((k) => k.slice(d.length + 1)).sort(), ['aa11bb22cc.answer', 'aa11bb22cc.json', 'bb11bb22cc.json.k3j4h5g6f7.tmp'])
 })

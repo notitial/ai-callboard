@@ -8,7 +8,7 @@ import { QUESTION_TOOL, awakeAdd, classify, decide, inputText, questionView, sta
 import { PRINT_CAP, printed } from '../ui.ts'
 import { log, newId, pause, toast, windowNow } from './io.ts'
 import { mem } from './mem.ts'
-import { askState, getView, logAsk, offFile, readAnswer, readOwnRow, rmAnswer, rmAsk, writeAsk } from './store.ts'
+import { askState, getView, guardOk, logAsk, offFile, readAnswer, readOwnRow, rmAnswer, rmAsk, writeAsk } from './store.ts'
 import { isSub, say } from './tools-any.ts'
 
 const JOIN_TTL_MS = 60_000
@@ -140,9 +140,10 @@ async function hold($: any, e: any, beneath: any, signal: AbortSignal | undefine
       const a = answered ? await readAnswer($, ask.id) : undefined
       if (answered) {
         const d = a === undefined ? undefined : decide(a, ask, st, v, input)
-        if (a === undefined || d === undefined || d.act === 'ignore') {
+        const guarded = await guardOk($)
+        if (!guarded || a === undefined || d === undefined || d.act === 'ignore') {
           await rmAnswer($, ask.id)
-          await log($, me, 'answer-dropped', d === undefined ? 'shape' : d.msg.slice(7))
+          await log($, me, 'answer-dropped', !guarded ? 'no-guard' : d === undefined ? 'shape' : d.msg.slice(7))
         } else if (await clicked()) return finish('closed', beneath, undefined, 'click')
         else {
           const decision = d.act === 'allow' ? { behavior: 'allow' } : d.act === 'deny' ? { behavior: 'deny', message: say(d) } : { behavior: 'allow', updatedInput: { ...input, answers: { [d.question]: say(d) } } }

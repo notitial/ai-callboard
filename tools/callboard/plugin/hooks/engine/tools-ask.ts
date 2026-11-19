@@ -108,8 +108,9 @@ export async function promptAnswerCall($: any, e: any, _next: any) {
 // The person's click on the go dialog writes the go; the tool has returned by then.
 async function goDialogRun($: any, me: Sid, name: string, text: string): Promise<void> {
   try {
-    const r = await personDialog($, goDialog(name, text, stamp((await $.clock.now()) + GO_HOURS * 3_600_000)), GO_DIALOG_MS)
-    if ('label' in r && r.label === T['dialog.yes']({}) && (await windowNow($, true)).state === 'off') await writeGo($, { id: newId(), giver: me, text, end: (await $.clock.now()) + GO_HOURS * 3_600_000 })
+    const end = (await $.clock.now()) + GO_HOURS * 3_600_000
+    const r = await personDialog($, goDialog(name, text, stamp(end)), GO_DIALOG_MS)
+    if ('label' in r && r.label === T['dialog.yes']({}) && (await windowNow($, true)).state === 'off') await writeGo($, { id: newId(), giver: me, text, end })
   } catch {}
 }
 export async function goRequestCall($: any, e: any, _next: any) {
@@ -128,9 +129,9 @@ export async function goStatusCall($: any, e: any, _next: any) {
   if (isSub(e)) return deny(refusal('refuse', 'bad-input', { tool: 'go_status', detail: 'subagent' }))
   const me = (await $.session.id()) as Sid
   if (!(await guardOk($))) return { result: say({ msg: 'go.noGuard', p: {} }) }
-  const v = await getView($)
+  const v = await getView($, true)
   const now = await $.clock.now()
-  const mine = (await listGoes($)).filter((g) => covers(g, me, v, now))
+  const mine = v.rows === 'unknown' ? [] : (await listGoes($)).filter((g) => covers(g, me, v, now))
   return { result: say(mine.length === 0 ? { msg: 'go.none', p: {} } : { msg: 'go.status', p: { covers: mine.map((g) => ({ giver: nameOf(v, g.giver), text: g.text, end: stamp(g.end) })) } }) }
 }
 
