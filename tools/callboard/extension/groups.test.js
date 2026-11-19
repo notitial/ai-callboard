@@ -9,16 +9,16 @@ const B = '/w/b'
 const row = (n, cwd, extra = {}) => ({ sessionId: S(n), cwd, entrypoint: 'claude-vscode', ...extra })
 
 // A fake VS Code and state: `commands` are the ids that exist, `calls` records every assign, `failing` makes the command throw.
-function world({ commands = [COMMAND], rows = [], lanes = [], leads = [], folders = [A], done = [], failing = false, failOn = 0, loadError = false, alive = () => true } = {}) {
-  const w = { calls: [], store: { done: [...done] }, updates: 0, listed: 0 }
+function world({ commands = [COMMAND], rows = [], lanes = [], leads = [], folders = [A], done = [], failing = false, failOn = 0, failSid, refuse = [], loadError = false, alive = () => true } = {}) {
+  const w = { calls: [], store: { done: [...done] }, updates: 0, listed: 0, looked: 0 }
   const vscode = {
     commands: {
-      getCommands: async () => commands,
+      getCommands: async () => { w.looked++; return commands },
       executeCommand: async (cmd, ...args) => {
         assert.equal(cmd, COMMAND)
-        if (failing || w.calls.length + 1 === failOn) throw new Error('boom')
+        if (failing || args[0] === failSid || w.calls.length + 1 === failOn) throw new Error('boom')
         w.calls.push(args)
-        return true
+        return !refuse.includes(args[0])
       },
     },
   }
@@ -83,10 +83,21 @@ test('a failing command is silent, marks nothing and is tried again at the next 
   assert.deepEqual(w.store.done, [])
 })
 
-test('a failure after some assigns keeps those done and tries the rest at the next tick', async () => {
-  const w = world({ rows: [row(1, A), row(2, A)], lanes: [{ sid: S(1) }, { sid: S(2) }], failOn: 2 })
+test('a session that always fails does not hold up the ones behind it, and is tried again at the next tick', async () => {
+  const w = world({ rows: [row(1, A), row(2, A)], lanes: [{ sid: S(1) }, { sid: S(2) }], failSid: S(1) })
   await w.groups.tick()
-  assert.deepEqual(w.store.done, [S(1)])
+  assert.deepEqual(w.calls, [[S(2), 'Lanes']])
+  assert.deepEqual(w.store.done, [S(2)])
+  await w.groups.tick()
+  assert.equal(w.listed, 2, 'the failed one is still to do')
+})
+
+test('a session the command refused (false: archived, or the list limits) is not marked done and is tried again', async () => {
+  const w = world({ rows: [row(1, A), row(2, A)], lanes: [{ sid: S(1) }, { sid: S(2) }], refuse: [S(1)] })
+  await w.groups.tick()
+  assert.deepEqual(w.store.done, [S(2)])
+  await w.groups.tick()
+  assert.equal(w.calls.length, 3, 'the refused one is asked again')
 })
 
 test('an unreadable store is silent', async () => {
@@ -102,10 +113,18 @@ test('a tick that overlaps another is skipped', async () => {
   assert.equal(w.listed, 1)
 })
 
-test('the done list is capped at the 500 newest', async () => {
-  const many = Array.from({ length: 600 }, (_, i) => S(i + 1))
-  const w = world({ rows: [row(1000, A)], lanes: [{ sid: S(1000) }], done: many })
+test('only sessions the stores still name stay in the done list, and an unchanged list is not written again', async () => {
+  const w = world({ rows: [row(1, A)], lanes: [{ sid: S(1) }], done: [S(7), S(1)] })
   await w.groups.tick()
-  assert.equal(w.store.done.length, 500)
-  assert.equal(w.store.done.at(-1), S(1000))
+  assert.deepEqual(w.store.done, [S(1)])
+  assert.equal(w.updates, 1)
+  await w.groups.tick()
+  assert.equal(w.updates, 1)
+})
+
+test('once the command is seen it is not looked up again', async () => {
+  const w = world({ rows: [row(1, A)], lanes: [{ sid: S(1) }] })
+  await w.groups.tick()
+  await w.groups.tick()
+  assert.equal(w.looked, 1)
 })

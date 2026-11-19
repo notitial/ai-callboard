@@ -397,7 +397,7 @@ const code = fs.readFileSync(process.argv[1], 'utf8')
 const start = JSON.parse(process.argv[2])
 async function run(groups, sid, name) {
   const H = {}, saved = []
-  const provider = { settings: { getSessionGroups: () => groups }, persistGroupsFromHost: (g) => saved.push(g), addActiveSessionTabToGroup: async () => true }
+  const provider = { settings: { getSessionGroups: () => groups, getArchivedSessionIds: () => start.archived || [] }, persistGroupsFromHost: (g) => saved.push(g), addActiveSessionTabToGroup: async () => true }
   const fake = { workspace: {}, window: {}, commands: { registerCommand: (id, fn) => { H[id] = fn; return {} } } }
   const ctx = vm.createContext({ x: [], Wp: () => {}, F: () => ({}), G: provider, Gq: provider, $e: fake, Pe: fake, require: (m) => (m === 'crypto' ? { randomUUID: () => 'new-id' } : fake) })
   vm.runInContext(code, ctx)
@@ -422,8 +422,8 @@ class Groups(Case):
         self.run_script(ext, "--apply")
         return ext, json.loads(slurp(os.path.join(ext, "callboard-cwd-patch.json")))
 
-    def drive(self, ext, groups, *calls):
-        p = subprocess.run(["node", "-e", GROUPS_RUNNER, os.path.join(ext, "extension.js"), json.dumps({"groups": groups, "calls": calls})], capture_output=True, text=True, timeout=60)
+    def drive(self, ext, groups, *calls, archived=()):
+        p = subprocess.run(["node", "-e", GROUPS_RUNNER, os.path.join(ext, "extension.js"), json.dumps({"groups": groups, "calls": calls, "archived": archived})], capture_output=True, text=True, timeout=60)
         self.assertEqual(p.returncode, 0, p.stderr)
         return json.loads(p.stdout)
 
@@ -459,12 +459,26 @@ class Groups(Case):
             joined = lambda g, sid, n: {**g, "sessionIds": g["sessionIds"] + [sid]}
             self.assertEqual(r[0]["saved"], [[joined(G1, "s1", 0), G2]], "a name in another letter case finds the group")
             self.assertEqual(r[1]["saved"], [[G1, G2, {"id": "new-id", "name": "Conductor", "collapsed": False, "sessionIds": ["s2"]}]], "a missing group is created")
-            self.assertEqual((r[2]["result"], r[2]["saved"]), (False, []), "a session already in a group stays where it is")
-            self.assertEqual((r[3]["result"], r[3]["saved"]), (False, []))
+            self.assertEqual((r[2]["result"], r[2]["saved"]), (True, []), "a session already in a group stays where it is")
+            self.assertEqual((r[3]["result"], r[3]["saved"]), (True, []))
             self.assertEqual([(x["result"], x["saved"]) for x in r[4:6]], [(False, []), (False, [])], "bad arguments do nothing")
             self.assertEqual(r[6]["saved"], [[G1, joined(G2, "s1", 0)]])
             self.assertEqual([x["result"] for x in (r[0], r[1], r[6])], [True, True, True])
             self.assertEqual((r[0]["stock"], r[0]["other"]), ("function", "function"), "the stock commands are still registered")
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_the_command_refuses_an_archived_session_and_the_stock_list_limits(self):
+        ext = self.make(V327, name="refuse")
+        self.run_script(ext, "--apply")
+        arch = self.drive(ext, [G1], ["s1", "Lanes"], archived=["s1"])
+        self.assertEqual((arch[0]["result"], arch[0]["saved"]), (False, []), "the provider's save would drop an archived id")
+        full = [{"id": "g%d" % i, "name": "N%d" % i, "collapsed": False, "sessionIds": []} for i in range(100)]
+        r = self.drive(ext, full, ["s1", "Lanes"], ["s1", "n5"])
+        self.assertEqual((r[0]["result"], r[0]["saved"]), (False, []), "100 groups: no new one")
+        self.assertEqual(r[1]["result"], True, "an existing group still takes the session")
+        crowded = [{"id": "g1", "name": "A", "collapsed": False, "sessionIds": ["x%d" % i for i in range(1000)]}, G2]
+        r = self.drive(ext, crowded, ["s1", "A"])
+        self.assertEqual((r[0]["result"], r[0]["saved"]), (False, []), "1000 sessions: no more")
 
     def test_a_missing_or_doubled_anchor_costs_only_the_group_command(self):
         stock = GROUP.replace("addSessionTabToGroup", "addSessionToGroup")
@@ -539,6 +553,8 @@ class Groups(Case):
             self.assertEqual(marker["patch"], 1)
             if marker["groups"]:
                 self.assertEqual(self.js(ext).count(b"callboard assign group"), 1, d)
+                for member in (b".settings.getSessionGroups()", b".settings.getArchivedSessionIds()", b"persistGroupsFromHost("):
+                    self.assertIn(member, raw, "%s: the members the command uses" % d)
             p = subprocess.run(["node", "--check", os.path.join(ext, "extension.js")], capture_output=True, text=True, timeout=120)
             self.assertEqual(p.returncode, 0, "%s: %s" % (d, p.stderr))
             self.run_script(ext, "--undo")

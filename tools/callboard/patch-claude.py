@@ -101,12 +101,16 @@ GROUPS_COMMAND = "callboard assign group"
 def groups_command(m):
     """`callboard assign group` (session id, group name): in the window's group list (the provider's own settings, which are keyed by the window's first folder)
     find the group by name in any letter case, create it when there is none, add the session to it unless it already sits in some group, and save through the
-    provider, which also tells the open sidebars. Returns true when it added the session. Uses only members the extension keeps unminified."""
+    provider, which also tells the open sidebars. Returns true when the session sits in a group afterwards, false when it was refused: a bad argument, an
+    archived session (the provider's save drops archived ids from every group, as the stock command refuses them), or the stock list limits (100 groups,
+    1000 sessions: the provider's save would drop the excess without saying). Uses only members the extension keeps unminified."""
     p = m.group("prov")
     return (m.group("vs") + b'.commands.registerCommand("' + GROUPS_COMMAND.encode() + b'",async(cbqS,cbqN)=>{'
             b'if(typeof cbqS!="string"||typeof cbqN!="string"||!cbqN)return!1;let cbqG=' + p + b".settings.getSessionGroups();"
-            b"if(cbqG.some((cbqE)=>cbqE.sessionIds.includes(cbqS)))return!1;"
+            b"if(" + p + b".settings.getArchivedSessionIds().includes(cbqS))return!1;"
+            b"if(cbqG.some((cbqE)=>cbqE.sessionIds.includes(cbqS)))return!0;"
             b"let cbqL=cbqN.toLowerCase(),cbqT=cbqG.find((cbqE)=>cbqE.name.toLowerCase()===cbqL);"
+            b"if(!cbqT&&cbqG.length>=100||cbqG.reduce((cbqA,cbqE)=>cbqA+cbqE.sessionIds.length,0)>=1000)return!1;"
             + p + b".persistGroupsFromHost(cbqT?cbqG.map((cbqE)=>cbqE===cbqT?{...cbqE,sessionIds:[...cbqE.sessionIds,cbqS]}:cbqE)"
             b':[...cbqG,{id:require("crypto").randomUUID(),name:cbqN,collapsed:!1,sessionIds:[cbqS]}]);return!0}),' + m.group(0))
 
