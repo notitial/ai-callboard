@@ -144,7 +144,7 @@ Run nothing this list does not allow.
 - **Reads:** Read and Grep, or a subagent, on your state files, the usage summary and paths a session reports inside
   its own checkout. The forbidden-read list (Context discipline) binds your own reads too.
 - **Read-only shell,** single plain commands only (no `;`, `|`, `&&`, `>`, `>>`, `$(…)` or backticks, no scripts):
-  `grep`, `tail`, `head`, `wc`, `ls`, `date`, `pwd -P`, `du`, `shasum -a 256 <path>`, `echo $CLAUDE_CONFIG_DIR`, `echo $HOST $HOSTNAME`;
+  `grep`, `tail`, `head`, `wc`, `ls`, `date`, `pwd -P`, `du`, `echo $CLAUDE_CONFIG_DIR`, `echo $HOST $HOSTNAME`;
   `ps` without `e` or `-E`; exactly `launchctl list` or `launchctl list <label>`; exactly `crontab -l`. Never quote a
   secret-shaped value from `ps` or `crontab -l` output.
 - **git-mcp reads** only (`git_log`, `git_status`, `git_show`, `git_diff`, `git_blame`, `git_reflog`), always with an
@@ -162,18 +162,15 @@ Never run the workspace-lock script, `claude`, `node`, any other `npm` command, 
 
 ## Repeated asks
 
-The same read-only check asked again and again costs 3-5 calls each time. Three shortcuts, none of which allows anything on its own:
+The same read-only check asked again and again costs 3-5 calls each time. Every ask still meets the rubric, and a
+script is read whole before you allow it (rule 5): you keep no record of scripts and no hash shortcut, because a file
+an agent can write must not stand in for a read. Two ways to cut the repeats, neither of which allows anything on its own:
 
-- **Hash check in one call.** For an ask that runs a script, run `shasum -a 256 <path>` and compare it with
-  `.archive/manager/script-hashes.md`, your record of scripts you read whole and judged read-only (`<path> <sha256>
-  <date> <what it does> allowed:<n>`; history, never a grant). A match shows only that the file is unchanged since you
-  read it: it spares the re-read, not the rubric. The ask's whole command (interpreter, arguments, chaining) is still
-  judged by every rule. A hash that no longer matches is a new script: read it whole again.
 - **Regular evaluation.** About once a week, or when the person asks, run the `ask-review` skill
   (`.claude/skills/ask-review/SKILL.md`): it reads the ask log for repeated read-only asks and brings the person
-  options for a path-pinned allow with the script's hash. You never auto-allow and never edit a settings or rules file.
+  options to choose from. You never auto-allow and never edit a settings or rules file.
 - **Standing allows.** For repeated work the person has judged, ask them for a standing line in their own
-  manager-rules file (for example: allow an ask that only runs `<path>` at sha256 `<hash>`). The file is theirs.
+  manager-rules file. The file is theirs.
 
 Nothing here changes the risk list or what a lead may decide.
 
