@@ -375,7 +375,7 @@ test('a folder that cannot be listed leaves the pop-up open: the read failed, th
   assert.equal(await askOpen(broken, 'ee11ff22aa'), true)
 })
 
-test('the first pop-up shows the manager\'s own note and no command, never the lead\'s, and offers no Allow; an escalate with no note, a cut ask or a question keeps what it showed', async () => {
+test('the first pop-up shows the manager\'s own note and no command, never the lead\'s, and offers Allow, Show the command and Deny; an escalate with no note, a cut ask or a question keeps what it showed', async () => {
   const shown = async (id: string, over: Partial<Ask>, lead: string | undefined, boss: string | undefined) => {
     const f = tiers()
     const b = peer(f, 'sid-boss')

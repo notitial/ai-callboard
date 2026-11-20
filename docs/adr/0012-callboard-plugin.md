@@ -100,7 +100,7 @@ from the manager's own decision, so that answer keeps `answered by <manager>, no
 also carries a short digest, "since your last check-in", of asks that ended in an asker's own panel (a click or an interruption), lanes done
 or gone and gos that ended: log data, no command text, never a wake-up by itself. The pop-up for a tool ask the manager escalated with a note shows that note
 (stored in its `up` mark, never in the log) first, under a fixed label, with Allow, Show the command and Deny: the person may allow on the note. Show the command opens the
-ask's own pop-up with the whole raw command (Allow and Deny; Deny only when the command is cut or too large to print, which also leaves no Allow on the note).
+ask's own pop-up with the whole raw command (Allow and Deny; Deny only when the command is cut or too large to print: a cut ask skips the note, and a command too large to print leaves the note without Allow).
 With no note it is that second pop-up alone.
 
 **Callboard never judges who may answer.** An ask a session cannot decide (a plan-mode exit, a malformed question, a
