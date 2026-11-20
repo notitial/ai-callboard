@@ -1,6 +1,6 @@
 # 5. Callboard's module layout: one hooks module, split into files by area
 
-**Status:** proposed
+**Status:** superseded by [ADR 0012](0012-callboard-plugin.md) (was: proposed)
 **Date:** 2026-11-12
 
 Scope: how the callboard mod's code is divided into files (`tools/callboard/mod/hooks/`). It changes no behaviour and no

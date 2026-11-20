@@ -35,11 +35,11 @@ repo's.
 | 0002 | Callboard (`0002-callboard.md`) | accepted, amended | 2026-10-24 |
 | 0003 | Callboard loads from a live checkout (`0003-symlinked-install.md`) | accepted | 2026-11-06 |
 | 0004 | Prompt answering (`0004-prompt-answering.md`) | accepted, amended | 2026-11-06 |
-| 0005 | Callboard's module layout (`0005-callboard-module-layout.md`) | proposed | 2026-11-12 |
-| 0006 | A conductor opens leads and wakes them (`0006-conductor-opens-leads.md`) | accepted, amended | 2026-11-16 |
-| 0007 | A conductor owns its leads (`0007-conductor-owns-leads.md`) | proposed | 2026-11-15 |
-| 0008 | Unattended mode: the manager decides while the person is away (`0008-unattended-mode.md`) | proposed, amended | 2026-11-16 |
+| 0005 | Callboard's module layout (`0005-callboard-module-layout.md`) | superseded by 0012 | 2026-11-12 |
+| 0006 | A conductor opens leads and wakes them (`0006-conductor-opens-leads.md`) | superseded by 0012 | 2026-11-16 |
+| 0007 | A conductor owns its leads (`0007-conductor-owns-leads.md`) | superseded by 0012 | 2026-11-15 |
+| 0008 | Unattended mode: the manager decides while the person is away (`0008-unattended-mode.md`) | proposed, amended; mod build replaced by 0012 | 2026-11-16 |
 | 0009 | A go given once (`0009-go-given-once.md`) | accepted | 2026-11-16 |
 | 0010 | PR notices for lanes (`0010-pr-notices.md`) | proposed, amended | 2026-11-15 |
-| 0011 | Every lane prompt rises up the chain (`0011-all-prompts-rise.md`) | proposed, amended | 2026-11-16 |
+| 0011 | Every lane prompt rises up the chain (`0011-all-prompts-rise.md`) | superseded by 0012 | 2026-11-16 |
 | 0012 | Callboard as a plugin: one session model, one ask chain (`0012-callboard-plugin.md`) | proposed | 2026-11-19 |

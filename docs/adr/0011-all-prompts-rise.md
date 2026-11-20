@@ -1,6 +1,6 @@
 # 11. Every lane prompt rises up the chain
 
-**Status:** proposed
+**Status:** superseded by [ADR 0012](0012-callboard-plugin.md) (was: proposed)
 **Date:** 2026-11-16
 
 Scope: which asks of a lane's or a lead's call become a request for the answering tiers. It amends

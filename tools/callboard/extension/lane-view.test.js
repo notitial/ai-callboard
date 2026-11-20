@@ -10,7 +10,7 @@ const sid = (n) => `${String(n).padStart(8, '0')}-0000-4000-8000-${String(n).pad
 const NOW = 1_000_000_000_000
 const MIN = 60000
 const reg = (n, extra = {}) => ({ sessionId: sid(n), cwd: '/w/a', pid: 100 + n, startedAt: NOW - 5 * MIN, ...extra })
-const build = (over = {}) => buildEntries({ table: {}, lanes: [], rows: [], now: NOW, alive: () => true, ...over })
+const build = (over = {}) => buildEntries({ table: {}, rows: [], now: NOW, alive: () => true, ...over })
 
 test('buildEntries: state is waiting, working or live while a process answers, else gone, parked or closed', () => {
   const table = {
@@ -39,18 +39,16 @@ test('buildEntries: a dead process is not live, and a row marked off, a bad key 
   assert.deepEqual(got.map((e) => [e.name, e.state]), [['A', 'closed']])
 })
 
-test('buildEntries: the table wins over a lane store, a store lane without a session id is skipped, the lead is the row under', () => {
+test('buildEntries: the lead is the row under; a row under an unknown session is a top entry', () => {
   const table = { [sid(1)]: { name: 'LEAD', folder: '/w/a' }, [sid(2)]: { name: 'LAB', folder: '/w/a', under: sid(1) }, [sid(3)]: { name: 'LOOSE', folder: '/w/a', under: sid(99) } }
-  const lanes = [{ name: 'LAB-OLD', folder: '/w/z', sid: sid(2) }, { name: 'STORED', folder: '/w/b', sid: sid(4) }, { name: 'NEVER', folder: '/w/b' }]
-  const got = build({ table, lanes })
-  assert.deepEqual(got.map((e) => [e.name, e.folder, e.lead]), [['LAB', '/w/a', 'LEAD'], ['LEAD', '/w/a', undefined], ['LOOSE', '/w/a', undefined], ['STORED', '/w/b', undefined]])
+  const got = build({ table })
+  assert.deepEqual(got.map((e) => [e.name, e.folder, e.lead]), [['LAB', '/w/a', 'LEAD'], ['LEAD', '/w/a', undefined], ['LOOSE', '/w/a', undefined]])
 })
 
-test('buildEntries: a store lane keeps its parked time and lead; a row under itself, or with a text time, still shows', () => {
+test('buildEntries: a row under itself, or with a text time, still shows', () => {
   const table = { [sid(1)]: { name: 'LEAD', folder: '/w/a' }, [sid(5)]: { name: 'SELF', folder: '/w/a', under: sid(5) }, [sid(6)]: { name: 'TXT', folder: '/w/a', goneAt: 'soon', parked: 'x' } }
-  const lanes = [{ name: 'STORED', folder: '/w/a', sid: sid(4), leadSid: sid(1), parked: NOW - MIN }]
-  const got = build({ table, lanes })
-  assert.deepEqual(got.map((e) => [e.name, e.state, e.lead, e.age]), [['LEAD', 'closed', undefined, undefined], ['SELF', 'closed', undefined, undefined], ['STORED', 'parked', 'LEAD', '1m'], ['TXT', 'closed', undefined, undefined]])
+  const got = build({ table })
+  assert.deepEqual(got.map((e) => [e.name, e.state, e.lead, e.age]), [['LEAD', 'closed', undefined, undefined], ['SELF', 'closed', undefined, undefined], ['TXT', 'closed', undefined, undefined]])
 })
 
 test('readTable: no file or a bad file is an empty table', async () => {
@@ -87,7 +85,7 @@ test('recentChats: the folder\'s .jsonl files by name and time, newest first, ca
 })
 
 // A fake VS Code: the tree view's provider, the command it registered and the warnings are kept for the test.
-function world({ table = {}, lanes = [], rows = [], folders = ['/w/a'], files = [], reopen = async () => sid(0) }) {
+function world({ table = {}, rows = [], folders = ['/w/a'], files = [], reopen = async () => sid(0) }) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cb-view-'))
   fs.writeFileSync(path.join(dir, 'sessions.json'), JSON.stringify(table))
   const projectsDir = projects('/w/a', files)
@@ -105,7 +103,7 @@ function world({ table = {}, lanes = [], rows = [], folders = ['/w/a'], files = 
     commands: { registerCommand: (id, fn) => { w.commands.set(id, fn); return { dispose() {} } } },
   }
   const lanesApi = { reopen: async (s, o) => { w.reopens.push([s, o]); return reopen(s, o) } }
-  w.view = createLaneView({ vscode, registry: { list: async () => w.rows }, lanes: lanesApi, loadLanes: async () => lanes, tablePath: path.join(dir, 'sessions.json'), projectsDir, workspaceFolders: () => folders, alive: () => true, now: () => w.time })
+  w.view = createLaneView({ vscode, registry: { list: async () => w.rows }, lanes: lanesApi, tablePath: path.join(dir, 'sessions.json'), projectsDir, workspaceFolders: () => folders, alive: () => true, now: () => w.time })
   w.items = async (node) => (await w.provider.getChildren(node)).map((n) => ({ n, item: w.provider.getTreeItem(n) }))
   return w
 }

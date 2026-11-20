@@ -1,6 +1,6 @@
 # 6. A conductor opens leads and wakes them
 
-**Status:** accepted (opening leads, 2026-11-14); waking a lead is not built, and probes P-C5 and P-C6 stay open until it is
+**Status:** superseded by [ADR 0012](0012-callboard-plugin.md) (was: accepted (opening leads, 2026-11-14); waking a lead is not built, and probes P-C5 and P-C6 stay open until it is)
 **Date:** 2026-11-13
 
 Scope: three conductor powers over leads in its approved repos: open a new lead, see whether a lead is busy, idle

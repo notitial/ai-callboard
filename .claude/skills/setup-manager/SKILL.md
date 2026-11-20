@@ -15,7 +15,7 @@ first; it is the source for every step here, and wins where the two differ.
   and every `chmod` goes to the person as one exact command in its own code block, with no comments in it. They run
   it themselves, in a terminal or with `!` in this prompt, and paste back the output. You never run it, even on a yes.
   One deliberate probe is the exception: step 4's `/callboard config ping 45`, run only when the person asks for it
-  in their own turn, which the mod must refuse.
+  in their own turn, which the engine must refuse.
   Removing the earlier root-owned install needs sudo, so it needs a terminal anyway.
 - **Never open `~/.claude/settings.json`** with Read, `cat` or anything that prints it: it can hold secrets. The
   checks below use `jq -e` and print only `true` or `false`.
@@ -55,19 +55,19 @@ first; it is the source for every step here, and wins where the two differ.
      `ls -l ~/.vscode/extensions | grep callboard-panels`: one link, to `<checkout>/tools/callboard/extension`. Then
      run the dry run once more: it should print `already linked` and no `DRY:` line (the entry is in place).
    - Tell them to start VS Code again.
-3. **Default load.** The value is `<checkout>/tools/callboard/mod`. Check: `echo "${CLAUDE_CODE_PLUGIN_DIRS:-unset}"`.
+3. **Default load.** The value is `<checkout>/tools/callboard/plugin`. Check: `echo "${CLAUDE_CODE_PLUGIN_DIRS:-unset}"`.
    If it is not that value, check the settings file's key:
-   `jq -e --arg v '<checkout>/tools/callboard/mod' '.env.CLAUDE_CODE_PLUGIN_DIRS == $v' ~/.claude/settings.json`.
+   `jq -e --arg v '<checkout>/tools/callboard/plugin' '.env.CLAUDE_CODE_PLUGIN_DIRS == $v' ~/.claude/settings.json`.
    - `true`: the line is already there and this session started before it. Tell them to restart every session, this
      one included, and to run `/setup-manager` again to go on.
-   - `false`: run `jq -e '.env.CLAUDE_CODE_PLUGIN_DIRS // "" | IN("", "/usr/local/libexec/callboard/mod")' ~/.claude/settings.json`.
-     `true` means it is unset or holds the earlier root-owned path: give them the one-line command from
+   - `false`: run `jq -e --arg m '<checkout>/tools/callboard/mod' '.env.CLAUDE_CODE_PLUGIN_DIRS // "" | IN("", "/usr/local/libexec/callboard/mod", $m)' ~/.claude/settings.json`.
+     `true` means it is unset or holds an earlier build's path: give them the one-line command from
      `tools/callboard/README.md`, Default load (every session), copied exactly with `<checkout>` filled in (it
      replaces the old value), then the same restart and re-run. `false` means another value is there: tell the
      person to decide by hand (callboard should be the only plugin on it, and never twice).
 4. **Install check.** In the restarted session, ask the person to type `/callboard config` and note the ping value
    it shows. Then ask them to type `/callboard config ping 45` and then ask you to run it. Run it when asked: this is the one deliberate probe (Ground rules), and only on the person's own
-   request in their own turn. The model-run one must be refused ("Only you can change callboard settings"). Then
+   request in their own turn. The model-run one must not apply (the engine refuses a model's `/callboard` command). Then
    ask them to type `/callboard config ping <the value they noted>`. Never suggest `/callboard config reset`: it puts
    every callboard setting on this Mac back to its default, not only ping. If the model-run one applied, say so
    plainly: report it.

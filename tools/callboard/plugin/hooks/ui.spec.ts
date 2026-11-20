@@ -92,9 +92,9 @@ test('a relay pop-up offers Allow only for an input a dialog shows whole: past a
 })
 
 test('the go and relay pop-ups fit their header chip and read plainly: the go names its giver, end and work and points to go_status; the relay shows the input one field a line in a block it cannot close', () => {
-  const g = goDialog('BEDROCK', 'Fix round, same PR.', '23:36')
+  const g = goDialog('CHIEF', 'Fix round, same PR.', '23:36')
   assert.ok(g.header.length <= 12)
-  assert.equal(g.question, "`BEDROCK` asks for a go until 23:36, for this work only (its own and its sessions'):\n\nFix round, same PR.\n\nNever a merge or a push to main; go_status lists what a go never covers.")
+  assert.equal(g.question, "`CHIEF` asks for a go until 23:36, for this work only (its own and its sessions'):\n\nFix round, same PR.\n\nNever a merge or a push to main; go_status lists what a go never covers.")
   const r = relayDialog('lane-a', 'Bash', JSON.stringify({ command: 'make test', description: 'run ```x' }, null, 1), false)
   assert.ok(r.header.length <= 12)
   assert.equal(r.question, '`lane-a` wants to run `Bash`:\n\n````\n{\n "command": "make test",\n "description": "run ```x"\n}\n````\n\nYour click decides this ask only.')

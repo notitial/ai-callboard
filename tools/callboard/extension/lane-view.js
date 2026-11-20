@@ -1,7 +1,7 @@
 'use strict'
 // "Callboard Lanes", a tree that lists the callboard sessions the records know in this window's workspace folders, whether or not their panel is open, grouped
 // under the lead that owns them, and below them each workspace folder's saved Claude conversations. It sits in Claude Code's Session Manager when that list is
-// on, else in the Explorer (package.json: one view id each, the same tree). A click reopens the session in its own folder through lanes.reopen. Sources: the plugin's session table (v2/sessions.json), the lane stores (allLanes) and the live
+// on, else in the Explorer (package.json: one view id each, the same tree). A click reopens the session in its own folder through lanes.reopen. Sources: the plugin's session table (v2/sessions.json) and the live
 // registry rows, and for the conversations only the file names and times under <claude dir>/projects/<folder>: no transcript is opened.
 // VS Code access is injected, so the view can be tested with fakes.
 const fs = require('node:fs')
@@ -32,14 +32,13 @@ async function readTable(file) {
   }
 }
 
-// One entry per known session, name order: the table's rows (a row marked off is not callboard's), then lane-store lanes the table does not hold, each joined with
+// One entry per known session, name order: the table's rows (a row marked off is not callboard's), each joined with
 // its live registry row. State: waiting or working or live while a process answers, else gone, parked, or closed. A session gone for a week is left out.
-function buildEntries({ table, lanes, rows, now, alive = pidAlive }) {
+function buildEntries({ table, rows, now, alive = pidAlive }) {
   const known = new Map()
   for (const [sid, r] of Object.entries(table)) {
     if (SID_RE.test(sid) && r && typeof r.name === 'string' && typeof r.folder === 'string' && r.off !== true) known.set(sid, { sid, name: r.name, folder: r.folder, under: r.under, parked: finite(r.parked), goneAt: finite(r.goneAt) })
   }
-  for (const l of lanes) if (l.sid && !known.has(l.sid)) known.set(l.sid, { sid: l.sid, name: l.name, folder: l.folder, under: l.leadSid, parked: finite(l.parked) })
   const live = new Map(rows.filter((r) => r && typeof r.sessionId === 'string' && (!Number.isInteger(r.pid) || alive(r.pid))).map((r) => [r.sessionId, r]))
   const out = []
   for (const e of known.values()) {
@@ -68,7 +67,7 @@ async function recentChats(projectsDir, folder, max = CHATS_MAX) {
   return out.sort((a, b) => b.at - a.at).slice(0, max)
 }
 
-function createLaneView({ vscode, registry, lanes, loadLanes, tablePath, projectsDir, workspaceFolders, alive = pidAlive, now = Date.now }) {
+function createLaneView({ vscode, registry, lanes, tablePath, projectsDir, workspaceFolders, alive = pidAlive, now = Date.now }) {
   const changed = new vscode.EventEmitter()
   const kinds = vscode.TreeItemCollapsibleState
   let roots = []
@@ -83,7 +82,7 @@ function createLaneView({ vscode, registry, lanes, loadLanes, tablePath, project
     if (rows.complete === false) return
     // Only what a click here can open: the sessions of this window's served folders (lanes.reopen refuses any other).
     const served = workspaceFolders()
-    const entries = buildEntries({ table: await readTable(tablePath), lanes: await loadLanes().catch(() => []), rows, now: now(), alive }).filter((e) => served.includes(e.folder))
+    const entries = buildEntries({ table: await readTable(tablePath), rows, now: now(), alive }).filter((e) => served.includes(e.folder))
     const names = new Map(rows.filter((r) => typeof r.name === 'string').map((r) => [r.sessionId, r.name]))
     for (const e of entries) names.set(e.sid, e.name)
     const nodes = new Map(entries.map((e) => [e.sid, { kind: 'lane', ...e, kids: [] }]))

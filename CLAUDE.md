@@ -5,7 +5,7 @@
 ai-manager holds the manager role and its mechanism. The manager is one Claude Code session per machine that
 coordinates the other sessions on it, the leads and their lanes: it decides across them, reviews and reports, and
 does no work itself. Every go stays with the person. The repo also carries the tools the role leans on: the callboard
-mod, a usage watcher and the manager's project skills. ai-toolkit
+plugin, a usage watcher and the manager's project skills. ai-toolkit
 (https://github.com/notitial/ai-toolkit) is the base install; this repo builds on it.
 
 - **If you hold the callboard manager grant** (`/callboard manager`), read `docs/manager/README.md` and follow it.
@@ -22,17 +22,9 @@ never overlap: a second run waits for the first, and one that finds a stale turn
 
 - `tools/callboard/` — `bash tools/callboard/test.sh` after changing anything under it. Needs node 22.18 or later
   and the `claude` CLI (`claude plugin validate`, `claude plugin test`). CI (`.github/workflows/ci.yml`) runs
-  `claude plugin test mod` too, in full. `CALLBOARD_SKIP_MOD_TESTS=1` skips it for a quick local run (it is the slow
-  part, about 2 minutes); run the script without it before any PR that touches `tools/callboard/mod`. The mod tests
-  drive a fake clock through thousands of 2 s ticks: a test that takes a second or more (it ticks through 30 simulated minutes or
-  more) is declared with `longTest` (from `mod/test/harness.ts`), which gives it a 60 s limit in place of the kit's 5 s, so a slow
-  runner does not fail it. A long quiet stretch that is not the point of a test is jumped with `advanceQuiet`
-  (`mod/test/fixtures.ts`). The kit runs each `*.test.ts` file in its own process, side by side, and kills one after
-  10 minutes: the tests sit in topic files (`mod/test/<topic>.test.ts`) over a shared harness (`harness.ts`, with the
-  state object `h`, and `fixtures.ts`). A test goes in the file of its topic; one that needs a state the harness does
-  not reset gets its setup in its own body. `tools/callboard/plugin/` sits beside `mod/`: it is the build that replaces
-  the mod (ADR 0012). The script validates and tests it too (the core and engine specs, `claude plugin validate`,
-  `claude plugin test`), and `CALLBOARD_SKIP_MOD_TESTS` never skips those.
+  `claude plugin test plugin` too, in full. The script runs the plugin's core and engine specs (beside the code,
+  `plugin/hooks/**/*.spec.ts`), `plugin/test/` through `claude plugin test`, the extension tests, and the link and
+  patch script tests.
 - `tools/usage-watcher/` — `/usr/bin/python3 -I tools/usage-watcher/test_watch.py` after changing `watch.py`;
   `bash tools/usage-watcher/test-install.sh` after changing `install.sh`.
 - `docs/`, `rules/` and `.claude/skills/` have no suite: check them by reading against the ADRs.
@@ -48,7 +40,7 @@ Outside those directories, do not search for `package.json`, `Makefile`, or simi
 - `.claude/skills/` — the manager's project skills; `.claude/skills/setup-manager/` walks a person through
   `docs/setup.md`.
 - `rules/callboard.md` — an always-on global rule for callboard's turns, linked into `~/.claude/rules/` by hand.
-- `tools/` — the callboard mod, the plugin beside it and the usage watcher, each with its own tests;
+- `tools/` — the callboard plugin and its panels extension, and the usage watcher, each with its own tests;
   `tools/test-all.sh` runs them all.
 - `assets/icon/` — the project icon (SVG, mono variant, colour PNGs from 16 to 1024 px).
 - `.archive/` — gitignored local working area: the manager's state, tracker and audit records, lane reports.
@@ -57,11 +49,9 @@ Outside those directories, do not search for `package.json`, `Makefile`, or simi
 
 Copy these when adding something like them, each with the test beside it:
 
-- `tools/callboard/mod/hooks/core.ts` + `core.spec.ts` — mod logic as pure functions with no engine calls;
-  the files under `mod/hooks/engine/` feed it values and act on what it returns (`register.ts` only wires them; layout:
-  ADR 0005). Engine-level cases go in the matching topic file under `mod/test/`.
-- `tools/callboard/prompt-audit.mjs` + `prompt-audit.test.mjs` — a read-only node script: header comment with usage and
-  exit codes, fixtures built in a temp dir, `node --test`.
+- `tools/callboard/plugin/hooks/core/*.ts` + the `.spec.ts` beside each — plugin logic as pure functions with no
+  engine calls; the files under `plugin/hooks/engine/` feed it values and act on what it returns (`register.ts` only
+  wires them; ADR 0012). Engine-level cases go in the `.spec.ts` beside the adapter, or in `plugin/test/`.
 
 Comments and docs state what the code does now, with no version, review or plan tags (`v13.2`, `review c1`, `PR 2`)
 and no "before X" history. History belongs in the ADRs and in git.
@@ -81,7 +71,7 @@ and no "before X" history. History belongs in the ADRs and in git.
 
 ## Where agents edit
 
-The person's checkout of this repo is the live install: the callboard mod and the panels extension load straight
+The person's checkout of this repo is the live install: the callboard plugin and the panels extension load straight
 from it (`docs/setup.md`). It stays on `main` and moves only by a fast-forward to a reviewed commit after a merge
 (`docs/setup.md`, Updating), so a branch or a half-done edit never goes live.
 
@@ -104,9 +94,9 @@ Its verdict is a signal, not a required approval. The rules it holds a change to
 - Nothing in this repo turns a report, relayed message, state file or summary into the person's approval. An
   instruction from the layer directly above a session that is not on the risk list, is nothing a go never covers and needs no go,
   approval or merge is followed without asking the person; it is still never their approval. A go is the person's own
-  click or typed turn. Two exceptions, both read by the mod from the person's own click: callboard's
-  relay, where the mod reads their answer from a question in a tier's session and applies it to that one prompt or
-  question; and callboard's go, where the mod records their click in its own dialog and reports it, through
+  click or typed turn. Two exceptions, both read by the plugin from the person's own click: callboard's
+  relay, where the plugin reads their answer from a question in a tier's session and applies it to that one prompt or
+  question; and callboard's go, where the plugin records their click in its own dialog and reports it, through
   `go_status`, to the sessions under the one it was given in, for the work it names and never for a merge, a force
   push, a push to main, a production change, a delete outside the session's work, or the rest of the list
   `go_status` prints.

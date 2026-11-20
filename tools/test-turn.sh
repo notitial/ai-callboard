@@ -1,6 +1,6 @@
 #!/bin/bash
 # The machine-wide turn of the test scripts, sourced by tools/test-all.sh and tools/callboard/test.sh, so that two
-# local runs never overlap: the mod tests start many processes, and several runs side by side freeze a laptop.
+# local runs never overlap: the plugin tests start many processes, and several runs side by side freeze a laptop.
 #   take_test_turn      take the turn: mkdir of the lock folder, with the holder's pid in its `pid` file. While
 #                       another run holds it, say so once and poll. A holder whose pid no longer runs has crashed:
 #                       the turn is taken over at once, with one line saying so. Returns 3 when the folder is older
