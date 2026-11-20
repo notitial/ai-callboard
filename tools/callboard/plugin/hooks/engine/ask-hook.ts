@@ -40,6 +40,7 @@ export async function toolCheck($: any, e: any, next: any) {
       const dup = old !== undefined && now - old.at <= JOIN_TTL_MS && old.toolUseId !== e.tool_use_id
       if (key.length <= JOIN_KEY_MAX) mem.checks.set(key, { toolUseId: e.tool_use_id, at: now, dup, approver: e.approver, facts: { decision: r?.decision, reason: r?.reason, rule: r?.rule, hook: r?.hook, setting: r?.setting, plugin: r?.plugin, ceiling: r?.ceiling } })
       for (const [k, c] of mem.checks) if (now - c.at > JOIN_TTL_MS || mem.checks.size > JOIN_MAX) mem.checks.delete(k)
+      if (mem.shown !== undefined && ownDialog(e.tool, e.input, e)) mem.shown.tid = e.tool_use_id
     }
   } catch {}
   return r
@@ -58,29 +59,34 @@ export async function doneHook(_$: any, e: any, next: any) {
 }
 
 // One of this session's own open dialogs, shown through this hook as a question: exactly one question whose header and text match, from the main agent. Only the person answers it.
-function ownDialog(e: any): boolean {
-  const qs = e.tool_input?.questions
-  return e.tool_name === QUESTION_TOOL && !isSub(e) && Array.isArray(qs) && qs.length === 1 && mem.dialogs.has(`${qs[0]?.header}\n${qs[0]?.question}`)
+function ownDialog(tool: unknown, input: any, e: any): boolean {
+  const qs = input?.questions
+  return tool === QUESTION_TOOL && !isSub(e) && Array.isArray(qs) && qs.length === 1 && mem.dialogs.has(`${qs[0]?.header}\n${qs[0]?.question}`)
 }
 
-// The relay pop-up stays beside this hook. Once its ask is decided or closed elsewhere the hook denies the dialog, which dismisses it: personDialog reads a dismissal and writes nothing.
-async function closeWhenDecided($: any, e: any, signal: AbortSignal | undefined): Promise<unknown> {
+// The relay pop-up stays beside this hook. Once its ask is decided or closed elsewhere the hook denies the dialog, which dismisses it: personDialog reads a dismissal and writes
+// nothing. relayTick also puts a line under the pop-up. Each step is logged by event name and ask id.
+async function closeWhenDecided($: any, me: Sid, e: any, signal: AbortSignal | undefined): Promise<unknown> {
   const q = e.tool_input.questions[0]
   const key = `${q.header}\n${q.question}`
   const id = q.header === T['dialog.relay.header']({}) ? mem.shown?.id : undefined
-  for (let fails = 0; id !== undefined && mem.dialogs.has(key) && !signal?.aborted; ) {
-    if (!(await askOpen($, id))) return { decision: { behavior: 'deny', message: say({ msg: 'toast.askClosed', p: {} }) } }
+  if (id === undefined) return {}
+  const out = async (why: string, r: unknown = {}) => (await log($, me, 'relay-hook', `${why}:${id}`), r)
+  await log($, me, 'relay-hook', `start:${id}`)
+  for (let fails = 0; ; ) {
+    if (signal?.aborted) return out('aborted')
+    if (!mem.dialogs.has(key)) return out('dialog-gone')
+    if (!(await askOpen($, id))) return out('denied', { decision: { behavior: 'deny', message: say({ msg: 'toast.askClosed', p: {} }) } })
     if (await pause($, POLL_MS)) fails = 0
-    else if (++fails >= PAUSE_FAILS_MAX) break
+    else if (++fails >= PAUSE_FAILS_MAX) return out('gave-up')
   }
-  return {}
 }
 
 export async function permissionRequest($: any, e: any, next: any) {
   const me = (await $.session.id()) as Sid
   const v = await getView($)
   if (isOff(v, me) || (await offFile($))) return next(e)
-  if (ownDialog(e)) return closeWhenDecided($, e, next.signal).catch(() => ({}))
+  if (ownDialog(e.tool_name, e.tool_input, e)) return closeWhenDecided($, me, e, next.signal).catch(() => ({}))
   if (isSub(e)) {
     // A subagent's dialog is shown only after the hooks return, so nothing can wait for it: the chain beneath, else a deny that sends the main agent to run the call itself, but only
     // where the main session's own ask could rise (a lead is above it, or a window is on and it rises to the manager).

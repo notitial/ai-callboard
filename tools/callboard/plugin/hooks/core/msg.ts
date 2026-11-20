@@ -178,6 +178,7 @@ export type Fixed = {
   'toast.refused': { tool: string; code: RefuseCode }
   'toast.askClosed': E // a click on a relay pop-up whose ask is closed
   'toast.askDecided': Names // the ask behind the open relay pop-up closed elsewhere
+  'notice.askDecided': E // the line under that pop-up, once its ask is seen closed
   'toast.askNoFile': AskRef // the ask file could not be written; the loop still holds the deadline
   'toast.askStuck': AskRef & Names // the sweep found an ask no process answers
   'toast.twoManagers': { a: string; b: string }

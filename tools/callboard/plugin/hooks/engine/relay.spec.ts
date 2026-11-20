@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { HOME, MIN, T0, V2, as, peer, tiers } from '../../test/fake.ts'
 import type { Ask } from '../core/model.ts'
 import { T } from '../texts.ts'
-import { permissionRequest } from './ask-hook.ts'
+import { permissionRequest, toolCheck } from './ask-hook.ts'
 import { mem } from './mem.ts'
 import { relayTick } from './relay.ts'
 import { askOpen, getView, readAnswer, readAskLog, readAsks, rmAsk, writeAsk, writeUp } from './store.ts'
@@ -14,6 +14,7 @@ const noop = Object.assign(async () => ({}), { signal: undefined })
 const settle = async () => { for (let i = 0; i < 30; i++) await new Promise((r) => setImmediate(r)) }
 const tickRelay = (g: ReturnType<typeof peer>) => as(async () => relayTick(g.$, 'sid-boss', await getView(g.$, true), g.h.now))
 const mk = (id: string, over: Partial<Ask> = {}): Ask => ({ id, asker: 'sid-me', t0: T0 - 60_000, awake: 60_000, tool: 'Bash', raisedBy: 'unknown', input: '{"command":"make"}', cut: false, beat: T0, ...over })
+const logRows = (f: F, event: string): string[] => (f.h.files.get(`${V2}/log/sid-boss.jsonl`) ?? '').split('\n').filter((l) => l !== '').map((l) => JSON.parse(l)).filter((r) => r.event === event).map((r) => r.reason)
 const reach = async (f: F, id: string) => {
   await writeUp(f.$, id, 'sid-lead', 'escalated', T0)
   await writeUp(f.$, id, 'sid-boss', 'escalated', T0)
@@ -106,6 +107,58 @@ test('a pop-up whose ask closed elsewhere is named once in a toast while it stay
   await tickRelay(boss)
   assert.equal(boss.h.toasts.length, 1)
   assert.match(boss.h.toasts[0]!, /^The pop-up for .+'s ask is out of date/)
+  assert.deepEqual(boss.h.notices, [], 'no call id was seen for the pop-up, so there is nothing to put a line under')
+  assert.deepEqual(logRows(f, 'relay-stale'), ['no-call-id:aa11bb22cc', 'toast:aa11bb22cc'])
+})
+test('a pop-up whose call tool.check saw gets a line under it as soon as its ask is seen closed, then the toast', async () => {
+  const f = tiers()
+  const boss = peer(f, 'sid-boss')
+  f.h.sleepMoves = false
+  await writeAsk(f.$, mk('aa11bb22cc'))
+  await reach(f, 'aa11bb22cc')
+  boss.h.askAnswer = () => new Promise(() => undefined)
+  await tickRelay(boss)
+  await settle()
+  const [first, second] = [boss.h.asked[0]!, 'u9']
+  const input = { questions: [{ header: first.header, question: first.question, options: first.options.map((label) => ({ label, description: '' })), multiSelect: false }] }
+  await as(() => toolCheck(boss.$, { tool: 'AskUserQuestion', input, tool_use_id: second, approver: 'person' }, async () => ({ decision: 'ask' })))
+  assert.equal(mem.shown?.tid, second)
+  await tickRelay(boss)
+  assert.deepEqual(boss.h.notices, [], 'an open ask gets no line')
+  await rmAsk(f.$, 'aa11bb22cc')
+  await tickRelay(boss)
+  await tickRelay(boss)
+  assert.deepEqual(boss.h.notices, [[second, T['notice.askDecided']({})]])
+  assert.deepEqual(boss.h.toasts, [])
+  boss.h.now += 10_000
+  await tickRelay(boss)
+  assert.equal(boss.h.toasts.length, 1)
+  assert.deepEqual(logRows(f, 'relay-stale'), ['notice:aa11bb22cc', 'toast:aa11bb22cc'])
+})
+test('a single question is relayed as a step: header and question, the numbered list only with a description, and his pick lands as that option', async () => {
+  const f = tiers()
+  const boss = peer(f, 'sid-boss')
+  f.h.sleepMoves = false
+  const question = { header: 'H', question: 'Which?', options: [{ label: 'A', description: '' }, { label: 'B', description: '' }] }
+  await writeAsk(f.$, mk('aa11bb22cc', { tool: 'AskUserQuestion', input: '{"questions":[]}', question }))
+  await reach(f, 'aa11bb22cc')
+  boss.h.askAnswer = async () => 'B'
+  await tickRelay(boss)
+  await settle()
+  assert.deepEqual(boss.h.asked.map((a) => [a.header, a.options]), [['Your call', ['A', 'B', 'Deny']]])
+  assert.match(boss.h.asked[0]!.question, /^`.+` asks H:\n\nWhich\?$/)
+  const a = await readAnswer(f.$, 'aa11bb22cc')
+  assert.deepEqual([a?.by, a?.decision, a?.option], ['PERSON', 'answer', 2])
+  const g = tiers()
+  const boss2 = peer(g, 'sid-boss')
+  g.h.sleepMoves = false
+  await writeAsk(g.$, mk('dd11ee22ff', { tool: 'AskUserQuestion', input: '{}', question: { ...question, options: [{ label: 'A', description: 'why' }, { label: 'B', description: '' }] } }))
+  await reach(g, 'dd11ee22ff')
+  boss2.h.askAnswer = async () => 'Deny'
+  await tickRelay(boss2)
+  await settle()
+  assert.match(boss2.h.asked[0]!.question, /\n\n1\. A - why\n2\. B$/)
+  assert.equal((await readAnswer(g.$, 'dd11ee22ff'))?.decision, 'deny')
 })
 test('the ask hook closes the relay pop-up once its ask is closed, and leaves it while the ask is open', async () => {
   const f = tiers()
@@ -125,6 +178,7 @@ test('the ask hook closes the relay pop-up once its ask is closed, and leaves it
   await rmAsk(f.$, 'aa11bb22cc')
   const r: any = await as(() => permissionRequest(boss.$, shown, noop))
   assert.equal(r.decision.behavior, 'deny')
+  assert.deepEqual(logRows(f, 'relay-hook'), ['start:aa11bb22cc', 'gave-up:aa11bb22cc', 'start:aa11bb22cc', 'denied:aa11bb22cc'])
   click('Allow')
 })
 test('a failure inside the pop-up close leaves the dialog to the person, as the loop does when it gives up', async () => {

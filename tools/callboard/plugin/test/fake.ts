@@ -21,6 +21,7 @@ export function fake(o: { sid?: string } = {}) {
     runs: [] as { argv: string[]; env?: Record<string, string> }[],
     submitted: [] as string[],
     toasts: [] as string[],
+    notices: [] as [string, string][],
     asked: [] as { question: string; options: string[]; header: string }[],
     askAnswer: (() => Promise.resolve('Yes')) as (q: string) => Promise<unknown>,
     sleepDone: false,
@@ -157,7 +158,7 @@ export function fake(o: { sid?: string } = {}) {
         setStatus('busy')
       },
     },
-    ui: { toast: async (t: string) => void h.toasts.push(t), ask: (q: string, o: { options: string[]; header: string }) => (h.asked.push({ question: q, options: o.options, header: o.header }), h.askAnswer(q)) },
+    ui: { toast: async (t: string) => void h.toasts.push(t), notice: (tid: string, t: string) => void h.notices.push([tid, t]), ask: (q: string, o: { options: string[]; header: string }) => (h.asked.push({ question: q, options: o.options, header: o.header }), h.askAnswer(q)) },
     agent: { list: async () => h.agents },
     command: { register: async (c: { name: string }) => void h.commands.push(c.name), run: async (c: { command: string; args: string }) => {
       h.compactRuns.push(`${c.command} ${c.args}`)

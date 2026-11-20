@@ -73,8 +73,8 @@ const fresh = () => ({
   asks: undefined as { at: number; open: { ask: Ask; st: Open }[]; log: AskLogRow[] } | undefined,
   told: new Set<string>(),
   relayed: new Set<string>(),
-  // The ask whose relay pop-up is on screen, so the tick can say when it closed elsewhere.
-  shown: undefined as { id: string; name: string; stale?: number } | undefined,
+  // The ask whose relay pop-up is on screen, so the tick can say when it closed elsewhere; tid is the pop-up's call id once tool.check has seen it.
+  shown: undefined as { id: string; name: string; tid?: string; stale?: number } | undefined,
   sweepAt: 0,
   tidyAt: 0,
   guard: undefined as { at: number; ok: boolean } | undefined,

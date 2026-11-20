@@ -112,6 +112,17 @@ test('a pop-up for one question of several offers its options only when it shows
   assert.deepEqual(relayStep('lane-a', { header: 'H', question: 'Q', options: [{ label: 'A', description: 'y'.repeat(5000) }, { label: 'B', description: '' }] }, 1, 2).options.map((o) => o.label), ['Deny'], 'long option text is cut too')
 })
 
+test('a pop-up for a single question has no counter and no closing line, lists the options only when one has a description, and escapes what the session wrote', () => {
+  const q = (d: string) => ({ header: 'H', question: 'Which?', options: [{ label: 'A', description: d }, { label: 'B', description: '' }] })
+  const plain = relayStep('lane-a', q(''), 1, 1)
+  assert.equal(plain.question, '`lane-a` asks H:\n\nWhich?')
+  assert.deepEqual(plain.options.map((o) => o.label), ['A', 'B', 'Deny'])
+  assert.equal(relayStep('lane-a', q('why'), 1, 1).question, '`lane-a` asks H:\n\nWhich?\n\n1. A - why\n2. B')
+  assert.ok(relayStep('lane-a', q(''), 1, 2).question.includes('(1 of 2)') && relayStep('lane-a', q(''), 1, 2).question.includes('sent together'))
+  const odd = relayStep('lane-a', { header: `H${RLO}<`, question: `Q<${RLO}`, options: [{ label: 'A', description: '<' }] }, 1, 1).question
+  assert.ok(!odd.includes('<') && !odd.includes(RLO))
+})
+
 test('the go and relay pop-ups fit their header chip and read plainly: the go names its giver, end and work and points to go_status; the relay shows the input one field a line in a block it cannot close', () => {
   const g = goDialog('CHIEF', 'Fix round, same PR.', '23:36')
   assert.ok(g.header.length <= 12)
