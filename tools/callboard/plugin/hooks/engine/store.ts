@@ -3,7 +3,7 @@
 // its parse is no file; the table is written under one lock by read-modify-write, and an unreadable table is never overwritten.
 import { parseConfig } from '../core/commands.ts'
 import { parseGo } from '../core/go.ts'
-import type { Answer, Ask, AskLogRow, Config, Go, LaneEffort, LaneModel, ManagerName, RaisedBy, Registry, RegistryRow, Row, Sid, Table, UpMark, View } from '../core/model.ts'
+import type { Answer, Ask, AskLogRow, Config, Go, LaneEffort, LaneModel, ManagerName, Question, RaisedBy, Registry, RegistryRow, Row, Sid, Table, UpMark, View } from '../core/model.ts'
 import { LANE_EFFORTS, LANE_MODELS, liveView } from '../core/model.ts'
 import { createExcl, home, locked, path, readText, rm, run, writeFile } from './io.ts'
 import { mem, staleView } from './mem.ts'
@@ -201,10 +201,10 @@ const isNum = (x: unknown): x is number => typeof x === 'number' && Number.isFin
 function parseAsk(j: any): Ask | undefined {
   if (typeof j !== 'object' || j === null || typeof j.id !== 'string' || !ASK_ID_RE.test(j.id) || typeof j.asker !== 'string' || !SID_RE.test(j.asker) || ![j.t0, j.awake, j.beat].every(isNum)) return undefined
   if (typeof j.cut !== 'boolean' || typeof j.tool !== 'string' || typeof j.input !== 'string' || !RAISED.includes(j.raisedBy)) return undefined
-  const q = j.question
-  const good = typeof q === 'object' && q !== null && typeof q.header === 'string' && typeof q.question === 'string' && Array.isArray(q.options) && q.options.every((o: any) => typeof o?.label === 'string')
-  const question = good ? { header: q.header, question: q.question, options: q.options.map((o: any) => ({ label: o.label, ...(typeof o.description === 'string' ? { description: o.description } : {}) })) } : undefined
-  return { id: j.id, asker: j.asker, t0: j.t0, awake: j.awake, tool: j.tool, raisedBy: j.raisedBy, input: j.input, cut: j.cut, beat: j.beat, ...(question === undefined ? {} : { question }) }
+  const one = (q: any): Question | undefined => typeof q === 'object' && q !== null && typeof q.header === 'string' && typeof q.question === 'string' && Array.isArray(q.options) && q.options.every((o: any) => typeof o?.label === 'string') ? { header: q.header, question: q.question, options: q.options.map((o: any) => ({ label: o.label, ...(typeof o.description === 'string' ? { description: o.description } : {}) })) } : undefined
+  const question = one(j.question)
+  const qs = Array.isArray(j.questions) ? j.questions.map(one) : []
+  return { id: j.id, asker: j.asker, t0: j.t0, awake: j.awake, tool: j.tool, raisedBy: j.raisedBy, input: j.input, cut: j.cut, beat: j.beat, ...(question === undefined ? {} : { question }), ...(qs.length >= 2 && qs.length <= 4 && qs.every((x) => x !== undefined) ? { questions: qs as Question[] } : {}) }
 }
 export async function writeAsk($: any, a: Ask): Promise<boolean> {
   const p = await askPath($, a.id)
@@ -224,10 +224,12 @@ async function readUps($: any, d: string, names: string[], id: string): Promise<
   }))
   return ups.filter((u): u is UpMark => u !== undefined)
 }
-async function askNames($: any): Promise<{ d: string; names: string[] } | undefined> {
+async function askNames($: any): Promise<{ d: string; names: string[]; failed: boolean } | undefined> {
   const d = await path($, 'asks')
-  const l = d === undefined ? undefined : ((await $.fs.list(d).catch(() => [])) as { name: string }[])
-  return d === undefined ? undefined : { d, names: (l ?? []).map((f) => f.name).slice(0, 512) }
+  if (d === undefined) return undefined
+  let failed = false
+  const l = (await $.fs.list(d).catch(() => ((failed = true), []))) as { name: string }[]
+  return { d, names: l.map((f) => f.name).slice(0, 512), failed }
 }
 // Every ask file with the marks beside it, and the ids already answered. A mark's session is its file's name, never its content.
 export async function readAsks($: any): Promise<{ asks: Ask[]; ups: Map<string, UpMark[]>; answered: Set<string> }> {
@@ -242,16 +244,16 @@ export async function askState($: any, id: string): Promise<{ ups: UpMark[]; ans
   const f = await askNames($)
   return f === undefined ? { ups: [], answered: false } : { ups: await readUps($, f.d, f.names, id), answered: f.names.includes(`${id}.answer`) }
 }
-// Whether an ask is still open: its file is there and no answer is.
+// Whether an ask is still open: its file is there and no answer is. A folder that cannot be listed counts as open: a pop-up is not closed on a failed read.
 export async function askOpen($: any, id: string): Promise<boolean> {
   const f = await askNames($)
-  return f !== undefined && f.names.includes(`${id}.json`) && !f.names.includes(`${id}.answer`)
+  return f !== undefined && (f.failed || (f.names.includes(`${id}.json`) && !f.names.includes(`${id}.answer`)))
 }
 export async function readAnswer($: any, id: string): Promise<Answer | undefined> {
   const p = await askPath($, id, 'answer')
   const j = (p === undefined ? undefined : safeJson((await readText($, p, 4096)) ?? '')) as Partial<Answer> | null | undefined
   if (!j || j.ask !== id || typeof j.by !== 'string' || !['allow', 'deny', 'answer'].includes(j.decision as string) || !isNum(j.at)) return undefined
-  return { ask: id, by: j.by, decision: j.decision!, at: j.at, ...(typeof j.note === 'string' ? { note: j.note } : {}), ...(Number.isInteger(j.option) ? { option: j.option } : {}) }
+  return { ask: id, by: j.by, decision: j.decision!, at: j.at, ...(typeof j.note === 'string' ? { note: j.note } : {}), ...(Number.isInteger(j.option) ? { option: j.option } : {}), ...(Array.isArray(j.picks) && j.picks.every(Number.isInteger) ? { picks: j.picks } : {}) }
 }
 // The first writer wins: 'exists' says an answer is already there.
 export async function writeAnswer($: any, a: Answer): Promise<'ok' | 'exists' | 'error'> {

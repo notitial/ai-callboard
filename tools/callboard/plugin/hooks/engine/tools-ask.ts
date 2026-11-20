@@ -38,10 +38,13 @@ export async function openAsks($: any, me: Sid, v: View, now: number, fresh = fa
 }
 
 // The question as the ask file keeps it, in the shape decide reads a live input in.
-const liveOf = (a: Ask): unknown => (a.question === undefined ? undefined : { questions: [{ header: a.question.header, question: a.question.question, options: a.question.options }] })
+const liveOf = (a: Ask): unknown => {
+  const qs = a.questions ?? (a.question === undefined ? undefined : [a.question])
+  return qs === undefined ? undefined : { questions: qs.map((q) => ({ header: q.header, question: q.question, options: q.options })) }
+}
 
 // One answer, from a session or the person: the ask is read and staged again, the answer is checked with decide, and it is written exclusively.
-export async function answerAsk($: any, v: View, id: string, a: { decision: 'allow' | 'deny' | 'answer'; note?: string; option?: number }, by: Owner): Promise<Decision> {
+export async function answerAsk($: any, v: View, id: string, a: { decision: 'allow' | 'deny' | 'answer'; note?: string; option?: number; picks?: number[] }, by: Owner): Promise<Decision> {
   const no = (code: RefuseCode): Decision => refusal('refuse', code, { tool: 'prompt_answer', target: id })
   const ask = await readAsk($, id)
   if (ask === undefined) return no('no-such-ask')
@@ -49,7 +52,7 @@ export async function answerAsk($: any, v: View, id: string, a: { decision: 'all
   const now = await $.clock.now()
   const st = answered ? undefined : stage({ ask, now, ups, v })
   if (st?.open !== true) return no('ask-closed')
-  const answer = { ask: id, by, decision: a.decision, at: now, ...(a.note === undefined ? {} : { note: capBytes(a.note, NOTE_MAX).text }), ...(a.option === undefined ? {} : { option: a.option }) }
+  const answer = { ask: id, by, decision: a.decision, at: now, ...(a.note === undefined ? {} : { note: capBytes(a.note, NOTE_MAX).text }), ...(a.option === undefined ? {} : { option: a.option }), ...(a.picks === undefined ? {} : { picks: a.picks }) }
   const d = decide(answer, ask, st, v, liveOf(ask))
   if (d.act === 'ignore') return d
   if (!(await guardOk($))) return no('no-guard')

@@ -92,7 +92,11 @@ export type Fixed = {
   keepalive: E
 
   // Notices: the batched turn, then one line per event kind, and a PR note.
-  'event.turn': { lines: string[] }
+  'event.turn': { lines: string[]; since?: string[] }
+  'digest.panel': Names & { n: number }
+  'digest.done': Names
+  'digest.gone': Names
+  'digest.go': Names
   'event.ask': AskRef & Names & { tool: string }
   'event.expired': AskRef & Names & { tool: string }
   'event.done': Names
@@ -156,6 +160,7 @@ export type Fixed = {
   'dialog.stop.question': { name: string; verb: StopVerb }
   'dialog.relay.header': E
   'dialog.relay.question': { asker: string; tool: string; input: string; cut: boolean }
+  'dialog.relay.step': { asker: string; i: number; n: number; header: string; question: string; options: string; cut: boolean }
   'dialog.allow': E
   'dialog.deny': E
   'dialog.yes': E

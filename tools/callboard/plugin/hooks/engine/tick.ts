@@ -2,10 +2,11 @@
 // Trust rules held here: one tick runs at a time and a step that throws is logged and does not stop the others; at most one text is submitted per tick; a notice is recomputed
 // from the sessions under this one now each time it is sent, a key is spent only when the turn carrying it starts, and nothing is sent unless the session is quiet.
 import type { Notice, Sid, ToolName, View } from '../core/model.ts'
-import { PERSON, TOOLS, capability, children, isOff, nameOf, parent } from '../core/model.ts'
+import { PERSON, TOOLS, capability, children, descendants, isOff, nameOf, parent } from '../core/model.ts'
 import { tidy } from '../core/lifecycle.ts'
 import { sweep } from '../core/asks.ts'
-import { notices } from '../core/notices.ts'
+import { digest, notices } from '../core/notices.ts'
+import type { DigestItem } from '../core/notices.ts'
 import { SLEEP_GAP_MS } from '../core/upkeep.ts'
 import { T } from '../texts.ts'
 import { TOOL_SCHEMAS } from '../tool-schemas.ts'
@@ -15,7 +16,7 @@ import { getUp, mem, spendStarted } from './mem.ts'
 import { markDone } from './ask-hook.ts'
 import { prClaim, prTick } from './pr.ts'
 import { relayTick } from './relay.ts'
-import { askOpen, getView, logAsk, readAsks, rmAsk, tidyAsks, tidyAskLogs, updateTable } from './store.ts'
+import { askOpen, getView, listGoes, logAsk, readAsks, rmAsk, tidyAsks, tidyAskLogs, updateTable } from './store.ts'
 import { isSub, say } from './tools-any.ts'
 import { openAsks } from './tools-ask.ts'
 import { idle, keepaliveTick, midNudge, nudgeTick, requestTick, signedNow } from './upkeep.ts'
@@ -73,22 +74,33 @@ function lineOf(v: View, n: Notice, now: number): string | undefined {
   if (n.kind === 'ask') return say({ msg: 'event.ask', p: { ask, name, tool: mem.asks?.open.find((o) => o.ask.id === ask)?.ask.tool ?? '' } })
   return say({ msg: 'event.expired', p: { ask, name, tool: mem.asks?.log.find((l) => l.ask === ask && l.code !== undefined && l.ev === 'expired')?.code ?? '' } })
 }
-// The events owed now, computed again from the sessions under this one: a key already spent, or carried by a text submitted and not yet started, is left out.
-async function owed($: any, me: Sid, v: View, now: number): Promise<{ key: string; line: string }[]> {
+type Line = { keys: string[]; line: string }
+// One line per digest item; a panel item counts every ask it carries.
+const digestLine = (v: View, d: DigestItem): string => (d.kind === 'panel' ? say({ msg: 'digest.panel', p: { name: nameOf(v, d.about), n: d.n } }) : say({ msg: `digest.${d.kind}`, p: { name: nameOf(v, d.about) } }))
+// The events owed now, computed again from the sessions under this one: a key already spent, or carried by a text submitted and not yet started, is left out. `since` is the
+// manager's digest, worked out only when an event will carry it.
+async function owed($: any, me: Sid, v: View, now: number): Promise<{ list: Line[]; since: Line[] }> {
   spendStarted(undefined, now)
   const held = new Set([...mem.pending.values()].flatMap((p) => p.keys))
-  const list = notices({ me, v, now, since: mem.since, reports: mem.reports, signed: mem.signed.set, ...(await askInputs($, me, v, now)) })
-  return list.filter((n) => !mem.spent.has(n.key) && !held.has(n.key)).flatMap((n) => ((l) => (l === undefined ? [] : [{ key: n.key, line: l }]))(lineOf(v, n, now)))
+  const events = notices({ me, v, now, since: mem.since, reports: mem.reports, signed: mem.signed.set, ...(await askInputs($, me, v, now)) })
+  const list = events.filter((n) => !mem.spent.has(n.key) && !held.has(n.key)).flatMap((n) => ((l) => (l === undefined ? [] : [{ keys: [n.key], line: l }]))(lineOf(v, n, now)))
+  const items = list.length === 0 || capability(v, me) !== 'manager' ? [] : digest({ me, v, since: mem.since, now, log: mem.asks?.log ?? [], signed: mem.signed.set, goes: await listGoes($), spent: new Set([...mem.spent, ...held]) })
+  return { list, since: items.map((d) => ({ keys: d.keys, line: digestLine(v, d) })) }
 }
+// The check-in text and the keys it carries.
+const checkIn = (o: { list: Line[]; since: Line[] }): { text: string; keys: string[] } => ({
+  text: say({ msg: 'event.turn', p: { lines: o.list.map((x) => x.line), since: o.since.map((x) => x.line) } }),
+  keys: [...o.list, ...o.since].flatMap((x) => x.keys),
+})
 async function quiet($: any, me: Sid): Promise<boolean> {
   return (await getUp($)).req === null && (await idle($, me))
 }
 async function eventsTick($: any, me: Sid, v: View, now: number): Promise<void> {
-  const list = await owed($, me, v, now)
-  if (list.length === 0 || !(await quiet($, me))) return
-  const text = say({ msg: 'event.turn', p: { lines: list.map((o) => o.line) } })
-  mem.pending.set(text, { keys: list.map((o) => o.key), at: now })
-  await submitOwn($, text, false).then(() => log($, me, 'events', String(list.length)), () => void mem.pending.delete(text))
+  const o = await owed($, me, v, now)
+  if (o.list.length === 0 || !(await quiet($, me))) return
+  const { text, keys } = checkIn(o)
+  mem.pending.set(text, { keys, at: now })
+  await submitOwn($, text, false).then(() => log($, me, 'events', String(o.list.length)), () => void mem.pending.delete(text))
 }
 async function prNoticeTick($: any, me: Sid): Promise<void> {
   if (mem.prNotes.length === 0 || !(await quiet($, me))) return
@@ -119,12 +131,12 @@ async function tableTick($: any, v: View, now: number): Promise<void> {
   const next = (t: typeof v.table) => tidy(t, v, (k) => mem.noSince.get(k), now)
   if (JSON.stringify(next(v.table)) !== JSON.stringify(v.table)) await updateTable($, next)
 }
-// Every 30 s: the sessions, this one and its children, whose report is signed.
+// Every 30 s: the sessions, this one and its children (the manager: everything under it, for its digest), whose report is signed.
 async function signedTick($: any, v: View, me: Sid, now: number): Promise<void> {
   if (now - mem.signed.at < 30_000) return
   mem.signed.at = now
   const set = new Set<Sid>()
-  await Promise.all([me, ...(capability(v, me) === 'none' ? [] : children(v, me))].map(async (k) => ((await signedNow($, k, v.table[k])) ? set.add(k) : undefined)))
+  await Promise.all([me, ...(capability(v, me) === 'none' ? [] : capability(v, me) === 'manager' ? descendants(v, me) : children(v, me))].map(async (k) => ((await signedNow($, k, v.table[k])) ? set.add(k) : undefined)))
   mem.signed = { at: now, set }
 }
 
@@ -195,10 +207,11 @@ export async function postToolHook($: any, e: any, next: any) {
   try {
     const me = (await $.session.id()) as Sid
     const nudge = await midNudge($, e)
-    const list = await owed($, me, await getView($), await $.clock.now())
+    const o = await owed($, me, await getView($), await $.clock.now())
     const pr = prClaim()
-    for (const o of list) mem.spent.add(o.key)
-    texts.push(...[nudge, list.length === 0 ? undefined : say({ msg: 'event.turn', p: { lines: list.map((o) => o.line) } }), pr?.text].filter((t): t is string => t !== undefined))
+    const c = o.list.length === 0 ? undefined : checkIn(o)
+    for (const k of c?.keys ?? []) mem.spent.add(k)
+    texts.push(...[nudge, c?.text, pr?.text].filter((t): t is string => t !== undefined))
   } catch {}
   if (texts.length === 0) return r
   const extra = (r as { additionalContext?: unknown } | null | undefined)?.additionalContext

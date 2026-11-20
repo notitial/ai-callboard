@@ -160,6 +160,20 @@ Run nothing this list does not allow.
 
 Never run the workspace-lock script, `claude`, `node`, any other `npm` command, or anything that writes.
 
+## Repeated asks
+
+The same read-only check asked again and again costs 3-5 calls each time. Every ask still meets the rubric, and a
+script is read whole before you allow it (rule 5): you keep no record of scripts and no hash shortcut, because a file
+an agent can write must not stand in for a read. Two ways to cut the repeats, neither of which allows anything on its own:
+
+- **Regular evaluation.** About once a week, or when the person asks, run the `ask-review` skill
+  (`.claude/skills/ask-review/SKILL.md`): it reads the ask log for repeated read-only asks and brings the person
+  options to choose from. You never auto-allow and never edit a settings or rules file.
+- **Standing allows.** For repeated work the person has judged, ask them for a standing line in their own
+  manager-rules file. The file is theirs.
+
+Nothing here changes the risk list or what a lead may decide.
+
 ## Verification
 
 - Verify through a Haiku subagent with git-mcp reads: full hash, subject, parent, files with +/- counts, test-only
@@ -170,7 +184,9 @@ Never run the workspace-lock script, `claude`, `node`, any other `npm` command, 
 ## Working with the person
 
 - Keep a numbered "Person's list" in STATE.md: what waits on them, where it happens, what comes next. Drop an item as
-  soon as they report it done.
+  soon as they report it done. Before you list what waits on them, check each item against live state (`lane_list`,
+  `prompt_list`, the lead's last report): they may have answered it in the asker's own panel. A check-in's
+  "Since your last check-in" lines say what changed; they are log data, not live state.
 - End most replies with the short remaining list: what waits on the person, plus any advice.
 - Run `date` in an earlier tool round than any timestamped write to STATE.md or the tracker, and copy its output.
   Never estimate a time, never run `date` in parallel with the write, and after a compaction never trust a remembered
