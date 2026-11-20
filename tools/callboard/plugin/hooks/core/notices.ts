@@ -1,7 +1,7 @@
 // Notices: the one table of who is told what (RECEIVES), the events a session computes each tick from its own reading of the sessions under it now, and where a PR
 // note goes. Pure. Trust rules held here: events follow current relationships, never a stored recipient; a gone row routes nothing but its own `gone` or `done`; the manager
 // is told only of asks and expired asks; a session with neither capability is told nothing.
-import type { AskLogRow, Notice, Receives, Sid, View } from './model.ts'
+import type { AskLogRow, Go, Notice, Receives, Sid, View } from './model.ts'
 import { PERSON, capability, children, descendants, isOff, liveness, parent } from './model.ts'
 import { NEW_KEY } from './lifecycle.ts'
 
@@ -48,6 +48,28 @@ export function notices(x: NoticeIn): Notice[] {
     if ((quiet || waiting) && x.now - reg.statusAt >= (quiet ? QUIET_MS : WAITING_MS)) all.push({ kind: quiet ? 'quiet' : 'waiting', key: `${quiet ? 'quiet' : 'waiting'}:${s}:${reg.statusAt}`, about: s })
   }
   return all.filter((n) => r.kinds.includes(n.kind) && scope.has(n.about) && (n.kind === 'gone' || n.kind === 'done' || x.v.table[n.about]?.goneAt === undefined))
+}
+
+// What the manager is also told on a check-in, "since your last turn": asks that ended in the asker's own panel (the ask log's `closed` by `click`: a click, or an interruption), counted per
+// session; sessions under it that signed done or went; gos that ended. Data from the logs, at most DIGEST_MAX items; a key already spent is left out. The manager is not woken
+// by it: it rides a check-in an ask or an expired ask caused.
+export const DIGEST_MAX = 5
+export type DigestItem = { kind: 'panel' | 'done' | 'gone' | 'go'; about: Sid; n: number; keys: string[] }
+export type DigestIn = { me: Sid; v: View; since: number; now: number; log: readonly AskLogRow[]; signed: ReadonlySet<Sid>; goes: readonly Go[]; spent: ReadonlySet<string> }
+export function digest(x: DigestIn): DigestItem[] {
+  if (capability(x.v, x.me) !== 'manager') return []
+  const scope = new Set(descendants(x.v, x.me))
+  const items: DigestItem[] = []
+  const panel = new Map<Sid, string[]>()
+  for (const l of x.log) if (l.ev === 'closed' && l.code === 'click' && scope.has(l.asker) && !x.spent.has(`digest:panel:${l.ask}`)) panel.set(l.asker, [...(panel.get(l.asker) ?? []), `digest:panel:${l.ask}`])
+  for (const [about, keys] of [...panel].sort((a, b) => b[1].length - a[1].length)) items.push({ kind: 'panel', about, n: keys.length, keys })
+  for (const s of scope) {
+    const goneAt = x.v.table[s]?.goneAt
+    if (x.signed.has(s) && !x.spent.has(`digest:done:${s}`)) items.push({ kind: 'done', about: s, n: 1, keys: [`digest:done:${s}`] })
+    else if (!x.signed.has(s) && goneAt !== undefined && goneAt >= x.since && !s.startsWith(NEW_KEY) && !x.spent.has(`digest:gone:${s}:${goneAt}`)) items.push({ kind: 'gone', about: s, n: 1, keys: [`digest:gone:${s}:${goneAt}`] })
+  }
+  for (const g of x.goes) if (g.end <= x.now && g.end >= x.since && (g.giver === x.me || scope.has(g.giver)) && !x.spent.has(`digest:go:${g.id}`)) items.push({ kind: 'go', about: g.giver, n: 1, keys: [`digest:go:${g.id}`] })
+  return items.slice(0, DIGEST_MAX)
 }
 
 // Where a PR note goes: the registrant while it is live; else its parent while the registrant's row is not gone, when that parent is a lead (the manager is woken

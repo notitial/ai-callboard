@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { QUIET_MS, RECEIVES, WAITING_MS, notices, prRoute } from './notices.ts'
+import { DIGEST_MAX, QUIET_MS, RECEIVES, WAITING_MS, digest, notices, prRoute } from './notices.ts'
 import type { NoticeIn } from './notices.ts'
 import { capability, children, descendants, liveView } from './model.ts'
 import type { Table } from './model.ts'
@@ -75,4 +75,20 @@ test('a PR note: to the registrant while live, else its lead while the row is no
   assert.equal(prRoute(v([M]), LOOSE), 'none')
   assert.equal(prRoute(v([M, LOOSE]), LOOSE), LOOSE)
   assert.equal(prRoute(liveView('unknown', lanes, MANAGER), L1), 'hold')
+})
+
+test('the manager\'s digest: clicks in an asker\'s own panel counted per session, done, gone and ended gos; nothing for a lead, a spent key or a click by anyone else', () => {
+  const b = base({ me: M })
+  const x = { me: M, v: b.v, since: NOW - 1000, now: NOW, log: [] as NoticeIn['log'], signed: new Set<string>(), goes: [] as { id: string; giver: string; text: string; end: number }[], spent: new Set<string>() }
+  const click = (ask: string, asker = L1) => ({ t: NOW, ev: 'closed' as const, ask, asker, code: 'click' })
+  assert.deepEqual(digest(x), [])
+  const log = [click('a'), click('b'), click('c', A), { ...click('d'), code: 'away' }, { t: NOW, ev: 'answered' as const, ask: 'e', asker: L1 }, click('f', LOOSE)]
+  assert.deepEqual(digest({ ...x, log }).map((d) => [d.kind, d.about, d.n]), [['panel', L1, 2], ['panel', A, 1], ['panel', LOOSE, 1]])
+  assert.deepEqual(digest({ ...x, log, spent: new Set(['digest:panel:a', 'digest:panel:b']) }).map((d) => [d.about, d.n]), [[A, 1], [LOOSE, 1]])
+  assert.deepEqual(digest({ ...x, me: A, log, signed: new Set([L1]) }), [])
+  assert.deepEqual(digest({ ...x, signed: new Set([L1]) }).map((d) => [d.kind, d.about]), [['done', L1]])
+  const ended = { id: 'g1', giver: A, text: 'work', end: NOW - 10 }
+  assert.deepEqual(digest({ ...x, goes: [ended, { ...ended, id: 'g2', end: NOW + 10 }, { ...ended, id: 'g3', end: NOW - 5000 }, { ...ended, id: 'g4', giver: 'sid-nobody' }] }).map((d) => [d.kind, d.about]), [['go', A]])
+  assert.equal(digest({ ...x, log: Array.from({ length: 12 }, (_, i) => click(`m${i}`, `sid-x${i}`)) }).length, 0, 'only sessions under the manager count')
+  assert.ok(DIGEST_MAX < 8 && digest({ ...x, log: [click('1', L1), click('2', A), click('3', B), click('4', LOOSE)], signed: new Set([L1]), goes: [ended] }).length === DIGEST_MAX)
 })

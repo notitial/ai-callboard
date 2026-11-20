@@ -78,6 +78,13 @@ export function relayDialog(asker: string, tool: string, input: string, cut: boo
   }
 }
 
+// One question of a call of several, as a pop-up of its own, with each option's description and a Deny: the person's picks are sent together after the last.
+export const relayStep = (asker: string, q: Question, i: number, n: number): DialogSpec => ({
+  header: T['dialog.relay.header']({}),
+  question: T['dialog.relay.step']({ asker, i, n, header: q.header.slice(0, DIALOG_CAP), question: q.question.slice(0, DIALOG_CAP), options: q.options.map((o, k) => `${k + 1}. ${o.label}${o.description ? ` - ${o.description}` : ''}`).join('\n').slice(0, DIALOG_CAP) }),
+  options: [...q.options.map((o) => ({ label: o.label })), { label: T['dialog.deny']({}) }],
+})
+
 // ---- the toast ----
 // A refusal's toast; any other decision has none.
 export function refusalToast(d: Decision): string | undefined {

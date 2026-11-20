@@ -74,7 +74,7 @@ const fresh = () => ({
   told: new Set<string>(),
   relayed: new Set<string>(),
   // The ask whose relay pop-up is on screen, so the tick can say when it closed elsewhere.
-  shown: undefined as { id: string; name: string } | undefined,
+  shown: undefined as { id: string; name: string; stale?: number } | undefined,
   sweepAt: 0,
   tidyAt: 0,
   guard: undefined as { at: number; ok: boolean } | undefined,

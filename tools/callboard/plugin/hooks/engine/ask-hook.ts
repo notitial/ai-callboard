@@ -4,11 +4,12 @@
 import type { Ask, AskEvent, Owner, Sid } from '../core/model.ts'
 import { capability, isOff, parent } from '../core/model.ts'
 import type { CheckFacts } from '../core/asks.ts'
-import { QUESTION_TOOL, awakeAdd, classify, decide, inputText, questionView, stage } from '../core/asks.ts'
+import { QUESTION_TOOL, awakeAdd, classify, decide, inputText, questionView, questionsView, stage } from '../core/asks.ts'
 import { PRINT_CAP, printed } from '../ui.ts'
+import { T } from '../texts.ts'
 import { log, newId, pause, toast, windowNow } from './io.ts'
 import { mem } from './mem.ts'
-import { askState, getView, guardOk, logAsk, offFile, readAnswer, readOwnRow, rmAnswer, rmAsk, writeAsk } from './store.ts'
+import { askOpen, askState, getView, guardOk, logAsk, offFile, readAnswer, readOwnRow, rmAnswer, rmAsk, writeAsk } from './store.ts'
 import { isSub, say } from './tools-any.ts'
 
 const JOIN_TTL_MS = 60_000
@@ -62,11 +63,24 @@ function ownDialog(e: any): boolean {
   return e.tool_name === QUESTION_TOOL && !isSub(e) && Array.isArray(qs) && qs.length === 1 && mem.dialogs.has(`${qs[0]?.header}\n${qs[0]?.question}`)
 }
 
+// The relay pop-up stays beside this hook. Once its ask is decided or closed elsewhere the hook denies the dialog, which dismisses it: personDialog reads a dismissal and writes nothing.
+async function closeWhenDecided($: any, e: any, signal: AbortSignal | undefined): Promise<unknown> {
+  const q = e.tool_input.questions[0]
+  const key = `${q.header}\n${q.question}`
+  const id = q.header === T['dialog.relay.header']({}) ? mem.shown?.id : undefined
+  for (let fails = 0; id !== undefined && mem.dialogs.has(key) && !signal?.aborted; ) {
+    if (!(await askOpen($, id))) return { decision: { behavior: 'deny', message: say({ msg: 'toast.askClosed', p: {} }) } }
+    if (await pause($, POLL_MS)) fails = 0
+    else if (++fails >= PAUSE_FAILS_MAX) break
+  }
+  return {}
+}
+
 export async function permissionRequest($: any, e: any, next: any) {
   const me = (await $.session.id()) as Sid
   const v = await getView($)
   if (isOff(v, me) || (await offFile($))) return next(e)
-  if (ownDialog(e)) return {}
+  if (ownDialog(e)) return closeWhenDecided($, e, next.signal)
   if (isSub(e)) {
     // A subagent's dialog is shown only after the hooks return, so nothing can wait for it: the chain beneath, else a deny that sends the main agent to run the call itself, but only
     // where the main session's own ask could rise (a lead is above it, or a window is on and it rises to the manager).
@@ -96,7 +110,8 @@ async function hold($: any, e: any, beneath: any, signal: AbortSignal | undefine
   const tid = entry?.toolUseId
   const shown = inputText(input)
   const q = tool === QUESTION_TOOL ? questionView(input) : undefined
-  const base: Ask = { id: newId(), asker: me, t0, awake: 0, raisedBy: classify(tool, entry?.facts), tool, input: shown.text, cut: shown.cut || printed(shown.text, PRINT_CAP).cut, beat: t0, ...(q === undefined ? {} : { question: q }) }
+  const qs = tool === QUESTION_TOOL ? questionsView(input) : undefined
+  const base: Ask = { id: newId(), asker: me, t0, awake: 0, raisedBy: classify(tool, entry?.facts), tool, input: shown.text, cut: shown.cut || printed(shown.text, PRINT_CAP).cut, beat: t0, ...(q === undefined ? {} : { question: q }), ...(qs === undefined ? {} : { questions: qs }) }
   await logAsk($, { ev: 'raised', ask: base.id, asker: me, code: tool })
   const finish = async (ev: AskEvent, out: unknown, by?: Owner, code?: string) => {
     await logAsk($, { ev, ask: base.id, asker: me, ...(by === undefined ? {} : { by }), ...(code === undefined ? {} : { code }) })
@@ -144,7 +159,7 @@ async function hold($: any, e: any, beneath: any, signal: AbortSignal | undefine
           await log($, me, 'answer-dropped', !guarded ? 'no-guard' : d === undefined ? 'shape' : d.msg.slice(7))
         } else if (await clicked()) return finish('closed', beneath, undefined, 'click')
         else {
-          const decision = d.act === 'allow' ? { behavior: 'allow' } : d.act === 'deny' ? { behavior: 'deny', message: say(d) } : { behavior: 'allow', updatedInput: { ...input, answers: { [d.question]: say(d) } } }
+          const decision = d.act === 'allow' ? { behavior: 'allow' } : d.act === 'deny' ? { behavior: 'deny', message: say(d) } : { behavior: 'allow', updatedInput: { ...input, answers: Object.fromEntries(d.picks.map((x) => [x.question, say({ msg: 'ask.answerText', p: { label: x.label, by: d.by } })])) } }
           return finish('answered', { ...beneath, decision }, a.by)
         }
       }

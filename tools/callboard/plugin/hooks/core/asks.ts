@@ -46,7 +46,7 @@ export function stage(x: StageIn): Stage {
 
 // One check for an answer: it names this ask, and its author is eligible now, or the person on an ask that has reached him (the relay pop-up). Then it must fit
 // the ask: deny for either kind; allow for a permission ask and answer for a question, each only on an input a reader saw whole. The label comes from the live input.
-export type Verdict = Decision<'allow' | 'deny' | 'ignore'> | (Decision<'answer'> & { question: string })
+export type Verdict = Decision<'allow' | 'deny' | 'ignore'> | { act: 'answer'; by: string; picks: { question: string; label: string }[] }
 export function decide(a: Answer, ask: Ask, s: Open, v: View, liveInput: unknown): Verdict {
   const no = (code: RefuseCode): Verdict => refusal('ignore', code, { tool: 'prompt_answer', target: ask.id })
   if (a.ask !== ask.id) return no('no-such-ask')
@@ -56,8 +56,9 @@ export function decide(a: Answer, ask: Ask, s: Open, v: View, liveInput: unknown
   if (ask.cut) return no('input-cut')
   const isQuestion = ask.tool === QUESTION_TOOL
   if (a.decision === 'allow') return isQuestion ? no('bad-input') : { act: 'allow', msg: 'ask.allowed', p: { ask: ask.id } }
-  const pick = isQuestion && a.option !== undefined ? answerOf(liveInput, a.option) : undefined
-  return pick === undefined ? no('bad-input') : { act: 'answer', msg: 'ask.answerText', p: { label: pick.label, by }, question: pick.question }
+  // Several questions are answered by the person's pop-ups only, one pick for each; a session answers one question.
+  const picks = !isQuestion ? undefined : a.picks !== undefined ? (a.by === PERSON ? picksOf(liveInput, a.picks) : undefined) : a.option !== undefined ? [answerOf(liveInput, a.option)] : undefined
+  return picks === undefined || picks.some((x) => x === undefined) ? no('bad-input') : { act: 'answer', by, picks: picks as { question: string; label: string }[] }
 }
 
 // The sweep of one ask file by any session's tick: a dead asker's ask ends; a live asker's beat is judged only once the sweeper itself has been awake long enough
@@ -90,31 +91,47 @@ const LABEL_MAX = 200
 const CONTROL_RE = /[\u0000-\u001f\u007f-\u009f\u200b\u2028-\u202e\u2060-\u2069\ufeff\u{e0000}-\u{e007f}]/u
 // A label as every reader sees it: redacted, then trimmed, in that order.
 const labelOf = (l: unknown): string => redact(str(l)).trim()
+const labelsOf = (q: Record<string, unknown>): unknown[] => (Array.isArray(q.options) ? q.options.slice(0, 8).map((x) => obj(x).label) : [])
 const labels = (input: unknown): unknown[] => {
   const qs = obj(input).questions
-  const o = Array.isArray(qs) ? obj(qs[0]).options : undefined
-  return Array.isArray(o) ? o.slice(0, 8).map((x) => obj(x).label) : []
+  return Array.isArray(qs) ? labelsOf(obj(qs[0])) : []
 }
 // A question a session may answer: one question, single select, 2 to 4 distinct plain labels (raw and as read), a text, a header that is not Person, no answers yet.
-export function questionShape(input: unknown): { ok: true } | { ok: false; code: 'question-count' | 'question-multi' | 'question-options' | 'question-person' | 'question-shape' } {
+type ShapeCode = 'question-count' | 'question-multi' | 'question-options' | 'question-person' | 'question-shape'
+export function questionShape(input: unknown): { ok: true } | { ok: false; code: ShapeCode } {
   const i = obj(input)
-  if (!Array.isArray(i.questions) || i.questions.length !== 1) return { ok: false, code: 'question-count' }
-  const q = obj(i.questions[0])
+  return !Array.isArray(i.questions) || i.questions.length !== 1 ? { ok: false, code: 'question-count' } : oneShape(i.questions[0], 'answers' in i)
+}
+function oneShape(x: unknown, answered: boolean): { ok: true } | { ok: false; code: ShapeCode } {
+  const q = obj(x)
   if (q.multiSelect === true) return { ok: false, code: 'question-multi' }
-  const raw = labels(input)
+  const raw = labelsOf(q)
   const n = Array.isArray(q.options) ? q.options.length : 0
   const plain = raw.every((l) => typeof l === 'string' && l.trim() !== '' && bytes(l) <= LABEL_MAX && bytes(labelOf(l)) <= LABEL_MAX && !CONTROL_RE.test(l))
   if (n < 2 || n > 4 || !plain || new Set(raw.map((l) => str(l).trim())).size !== n || new Set(raw.map(labelOf)).size !== n) return { ok: false, code: 'question-options' }
   if (str(q.header).trim().toLowerCase() === 'person') return { ok: false, code: 'question-person' }
-  if (typeof q.question !== 'string' || (q.header !== undefined && typeof q.header !== 'string') || 'answers' in i) return { ok: false, code: 'question-shape' }
+  if (typeof q.question !== 'string' || (q.header !== undefined && typeof q.header !== 'string') || answered) return { ok: false, code: 'question-shape' }
   return { ok: true }
 }
 // What a reader is shown of a question: header, text and options, each redacted and capped as inputText caps a string (which then marks the ask cut).
-export function questionView(input: unknown): Question | undefined {
-  if (!questionShape(input).ok) return undefined
-  const q = obj((obj(input).questions as unknown[])[0])
-  const t = (x: unknown): string => shown(str(x), STRING_CAP).text
+const viewOf = (x: unknown): Question => {
+  const q = obj(x)
+  const t = (y: unknown): string => shown(str(y), STRING_CAP).text
   return { header: t(q.header), question: t(q.question), options: (q.options as unknown[]).map((o) => ({ label: labelOf(obj(o).label), description: t(obj(o).description) })) }
+}
+export function questionView(input: unknown): Question | undefined {
+  return questionShape(input).ok ? viewOf((obj(input).questions as unknown[])[0]) : undefined
+}
+// The 2 to 4 questions of one call, each of the shape above: relayed to the person only (a session answers one question at a time).
+export function questionsView(input: unknown): Question[] | undefined {
+  const qs = obj(input).questions
+  return Array.isArray(qs) && qs.length >= 2 && qs.length <= 4 && qs.every((q) => oneShape(q, 'answers' in obj(input)).ok) && new Set(qs.map((q) => str(obj(q).question))).size === qs.length ? qs.map(viewOf) : undefined
+}
+// One pick (1-based) for each question of a call of 2 to 4, from the LIVE input: the same text as answerOf gives, for each question.
+export function picksOf(liveInput: unknown, picks: readonly number[]): ({ question: string; label: string } | undefined)[] | undefined {
+  const qs = obj(liveInput).questions
+  if (!Array.isArray(qs) || qs.length < 2 || qs.length > 4 || qs.length !== picks.length) return undefined
+  return qs.map((q, k) => (oneShape(q, 'answers' in obj(liveInput)).ok && Number.isInteger(picks[k]) ? ((l) => (typeof l === 'string' ? { question: str(obj(q).question), label: l.trim() } : undefined))(labelsOf(obj(q))[picks[k]! - 1]) : undefined))
 }
 // The chosen option (1-based, as prompt_answer takes it) from the LIVE input, never from the answer file: the question's text and the label as the asker wrote it.
 export function answerOf(liveInput: unknown, option: number): { question: string; label: string } | undefined {

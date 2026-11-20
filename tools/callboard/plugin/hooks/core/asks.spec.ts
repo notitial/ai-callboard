@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { EXPIRE_MS, HEAD_START_MS, MANAGER_AT_MS, awakeAdd, classify, decide, inputText, questionShape, questionView, stage, sweep } from './asks.ts'
+import { EXPIRE_MS, HEAD_START_MS, MANAGER_AT_MS, awakeAdd, classify, decide, inputText, questionShape, questionView, questionsView, stage, sweep } from './asks.ts'
 import type { CheckFacts, Open, StageIn } from './asks.ts'
 import { PERSON, ancestors, liveView } from './model.ts'
 import type { Answer, Ask, Sid, Table, UpMark, View } from './model.ts'
@@ -91,9 +91,15 @@ test('decide: the answer must name this ask and come from the person or an eligi
   assert.deepEqual(decide(a({ decision: 'deny', note: 'no' }), ask(), s, all, {}), { act: 'deny', msg: 'ask.denyText', p: { by: 'A', note: 'no' } })
   const live = { questions: [{ question: 'Which?', header: 'Pick', options: [{ label: ' Yes ' }, { label: 'No' }] }] }
   const q = ask({ tool: 'AskUserQuestion' })
-  assert.deepEqual(decide(a({ decision: 'answer', option: 1 }), q, s, all, live), { act: 'answer', msg: 'ask.answerText', p: { label: 'Yes', by: 'A' }, question: 'Which?' })
+  assert.deepEqual(decide(a({ decision: 'answer', option: 1 }), q, s, all, live), { act: 'answer', by: 'A', picks: [{ question: 'Which?', label: 'Yes' }] })
   assert.equal(decide(a({ decision: 'answer', option: 3 }), q, s, all, live).act, 'ignore')
   assert.equal(decide(a({}), q, s, all, live).act, 'ignore')
+  // Several questions: the person picks one option for each; a session's pick is refused, and so is a count or an option that does not fit.
+  const two = { questions: [live.questions[0], { question: 'Where?', header: 'Place', options: [{ label: 'Here' }, { label: 'There' }] }] }
+  assert.deepEqual(decide(a({ by: PERSON, decision: 'answer', picks: [1, 2] }), q, mine, all, two), { act: 'answer', by: PERSON, picks: [{ question: 'Which?', label: 'Yes' }, { question: 'Where?', label: 'There' }] })
+  for (const picks of [[1], [1, 3], [1, 2, 1], [1, 0]]) assert.equal(decide(a({ by: PERSON, decision: 'answer', picks }), q, mine, all, two).act, 'ignore', String(picks))
+  assert.equal(decide(a({ decision: 'answer', picks: [1, 2] }), q, s, all, two).act, 'ignore')
+  assert.equal(decide(a({ by: PERSON, decision: 'answer', picks: [1, 2] }), q, mine, all, live).act, 'ignore')
   assert.equal(decide(a({ decision: 'answer', option: 1 }), ask(), s, all, live).act, 'ignore')
   // Eligible sessions only, in every world: an answer by anyone else is ignored.
   forAll(200, (r, w) => {
@@ -124,6 +130,17 @@ test('classify: what raised the ask, whatever the tool or the input', () => {
   assert.deepEqual(questionShape({ questions: [{ question: 'Q', options: [{ label: 'a' }, { label: 'a ' }] }] }), { ok: false, code: 'question-options' })
   assert.deepEqual(questionShape({ questions: [{ question: 'Q', options: [{ label: 'a\u202e' }, { label: 'b' }] }] }), { ok: false, code: 'question-options' })
   assert.equal(questionView({ questions: [{ question: 'token=abc123', header: 'H', options: [{ label: 'a' }, { label: 'b' }] }] })?.question, 'token=[REDACTED]')
+  // A call of 2 to 4 questions has no one-question view for a session; it has a list for the person's pop-ups, and one bad question takes it back.
+  let n = 0
+  const qn = (extra: object = {}) => ({ question: `Q${n++}`, header: 'H', options: [{ label: 'a' }, { label: 'b' }], ...extra })
+  assert.equal(questionView({ questions: [qn(), qn()] }), undefined)
+  assert.equal(questionsView({ questions: [qn(), qn(), qn(), qn()] })?.length, 4)
+  assert.equal(questionsView({ questions: [qn({ question: 'D' }), qn({ question: 'D' })] }), undefined, 'two questions with the same text would share one answer')
+  assert.equal(questionsView({ questions: [qn()] }), undefined)
+  assert.equal(questionsView({ questions: [qn(), qn(), qn(), qn(), qn()] }), undefined)
+  assert.equal(questionsView({ questions: [qn(), qn({ multiSelect: true })] }), undefined)
+  assert.equal(questionsView({ questions: [qn(), qn({ options: [{ label: 'a' }] })] }), undefined)
+  assert.equal(questionsView({ questions: [qn(), qn()], answers: {} }), undefined)
 })
 
 test('what a parent sees of the input: secrets redacted, a removed secret that could run leaves the input cut, a huge or odd input is capped and never throws', () => {

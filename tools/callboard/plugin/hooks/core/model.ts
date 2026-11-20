@@ -84,7 +84,8 @@ export type Ask = {
   raisedBy: RaisedBy
   input: string
   cut: boolean
-  question?: Question
+  question?: Question // the one question of a call, which a session may answer
+  questions?: Question[] // the 2 to 4 questions of a call, which only the person answers
   beat: number
 }
 
@@ -96,6 +97,7 @@ export type Answer = {
   decision: 'allow' | 'deny' | 'answer'
   note?: string
   option?: number
+  picks?: number[] // the person's pick (1-based) for each of an ask's questions
   answer?: string
   at: number
 }

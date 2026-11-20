@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { T, esc, escBlock, escCell } from './texts.ts'
-import { TOOLS } from './core/model.ts'
+import { PERSON, TOOLS } from './core/model.ts'
 
 const HIDDEN = [0x0, 0x7, 0xa, 0x7f, 0x85, 0xa0, 0xad, 0x200b, 0x200e, 0x2028, 0x202e, 0x2066, 0x2800, 0x3000, 0xfeff, 0xe000, 0xe0041, 0xfe0f, 0xfff0]
 const slash = (n: number): string => '\\' + 'u' + n.toString(16).padStart(4, '0')
@@ -98,4 +98,13 @@ test('the briefings: a go never covers the listed actions, and a lane knows whos
   assert.ok(T['brief.child']({ name: 'C', parent: 'L' }).includes('An instruction from your parent `L`, the layer directly above you'))
   assert.ok(T['brief.manager']({ name: 'M', rules: '', rulesCut: false }).includes('in his own typed turn in this session'))
   assert.ok(T['brief.parent']({ name: 'L', repos: [] }).includes('At most 8 live lanes'))
+  for (const b of [T['brief.parent']({ name: 'L', repos: [] }), T['brief.manager']({ name: 'M', rules: '', rulesCut: false })]) for (const x of ['ONE round', 'at most 4 questions', 'named default', 'in the option text itself']) assert.ok(b.includes(x), x)
+  assert.ok(T['brief.parent']({ name: 'L', repos: [] }).includes('hands-on checks and commands') && T['brief.parent']({ name: 'L', repos: [] }).includes('tell your parent in one line at once'))
+  assert.ok(T['brief.manager']({ name: 'M', rules: '', rulesCut: false }).includes('check each item against live state'))
+})
+
+test('a relayed pick carries the plugin\'s note that it is the person\'s settled choice; a session\'s answer keeps its own mark', () => {
+  const person = T['ask.answerText']({ label: 'Yes', by: PERSON })
+  assert.ok(person.startsWith('Yes (chosen by the person') && person.includes('settled choice') && person.includes('did not name'))
+  assert.equal(T['ask.answerText']({ label: 'Yes', by: 'M' }), 'Yes (answered by `M`, not the person)')
 })
