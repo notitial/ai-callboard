@@ -1,8 +1,8 @@
 'use strict'
 // "Callboard Lanes", a tree that lists the callboard sessions the records know in this window's workspace folders, whether or not their panel is open, grouped
-// under the lead that owns them, and below them each workspace folder's saved Claude conversations. It sits in Claude Code's Session Manager when that list is
+// under the lead that owns them, and below them each workspace folder's saved Claude conversations, shown by their titles. It sits in Claude Code's Session Manager when that list is
 // on, else in the Explorer (package.json: one view id each, the same tree). A click reopens the session in its own folder through lanes.reopen. Sources: the plugin's session table (v2/sessions.json) and the live
-// registry rows, and for the conversations only the file names and times under <claude dir>/projects/<folder>: no transcript is opened.
+// registry rows, and for the conversations the transcripts under <claude dir>/projects/<folder>: a file's time and the title lines in its first and last 64 KB, nothing else is read.
 // VS Code access is injected, so the view can be tested with fakes.
 const fs = require('node:fs')
 const path = require('node:path')
@@ -13,6 +13,9 @@ const CHATS_MS = 30000
 const CHATS_MAX = 15
 const GONE_MS = 7 * 86400000
 const NAME_LIMIT = 200
+const TITLE_BYTES = 65536
+const TITLE_MAX = 100
+const SCAN_MAX = 60
 const STAT_BATCH = 64
 const OPEN = 'callboardPanels.openLane'
 const VIEWS = ['callboardLanes', 'callboardLanesSidebar']
@@ -52,7 +55,45 @@ function buildEntries({ table, rows, now, alive = pidAlive }) {
   return out.sort((a, b) => a.name.localeCompare(b.name))
 }
 
-// The saved conversations of a folder, newest first: the directory Claude Code keeps them in is the folder with every character that is not a letter or digit
+// The last line of `text` that is a record of this type with a text value, or undefined.
+const lastTitle = (text, type, key) => {
+  const isType = new RegExp(`"type": ?"${type}"`)
+  for (const line of text.split('\n').reverse()) {
+    if (!isType.test(line)) continue
+    try {
+      const t = JSON.parse(line)[key]
+      if (typeof t === 'string' && t.trim()) return t
+    } catch {}
+  }
+}
+
+// A transcript's title as Claude Code's own list reads it: the last custom-title line (a rename), else the last ai-title line (generated), looked for in
+// the last and then the first 64 KB of the file. undefined when there is none, and the chat is not listed.
+async function chatTitle(file) {
+  let fh
+  try {
+    fh = await fs.promises.open(file, 'r')
+    const { size } = await fh.stat()
+    const part = async (at) => {
+      const buf = Buffer.alloc(Math.min(TITLE_BYTES, size - at))
+      await fh.read(buf, 0, buf.length, at)
+      return buf.toString('utf8')
+    }
+    const texts = [await part(Math.max(0, size - TITLE_BYTES)), ...(size > TITLE_BYTES ? [await part(0)] : [])]
+    for (const [type, key] of [['custom-title', 'customTitle'], ['ai-title', 'aiTitle']]) {
+      for (const text of texts) {
+        const t = lastTitle(text, type, key)
+        if (t) return t.replace(/\s+/g, ' ').trim().slice(0, TITLE_MAX)
+      }
+    }
+  } catch {
+    // an unreadable file has no title
+  } finally {
+    await fh?.close()
+  }
+}
+
+// The saved conversations of a folder that have a title, newest first: the directory Claude Code keeps them in is the folder with every character that is not a letter or digit
 // made "-". A name the host would shorten and hash (over 200 characters) is not matched.
 async function recentChats(projectsDir, folder, max = CHATS_MAX) {
   const key = folder.replace(/[^a-zA-Z0-9]/g, '-')
@@ -64,7 +105,13 @@ async function recentChats(projectsDir, folder, max = CHATS_MAX) {
     const batch = await Promise.all(names.slice(i, i + STAT_BATCH).map((n) => fs.promises.stat(path.join(dir, n)).then((st) => (st.isFile() ? { sid: n.slice(0, -6), at: st.mtimeMs } : undefined), () => undefined)))
     out.push(...batch.filter(Boolean))
   }
-  return out.sort((a, b) => b.at - a.at).slice(0, max)
+  const found = []
+  for (const c of out.sort((a, b) => b.at - a.at).slice(0, SCAN_MAX)) {
+    if (found.length >= max) break
+    const title = await chatTitle(path.join(dir, `${c.sid}.jsonl`))
+    if (title) found.push({ ...c, title })
+  }
+  return found
 }
 
 function createLaneView({ vscode, registry, lanes, tablePath, projectsDir, workspaceFolders, alive = pidAlive, now = Date.now }) {
@@ -83,8 +130,6 @@ function createLaneView({ vscode, registry, lanes, tablePath, projectsDir, works
     // Only what a click here can open: the sessions of this window's served folders (lanes.reopen refuses any other).
     const served = workspaceFolders()
     const entries = buildEntries({ table: await readTable(tablePath), rows, now: now(), alive }).filter((e) => served.includes(e.folder))
-    const names = new Map(rows.filter((r) => typeof r.name === 'string').map((r) => [r.sessionId, r.name]))
-    for (const e of entries) names.set(e.sid, e.name)
     const nodes = new Map(entries.map((e) => [e.sid, { kind: 'lane', ...e, kids: [] }]))
     const top = []
     // A lead chain that comes back to the node (a broken table) puts it at the top, so every node is shown once.
@@ -100,7 +145,7 @@ function createLaneView({ vscode, registry, lanes, tablePath, projectsDir, works
       chatsAt = now()
     }
     const groups = [...chats].filter(([, list]) => list.length).map(([folder, list]) => ({
-      kind: 'group', folder, kids: list.map((c) => ({ kind: 'chat', sid: c.sid, folder, name: names.get(c.sid), age: ago(Math.max(0, now() - c.at)) })),
+      kind: 'group', folder, kids: list.map((c) => ({ kind: 'chat', sid: c.sid, folder, name: c.title, age: ago(Math.max(0, now() - c.at)) })),
     }))
     roots = [...top, ...groups]
     const sig = JSON.stringify(roots)
@@ -141,7 +186,7 @@ function createLaneView({ vscode, registry, lanes, tablePath, projectsDir, works
       item.id = chat ? `chat:${node.folder}:${node.sid}` : `lane:${node.sid}`
       item.description = chat ? node.age : `${base} · ${node.state}`
       item.iconPath = chat ? new vscode.ThemeIcon('comment') : new vscode.ThemeIcon(ICON[node.state], COLOR[node.state] && new vscode.ThemeColor(COLOR[node.state]))
-      item.tooltip = [node.name ?? node.sid, chat ? undefined : node.state, node.lead && `lead ${node.lead}`, node.folder, node.age && `last activity ${node.age}${node.age === 'now' ? '' : ' ago'}`].filter(Boolean).join('\n')
+      item.tooltip = [node.name, chat ? undefined : node.state, node.lead && `lead ${node.lead}`, node.folder, node.age && `last activity ${node.age}${node.age === 'now' ? '' : ' ago'}`].filter(Boolean).join('\n')
       item.command = { command: OPEN, title: 'Open', arguments: [node.sid, node.folder] }
       return item
     },

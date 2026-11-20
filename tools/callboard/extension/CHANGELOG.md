@@ -2,6 +2,10 @@
 
 The version stays fixed between these entries: a change to the code is an update of the checkout plus a window reload, not a new version.
 
+## 1.7.0
+
+- The "Callboard Lanes" view starts collapsed (`visibility: collapsed` on both view entries; VS Code applies it the first time the view appears). Its "Recent chats" groups show each chat's real title, read from the transcript the way Claude Code's own list reads it (the last rename, else the generated title), and leave out a chat with no readable title instead of showing an id. The package description no longer names the old mod. The manifest changes, so this version needs the quit, pull, `link-extension.py --apply` update.
+
 ## 1.6.0
 
 - The lane view sits in Claude Code's Session Manager, below its session list, when that list is on (`claude-vscode.sessionsListEnabled`), and in the Explorer otherwise: two view ids for one tree. It lists only the sessions of the window's served folders, shows a waiting session as the live dot in orange, and puts a session whose lead chain comes back to it at the top. The groups are filed from the plugin's session table too. The folder badge finds the panel in front by its session id through the patch's session command (`callboard active session`), so an unnamed session shows its folder too; without that piece it matches the tab label as before. The manifest changes, so this version needs the quit, pull, `link-extension.py --apply` update.
