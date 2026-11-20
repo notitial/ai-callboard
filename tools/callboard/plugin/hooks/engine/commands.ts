@@ -35,7 +35,7 @@ export async function laneRows($: any, v: View, me: Sid): Promise<LaneRow[]> {
     under.map(async (k) => {
       const u = await usageRead($, k, now)
       const reg = v.rows === 'unknown' ? undefined : v.rows.get(k)
-      return { name: nameOf(v, k), role: capability(v, k), state: childState(v, k, mem.signed.set.has(k), now), parent: person(v, parent(v, k)) === 'unknown' ? null : person(v, parent(v, k)), folder: reg?.folder ?? v.table[k]?.folder ?? '', context: u?.tokens, fiveHour: u?.fiveHour, sevenDay: u?.sevenDay, cost: u?.cost, readAgeMin: u === undefined ? undefined : (now - u.at) / 60_000 }
+      return { sid: k, name: nameOf(v, k), role: capability(v, k), state: childState(v, k, mem.signed.set.has(k), now), parentSid: parent(v, k) === 'unknown' ? null : parent(v, k), folder: reg?.folder ?? v.table[k]?.folder ?? '', context: u?.tokens, fiveHour: u?.fiveHour, sevenDay: u?.sevenDay, cost: u?.cost, readAgeMin: u === undefined ? undefined : (now - u.at) / 60_000 }
     }),
   )
 }

@@ -123,7 +123,7 @@ test('the briefing: a section for the manager (rules cut), a lead, a child; none
   f.seed({ sid: 'sid-lead', pid: 12, name: 'LEAD' })
   f.table({ 'sid-lead': { name: 'LEAD', folder: '/w/lead', lead: { repos: [] } }, 'sid-me': { name: 'me', folder: '/w/me', under: 'sid-lead' } })
   mem.view = undefined
-  assert.match((await compose()).sections.find((s: { id: string }) => s.id === 'callboard:brief').text, /Do not open a question dialog\. Send a question or dilemma to your parent `LEAD`/)
+  assert.match((await compose()).sections.find((s: { id: string }) => s.id === 'callboard:brief').text, /Do not open a question dialog for a product or design question\. Send it to your parent `LEAD`/)
   f.table({ 'sid-me': { name: 'me', folder: '/w/me', under: 'sid-boss' } })
   mem.view = undefined
   assert.equal((await compose({ tools: ['Read'] })).sections.length, 1)

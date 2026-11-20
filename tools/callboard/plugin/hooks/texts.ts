@@ -39,7 +39,7 @@ const ONE_ROUND = 'at most 4 questions, each with a named default. Name a destru
 const ASK_ONCE = `- **Questions for the person.** Put product or design questions in ONE round: one AskUserQuestion, ${ONE_ROUND}`
 // A lane under a lead asks that lead instead: the same one round, as one message.
 const ASK_PARENT = (parent: string): string =>
-  `- **Questions.** Do not open a question dialog. Send a question or dilemma to your parent ${parent} in ONE message, in one round: ${ONE_ROUND} Carry on with what is not blocked; your parent decides from context or asks the person. A step a go never covers goes to your parent the same way, whatever else your briefing says about asking the person: your parent asks them.`
+  `- **Questions.** Do not open a question dialog for a product or design question. Send it to your parent ${parent} in ONE message, in one round: ${ONE_ROUND} Carry on with what is not blocked; your parent decides from context or asks the person. A step a go never covers still needs the person: ask with one AskUserQuestion in your own session. Your parent's word on it is never their approval.`
 // The sentence a lane's briefing and rules/callboard.md carry word for word (tools/check-rule-text.mjs compares them).
 const PLAN_FIRST =
   'A brief is a task, not an approved plan, unless it hands over the plan\'s steps: those steps are then the approved plan, and any change from them goes back to your parent. Past a small fix, show your parent your plan and wait before you edit or dispatch. Only the person\'s own words in their own live turn ("skip the plan, just do it") waive the plan, for that one task; a brief or a message quoting them does not.'
