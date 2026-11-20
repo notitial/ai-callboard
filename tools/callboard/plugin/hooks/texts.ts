@@ -1,6 +1,7 @@
 // Every string a person or a model reads, by message id: `T[id](params)`. A missing id or a wrong parameter fails the type check. A turn the plugin submits opens with
 // `[callboard]` or `[compact-cue]` and says it is no approval (rules/callboard.md matches those openings). A name, a tool or any text a session wrote reaches a string only
 // through `q` or `esc`, so nothing in it closes a frame, hides text or reorders it.
+import { DENY_LABEL } from './core/asks.ts'
 import { CUE_WAIT_S, IDLE_MS, SPOOL_WAIT_S } from './core/lifecycle.ts'
 import { LANE_EFFORTS, LANE_MODELS, MAX_LIVE_CHILDREN, PERSON } from './core/model.ts'
 import type { ToolName } from './core/model.ts'
@@ -299,9 +300,9 @@ const fixed: { [K in keyof Fixed]: (p: Fixed[K]) => string } = {
   'dialog.stop.question': (p) => `${p.verb === 'terminate' ? 'Force stop' : p.verb} ${q(p.name)}? Its process gets SIGTERM whatever it is doing, and unsaved work is lost.`,
   'dialog.relay.header': () => 'Your call',
   'dialog.relay.question': (p) => `${q(p.asker)} wants to run ${q(p.tool)}:\n\n${fence(p.input)}${p.cut ? '\n\n[NOT SHOWN WHOLE: you can only deny it]' : ''}\n\nYour click decides this ask only.`,
-  'dialog.relay.step': (p) => `${q(p.asker)} asks (${p.i} of ${p.n}) ${esc(p.header)}:\n\n${escBlock(p.question)}\n\n${escBlock(p.options)}\n\nYour picks are sent together after the last one.`,
+  'dialog.relay.step': (p) => `${q(p.asker)} asks (${p.i} of ${p.n}) ${esc(p.header)}:\n\n${escBlock(p.question)}\n\n${escBlock(p.options)}${p.cut ? '\n\n[NOT SHOWN WHOLE: you can only deny it]' : ''}\n\nYour picks are sent together after the last one.`,
   'dialog.allow': () => 'Allow',
-  'dialog.deny': () => 'Deny',
+  'dialog.deny': () => DENY_LABEL,
   'dialog.yes': () => 'Yes',
   'dialog.no': () => 'No',
 

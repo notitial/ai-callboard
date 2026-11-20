@@ -78,12 +78,19 @@ export function relayDialog(asker: string, tool: string, input: string, cut: boo
   }
 }
 
-// One question of a call of several, as a pop-up of its own, with each option's description and a Deny: the person's picks are sent together after the last.
-export const relayStep = (asker: string, q: Question, i: number, n: number): DialogSpec => ({
-  header: T['dialog.relay.header']({}),
-  question: T['dialog.relay.step']({ asker, i, n, header: q.header.slice(0, DIALOG_CAP), question: q.question.slice(0, DIALOG_CAP), options: q.options.map((o, k) => `${k + 1}. ${o.label}${o.description ? ` - ${o.description}` : ''}`).join('\n').slice(0, DIALOG_CAP) }),
-  options: [...q.options.map((o) => ({ label: o.label })), { label: T['dialog.deny']({}) }],
-})
+// One question of a call of several, as a pop-up of its own, with each option's description and a Deny: the person's picks are sent together after the last. Text that
+// has to be cut to fit leaves Deny only, as in relayDialog.
+export function relayStep(asker: string, q: Question, i: number, n: number): DialogSpec {
+  const raw = [q.header, q.question, q.options.map((x, k) => `${k + 1}. ${x.label}${x.description ? ` - ${x.description}` : ''}`).join('\n')]
+  const [h, t, o] = raw.map((s) => capBytes(s, DIALOG_CAP).text)
+  // The pop-up escapes what it shows, so whole means the escaped text fits, as in relayDialog.
+  const cut = raw.some((s) => printed(s, DIALOG_CAP).cut)
+  return {
+    header: T['dialog.relay.header']({}),
+    question: T['dialog.relay.step']({ asker, i, n, header: h!, question: t!, options: o!, cut }),
+    options: [...(cut ? [] : q.options.map((x) => ({ label: x.label }))), { label: T['dialog.deny']({}) }],
+  }
+}
 
 // ---- the toast ----
 // A refusal's toast; any other decision has none.

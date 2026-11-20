@@ -154,6 +154,44 @@ test('a call of several questions is relayed as one pop-up each, one combined an
   const last = (await readAskLog(f.$, 0))!.at(-1)!
   assert.deepEqual([last.ev, last.by], ['answered', 'PERSON'])
 })
+test('a step of several that is cut offers Deny only', async () => {
+  const f = tiers()
+  const boss = peer(f, 'sid-boss')
+  f.h.sleepMoves = false
+  const q = (question: string) => ({ header: 'H', question, options: [{ label: 'A' }, { label: 'B' }] })
+  await writeAsk(f.$, mk('dd11ee22ff', { tool: 'AskUserQuestion', input: '{}', questions: [q('One?'), q('x'.repeat(5000))] }))
+  await reach(f, 'dd11ee22ff')
+  boss.h.askAnswer = async (text: string) => (text.includes('(2 of 2)') ? 'Deny' : 'A')
+  await tickRelay(boss)
+  await settle()
+  assert.deepEqual(boss.h.asked.map((a) => a.options), [['A', 'B', 'Deny'], ['Deny']], 'the cut step cannot be answered, only denied')
+  assert.equal((await readAnswer(f.$, 'dd11ee22ff'))?.decision, 'deny')
+})
+test('with the guard missing at the last click of several, the picks are not written, the guard is named, and the ask is offered again', async () => {
+  const f = tiers()
+  const boss = peer(f, 'sid-boss')
+  f.h.sleepMoves = false
+  const q = (question: string) => ({ header: 'H', question, options: [{ label: 'A' }, { label: 'B' }] })
+  await writeAsk(f.$, mk('aa11bb22cc', { tool: 'AskUserQuestion', input: '{}', questions: [q('One?'), q('Two?')] }))
+  await reach(f, 'aa11bb22cc')
+  boss.h.askAnswer = async (text: string) => {
+    if (text.includes('(2 of 2)')) {
+      f.h.files.delete(`${HOME}/.claude/callboard/.protected-checkout`)
+      mem.guard = undefined
+    }
+    return 'A'
+  }
+  await tickRelay(boss)
+  await settle()
+  assert.equal(await readAnswer(f.$, 'aa11bb22cc'), undefined)
+  assert.match(boss.h.toasts[0]!, /guard/)
+  f.h.files.set(`${HOME}/.claude/callboard/.protected-checkout`, '')
+  mem.guard = undefined
+  boss.h.asked.length = 0
+  await tickRelay(boss)
+  await settle()
+  assert.equal(boss.h.asked.length, 2, 'the ask is offered again, from its first question')
+})
 test('leaving one pop-up of several writes no answer and the ask is not offered again', async () => {
   const f = tiers()
   const boss = peer(f, 'sid-boss')

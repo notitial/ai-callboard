@@ -86,6 +86,8 @@ export function classify(tool: string, f: CheckFacts | undefined): RaisedBy {
 const obj = (x: unknown): Record<string, unknown> => (x !== null && typeof x === 'object' && !Array.isArray(x) ? (x as Record<string, unknown>) : {})
 const str = (x: unknown): string => (typeof x === 'string' ? x : '')
 const LABEL_MAX = 200
+// The plugin's own Deny button: a click is read by its label, so no asker's option may carry it.
+export const DENY_LABEL = 'Deny'
 // A label may not hold a control character, a line or paragraph break, a bidi override or isolate, or a zero-width or tag character: text that can hide or reorder
 // what a reader sees.
 const CONTROL_RE = /[\u0000-\u001f\u007f-\u009f\u200b\u2028-\u202e\u2060-\u2069\ufeff\u{e0000}-\u{e007f}]/u
@@ -108,7 +110,7 @@ function oneShape(x: unknown, answered: boolean): { ok: true } | { ok: false; co
   const raw = labelsOf(q)
   const n = Array.isArray(q.options) ? q.options.length : 0
   const plain = raw.every((l) => typeof l === 'string' && l.trim() !== '' && bytes(l) <= LABEL_MAX && bytes(labelOf(l)) <= LABEL_MAX && !CONTROL_RE.test(l))
-  if (n < 2 || n > 4 || !plain || new Set(raw.map((l) => str(l).trim())).size !== n || new Set(raw.map(labelOf)).size !== n) return { ok: false, code: 'question-options' }
+  if (n < 2 || n > 4 || !plain || new Set(raw.map((l) => str(l).trim())).size !== n || new Set(raw.map(labelOf)).size !== n || raw.some((l) => labelOf(l) === DENY_LABEL)) return { ok: false, code: 'question-options' }
   if (str(q.header).trim().toLowerCase() === 'person') return { ok: false, code: 'question-person' }
   if (typeof q.question !== 'string' || (q.header !== undefined && typeof q.header !== 'string') || answered) return { ok: false, code: 'question-shape' }
   return { ok: true }

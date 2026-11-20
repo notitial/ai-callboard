@@ -32,18 +32,13 @@ async function relayRun($: any, ask: Ask, v: View): Promise<void> {
     const name = nameOf(v, ask.asker)
     mem.shown = { id: ask.id, name }
     const r = await (ask.questions === undefined || ask.cut ? personDialog($, relayDialog(name, ask.tool, ask.input, ask.cut, ask.question), EXPIRE_MS) : relaySteps($, ask, name)).finally(() => (mem.shown = undefined))
-    if ('picks' in r) {
-      const out = await answerAsk($, await getView($, true), ask.id, { decision: 'answer', picks: r.picks }, PERSON)
-      if (out.act !== 'ok') toast($, say({ msg: 'toast.askClosed', p: {} }))
-      return
-    }
-    if (!('label' in r)) {
+    if (!('picks' in r) && !('label' in r)) {
       if (r.no === 'timeout') await logAsk($, { ev: 'relay-unanswered', ask: ask.id, asker: ask.asker })
       else if (r.no !== 'error') mem.relayed.delete(ask.id)
       return
     }
-    const option = ask.question?.options.findIndex((o) => o.label === r.label) ?? -1
-    const decision = r.label === T['dialog.deny']({}) ? ({ decision: 'deny' } as const) : option >= 0 ? { decision: 'answer', option: option + 1 } : ({ decision: 'allow' } as const)
+    const option = 'label' in r ? (ask.question?.options.findIndex((o) => o.label === r.label) ?? -1) : -1
+    const decision = 'picks' in r ? ({ decision: 'answer', picks: r.picks } as const) : r.label === T['dialog.deny']({}) ? ({ decision: 'deny' } as const) : option >= 0 ? { decision: 'answer', option: option + 1 } : ({ decision: 'allow' } as const)
     const out = await answerAsk($, await getView($, true), ask.id, decision, PERSON)
     if (out.act === 'ok') return
     const bare = out.msg === 'refuse.no-guard'

@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { PRINT_CAP, goDialog, goList, lanesTable, printed, promptList, refusalToast, relayDialog, statusPage, stopDialog } from './ui.ts'
+import { PRINT_CAP, goDialog, goList, lanesTable, printed, promptList, refusalToast, relayDialog, relayStep, statusPage, stopDialog } from './ui.ts'
 import type { AskView, LaneRow } from './ui.ts'
 import { refusal } from './core/model.ts'
 import type { Ask } from './core/model.ts'
@@ -89,6 +89,17 @@ test('a relay pop-up offers Allow only for an input a dialog shows whole: past a
   const d = relayDialog('lane-a', 'Bash', 'x'.repeat(5000), false)
   assert.deepEqual(d.options.map((o) => o.label), ['Deny'])
   assert.equal(d.cut, true)
+})
+test('a pop-up for one question of several offers its options only when it shows the whole text: a question past a few KB is Deny only', () => {
+  const q = (question: string) => ({ header: 'H', question, options: [{ label: 'A', description: 'd' }, { label: 'B', description: '' }] })
+  const whole = relayStep('lane-a', q('Which?'), 1, 2)
+  assert.deepEqual(whole.options.map((o) => o.label), ['A', 'B', 'Deny'])
+  assert.ok(!whole.question.includes('NOT SHOWN WHOLE'))
+  const cut = relayStep('lane-a', q('x'.repeat(5000)), 1, 2)
+  assert.deepEqual(cut.options.map((o) => o.label), ['Deny'])
+  assert.match(cut.question, /NOT SHOWN WHOLE/)
+  assert.deepEqual(relayStep('lane-a', q('<'.repeat(4000)), 1, 2).options.map((o) => o.label), ['Deny'], 'escaping grows the text past the cap')
+  assert.deepEqual(relayStep('lane-a', { header: 'H', question: 'Q', options: [{ label: 'A', description: 'y'.repeat(5000) }, { label: 'B', description: '' }] }, 1, 2).options.map((o) => o.label), ['Deny'], 'long option text is cut too')
 })
 
 test('the go and relay pop-ups fit their header chip and read plainly: the go names its giver, end and work and points to go_status; the relay shows the input one field a line in a block it cannot close', () => {
