@@ -117,12 +117,14 @@ PIE_JS = (
     'xmlns:"http://www.w3.org/2000/svg",className:t,style:{{display:"block"}},children:[i&&m("path",{{d:i,stroke:"currentColor",strokeOpacity:"0.15",strokeWidth:"1.5",'
     'strokeLinecap:"round"}}),m("path",{{d:DBn[n],stroke:"var(--app-claude-clay-button-orange)",strokeWidth:"1.5",strokeLinecap:"round"}})]}})}}'
     'function {pc}({{usedTokens:e,contextWindow:t,onCompact:n,buttonClassName:i}}){{let o=t>0?Math.min(e/t*100,100):0,r=100-o;if(t===0)return null;if(r>=50)return null;'
-    'return m(FBn,{{percentageUsed:o,onCompact:n,buttonClassName:i}})}}'
+    'return m({fb},{{percentageUsed:o,onCompact:n,buttonClassName:i}})}}'
+    'function {fb}({{percentageUsed:e,onCompact:t,buttonClassName:n}}){{let[i,o]=B(!1),r=100-e;return k("div",{{className:lv.host,children:[m("button",{{type:"button",className:`${{TAe.usage}} ${{n??""}}`,"aria-label":`${{Math.round(e)}}% context used — click to compact`,'
+    'onClick:t,onMouseEnter:()=>o(!0),onMouseLeave:()=>o(!1),children:m({sv},{{percentage:e,className:TAe.pie}})}}),i&&m(VA,{{text:`${{Math.round(r)}}% of context remaining until auto-compact.`,hint:"Click to compact now."}})]}})}}'
     'function Bar(e){{return k("div",{{children:[m("button",{{}}),m({pc},{{usedTokens:e.usageData.value.totalTokens,'
     'contextWindow:{tf}(e.usageData.value.contextWindow,e.usageData.value.maxOutputTokens),onCompact:a,buttonClassName:ia.usageButtonV2}}),m(BFt,{{session:e}})]}})}}'
 )
-JS329 = dict(sv="tBt", pc="nBt", tf="NFt")
-JS328 = dict(sv="SFt", pc="kFt", tf="tFt")
+JS329 = dict(sv="tBt", pc="nBt", tf="NFt", fb="FBn")
+JS328 = dict(sv="SFt", pc="kFt", tf="tFt", fb="dBn")
 # A stand-in for the shipped webview, carrying the tokens the width piece checks and the pie's code, and what a stock extension folder then holds.
 WEB = {"index.css": ".inputWrapper_a1,.permissionsContainer_b2,.inputContainer_c3{max-width:680px}", "index.js": PIE_JS.format(**JS329)}
 STOCK = ["extension.js", "package.json", "webview"]
@@ -947,14 +949,17 @@ const vm = require('vm'), fs = require('fs')
 const [file, level, sv, pc] = process.argv.slice(1)
 const m = (t, p) => ({ t, p }), k = (t, p) => ({ t, p })
 const stock = (w, o) => w - Math.min(o, 20000) - 13000
-const ctx = vm.createContext({ m, k, FBn: 'FBn', BFt: 'BFt', ia: { usageButtonV2: 'u' }, a: 'compact', PBn: () => 50, DBn: { 50: 'd' }, NFt: stock, tFt: stock,
+const ctx = vm.createContext({ m, k, B: () => [true, () => {}], VA: 'VA', lv: { host: 'h' }, TAe: {}, BFt: 'BFt', ia: { usageButtonV2: 'u' }, a: 'compact', PBn: () => 50, DBn: { 50: 'd' }, NFt: stock, tFt: stock,
   getComputedStyle: () => ({ getPropertyValue: (n) => (n === '--callboard-compact' ? level : '') }), document: { documentElement: {} } })
 vm.runInContext(fs.readFileSync(file, 'utf8') + ';globalThis.F = { sv: ' + sv + ', pc: ' + pc + ', Bar }', ctx)
 const props = (used, w, o = 20000) => ctx.F.Bar({ usageData: { value: { totalTokens: used, contextWindow: w, maxOutputTokens: o } } }).p.children[1].p
 const used = (u, w) => { const r = ctx.F.pc(props(u, w)); return r && r.p.percentageUsed }
 const ring = (x) => ctx.F.sv({ percentage: x, className: 'c' }).p.children.map((c) => c && { r: c.p.r, d: c.p.strokeDasharray, s: c.p.stroke })
+const hover = (u, w) => { const r = ctx.F.pc(props(u, w)); return r && r.t(r.p).p.children[1].p }
+const sized = ctx.F.sv({ percentage: 50, className: 'c' }).p
 console.log(JSON.stringify({ window: [props(1, 1000000).contextWindow, props(1, 400000).contextWindow, props(1, 1000000, 8000).contextWindow], used: [used(1000, 1000000), used(233500, 1000000), used(900000, 1000000)],
-  ring: [ring(0), ring(50), ring(150), ring(NaN), ring(undefined)] }))
+  ring: [ring(0), ring(50), ring(150), ring(NaN), ring(undefined)], size: [sized.width, sized.height, sized.viewBox],
+  hover: [hover(126430, 233000), hover(0, 233000), hover(500, 233000), hover(499, 233000), hover(250000, 233000), hover(1, 33000), hover(undefined, 233000), hover(126430, 1000000)] }))
 """
 CIRC = 2 * 3.141592653589793 * 7.25
 # What an older script that had no pie amounts to: anchors that match nothing, so the piece is left out.
@@ -988,6 +993,7 @@ class Pie(Case):
             self.assertEqual((new.count(b"cbpCap("), new.count(b"cbpN;"), new.count(b"<circle"), new.count(b'"circle"')), (2, 1, 0, 2))
             self.assertNotIn(b"if(r>=50)return null", new)
             self.assertNotIn(b'"path"', new)
+            self.assertEqual((new.count(b'width:"16",height:"16"'), new.count(b'"20"'), new.count(b"cbpTip"), new.count(b"of context remaining")), (1, 0, 3, 0))
             self.assertEqual(sorted(os.listdir(ext)), sorted(STOCK + ["callboard-cwd-patch.json", "extension.js.callboard-orig"]))
             self.run_script(ext)
             self.assertEqual((self.rc, self.out), (0, "patched 2.1.328\n"))
@@ -1014,6 +1020,35 @@ class Pie(Case):
             for none in ("", " 0", " garbage", " -5"):
                 self.assertEqual(self.shown(ext, none, names)["window"][0], 967000, "no usable level: the stock window")
             self.assertEqual(self.shown(ext, " 5000000", names)["window"][0], 967000, "a level above the window changes nothing")
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_the_ring_is_16px_and_the_hover_is_used_over_limit_in_k(self):
+        for names in (JS329, JS328):
+            web = dict(WEB, **{"index.js": PIE_JS.format(**names)})
+            ext = self.make(V327, name="hov" + names["pc"], web=web)
+            self.run_script(ext, "--apply")
+            got = self.shown(ext, "", names)
+            self.assertEqual(got["size"], ["16", "16", "0 0 20 20"], "the drawing keeps its 20 box, so the stroke scales")
+            self.assertEqual([h and h.get("text") for h in got["hover"]],
+                             ["126k/200k", "0k/200k", "1k/200k", "0k/200k", "250k/200k", None, "0k/200k", "126k/967k"], "whole k; used past the limit shows as it is; no limit draws nothing")
+            self.assertTrue(all(h is None or "hint" not in h for h in got["hover"]), "no hint line")
+            self.assertEqual(self.shown(ext, " 100000", names)["hover"][0]["text"], "126k/67k", "the limit is the compaction point of the level, where the ring is full")
+
+    def test_a_missing_tooltip_anchor_leaves_the_stock_hover_and_keeps_the_ring(self):
+        js = WEB["index.js"]
+        cases = {
+            "amounts": js.replace("percentageUsed:o,onCompact:n", "percentage:o,onCompact:n", 1),
+            "text": js.replace("of context remaining", "of context left", 1),
+            "doubled": js + js[js.index("function FBn"):js.index("function Bar")],
+        }
+        for label, bad in cases.items():
+            ext = self.make(V327, name="tip" + label, web=dict(WEB, **{"index.js": bad}))
+            self.run_script(ext, "--apply")
+            self.assertEqual((self.rc, self.out.count("warning")), (0, 0), self.out)
+            new = slurp(os.path.join(ext, self.WEBJS))
+            self.assertEqual((self.marker(ext)["pie"], new.count(b'width:"16",height:"16"'), new.count(b"cbpTip"), new.count(b"cbpCap("), new.count(b"Click to compact now.")), (True, 1, 0, 2, 1 if label != "doubled" else 2), label)
+            self.run_script(ext)
+            self.assertEqual((self.rc, self.out), (0, "patched 2.1.328\n"), label)
 
     @unittest.skipUnless(shutil.which("node"), "needs node")
     def test_the_page_carries_the_level_from_the_settings_of_the_config_folder(self):
@@ -1088,6 +1123,26 @@ class Pie(Case):
         self.assertEqual(self.out, "already patched 2.1.328\n")
         self.run_script(ext, "--undo")
         self.assertEqual((slurp(os.path.join(ext, self.WEBJS)), sorted(os.listdir(os.path.join(ext, "webview")))), (orig_js, ["index.css", "index.js"]))
+
+    def test_an_install_made_with_the_earlier_pie_reads_outdated_and_update_rebuilds_it(self):
+        old = load_module()
+        size = lambda rep: lambda m: rep(m).replace(b'width:"16",height:"16"', b'width:"20",height:"20"')
+        earlier = tuple((n, p, size(r) if n == "pie drawing" else r) for n, p, r in old.PIE_ANCHORS)
+        ext = self.make(V327, name="earlier")
+        orig_js = slurp(os.path.join(ext, self.WEBJS))
+        self.older(ext, PIE_ANCHORS=earlier, PIE_TIP_ANCHORS=())
+        before = slurp(os.path.join(ext, self.WEBJS))
+        self.assertEqual((before.count(b'width:"20"'), before.count(b"cbpTip")), (1, 0))
+        self.run_script(ext)
+        self.assertEqual((self.rc, self.out.splitlines()[0]), (1, "outdated 2.1.328: the patch code differs from this script's"))
+        self.run_script(ext, "--update")
+        self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "updated 2.1.328"))
+        new = slurp(os.path.join(ext, self.WEBJS))
+        self.assertEqual((new.count(b'width:"16"'), new.count(b'"20"'), new.count(b"cbpTip"), slurp(os.path.join(ext, self.BAK))), (1, 0, 3, orig_js))
+        self.run_script(ext)
+        self.assertEqual((self.rc, self.out), (0, "patched 2.1.328\n"))
+        self.run_script(ext, "--undo")
+        self.assertEqual(slurp(os.path.join(ext, self.WEBJS)), orig_js)
 
     def test_update_follows_the_pie_out_when_the_script_can_no_longer_build_it(self):
         mod = load_module()

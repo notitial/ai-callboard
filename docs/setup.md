@@ -122,8 +122,11 @@ EXT_DIR="$(ls -d "$HOME"/.vscode/extensions/anthropic.claude-code-* | sort -V | 
   The ring is measured against the compaction point of your `autoCompactWindow` setting (`~/.claude/settings.json`, or
   `CLAUDE_CONFIG_DIR` of the VS Code process; project settings are not read; read each time a panel opens, so a reload picks up
   a changed value): full where Claude Code compacts. With no such setting it uses the model's window, as the stock pie does.
-  It is the one piece that also edits `webview/index.js`, in three places that must each match once (the check names the one that
-  does not); the shipped script is kept as `webview/index.js.callboard-orig`, and `--update` and `--undo` handle both files. After
+  The ring is 16px, and its hover text is `used/limit` in k (`126k/200k`, the limit being where the ring is full); a click
+  still compacts. It is the one piece that also edits `webview/index.js`, in three places that must each match once (the check
+  names the one that does not), and in two more for the hover text: when either of those does not match once, the hover text
+  stays Claude Code's and the rest of the piece still goes in, without a warning. The shipped script is kept as
+  `webview/index.js.callboard-orig`, and `--update` and `--undo` handle both files. After
   a Claude Code update the new folder starts unpatched; if the pie's code moved, the check and `--apply` warn that the pie is
   left out, and the other pieces still apply.
 - The patch also carries a restore fix, optional in the same way (the marker's `restore` field, a warning when an anchor is not

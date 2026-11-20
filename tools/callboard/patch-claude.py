@@ -115,6 +115,10 @@ def css_in(raw, field, css):
 # <CLAUDE_CONFIG_DIR or ~/.claude>/settings.json each time a panel's page is built (0 when it is not a number above 0; project settings are not read). Where the
 # level is below the model's window, the stock threshold (window - the smaller of the output limit and 20000 - 13000) is taken from the level instead of the window.
 # The three anchors are patterns on the minified code; the piece goes in only when each matches exactly once in the shipped index.js and the font tag matches once.
+# The ring is drawn 16px wide (its viewBox stays 20, so the stroke scales). The hover text is `used/limit` in k (126k/200k) in place of Claude Code's "37% of
+# context remaining until auto-compact. Click to compact now.": the pie component hands the used tokens and its limit (its window, where the ring is full) to the
+# tooltip component. That is PIE_TIP_ANCHORS, two edits that go in together; when either does not match exactly once in the shipped script, the ring is still the
+# new one and the hover text stays Claude Code's.
 PIE_CSS = (
     ":root{--callboard-compact:${(()=>{try{let p=require(\"path\"),n=JSON.parse(require(\"fs\").readFileSync(p.join(process.env.CLAUDE_CONFIG_DIR||"
     "p.join(require(\"os\").homedir(),\".claude\"),\"settings.json\"),\"utf8\")).autoCompactWindow;return Number.isInteger(n)&&n>0?n:0}catch{return 0}})()}}"
@@ -131,7 +135,7 @@ PIE_ANCHORS = (
      rb'(function ID\(\{percentage:(ID),className:(ID)\}\)\{)let ID=ID\(\2\),ID=ID\[ID\];return (ID)\("svg",\{(width:"20",height:"20",viewBox:"0 0 20 20",fill:"none",'
      rb'xmlns:"http://www.w3.org/2000/svg",className:\3,style:\{display:"block"\},children:)\[ID&&(ID)\("path",\{d:ID,stroke:"currentColor",strokeOpacity:"0.15",strokeWidth:"1.5",'
      rb'strokeLinecap:"round"\}\),\6\("path",\{d:ID\[ID\],stroke:"var\(--app-claude-clay-button-orange\)",strokeWidth:"1.5",strokeLinecap:"round"\}\)\]\}\)\}'.replace(b"ID", ID),
-     lambda m: (m.group(1) + b"let cbpR=Math.max(0,Math.min(100,+" + m.group(2) + b"||0))/100*2*Math.PI*7.25;return " + m.group(4) + b'("svg",{' + m.group(5)
+     lambda m: (m.group(1) + b"let cbpR=Math.max(0,Math.min(100,+" + m.group(2) + b"||0))/100*2*Math.PI*7.25;return " + m.group(4) + b'("svg",{' + m.group(5).replace(b'width:"20",height:"20"', b'width:"16",height:"16"', 1)
                 + b'[' + m.group(6) + b'("circle",{cx:"10",cy:"10",r:"7.25",stroke:"currentColor",strokeOpacity:"0.15",strokeWidth:"1.5"}),cbpR>0&&' + m.group(6)
                 + b'("circle",{cx:"10",cy:"10",r:"7.25",stroke:"var(--app-claude-clay-button-orange)",strokeWidth:"1.5",strokeLinecap:"round",strokeDasharray:cbpR+" 100",'
                 b'transform:"rotate(-90 10 10)"})]})}')),
@@ -150,9 +154,23 @@ def pie_problem(raw, web):
     return why
 
 
+PIE_TIP_ANCHORS = (
+    ("pie tooltip amounts",
+     rb"(\{usedTokens:(ID),contextWindow:(ID),onCompact:ID,buttonClassName:ID\}\)\{[^{}]{0,200}?return ID\(ID,\{percentageUsed:ID,)".replace(b"ID", ID),
+     lambda m: m.group(1) + b'cbpTip:Math.round((' + m.group(2) + b'||0)/1e3)+"k/"+Math.round(' + m.group(3) + b'/1e3)+"k",'),
+    ("pie tooltip text",
+     rb"(\{percentageUsed:ID,onCompact:ID,buttonClassName:ID)(\}\)\{let\[ID,ID\]=ID\(!1\),ID=100-ID;.{0,500}?ID&&ID\(ID,\{text:)"
+     rb'`\$\{Math\.round\(ID\)\}% of context remaining until auto-compact\.`,hint:"Click to compact now\."'.replace(b"ID", ID),
+     lambda m: m.group(1) + b",cbpTip" + m.group(2) + b"cbpTip"),
+)
+
+
 def pie_web(js):
     for _, pat, rep in PIE_ANCHORS:
         js = re.sub(pat, rep, js)
+    if all(len(re.findall(pat, js, re.S)) == 1 for _, pat, _ in PIE_TIP_ANCHORS):
+        for _, pat, rep in PIE_TIP_ANCHORS:
+            js = re.sub(pat, rep, js, flags=re.S)
     return js
 
 # The restore fix: a Claude panel that VS Code restores (or Claude reopens) for a session starts in the window's first folder, where that session is not in the
