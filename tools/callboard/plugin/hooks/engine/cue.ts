@@ -54,6 +54,8 @@ async function act($: any, me: Sid, v: View, cue: Cue): Promise<CueResult> {
   if (cue.verb === 'start' && (brief === undefined || !brief.startsWith(`${row!.folder}/.archive/`) || brief.includes('..'))) return refused('no-brief')
   if (own?.name !== name && !(await ran($, 'rename', name, 10_000))) return refused('rename-failed')
   for (const k of ['model', 'effort'] as const) if (cue.verb === 'start' && row![k] !== undefined && !(await ran($, k, row![k]!, 5_000))) return refused(`${k}-failed`)
+  // /model can report a model it could not switch to without failing: the session's model, read back, must name the alias ("claude-haiku-5-5").
+  if (cue.verb === 'start' && row!.model !== undefined && !String(await Promise.resolve().then(() => $.session.model()).catch(() => '')).toLowerCase().includes(row!.model)) return refused('model-failed')
   if (cue.verb === 'start' && !(await submitOwn($, T['cue.start']({ name, brief: brief!, parent: nameOf(v, cue.from) })).then(() => true, () => false))) return refused('failed')
   return { id: cue.id, outcome: 'ok' }
 }

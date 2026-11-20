@@ -32,6 +32,7 @@ export function fake(o: { sid?: string } = {}) {
     tools: [] as string[],
     commands: [] as string[],
     compactRuns: [] as string[],
+    model: 'claude-sonnet-5-5',
     ps: '',
     psFails: false,
     real: new Map<string, string>(),
@@ -118,7 +119,7 @@ export function fake(o: { sid?: string } = {}) {
   const $ = {
     clock: { now: async () => h.now, every: (_ms: number, f: () => unknown) => void (h.every = f), sleep: (_ms: number) => (h.sleepDone ? Promise.resolve() : new Promise<void>(() => undefined)) },
     env: { get: async (n: string) => (n === 'HOME' ? HOME : undefined) },
-    session: { id: async () => h.sid, usage: async () => h.usage, root: async () => h.root },
+    session: { id: async () => h.sid, usage: async () => h.usage, root: async () => h.root, model: async () => h.model },
     fs: {
       read: async (p: string, o: { offset?: number; length?: number } = {}) => {
         const t = h.files.get(p)
@@ -158,7 +159,10 @@ export function fake(o: { sid?: string } = {}) {
     },
     ui: { toast: async (t: string) => void h.toasts.push(t), ask: (q: string, o: { options: string[]; header: string }) => (h.asked.push({ question: q, options: o.options, header: o.header }), h.askAnswer(q)) },
     agent: { list: async () => h.agents },
-    command: { register: async (c: { name: string }) => void h.commands.push(c.name), run: async (c: { command: string; args: string }) => void h.compactRuns.push(`${c.command} ${c.args}`) },
+    command: { register: async (c: { name: string }) => void h.commands.push(c.name), run: async (c: { command: string; args: string }) => {
+      h.compactRuns.push(`${c.command} ${c.args}`)
+      if (c.command === 'model') h.model = `claude-${c.args}-5-5`
+    } },
     tool: { register: async (t: { name: string }) => void h.tools.push(t.name) },
   }
   resetMem()

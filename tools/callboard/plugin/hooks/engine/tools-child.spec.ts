@@ -458,6 +458,13 @@ test('lane_create takes a model, sonnet by default, and the lane switches to it 
   asChild(g, 'sid-kid')
   assert.match(text(await cueVerbCall(g.$, { lane: 'kid' }, next, 'start')), /the lane refused \(model-failed\)/)
   assert.equal(g.h.submitted.length, 0)
+  // /model that answers without switching: the model read back is still the window's own.
+  const s = world()
+  s.table({ ...table(s), 'sid-kid': { ...table(s)['sid-kid'], model: 'opus' } })
+  s.$.command.run = async () => undefined
+  asChild(s, 'sid-kid')
+  assert.match(text(await cueVerbCall(s.$, { lane: 'kid' }, next, 'start')), /the lane refused \(model-failed\)/)
+  assert.equal(s.h.submitted.length, 0)
 })
 
 test('lane_create takes an optional effort, set with /effort after the model at the start; any other effort is refused by name; one that cannot be set refuses the start', async () => {
