@@ -2,7 +2,7 @@
 // Trust rules held here: one tick runs at a time and a step that throws is logged and does not stop the others; at most one text is submitted per tick; a notice is recomputed
 // from the sessions under this one now each time it is sent, a key is spent only when the turn carrying it starts, and nothing is sent unless the session is quiet.
 import type { Notice, Sid, ToolName, View } from '../core/model.ts'
-import { PERSON, TOOLS, capability, children, nameOf, parent } from '../core/model.ts'
+import { PERSON, TOOLS, capability, children, isOff, nameOf, parent } from '../core/model.ts'
 import { tidy } from '../core/lifecycle.ts'
 import { sweep } from '../core/asks.ts'
 import { notices } from '../core/notices.ts'
@@ -95,7 +95,9 @@ async function prNoticeTick($: any, me: Sid): Promise<void> {
   const c = prClaim()
   if (c !== undefined) await submitOwn($, c.text, false).catch(() => c.undo())
 }
-async function owedTick($: any, me: Sid): Promise<void> {
+// A session turned off is sent nothing: what it was owed is dropped.
+async function owedTick($: any, me: Sid, v: View): Promise<void> {
+  if (isOff(v, me)) return void (mem.owed.length = 0)
   const text = mem.owed[0]
   if (text !== undefined && (await quiet($, me))) await submitOwn($, text, false).then(() => void mem.owed.shift(), () => log($, me, 'error', 'owed'))
 }
@@ -176,7 +178,7 @@ async function tick($: any): Promise<void> {
     await step('relay', () => relayTick($, me, v, now))
     await step('pr-poll', () => prTick($, me, v))
     if (mem.submits === start) await step('pr-notice', () => prNoticeTick($, me))
-    if (mem.submits === start) await step('owed', () => owedTick($, me))
+    if (mem.submits === start) await step('owed', () => owedTick($, me, v))
     await step('keepalive', () => keepaliveTick($, me, v, start))
     await step('usage', () => usageFlush($, me))
   } finally {
