@@ -109,19 +109,27 @@ EXT_DIR="$(ls -d "$HOME"/.vscode/extensions/anthropic.claude-code-* | sort -V | 
   changes nothing and names the anchor that is missing. It keeps the original as `extension.js.callboard-orig` and writes
   `callboard-cwd-patch.json` (the marker the panels extension reads), both in the extension's folder. A second run says
   `already patched`.
-- The same patch adds a panel look: one style block in the page Claude Code builds for its panels, so the composer and its permission
-  box use the panel's width (no 680 px cap, a smaller side margin) and the Remote Control chip is always icon-only. It is optional
-  inside the patch: when its anchor is not found the check and `--apply` print a warning line and the folder patch still applies
-  (the marker's `look` field says which it was). Its selectors are the one `LOOK_CSS` constant at the top of `patch-claude.py`;
-  the side-margin selector is a guess that only a rendered panel confirms, so tune it there after one look, then `--update`.
-  `--undo` takes it out with the rest.
+- The same patch adds two style blocks to the page Claude Code builds for its panels, each optional on its own: the panel width
+  (the marker's `width` field), so the composer and its permission box use the panel's width (no 680 px cap, a smaller side
+  margin), and the chip hiding (`chip`), which hides the Remote Control chip while it is connected or connecting; its error state
+  still shows. Each goes in only when the page's font configuration tag is found and the shipped `webview/index.css` or
+  `index.js` still carries the class prefixes or labels it uses; otherwise the check and `--apply` print a warning line for that
+  block and the rest still applies. Their CSS is `WIDTH_CSS` and `CHIP_CSS` at the top of `patch-claude.py`; the side-margin
+  selector is a guess that only a rendered panel confirms, so tune it there after one look, then `--update`. `--undo` takes
+  them out with the rest.
 - The patch also carries a restore fix, optional in the same way (the marker's `restore` field, a warning when an anchor is not
   found, one `--undo`): a Claude panel that VS Code restores at a window reload, or that Claude Code reopens (Reopen Closed
   Session), starts in the folder that holds its conversation instead of the window's first folder, so it resumes that
   conversation. The folder is found from the session's transcript (`projects/<folder>/<session id>.jsonl` under Claude's
   config folder, from the `CLAUDE_CONFIG_DIR` of the VS Code process, not from the `claudeCode.environmentVariables` setting), as no saved panel state names it. With no transcript yet, a one-folder window, a folder that is a
   sub-folder of a window folder or a very long path, the panel starts in the first folder as before.
-- An install patched by an older version of the script (before the panel look or the restore fix, say) shows `outdated` with a
+- The fifth piece is the group command, optional in the same way (the marker's `groups` field): it adds the command
+  `callboard assign group`, which the panels extension calls to file a lead's session in the Session Manager group Lead
+  and a lane's in Lanes, from the plugin's session table (a group of that name in any letter case, such as LEAD, is the
+  same one; a missing one is created). Each session is filed once, so one you move out of its group stays out.
+- The sixth piece is the session command, optional in the same way (the marker's `session` field): `callboard active session`
+  returns the session id of the Claude panel in front, so the folder badge below finds an unnamed session too.
+- An install that differs from what the current script builds shows `outdated` with a
   line saying what differs, or the old warning that a piece is not in. The check compares the installed file with what the current script
   builds from the backup original. `--update` (or `/patch-vs-claude`, which runs it) rebuilds the patch from the backup and
   swaps in `extension.js` and the marker, so no undo and apply by hand is needed; the backup is not touched, and a failed
@@ -134,8 +142,10 @@ EXT_DIR="$(ls -d "$HOME"/.vscode/extensions/anthropic.claude-code-* | sort -V | 
   several folders open VS Code's own folder list first and start the session in the folder you pick; Escape opens
   nothing. Callboard's own lane opens pass their folder and never ask. The palette's Open in New Tab, Open and an
   @-mention are bare calls that cannot be told from Claude Code's own internal ones: they never ask and start in the
-  first folder. Separately from the patch, the status bar shows the folder of the Claude panel in front, in a window
-  with several folders, whenever the panel's session is known by its name.
+  first folder. The status bar shows the folder of the Claude panel in front, in a window with several folders: it finds
+  the session by its id through the session command; without that piece, only a session with a name it was given
+  (`/rename`, or a lane's own name, which callboard gives its panel), matched by the tab's label, since a tab still
+  showing the title Claude generated names no session.
 - It serves the plugin build's lanes (the old mod keeps one repo per window). A tab that Claude Code itself restores or reopens
   resumes in its conversation's folder through the restore fix; where that fix is not in or finds no transcript, it starts in
   the window's first folder.
@@ -146,13 +156,14 @@ EXT_DIR="$(ls -d "$HOME"/.vscode/extensions/anthropic.claude-code-* | sort -V | 
   file beside it. Without the patch, open one VS Code window per repo and use callboard as before. If a patched open
   does not bring up its panel, it fails as the usual open timeout, once.
 
-### Optional: the Explorer lane view
+### Optional: the lane view
 
-The panels extension adds a tree, Callboard Lanes, at the bottom of the Explorer: one row per callboard session the
+The panels extension adds a tree, Callboard Lanes, in Claude Code's Session Manager below its session list (when that
+list is on; otherwise at the bottom of the Explorer): one row per callboard session in this window's folders that the
 plugin's session table and the old lane stores know, with its folder and state (live, working, waiting, parked, closed,
 gone), a lane under the lead that owns it. A click reopens the session in its own folder, so a parked or closed lane
-comes back with its conversation, even in a window whose first folder is another one when the patch above is in
-(without it, a folder outside the window's first folder gets the usual refusal as a warning). Below the lanes, one group
+comes back with its conversation. With the patch above every folder of the window is listed; without it, only its first
+folder, the one a panel can open in. Below the lanes, one group
 per window folder lists its newest saved chats, and a click opens one the same way. The view reads names and times only
 and refreshes every 3 seconds while it is visible. Nothing is needed for it beyond the extension, and a session marked
 off is left out.
@@ -236,7 +247,9 @@ cp ~/.claude/settings.json "$BAK" && /usr/bin/python3 -I -c "import os,re,sys;p=
 ```
 
 Then restart every session, VS Code windows included (a reload is not enough: the plugin list is read when a session
-starts). Start the manager session and name it with the manager's name from the file (`/rename`). Each lead then takes
+starts). A conversation kept open across the switch, or resumed into it, can keep the mod's tool definitions: a call
+with the mod's arguments (`lane_create` with name, task and model, say) is then refused as input not valid. A new
+session has the plugin's. Start the manager session and name it with the manager's name from the file (`/rename`). Each lead then takes
 its lanes back by name with `lane_adopt`, and you give goes again as needed (`/callboard go TEXT`, or a lead's
 `go_request`).
 

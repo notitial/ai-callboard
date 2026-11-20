@@ -2,7 +2,7 @@
 // Trust rules held here: a verb acts only on a descendant of the caller now; a force stop opens the person's dialog only while the window is read off; a lead's row is never removed by a verb; a retire of a live
 // child needs its report signed by its own session id; a cue is acted on only when its sender is above the child now and it is under CUE_MAX_AGE_MS old.
 import type { Cue, CueResult, CueVerb, Decision, Folder, RegistryRow, Sid, StopVerb, Table, View, WindowReading } from './model.ts'
-import { CUE_VERBS, capRefusal, liveness, mayActOn, nameOf, nameRefusal, parent, refusal } from './model.ts'
+import { CUE_VERBS, capRefusal, givenName, liveness, mayActOn, nameOf, nameRefusal, parent, refusal } from './model.ts'
 import type { RefuseCode, UiState } from './msg.ts'
 
 export const IDLE_MS = 30_000
@@ -12,6 +12,9 @@ export const PARKED_ROW_KEEP_MS = 28 * 24 * 3_600_000
 // The key of a row between lane_create and the opened panel's session id.
 export const NEW_KEY = 'new:'
 export const CUE_MAX_AGE_MS = 120_000
+// How long a parent waits for a child's answer to a cue, and for the window's answer to a spool request (its own open wait is 20 s, plus scan and claim slack).
+export const CUE_WAIT_S = 20
+export const SPOOL_WAIT_S = 30
 
 // The report path is fixed when the row is made, from the name at that time: a rename never moves it.
 export const reportPath = (folder: Folder, name: string): string => `${folder}/.archive/${name}/REPORT.md`
@@ -21,9 +24,9 @@ export function signedBy(text: string, sid: Sid): boolean {
   return lines[lines.length - 1] === `status: done ${sid}`
 }
 
-// Idle: not in a turn and not waiting, for this long by the engine's own status time (0 when it cannot tell).
-const idleFor = (r: RegistryRow | undefined, now: number): number =>
-  r?.status === 'idle' && (r.waitingFor ?? null) === null && typeof r.statusAt === 'number' && r.statusAt <= now ? now - r.statusAt : 0
+// Idle: not in a turn and not waiting, for this long by the engine's own status time (undefined when not idle or it cannot tell).
+const idleFor = (r: RegistryRow | undefined, now: number): number | undefined =>
+  r?.status === 'idle' && (r.waitingFor ?? null) === null && typeof r.statusAt === 'number' && r.statusAt <= now ? now - r.statusAt : undefined
 const live = (v: View, key: string) => (key.startsWith(NEW_KEY) ? 'no' : liveness(v, key))
 
 // A child as lane_list shows it.
@@ -33,7 +36,7 @@ export function childState(v: View, key: string, signed: boolean, now: number): 
   const l = liveness(v, key)
   if (l === 'unknown') return 'unknown'
   if (l === 'no') return v.table[key]?.parked !== undefined ? 'parked' : signed ? 'done' : 'gone'
-  return signed ? 'done' : idleFor(v.rows === 'unknown' ? undefined : v.rows.get(key), now) > 0 ? 'live' : 'busy'
+  return signed ? 'done' : idleFor(v.rows === 'unknown' ? undefined : v.rows.get(key), now) !== undefined ? 'live' : 'busy'
 }
 
 export type Verb = CueVerb | StopVerb | 'unpark'
@@ -63,7 +66,9 @@ export function verbPlan(verb: Verb, v: View, actor: Sid, key: string, x: { sign
   // The force stop's dialog is for the person: it opens only when the window is read off, never on an unknown reading.
   if (verb === 'terminate') return x.win.state !== 'off' ? no('unattended') : stopped('stop', true)
   if (verb === 'retire' && !x.signed) return no('report-unsigned')
-  return idleFor(v.rows === 'unknown' ? undefined : v.rows.get(key), x.now) >= IDLE_MS ? stopped('stop') : no('not-idle')
+  // A signed lane is done: out of its turn is enough to retire it. A park waits IDLE_MS, so a turn about to start is not cut off.
+  const idle = idleFor(v.rows === 'unknown' ? undefined : v.rows.get(key), x.now)
+  return idle !== undefined && (verb === 'retire' || idle >= IDLE_MS) ? stopped('stop') : no('not-idle')
 }
 
 // ---- the cue ----
@@ -91,7 +96,7 @@ export function cueReply(r: CueResult | undefined, verb: CueVerb, name: string):
 }
 
 // ---- the table's own upkeep, run inside every write of it ----
-// The name is copied from the registry; a session read as no on two reads GONE_AFTER_MS apart (noSince: when this process first read it so) and not parked gets
+// The name is copied from the registry, unless it is the one Claude generated (givenName); a session read as no on two reads GONE_AFTER_MS apart (noSince: when this process first read it so) and not parked gets
 // goneAt, cleared when it comes back. Expiry is by what the row holds: a plain lane row 24 h after goneAt, a parked one 28 days after parking; a row with `lead` or
 // `off`, or one a live session carries, never expires by time. Nothing is decided on an unknown read.
 export function tidy(t: Table, v: View, noSince: (key: string) => number | undefined, now: number): Table {
@@ -99,7 +104,8 @@ export function tidy(t: Table, v: View, noSince: (key: string) => number | undef
   const out: Table = {}
   for (const [k, r] of Object.entries(t)) {
     const reg = v.rows.get(k)
-    const row = { ...r, ...(reg?.name ? { name: reg.name } : {}) }
+    const name = givenName(reg)
+    const row = { ...r, ...(name ? { name } : {}) }
     if (reg !== undefined) delete row.goneAt
     else if (row.goneAt === undefined && row.parked === undefined && (noSince(k) ?? now) <= now - GONE_AFTER_MS) row.goneAt = now
     const kept = reg !== undefined || row.lead !== undefined || row.off === true

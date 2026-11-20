@@ -19,6 +19,8 @@ import { giveParentTools } from './tick.ts'
 import { usageRead } from './usage.ts'
 
 const TYPED_ORIGINS = ['composer', 'bridge']
+// The forms whose saved change owes the session a notice turn. Off is not among them: an off session is sent nothing.
+const CHANGES: string[] = ['lead', 'lead-off', 'on', 'go', 'go-off', 'unattended']
 // A command is typed when the engine stamped its origin as one of his own typed turns; any other origin, or none, is not.
 const originOf = (e: any): Origin => (TYPED_ORIGINS.includes(e?.origin?.kind) ? 'typed' : 'other')
 const person = (v: View, s: Sid | 'unknown' | null): string | null => (s === null ? null : s === 'unknown' ? 'unknown' : s === PERSON ? PERSON : nameOf(v, s))
@@ -55,9 +57,9 @@ function setRow($: any, v: View, me: Sid, folder: string, f: (r: Row) => Row): P
   return updateTable($, (t) => ({ ...t, [me]: f({ name: nameOf(v, me), folder, ...t[me] }) }))
 }
 
-async function perform($: any, cmd: Cmd, me: Sid, v: View, now: number): Promise<string> {
+async function perform($: any, cmd: Cmd, me: Sid, v: View, now: number, savedOk: () => void): Promise<string> {
   const fail = (detail: string) => say(refusal('refuse', 'bad-input', { tool: 'callboard', target: cmd.op, detail }))
-  const saved = (ok: boolean, text: string) => (ok ? text : say(refusal('refuse', 'unknown-liveness', { tool: 'callboard', target: cmd.op })))
+  const saved = (ok: boolean, text: string) => (ok ? (savedOk(), text) : say(refusal('refuse', 'unknown-liveness', { tool: 'callboard', target: cmd.op })))
   const folder = v.rows === 'unknown' ? undefined : v.rows.get(me)?.folder
   const w = await windowNow($)
   switch (cmd.op) {
@@ -109,7 +111,11 @@ export async function commandRun($: any, e: any) {
   const now = await $.clock.now()
   const plan = planCommand(typeof e?.args === 'string' ? e.args : '', originOf(e), now)
   if (plan.act === 'refuse') return { text: say(plan) }
-  return { text: await perform($, plan.cmd, (await $.session.id()) as Sid, await getView($, true), now) }
+  let ok = false
+  const text = await perform($, plan.cmd, (await $.session.id()) as Sid, await getView($, true), now, () => void (ok = true))
+  // His typed step that saved a change of this session's role, goes or window gives it a turn, so he need not type "done". A read or a failed write sends nothing.
+  if (ok && originOf(e) === 'typed' && CHANGES.includes(plan.cmd.op)) mem.owed.push(T['cmd.told']({ result: text }))
+  return { text }
 }
 
 // ---- the typeahead and the briefing ----

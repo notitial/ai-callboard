@@ -2,8 +2,8 @@
 // (the tools stay registered after `lead off`): the main agent only, a fresh reading of the machine, the lead capability or the manager; a lane is named by `lane` and a name more than one
 // session carries is refused, never guessed; the core's gates (`verbPlan`, `mayCreate`, `mayAdopt`) decide, and a stop is decided again after the person's dialog and just before the signal;
 // a force stop always opens the person's dialog; a reply that makes or takes a lane names its lead.
-import type { Decision, Row, Sid, StopVerb, View } from '../core/model.ts'
-import { MAX_LIVE_CHILDREN, capRefusal, capability, liveChildren, liveness, mayActOn, mayAdopt, mayCreate, nameOf, parent, refusal } from '../core/model.ts'
+import type { Decision, LaneEffort, LaneModel, Row, Sid, StopVerb, View } from '../core/model.ts'
+import { LANE_EFFORTS, LANE_MODELS, MAX_LIVE_CHILDREN, capRefusal, capability, liveChildren, liveness, mayActOn, mayAdopt, mayCreate, nameOf, parent, refusal } from '../core/model.ts'
 import type { CueVerb } from '../core/model.ts'
 import { NEW_KEY, reportPath, verbPlan } from '../core/lifecycle.ts'
 import type { Verb } from '../core/lifecycle.ts'
@@ -15,7 +15,7 @@ import { laneRows } from './commands.ts'
 import { sendCue, spool, spoolSend } from './cue.ts'
 import { log, pause, personDialog, run, windowNow, writeFile } from './io.ts'
 import { getView, updateTable } from './store.ts'
-import { signedNow } from './tick.ts'
+import { signedNow } from './upkeep.ts'
 import { deny, isSub, say } from './tools-any.ts'
 
 const BRIEF_MAX = 16_384
@@ -164,6 +164,10 @@ export async function laneCreateCall($: any, e: any, _next: any) {
   const [name, text, want] = [e.name, e.brief, e.folder].map((x) => (typeof x === 'string' ? x : ''))
   const bad = (detail: string) => deny(refusal('refuse', 'bad-input', { tool, target: name, detail }))
   if (text.length < 1 || text.length > BRIEF_MAX) return bad('brief')
+  const model = (e.model ?? 'sonnet') as LaneModel
+  if (!LANE_MODELS.includes(model)) return bad('model')
+  const effort = e.effort as LaneEffort | undefined
+  if (effort !== undefined && !LANE_EFFORTS.includes(effort)) return bad('effort')
   const folder = await real($, want)
   if (folder === undefined) return bad('folder')
   const no = mayCreate(v, me, name, folder)
@@ -173,13 +177,14 @@ export async function laneCreateCall($: any, e: any, _next: any) {
   const [dir, key] = [`${folder}/.archive/${name}`, `${NEW_KEY}${name}`]
   const brief = `${dir}/BRIEF.md`
   let taken = false
-  const row: Row = { name, folder, report: reportPath(folder, name), under: me, brief }
+  const row: Row = { name, folder, report: reportPath(folder, name), under: me, brief, model, ...(effort === undefined ? {} : { effort }) }
   const written = await updateTable($, (t) => ((taken = Object.values(t).some((r) => r.name === name)) ? t : { ...t, [key]: row }))
   if (taken || !written) return deny(refusal('refuse', taken ? 'name-taken' : 'table-unwritten', { tool, target: name }))
-  const free = (await plainPath($, `${folder}/.archive`)) && (await plainPath($, dir)) && !(await $.fs.exists(brief).catch(() => false))
-  if (!free || !(await writeFile($, brief, T['lane.brief']({ name, lead: nameOf(v, me), text })))) {
+  const linked = !(await plainPath($, `${folder}/.archive`)) || !(await plainPath($, dir))
+  const why = linked ? 'link' : (await $.fs.exists(brief).catch(() => false)) ? 'exists' : !(await writeFile($, brief, T['lane.brief']({ name, lead: nameOf(v, me), text }))) ? 'unwritten' : undefined
+  if (why !== undefined) {
     await dropRow($, key)
-    return bad('unwritten')
+    return bad(why)
   }
   await log($, me, 'lane-created', name)
   return { result: say({ msg: 'lane.created', p: { name, folder, lead: nameOf(v, me) } }) }

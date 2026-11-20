@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { CUE_MAX_AGE_MS, IDLE_MS, LANE_ROW_KEEP_MS, PARKED_ROW_KEEP_MS, childState, cueAnswer, cueReply, parseCue, reportPath, signedBy, tidy, verbPlan } from './lifecycle.ts'
 import type { Verb } from './lifecycle.ts'
-import { MAX_LIVE_CHILDREN, liveView, mayActOn } from './model.ts'
+import { MAX_LIVE_CHILDREN, liveView, mayActOn, nameOf } from './model.ts'
 import type { Table } from './model.ts'
 import { MANAGER, NOW, WINDOWS, forAll, pick, reg } from './gen.spec.ts'
 
@@ -119,4 +119,23 @@ test('the upkeep in every world: an unknown read changes nothing; a lead row, an
       if (w.v.rows.has(k)) assert.equal(out[k].goneAt, undefined)
     }
   })
+})
+
+test('a name Claude generated for a new panel never replaces the row\'s name; a name given by /rename does; a loose session keeps its generated one', () => {
+  const auto = liveView([reg(M, MANAGER), reg(A, 'A'), reg(L1, 'ai-manager-ef', { nameSource: 'auto' })], lanes, MANAGER)
+  assert.equal(nameOf(auto, L1), 'L1')
+  assert.equal(tidy(lanes, auto, () => undefined, NOW)[L1].name, 'L1')
+  const given = liveView([reg(M, MANAGER), reg(A, 'A'), reg(L1, 'L1b', { nameSource: 'user' })], lanes, MANAGER)
+  assert.equal(nameOf(given, L1), 'L1b')
+  assert.equal(tidy(lanes, given, () => undefined, NOW)[L1].name, 'L1b')
+  assert.equal(nameOf(liveView([reg('sid-loose', 'ai-manager-17', { nameSource: 'auto' })], {}, MANAGER), 'sid-loose'), 'ai-manager-17')
+})
+
+test('a signed lane retires as soon as it is out of its turn; a park still waits IDLE_MS; a lane in a turn or waiting is refused either way', () => {
+  const justIdle = view({ statusAt: NOW })
+  assert.equal(plan('retire', justIdle, { signed: true }).act, 'stop')
+  assert.equal(plan('park', justIdle).msg, 'refuse.not-idle')
+  assert.equal(plan('retire', view({ status: 'busy' }), { signed: true }).msg, 'refuse.not-idle')
+  assert.equal(plan('retire', view({ waitingFor: 'permission' }), { signed: true }).msg, 'refuse.not-idle')
+  assert.equal(childState(justIdle, L1, false, NOW), 'live')
 })

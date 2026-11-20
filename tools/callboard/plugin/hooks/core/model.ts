@@ -58,6 +58,8 @@ export type Row = {
   brief?: string
   parked?: number
   goneAt?: number
+  model?: LaneModel
+  effort?: LaneEffort
 }
 export type Table = { [key: string]: Row }
 
@@ -144,6 +146,12 @@ export const PERSON: Person = 'PERSON'
 export const NAME_RE = /^[A-Za-z0-9_-]{1,40}$/
 export const RESERVED_NAME = 'MANAGER'
 export const MAX_LIVE_CHILDREN = 8
+// The models a lead may give a lane at lane_create; the lane switches to it at its start.
+export const LANE_MODELS = ['opus', 'sonnet', 'haiku', 'fable'] as const
+export type LaneModel = (typeof LANE_MODELS)[number]
+// The efforts a lead may give a lane at lane_create; the lane sets it with /effort at its start, after the model.
+export const LANE_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const
+export type LaneEffort = (typeof LANE_EFFORTS)[number]
 
 // The manager-name file as read: its one line, null for no file, `unknown` for a file that could not be read.
 export type ManagerName = string | null | 'unknown'
@@ -166,9 +174,12 @@ export const liveness = (v: View, s: Sid): Liveness => (v.rows === 'unknown' ? '
 export const isOff = (v: View, s: Sid): boolean => v.table[s]?.off === true
 export const isLead = (v: View, s: Sid): boolean => v.table[s]?.lead !== undefined && !isOff(v, s)
 export const capability = (v: View, s: Sid): Capability => (v.manager === s ? 'manager' : isLead(v, s) ? 'lead' : 'none')
+// The name a session was given (by /rename or a cue). The one Claude generates for a new panel (nameSource auto) is not: a row's name wins over it.
+export const givenName = (r: RegistryRow | undefined): string | undefined => (r?.nameSource === 'auto' ? undefined : r?.name)
 // A name that spells a sentinel (PERSON, unknown) is not shown: the texts read those two words as the person and as a parent not known, so such a session shows as its id.
 export const nameOf = (v: View, s: Sid): string => {
-  const n = (v.rows === 'unknown' ? undefined : v.rows.get(s)?.name) ?? v.table[s]?.name ?? s
+  const reg = v.rows === 'unknown' ? undefined : v.rows.get(s)
+  const n = givenName(reg) ?? v.table[s]?.name ?? reg?.name ?? s
   return n === PERSON || n === 'unknown' ? s : n
 }
 

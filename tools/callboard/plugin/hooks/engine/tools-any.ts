@@ -1,5 +1,4 @@
-// The tools every session has (`rest`) and the helpers the tool and command bodies share: a decision said as text, a refusal as a tool's deny, the rest mark. NOT_BUILT and notBuilt
-// are what a tool or command body that is not written refuses with.
+// The tools every session has (`rest`) and the helpers the tool and command bodies share: a decision said as text, a refusal as a tool's deny, the rest mark.
 import type { Decision } from '../core/model.ts'
 import { refusal } from '../core/model.ts'
 import type { Say } from '../core/msg.ts'
@@ -7,10 +6,6 @@ import { T } from '../texts.ts'
 import { log } from './io.ts'
 import { patchUp } from './mem.ts'
 
-export const NOT_BUILT = 'callboard: not-built'
-export function notBuilt() {
-  return { deny: NOT_BUILT }
-}
 // The words of a decision: its message id and parameters through the one texts table.
 export const say = (d: Say): string => (T[d.msg] as (p: unknown) => string)(d.p)
 export const deny = (d: Decision) => ({ deny: say(d) })

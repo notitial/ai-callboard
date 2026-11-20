@@ -25,7 +25,13 @@ test('folderOf: nothing when the name is unknown, dead, a terminal session, in t
   assert.equal(folderOf('LAB', [row('LAB', 'relative'), row('LAB', undefined)], () => true), undefined)
 })
 
-function world({ tab, folders = ['/w/a', '/w/b'], list }) {
+test('folderOf: a session id finds the session whatever its name, and one that finds nothing leaves it to the label', () => {
+  const rows = [row('auto-title-a5', '/w/b', { sessionId: 's2' }), row('LAB', '/w/a', { sessionId: 's1' })]
+  assert.equal(folderOf('Test lane', rows, () => true, 's2'), '/w/b', 'a generated tab title')
+  assert.equal(folderOf('LAB', rows, () => true, 'new:1'), '/w/a', 'an id no row carries')
+})
+
+function world({ tab, folders = ['/w/a', '/w/b'], list, front }) {
   const state = { tab, shown: false, hides: 0 }
   const item = { show() { state.shown = true }, hide() { state.shown = false; state.hides++ }, dispose() {} }
   const vscode = {
@@ -39,6 +45,7 @@ function world({ tab, folders = ['/w/a', '/w/b'], list }) {
       },
     },
     workspace: { workspaceFolders: folders.map((f) => ({ uri: { fsPath: f } })) },
+    ...(front === undefined ? {} : { commands: { executeCommand: async (id) => (id === 'callboard active session' ? front : undefined) } }),
   }
   const badge = createFolderBadge({ vscode, registry: { list }, alive: () => true })
   return { badge, item, state }
@@ -47,12 +54,12 @@ function world({ tab, folders = ['/w/a', '/w/b'], list }) {
 const claudeTab = (label) => ({ label, input: { viewType: 'mainThreadWebview-claudeVSCodePanel' } })
 
 test('the item shows the folder name of the Claude panel in front, with the full path as the tooltip, and follows tab changes', async () => {
-  const rows = [row('LAB', '/w/b/arkham'), row('OTHER', '/w/a')]
+  const rows = [row('LAB', '/w/b/repo'), row('OTHER', '/w/a')]
   const w = world({ tab: claudeTab('LAB'), list: async () => rows })
   await w.badge.refresh()
   assert.equal(w.state.alignment, 2, 'on the right side of the status bar')
-  assert.equal(w.item.text, '$(folder) arkham')
-  assert.match(w.item.tooltip, /\/w\/b\/arkham/)
+  assert.equal(w.item.text, '$(folder) repo')
+  assert.match(w.item.tooltip, /\/w\/b\/repo/)
   assert.equal(w.state.shown, true)
   w.state.tab = claudeTab('OTHER')
   await w.badge.refresh()
@@ -60,6 +67,13 @@ test('the item shows the folder name of the Claude panel in front, with the full
   w.state.tab = { label: 'file.js', input: { viewType: undefined } }
   await w.badge.refresh()
   assert.equal(w.state.shown, false, 'not a Claude panel')
+  w.badge.dispose()
+})
+
+test('with the patch\'s session command the item finds an unnamed panel by its session id', async () => {
+  const w = world({ tab: claudeTab('Test lane'), list: async () => [row('auto-title-a5', '/w/b/repo', { sessionId: 's2' })], front: 's2' })
+  await w.badge.refresh()
+  assert.equal(w.item.text, '$(folder) repo')
   w.badge.dispose()
 })
 

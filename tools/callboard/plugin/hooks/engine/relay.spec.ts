@@ -37,7 +37,7 @@ test('by day an ask escalated past the manager shows one pop-up in the manager\'
   }
   assert.deepEqual(await permissionRequest(f.$, { tool_name: 'Bash', tool_input: { command: 'make' }, tool_use_id: 't1' }, noop), { decision: { behavior: 'allow' } })
   assert.equal(boss.h.asked.length, 1)
-  assert.equal(boss.h.asked[0]!.header, 'Ask from lane')
+  assert.equal(boss.h.asked[0]!.header, 'Your call')
   assert.deepEqual(boss.h.asked[0]!.options, ['Allow', 'Deny'])
   const last = (await readAskLog(f.$, 0))!.at(-1)!
   assert.deepEqual([last.ev, last.by], ['answered', 'PERSON'])
@@ -85,6 +85,51 @@ test('a pop-up clicked after its ask closed writes nothing and says so, and the 
   await tickRelay(boss)
   await settle()
   assert.equal(boss.h.asked.length, 2)
+})
+test('a pop-up whose ask closed elsewhere is named once in a toast while it stays on screen', async () => {
+  const f = tiers()
+  const boss = peer(f, 'sid-boss')
+  f.h.sleepMoves = false
+  await writeAsk(f.$, mk('aa11bb22cc'))
+  await reach(f, 'aa11bb22cc')
+  boss.h.askAnswer = () => new Promise(() => undefined)
+  await tickRelay(boss)
+  await settle()
+  await tickRelay(boss)
+  assert.deepEqual(boss.h.toasts, [], 'an open ask is not named')
+  await rmAsk(f.$, 'aa11bb22cc')
+  await tickRelay(boss)
+  await tickRelay(boss)
+  assert.equal(boss.h.toasts.length, 1)
+  assert.match(boss.h.toasts[0]!, /^The pop-up for .+'s ask is out of date/)
+})
+test('his own click on a pop-up names nothing out of date, even when it lands while the tick reads the ask', async () => {
+  const f = tiers()
+  const boss = peer(f, 'sid-boss')
+  f.h.sleepMoves = false
+  await writeAsk(f.$, mk('aa11bb22cc'))
+  await reach(f, 'aa11bb22cc')
+  let click: (l: string) => void = () => undefined
+  boss.h.askAnswer = () => new Promise((r) => (click = r))
+  await tickRelay(boss)
+  await settle()
+  const list = boss.$.fs.list
+  let release: () => void = () => undefined
+  boss.$.fs.list = async (d: string) => {
+    if (!d.endsWith('/asks')) return list(d)
+    boss.$.fs.list = list
+    await new Promise<void>((r) => (release = r))
+    return list(d)
+  }
+  const t = tickRelay(boss)
+  await settle()
+  click('Allow')
+  for (let i = 0; i < 20 && (await readAnswer(f.$, 'aa11bb22cc')) === undefined; i++) await settle()
+  release()
+  await t
+  await tickRelay(boss)
+  assert.equal((await readAnswer(f.$, 'aa11bb22cc'))?.by, 'PERSON')
+  assert.deepEqual(boss.h.toasts, [])
 })
 test('the OFF file and a busy manager open no pop-up', async () => {
   const f = tiers()

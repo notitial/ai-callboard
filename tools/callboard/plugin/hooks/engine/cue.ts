@@ -7,14 +7,13 @@
 // request at a time; the plugin checks capability, allowlist, name and the cap of live children before it writes. No rate limit and no lane store are checked beyond that.
 import type { Cue, CueResult, CueVerb, Sid, SpoolReply, SpoolRequest, View } from '../core/model.ts'
 import { nameOf, nameRefusal } from '../core/model.ts'
-import { cueAnswer, parseCue, parseResult } from '../core/lifecycle.ts'
+import { CUE_WAIT_S, SPOOL_WAIT_S, cueAnswer, parseCue, parseResult } from '../core/lifecycle.ts'
 import { T } from '../texts.ts'
 import { ensureDir, log, path, pause, readText, rm, run, submitOwn, writeFile } from './io.ts'
+import { mem } from './mem.ts'
 import { idle } from './upkeep.ts'
 import { getView, safeJson } from './store.ts'
 
-export const CUE_WAIT_S = 20
-export const SPOOL_WAIT_S = 30
 const ID_RE = /^[a-z0-9]{8,40}$/
 const rid = (): string => (Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2)).slice(0, 20)
 const json = (t: string | undefined): unknown => (t === undefined ? undefined : safeJson(t))
@@ -31,7 +30,19 @@ export async function sendCue($: any, from: Sid, child: Sid, verb: CueVerb, name
 }
 
 // ---- the child's side, every tick ----
-// What the cue asks of this session: rename it, start it on its own row's brief (naming it first when its name differs), or resume it.
+// A slash command run in this session, bounded so a cue's answer still comes inside the parent's wait.
+function ran($: any, command: string, args: string, ms: number): Promise<boolean> {
+  return Promise.race([Promise.resolve($.command.run({ command, args })).then(() => true, () => false), $.clock.sleep(ms).then(() => false)])
+}
+// A lane whose panel still carries the name Claude generated takes its row's name at its first quiet tick, so it is named before lane_start. Once per process.
+async function selfName($: any, me: Sid, v: View): Promise<void> {
+  const own = v.rows === 'unknown' ? undefined : v.rows.get(me)
+  const row = v.table[me]
+  if (mem.selfNamed || row?.brief === undefined || own?.nameSource !== 'auto' || own.name === row.name || nameRefusal(v, row.name, me) !== undefined || !(await idle($, me))) return
+  mem.selfNamed = true
+  await ran($, 'rename', row.name, 10_000)
+}
+// What the cue asks of this session: rename it, start it on its own row's brief (naming it first when its name differs, and on its row's model and effort), or resume it.
 async function act($: any, me: Sid, v: View, cue: Cue): Promise<CueResult> {
   const refused = (code: string): CueResult => ({ id: cue.id, outcome: 'refused', code })
   const row = v.table[me]
@@ -41,17 +52,18 @@ async function act($: any, me: Sid, v: View, cue: Cue): Promise<CueResult> {
   if (nameRefusal(v, name, me) !== undefined) return refused('name')
   const brief = row?.brief
   if (cue.verb === 'start' && (brief === undefined || !brief.startsWith(`${row!.folder}/.archive/`) || brief.includes('..'))) return refused('no-brief')
-  if (own?.name !== name) {
-    const renamed = await Promise.race([Promise.resolve($.command.run({ command: 'rename', args: name })).then(() => true, () => false), $.clock.sleep(10_000).then(() => false)])
-    if (!renamed) return refused('rename-failed')
-  }
+  if (own?.name !== name && !(await ran($, 'rename', name, 10_000))) return refused('rename-failed')
+  for (const k of ['model', 'effort'] as const) if (cue.verb === 'start' && row![k] !== undefined && !(await ran($, k, row![k]!, 5_000))) return refused(`${k}-failed`)
+  // /model can report a model it could not switch to without failing: the session's model, read back within 5 s, must name the alias ("claude-haiku-5-5").
+  if (cue.verb === 'start' && row!.model !== undefined && !String(await Promise.race([Promise.resolve().then(() => $.session.model()), $.clock.sleep(5_000)]).catch(() => '')).toLowerCase().includes(row!.model)) return refused('model-failed')
   if (cue.verb === 'start' && !(await submitOwn($, T['cue.start']({ name, brief: brief!, parent: nameOf(v, cue.from) })).then(() => true, () => false))) return refused('failed')
   return { id: cue.id, outcome: 'ok' }
 }
 export async function cueTick($: any, me: Sid, v: View, now: number): Promise<void> {
   if (v.rows === 'unknown') return
   const p = await path($, 'cue', `${me}.json`)
-  if (p === undefined || !(await $.fs.exists(p).catch(() => false))) return
+  // The self-rename runs only in a tick with no cue, so a cue's answer still comes inside the parent's wait; a start renames the lane itself.
+  if (p === undefined || !(await $.fs.exists(p).catch(() => false))) return selfName($, me, v)
   const cue = parseCue(json(await readText($, p, 2048)))
   if (cue === undefined || !ID_RE.test(cue.id)) return void (await rm($, [p]))
   const fresh = await getView($, true)

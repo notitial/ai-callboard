@@ -71,7 +71,7 @@ export function relayDialog(asker: string, tool: string, input: string, cut: boo
   const p = printed(input, DIALOG_CAP)
   const whole = !cut && !p.cut
   return {
-    header: T['dialog.relay.header']({ asker }),
+    header: T['dialog.relay.header']({}),
     question: T['dialog.relay.question']({ asker, tool, input: p.text, cut: !whole }),
     options: [...(whole ? (q === undefined ? [{ label: T['dialog.allow']({}) }] : q.options.map((o) => ({ label: o.label }))) : []), { label: T['dialog.deny']({}) }],
     cut: !whole,

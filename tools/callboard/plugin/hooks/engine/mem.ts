@@ -52,6 +52,8 @@ const fresh = () => ({
   signed: { at: 0, set: new Set<Sid>() },
   since: 0,
   prNotes: [] as PrNote[],
+  // Notice turns owed to this session for his own step in it (cmd.told, go.clicked), sent one a tick once it is quiet.
+  owed: [] as string[],
   prLost: new Map<string, number>(),
   prLooks: [] as number[],
   prPollAt: 0,
@@ -59,6 +61,7 @@ const fresh = () => ({
   toasted: new Set<string>(),
   logged: '',
   parentTools: false,
+  selfNamed: false,
   dialogs: new Set<string>(),
   usageAt: 0,
   usageOwed: false,
@@ -70,6 +73,8 @@ const fresh = () => ({
   asks: undefined as { at: number; open: { ask: Ask; st: Open }[]; log: AskLogRow[] } | undefined,
   told: new Set<string>(),
   relayed: new Set<string>(),
+  // The ask whose relay pop-up is on screen, so the tick can say when it closed elsewhere.
+  shown: undefined as { id: string; name: string } | undefined,
   sweepAt: 0,
   tidyAt: 0,
   guard: undefined as { at: number; ok: boolean } | undefined,

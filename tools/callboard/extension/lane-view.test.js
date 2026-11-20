@@ -91,14 +91,15 @@ function world({ table = {}, lanes = [], rows = [], folders = ['/w/a'], files = 
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cb-view-'))
   fs.writeFileSync(path.join(dir, 'sessions.json'), JSON.stringify(table))
   const projectsDir = projects('/w/a', files)
-  const w = { provider: undefined, commands: new Map(), warnings: [], fires: 0, reopens: [], rows, time: NOW, disposed: 0 }
+  const w = { provider: undefined, ids: [], commands: new Map(), warnings: [], fires: 0, reopens: [], rows, time: NOW, disposed: 0 }
   const vscode = {
     EventEmitter: class { constructor() { this.event = (fn) => { this.fn = fn; return { dispose() {} } } } fire(x) { w.fires++; this.fn?.(x) } dispose() {} },
     TreeItem: class { constructor(label, collapsibleState) { this.label = label; this.collapsibleState = collapsibleState } },
-    ThemeIcon: class { constructor(id) { this.id = id } },
+    ThemeIcon: class { constructor(id, color) { this.id = id; this.color = color } },
+    ThemeColor: class { constructor(id) { this.id = id } },
     TreeItemCollapsibleState: { None: 0, Collapsed: 1, Expanded: 2 },
     window: {
-      createTreeView: (id, o) => { assert.equal(id, 'callboardLanes'); w.provider = o.treeDataProvider; return { dispose() { w.disposed++ } } },
+      createTreeView: (id, o) => { w.ids.push(id); w.provider = o.treeDataProvider; return { dispose() { w.disposed++ } } },
       showWarningMessage: (m) => w.warnings.push(m),
     },
     commands: { registerCommand: (id, fn) => { w.commands.set(id, fn); return { dispose() {} } } },
@@ -113,6 +114,7 @@ test('the view groups a lane under its lead and shows folder, state and the lead
   const w = world({
     table: { [sid(1)]: { name: 'LEAD', folder: '/w/a' }, [sid(2)]: { name: 'LAB', folder: '/w/b', under: sid(1), parked: NOW - 4 * MIN }, [sid(3)]: { name: 'RUN', folder: '/w/a', under: sid(1) } },
     rows: [reg(1, { status: 'waiting', waitingFor: 'x' }), reg(3, { status: 'busy' })],
+    folders: ['/w/a', '/w/b'],
   })
   const top = await w.items()
   assert.deepEqual(top.map((x) => [x.item.label, x.item.description]), [['LEAD', 'a · waiting']])
@@ -173,5 +175,31 @@ test('a registry read that is not complete leaves the list as it was', async () 
   w.rows = []
   await w.view.refresh()
   assert.equal((await w.items())[0].item.description, 'a · closed')
+  w.view.dispose()
+})
+
+test('one tree in two places: the Session Manager view and the Explorer view, as package.json declares them; a waiting session is the live dot in orange', async () => {
+  const w = world({ table: { [sid(1)]: { name: 'W', folder: '/w/a' }, [sid(2)]: { name: 'L', folder: '/w/a' } }, rows: [reg(1, { waitingFor: 'approve a tool' }), reg(2, { status: 'idle' })] })
+  const views = require('./package.json').contributes.views
+  assert.deepEqual(w.ids.sort(), [...views['claude-sessions-sidebar'], ...views.explorer].map((v) => v.id).sort())
+  assert.equal(views.explorer[0].when, `!${views['claude-sessions-sidebar'][0].when}`)
+  const icons = (await w.items()).map((x) => [x.item.label, x.item.iconPath.id, x.item.iconPath.color?.id])
+  assert.deepEqual(icons, [['L', 'circle-filled', undefined], ['W', 'circle-filled', 'charts.orange']])
+  w.view.dispose()
+  assert.equal(w.disposed, 2)
+})
+
+test('only the sessions of this window\'s folders are listed; a lane of a lead in another folder sits at the top', async () => {
+  const w = world({ table: { [sid(1)]: { name: 'LEAD', folder: '/w/b' }, [sid(2)]: { name: 'HERE', folder: '/w/a', under: sid(1) }, [sid(3)]: { name: 'THERE', folder: '/w/b', under: sid(1) }, [sid(4)]: { name: 'SUB', folder: '/w/a/sub' } } })
+  assert.deepEqual((await w.items()).map((x) => [x.item.label, x.n.kids.length]), [['HERE', 0]])
+  w.view.dispose()
+})
+
+test('a broken table whose leads point at each other shows every session once, at the top, and its lane below it', async () => {
+  const w = world({ table: { [sid(1)]: { name: 'A', folder: '/w/a', under: sid(2) }, [sid(2)]: { name: 'B', folder: '/w/a', under: sid(1) }, [sid(3)]: { name: 'C', folder: '/w/a', under: sid(1) } } })
+  const top = await w.items()
+  assert.deepEqual(top.map((x) => x.item.label), ['A', 'B'])
+  assert.deepEqual((await w.items(top[0].n)).map((x) => x.item.label), ['C'])
+  assert.deepEqual(await w.items(top[1].n), [])
   w.view.dispose()
 })

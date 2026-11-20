@@ -1,5 +1,6 @@
 // Checks that rules/callboard.md quotes the callboard mod's fixed texts exactly: the keepalive text, the opener and the closing
-// line of the PR notice, the opener of the signed-done notice, and the opener of each of the four compaction nudges. A session
+// line of the PR notice, the opener of the signed-done notice, the openers of the check-in (the mod's two and the plugin's) and of the plugin's own-step notice, and the opener of each of the
+// four compaction nudges. A session
 // matches those turns against the rule, so a drifted word would make it treat a real turn as an ordinary message.
 // It also checks that the rule carries the briefings' sentence on instructions from the layer above a session (CHAIN_TRUST) word for word.
 //   node tools/check-rule-text.mjs
@@ -13,11 +14,12 @@ import { fileURLToPath } from 'node:url'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const hooks = join(root, 'tools/callboard/mod/hooks')
-let rule, core, prWatch
+let rule, core, prWatch, plugin
 try {
   rule = readFileSync(join(root, 'rules/callboard.md'), 'utf8')
   core = await import(join(hooks, 'core.ts'))
   prWatch = await import(join(hooks, 'pr-watch.ts'))
+  plugin = await import(join(root, 'tools/callboard/plugin/hooks/texts.ts'))
 } catch (e) {
   console.error(`cannot load: ${e.message}`)
   process.exit(2)
@@ -35,6 +37,19 @@ if (!quoted(prWatch.PR_NOTICE_TAIL)) problems.push('rules/callboard.md does not 
 // The signed-done notice: the rule quotes how it opens.
 const DONE_OPENER = '[callboard] Signed done:'
 if (!core.doneText([{ lane: 'A', code: 'done', since: 0 }])?.startsWith(`${DONE_OPENER} `) || !quoted(DONE_OPENER)) problems.push('rules/callboard.md does not quote the opener of the signed-done notice exactly')
+
+// The check-in: the rule quotes the opener of each build's text, the mod's to a lead and to a conductor, and the plugin's.
+const item = [{ lane: 'A', code: 'quiet', since: 1 }]
+const checkins = [core.checkinText(item), core.leadCheckinText(item), plugin.T['event.turn']({ lines: [] })]
+for (const opener of ['[callboard] Check-in: some lanes may need you.', '[callboard] Check-in: some of your leads may need you.', '[callboard] Check-in: something under you needs a look.']) {
+  if (!checkins.some((t) => typeof t === 'string' && t.startsWith(opener)) || !quoted(opener)) problems.push(`rules/callboard.md does not quote the check-in opener exactly: ${opener}`)
+}
+
+// The own-step notice: the rule quotes how the plugin's turn opens after his command and after his go click.
+const ownStep = [plugin.T['cmd.told']({ result: 'x' }), plugin.T['go.clicked']({ outcome: 'given' }), plugin.T['go.clicked']({ outcome: 'declined' })]
+for (const opener of ['[callboard] The person ran /callboard in this session:', '[callboard] The person clicked Yes on your go request', '[callboard] The person declined the go you asked for']) {
+  if (!ownStep.some((t) => t.startsWith(opener)) || !quoted(opener)) problems.push(`rules/callboard.md does not quote the own-step opener exactly: ${opener}`)
+}
 
 // The nudge section lists each opener as a backquoted line that starts with [callboard]; a trailing " ..." marks where the quote stops.
 const nudgeSection = rule.split('## The compaction nudge')[1]?.split('\n## ')[0] ?? ''
@@ -56,4 +71,4 @@ if (problems.length) {
   for (const p of problems) console.error(p)
   process.exit(1)
 }
-console.log(`rules/callboard.md matches the mod: keepalive, PR notice, signed-done notice, ${openers.length} nudge openers, CHAIN_TRUST`)
+console.log(`rules/callboard.md matches the mod: keepalive, PR notice, signed-done notice, check-in and own-step openers, ${openers.length} nudge openers, CHAIN_TRUST`)

@@ -1,5 +1,6 @@
 // The unattended window: the span his command asks for and what a reader makes of the window file. Pure. Trust rule held here: a window that cannot be read is
-// `unknown`, which no dialog treats as off, so a failed read never opens a pop-up. The window changes nothing but whether a pop-up may open.
+// `unknown`, which no dialog treats as off, so a failed read never opens a pop-up. While it is on, no pop-up opens at the person (personDialog: the relay, a go,
+// a force stop), the manager's own dialog is denied at once and a subagent's ask is denied with "run it yourself" (ask-hook.ts); the ask timeline does not read it.
 import type { Window, WindowReading } from './model.ts'
 
 export const WINDOW_MIN_MS = 30 * 60_000

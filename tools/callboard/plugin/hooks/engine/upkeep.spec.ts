@@ -222,3 +222,15 @@ test('a prompt that lands while the compaction starts, or while the resume note 
   await requestTick(f.$, 'sid-me')
   assert.equal(f.h.submitted.length, 0)
 })
+
+test('the turn that signs a lane\'s report leaves no nudge due, and the lane counts as signed at once, not after the 30 s refresh', async () => {
+  const f = session(320_000)
+  const report = '/w/me/.archive/me/REPORT.md'
+  f.table({ 'sid-me': { name: 'me', folder: '/w/me', under: 'sid-lead', report } })
+  f.h.files.set(report, 'done\nstatus: done sid-me\n')
+  await turnComplete(f.$, { reason: 'answer' }, next)
+  assert.equal((await getUp(f.$)).due, null)
+  assert.ok(mem.signed.set.has('sid-me'))
+  await nudgeTick(f.$, 'sid-me', await view(f))
+  assert.equal(f.h.submitted.length, 0)
+})

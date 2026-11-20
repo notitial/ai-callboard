@@ -1,9 +1,9 @@
 // The session start and end, the registration of the tools and commands by what a session may use, the 2 s tick, and the PostToolUse hook that carries the same texts mid-turn.
 // Trust rules held here: one tick runs at a time and a step that throws is logged and does not stop the others; at most one text is submitted per tick; a notice is recomputed
 // from the sessions under this one now each time it is sent, a key is spent only when the turn carrying it starts, and nothing is sent unless the session is quiet.
-import type { Notice, Row, Sid, ToolName, View } from '../core/model.ts'
-import { PERSON, TOOLS, capability, children, nameOf, parent } from '../core/model.ts'
-import { signedBy, tidy } from '../core/lifecycle.ts'
+import type { Notice, Sid, ToolName, View } from '../core/model.ts'
+import { PERSON, TOOLS, capability, children, isOff, nameOf, parent } from '../core/model.ts'
+import { tidy } from '../core/lifecycle.ts'
 import { sweep } from '../core/asks.ts'
 import { notices } from '../core/notices.ts'
 import { SLEEP_GAP_MS } from '../core/upkeep.ts'
@@ -18,7 +18,7 @@ import { relayTick } from './relay.ts'
 import { askOpen, getView, logAsk, readAsks, rmAsk, tidyAsks, tidyAskLogs, updateTable } from './store.ts'
 import { isSub, say } from './tools-any.ts'
 import { openAsks } from './tools-ask.ts'
-import { idle, keepaliveTick, midNudge, nudgeTick, requestTick } from './upkeep.ts'
+import { idle, keepaliveTick, midNudge, nudgeTick, requestTick, signedNow } from './upkeep.ts'
 import { usageDrop, usageFlush, usageSweep } from './usage.ts'
 
 // ---- what a session is given: the five tools every session has at its start, the thirteen when it holds a capability (and, once, from the tick or from `/callboard lead`) ----
@@ -95,6 +95,12 @@ async function prNoticeTick($: any, me: Sid): Promise<void> {
   const c = prClaim()
   if (c !== undefined) await submitOwn($, c.text, false).catch(() => c.undo())
 }
+// A session turned off is sent nothing: what it was owed is dropped.
+async function owedTick($: any, me: Sid, v: View): Promise<void> {
+  if (isOff(v, me)) return void (mem.owed.length = 0)
+  const text = mem.owed[0]
+  if (text !== undefined && (await quiet($, me))) await submitOwn($, text, false).then(() => void mem.owed.shift(), () => log($, me, 'error', 'owed'))
+}
 // A report about a session whose parent is the person is a toast; the manager is never told of one.
 function toasts($: any, v: View, me: Sid): void {
   const once = (key: string, text: string) => (mem.toasted.has(key) ? undefined : (mem.toasted.add(key), toast($, text)))
@@ -112,14 +118,6 @@ async function tableTick($: any, v: View, now: number): Promise<void> {
   for (const k of Object.keys(v.table)) v.rows.has(k) ? mem.noSince.delete(k) : mem.noSince.has(k) || mem.noSince.set(k, now)
   const next = (t: typeof v.table) => tidy(t, v, (k) => mem.noSince.get(k), now)
   if (JSON.stringify(next(v.table)) !== JSON.stringify(v.table)) await updateTable($, next)
-}
-// Whether a session's report's last line is signed by its own id. The report path is the row's, inside the row's own folder.
-export async function signedNow($: any, k: Sid, r: Row | undefined): Promise<boolean> {
-  if (r?.report === undefined || !r.report.startsWith(`${r.folder}/.archive/`) || r.report.includes('..')) return false
-  const st = (await $.fs.stat(r.report).catch(() => undefined)) as { size: number; kind?: string } | undefined
-  const size = st?.kind === 'file' ? st.size : undefined
-  const t = size === undefined ? undefined : await $.fs.read(r.report, { offset: Math.max(0, size - 1024), length: 1024 }).catch(() => undefined)
-  return typeof t === 'string' && signedBy(t, k)
 }
 // Every 30 s: the sessions, this one and its children, whose report is signed.
 async function signedTick($: any, v: View, me: Sid, now: number): Promise<void> {
@@ -180,6 +178,7 @@ async function tick($: any): Promise<void> {
     await step('relay', () => relayTick($, me, v, now))
     await step('pr-poll', () => prTick($, me, v))
     if (mem.submits === start) await step('pr-notice', () => prNoticeTick($, me))
+    if (mem.submits === start) await step('owed', () => owedTick($, me, v))
     await step('keepalive', () => keepaliveTick($, me, v, start))
     await step('usage', () => usageFlush($, me))
   } finally {

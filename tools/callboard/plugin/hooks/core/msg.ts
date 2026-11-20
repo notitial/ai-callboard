@@ -6,7 +6,6 @@ import type { PrNote } from './pr.ts'
 
 // The codes a refusal carries. One id per code: `refuse.<code>`.
 export type RefuseCode =
-  | 'not-built'
   | 'bad-input'
   | 'bad-origin' // a command that widens what a session may do, run by anything but his own typed turn
   | 'no-capability' // the caller is neither a lead nor the manager
@@ -146,13 +145,16 @@ export type Fixed = {
   'cmd.configSet': { key: keyof Config; value: string }
   'cmd.configReset': E
   'cmd.rest': E
+  // The notice turn after his own step in this session: a typed /callboard command that changed something, or his click on the go dialog.
+  'cmd.told': { result: string }
+  'go.clicked': { outcome: 'given' | 'declined' | 'unsaved' }
 
   // Dialogs: the go, the force stop and the relay pop-up, each as header and question, and their buttons.
   'dialog.go.header': E
   'dialog.go.question': { giver: string; text: string; end: string }
   'dialog.stop.header': E
   'dialog.stop.question': { name: string; verb: StopVerb }
-  'dialog.relay.header': { asker: string }
+  'dialog.relay.header': E
   'dialog.relay.question': { asker: string; tool: string; input: string; cut: boolean }
   'dialog.allow': E
   'dialog.deny': E
@@ -169,6 +171,7 @@ export type Fixed = {
   // Toasts.
   'toast.refused': { tool: string; code: RefuseCode }
   'toast.askClosed': E // a click on a relay pop-up whose ask is closed
+  'toast.askDecided': Names // the ask behind the open relay pop-up closed elsewhere
   'toast.askNoFile': AskRef // the ask file could not be written; the loop still holds the deadline
   'toast.askStuck': AskRef & Names // the sweep found an ask no process answers
   'toast.twoManagers': { a: string; b: string }
