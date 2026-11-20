@@ -374,3 +374,77 @@ test('a folder that cannot be listed leaves the pop-up open: the read failed, th
   const broken = { ...f.$, fs: { ...f.$.fs, list: () => Promise.reject(new Error('x')) } }
   assert.equal(await askOpen(broken, 'ee11ff22aa'), true)
 })
+
+test('the first pop-up shows the manager\'s own note and no command, never the lead\'s, and offers no Allow; an escalate with no note, a cut ask or a question keeps what it showed', async () => {
+  const shown = async (id: string, over: Partial<Ask>, lead: string | undefined, boss: string | undefined) => {
+    const f = tiers()
+    const b = peer(f, 'sid-boss')
+    f.h.sleepMoves = false
+    await writeAsk(f.$, mk(id, over))
+    await writeUp(f.$, id, 'sid-lead', 'escalated', T0, lead)
+    await writeUp(f.$, id, 'sid-boss', 'escalated', T0, boss)
+    b.h.askAnswer = async () => 'Deny'
+    await tickRelay(b)
+    await settle()
+    return b.h.asked[0]!
+  }
+  const both = await shown('aa11bb22cc', {}, 'Lead: safe build.', 'Manager: runs make. Low risk.')
+  assert.match(both.question, /Manager: runs make\. Low risk\./)
+  assert.doesNotMatch(both.question, /Lead: safe|"command"/)
+  assert.deepEqual(both.options, ['Show the command', 'Deny'])
+  const bare = await shown('bb11cc22dd', {}, 'Lead: safe build.', undefined)
+  assert.match(bare.question, /"command":"make"/)
+  assert.doesNotMatch(bare.question, /Lead: safe|manager's own note/)
+  const cut = await shown('cc11dd22ee', { cut: true }, undefined, 'Manager: runs make.')
+  assert.deepEqual(cut.options, ['Deny'])
+  assert.match(cut.question, /NOT SHOWN WHOLE/)
+  const q = { header: 'H', question: 'Which?', options: [{ label: 'A' }, { label: 'B' }] }
+  const asked = await shown('dd11ee22ff', { tool: 'AskUserQuestion', input: '{}', question: q }, undefined, 'Manager: a note.')
+  assert.doesNotMatch(asked.question, /Manager: a note/)
+  assert.deepEqual(asked.options, ['A', 'B', 'Deny'])
+  const stuck = await shown('ee11ff22aa', { tool: 'AskUserQuestion', input: '{}', cut: true, question: q }, undefined, 'Manager: a note.')
+  assert.doesNotMatch(stuck.question, /Manager: a note/)
+})
+
+test('with a note, Show the command opens the command\'s own pop-up, the only one that offers Allow; a Deny, a dismissal or a closed ask in between writes what it should', async () => {
+  const run = async (answers: unknown[], over: Partial<Ask> = {}, between?: (f: F) => Promise<void>) => {
+    const f = tiers()
+    const b = peer(f, 'sid-boss')
+    f.h.sleepMoves = false
+    await writeAsk(f.$, mk('aa11bb22cc', over))
+    await writeUp(f.$, 'aa11bb22cc', 'sid-lead', 'escalated', T0, 'Lead: safe build.')
+    await writeUp(f.$, 'aa11bb22cc', 'sid-boss', 'escalated', T0, 'Manager: runs make. Low risk.')
+    b.h.askAnswer = async () => {
+      await between?.(f)
+      return answers.shift()
+    }
+    await tickRelay(b)
+    await settle()
+    return { b, f, got: await readAnswer(f.$, 'aa11bb22cc') }
+  }
+  const ok = await run(['Show the command', 'Allow'])
+  assert.deepEqual(ok.b.h.asked.map((a) => a.options), [['Show the command', 'Deny'], ['Allow', 'Deny']])
+  assert.doesNotMatch(ok.b.h.asked[0]!.question, /"command"/)
+  assert.match(ok.b.h.asked[1]!.question, /"command":"make"[\s\S]*Your click decides this ask only\./)
+  assert.doesNotMatch(ok.b.h.asked[1]!.question, /Manager: runs make/)
+  assert.deepEqual([ok.got?.by, ok.got?.decision], ['PERSON', 'allow'])
+  assert.equal(mem.shown, undefined)
+  const first = await run(['Deny'])
+  assert.equal(first.b.h.asked.length, 1)
+  assert.deepEqual([first.got?.by, first.got?.decision], ['PERSON', 'deny'])
+  const second = await run(['Show the command', 'Deny'])
+  assert.deepEqual([second.b.h.asked.length, second.got?.decision], [2, 'deny'])
+  const gone1 = await run([undefined])
+  assert.deepEqual([gone1.b.h.asked.length, gone1.got], [1, undefined])
+  const gone2 = await run(['Show the command', undefined])
+  assert.deepEqual([gone2.b.h.asked.length, gone2.got], [2, undefined])
+  const closed = await run(['Show the command'], {}, async (f) => rmAsk(f.$, 'aa11bb22cc'))
+  assert.deepEqual([closed.b.h.asked.length, closed.got], [1, undefined], 'an ask closed while the note is up opens no second pop-up and writes nothing')
+  let calls = 0
+  const closed2 = await run(['Show the command', 'Allow'], {}, async (f) => (++calls === 2 ? rmAsk(f.$, 'aa11bb22cc') : undefined))
+  assert.deepEqual([closed2.b.h.asked.length, closed2.got], [2, undefined], 'an Allow on an ask closed while the command is up writes nothing')
+  assert.equal(closed2.b.h.toasts.length, 1)
+  const big = await run(['Show the command', 'Deny'], { input: '<'.repeat(6000) })
+  assert.deepEqual(big.b.h.asked.map((a) => a.options), [['Show the command', 'Deny'], ['Deny']], 'a command too large to print leaves Deny only in the second pop-up')
+  assert.match(big.b.h.asked[1]!.question, /NOT SHOWN WHOLE/)
+})

@@ -102,8 +102,9 @@ export type Answer = {
   at: number
 }
 
-// `asks/<id>.up.<sid>`: an escalation, or a "told" mark, by that session; created exclusively. `reach` is derived from these and from `awake`.
-export type UpMark = { kind: 'escalated' | 'told'; by: Sid; at: number }
+// `asks/<id>.up.<sid>`: an escalation, or a "told" mark, by that session; created exclusively. `reach` is derived from these and from `awake`. note: what the escalator wrote
+// for the person (the relay pop-up reads it; the ask log never holds it).
+export type UpMark = { kind: 'escalated' | 'told'; by: Sid; at: number; note?: string }
 
 export type AskEvent = 'raised' | 'told' | 'escalated' | 'answered' | 'expired' | 'closed' | 'swept' | 'relay-unanswered'
 // A row of `asks-YYYY-MM.jsonl`, the one append-only ask log.

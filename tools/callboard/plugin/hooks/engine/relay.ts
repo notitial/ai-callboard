@@ -5,10 +5,10 @@ import type { Ask, Question, Sid, View } from '../core/model.ts'
 import { PERSON, nameOf } from '../core/model.ts'
 import { EXPIRE_MS, QUESTION_TOOL } from '../core/asks.ts'
 import { T } from '../texts.ts'
-import { relayDialog, relayStep } from '../ui.ts'
+import { relayDialog, relayNote, relayStep } from '../ui.ts'
 import { log, notice, personDialog, toast } from './io.ts'
 import { mem } from './mem.ts'
-import { askOpen, getView, guardOk, logAsk, offFile } from './store.ts'
+import { askOpen, askState, getView, guardOk, logAsk, offFile } from './store.ts'
 import { answerAsk, openAsks } from './tools-ask.ts'
 import { say } from './tools-any.ts'
 import { idle } from './upkeep.ts'
@@ -28,20 +28,34 @@ async function relaySteps($: any, ask: Ask, name: string, qs: readonly Question[
   return { picks }
 }
 
+// A tool ask the manager escalated with a note: the note first, with only Show the command and Deny, then the command's own pop-up, the only one that offers Allow. Leaving the first,
+// or an ask closed between the two, ends it. Without a note, or for a cut ask, it is the command's pop-up alone.
+async function relayCall($: any, ask: Ask, name: string, note: string | undefined): Promise<Got> {
+  if (note !== undefined && !ask.cut) {
+    const r = await personDialog($, relayNote(name, ask.tool, note), EXPIRE_MS)
+    if (!('label' in r) || r.label !== T['dialog.show']({})) return r
+    if (!(await askOpen($, ask.id))) return { no: 'error' }
+    if (mem.shown?.id === ask.id) mem.shown.tid = undefined
+  }
+  return personDialog($, relayDialog(name, ask.tool, ask.input, ask.cut, ask.question), EXPIRE_MS)
+}
+
 // A late click still lands on the dialog, so it waits as long as the ask can live.
 async function relayRun($: any, ask: Ask, v: View): Promise<void> {
   try {
     const name = nameOf(v, ask.asker)
     mem.shown = { id: ask.id, name }
     const qs = ask.questions ?? (ask.question === undefined ? undefined : [ask.question])
-    const r = await (qs === undefined || ask.cut ? personDialog($, relayDialog(name, ask.tool, ask.input, ask.cut, ask.question), EXPIRE_MS) : relaySteps($, ask, name, qs)).finally(() => (mem.shown = undefined))
+    // The note the person reads is the manager's own, never a lead's: an escalate of the manager's with no note shows the command.
+    const note = qs === undefined ? (await askState($, ask.id)).ups.find((u) => u.kind === 'escalated' && u.by === v.manager)?.note : undefined
+    const r = await (qs === undefined || ask.cut ? relayCall($, ask, name, note) : relaySteps($, ask, name, qs)).finally(() => (mem.shown = undefined))
     if (!('picks' in r) && !('label' in r)) {
       if (r.no === 'timeout') await logAsk($, { ev: 'relay-unanswered', ask: ask.id, asker: ask.asker })
       else if (r.no !== 'error') mem.relayed.delete(ask.id)
       return
     }
     const option = 'label' in r ? (ask.question?.options.findIndex((o) => o.label === r.label) ?? -1) : -1
-    const decision = 'picks' in r ? ({ decision: 'answer', picks: r.picks } as const) : r.label === T['dialog.deny']({}) ? ({ decision: 'deny' } as const) : option >= 0 ? { decision: 'answer', option: option + 1 } : ({ decision: 'allow' } as const)
+    const decision = 'picks' in r ? ({ decision: 'answer', picks: r.picks } as const) : r.label === T['dialog.deny']({}) ? ({ decision: 'deny' } as const) : option >= 0 ? { decision: 'answer', option: option + 1 } : r.label === T['dialog.allow']({}) ? ({ decision: 'allow' } as const) : ({ decision: 'deny' } as const)
     const out = await answerAsk($, await getView($, true), ask.id, decision, PERSON)
     if (out.act === 'ok') return
     const bare = out.msg === 'refuse.no-guard'

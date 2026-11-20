@@ -161,8 +161,10 @@ export type Fixed = {
   'dialog.stop.question': { name: string; verb: StopVerb }
   'dialog.relay.header': E
   'dialog.relay.question': { asker: string; tool: string; input: string; cut: boolean }
+  'dialog.relay.note': { asker: string; tool: string; note: string }
   'dialog.relay.step': { asker: string; i: number; n: number; header: string; question: string; options: string; cut: boolean }
   'dialog.allow': E
+  'dialog.show': E
   'dialog.deny': E
   'dialog.yes': E
   'dialog.no': E

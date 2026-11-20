@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { EXPIRE_MS, HEAD_START_MS, MANAGER_AT_MS, awakeAdd, classify, decide, inputText, questionShape, questionView, questionsView, stage, sweep } from './asks.ts'
+import { EXPIRE_MS, HEAD_START_MS, MANAGER_AT_MS, awakeAdd, classify, decide, inputText, noteOf, questionShape, questionView, questionsView, stage, sweep } from './asks.ts'
 import type { CheckFacts, Open, StageIn } from './asks.ts'
 import { PERSON, ancestors, liveView } from './model.ts'
 import type { Answer, Ask, Sid, Table, UpMark, View } from './model.ts'
@@ -204,4 +204,11 @@ test('every kind of ask rises to the manager and the manager can close it by rep
     const reply = decide({ ask: 'ask-1', by: M, decision: 'deny', note: 'the person is away', at: NOW }, a, s, all, {})
     assert.equal(reply.act, 'deny', `${name}: the manager's deny closes it`)
   }
+})
+
+test('an escalate note is one trimmed line of at most 300 characters; empty, blank or not a string is no note', () => {
+  assert.equal(noteOf('  Runs the tests.\n\nNo risk.\t'), 'Runs the tests. No risk.')
+  assert.equal(noteOf('é'.repeat(400))!.length, 300)
+  assert.equal(Array.from(noteOf('😀'.repeat(400))!).length, 300)
+  for (const x of ['', ' \n\t ', 7, null, undefined, { a: 1 }]) assert.equal(noteOf(x), undefined)
 })

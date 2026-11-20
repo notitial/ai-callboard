@@ -219,8 +219,8 @@ export async function readAsk($: any, id: string): Promise<Ask | undefined> {
 async function readUps($: any, d: string, names: string[], id: string): Promise<UpMark[]> {
   const mine = names.filter((n) => n.startsWith(`${id}.up.`) && SID_RE.test(n.slice(id.length + 4))).slice(0, 8)
   const ups = await Promise.all(mine.map(async (n) => {
-    const j = safeJson((await readText($, `${d}/${n}`, 1024)) ?? '') as { kind?: unknown; at?: unknown } | undefined
-    return (j?.kind === 'escalated' || j?.kind === 'told') && isNum(j.at) ? { kind: j.kind, by: n.slice(id.length + 4), at: j.at } : undefined
+    const j = safeJson((await readText($, `${d}/${n}`, 4096)) ?? '') as { kind?: unknown; at?: unknown; note?: unknown } | undefined
+    return (j?.kind === 'escalated' || j?.kind === 'told') && isNum(j.at) ? { kind: j.kind, by: n.slice(id.length + 4), at: j.at, ...(j.kind === 'escalated' && typeof j.note === 'string' ? { note: j.note } : {}) } : undefined
   }))
   return ups.filter((u): u is UpMark => u !== undefined)
 }
@@ -264,10 +264,10 @@ export async function rmAnswer($: any, id: string): Promise<void> {
   const p = await askPath($, id, 'answer')
   if (p !== undefined) await rm($, [p])
 }
-// A mark by one session, its own, written whole (a told mark gives way to its escalation).
-export async function writeUp($: any, id: string, by: Sid, kind: UpMark['kind'], at: number): Promise<boolean> {
+// A mark by one session, its own, written whole (a told mark gives way to its escalation). An escalation may carry a note.
+export async function writeUp($: any, id: string, by: Sid, kind: UpMark['kind'], at: number, note?: string): Promise<boolean> {
   const p = SID_RE.test(by) ? await askPath($, id, `up.${by}`) : undefined
-  return p !== undefined && writeFile($, p, JSON.stringify({ kind, at }))
+  return p !== undefined && writeFile($, p, JSON.stringify({ kind, at, ...(note === undefined ? {} : { note }) }))
 }
 // Entries of the ask folder whose ask file is gone (a late answer or mark) and temporary files left by a killed writer, once two minutes old.
 export async function tidyAsks($: any): Promise<void> {
