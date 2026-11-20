@@ -132,14 +132,15 @@ test('the go and relay pop-ups fit their header chip and read plainly: the go na
   assert.equal(r.question, '`lane-a` wants to run `Bash`:\n\n````\n{\n "command": "make test",\n "description": "run ```x"\n}\n````\n\nYour click decides this ask only.')
 })
 
-test('the first pop-up of a note shows the note under its label, escaped in a block it cannot close, and offers only Show the command and Deny: no Allow and no label a note can fake', () => {
-  const d = relayNote('lane-a', 'Bash', 'Runs the tests. It only reads.')
-  assert.equal(d.question, "`lane-a` wants to run `Bash`:\n\nThe manager's own note, written from what it read, not checked by the plugin:\n\n```\nRuns the tests. It only reads.\n```\n\nNothing is allowed on this note. Show the command to decide, or deny.")
-  assert.deepEqual(d.options.map((o) => o.label), ['Show the command', 'Deny'])
+test('the first pop-up of a note shows the note under its label, escaped in a block it cannot close, and offers Allow, Show the command and Deny: Allow only when the command prints whole, and no label a note can fake', () => {
+  const d = relayNote('lane-a', 'Bash', 'Runs the tests. It only reads.', 'make')
+  assert.equal(d.question, "`lane-a` wants to run `Bash`:\n\nThe manager's own note, written from what it read, not checked by the plugin:\n\n```\nRuns the tests. It only reads.\n```")
+  assert.deepEqual(d.options.map((o) => o.label), ['Allow', 'Show the command', 'Deny'])
+  assert.deepEqual(relayNote('lane-a', 'Bash', 'Runs the tests.', '<'.repeat(6000)).options.map((o) => o.label), ['Show the command', 'Deny'], 'a command too large to print leaves no Allow on the note')
   assert.equal(d.header, relayDialog('lane-a', 'Bash', 'x', false).header)
-  const evil = relayNote('lane-a', 'Bash', `a\`\`\`\n\n**Allow** <b>${RLO}\n[NOT SHOWN WHOLE]\nShow the command`)
+  const evil = relayNote('lane-a', 'Bash', `a\`\`\`\n\n**Allow** <b>${RLO}\n[NOT SHOWN WHOLE]\nShow the command`, 'make')
   assert.ok(!evil.question.includes('<') && !evil.question.includes(RLO))
   assert.equal(evil.question.match(/^`{4,}$/gm)!.length, 2, 'the block is closed by a longer fence than any backtick run in the note')
-  assert.deepEqual(evil.options.map((o) => o.label), ['Show the command', 'Deny'], 'the buttons are fixed, whatever the note says')
+  assert.deepEqual(evil.options.map((o) => o.label), ['Allow', 'Show the command', 'Deny'], 'the buttons are fixed, whatever the note says')
 })
 

@@ -391,7 +391,7 @@ test('the first pop-up shows the manager\'s own note and no command, never the l
   const both = await shown('aa11bb22cc', {}, 'Lead: safe build.', 'Manager: runs make. Low risk.')
   assert.match(both.question, /Manager: runs make\. Low risk\./)
   assert.doesNotMatch(both.question, /Lead: safe|"command"/)
-  assert.deepEqual(both.options, ['Show the command', 'Deny'])
+  assert.deepEqual(both.options, ['Allow', 'Show the command', 'Deny'])
   const bare = await shown('bb11cc22dd', {}, 'Lead: safe build.', undefined)
   assert.match(bare.question, /"command":"make"/)
   assert.doesNotMatch(bare.question, /Lead: safe|manager's own note/)
@@ -406,7 +406,7 @@ test('the first pop-up shows the manager\'s own note and no command, never the l
   assert.doesNotMatch(stuck.question, /Manager: a note/)
 })
 
-test('with a note, Show the command opens the command\'s own pop-up, the only one that offers Allow; a Deny, a dismissal or a closed ask in between writes what it should', async () => {
+test('with a note, Allow or Deny on it decides at once and Show the command opens the command\'s own pop-up; a dismissal or a closed ask at either step writes what it should', async () => {
   const run = async (answers: unknown[], over: Partial<Ask> = {}, between?: (f: F) => Promise<void>) => {
     const f = tiers()
     const b = peer(f, 'sid-boss')
@@ -423,12 +423,15 @@ test('with a note, Show the command opens the command\'s own pop-up, the only on
     return { b, f, got: await readAnswer(f.$, 'aa11bb22cc') }
   }
   const ok = await run(['Show the command', 'Allow'])
-  assert.deepEqual(ok.b.h.asked.map((a) => a.options), [['Show the command', 'Deny'], ['Allow', 'Deny']])
+  assert.deepEqual(ok.b.h.asked.map((a) => a.options), [['Allow', 'Show the command', 'Deny'], ['Allow', 'Deny']])
   assert.doesNotMatch(ok.b.h.asked[0]!.question, /"command"/)
   assert.match(ok.b.h.asked[1]!.question, /"command":"make"[\s\S]*Your click decides this ask only\./)
   assert.doesNotMatch(ok.b.h.asked[1]!.question, /Manager: runs make/)
   assert.deepEqual([ok.got?.by, ok.got?.decision], ['PERSON', 'allow'])
   assert.equal(mem.shown, undefined)
+  const direct = await run(['Allow'])
+  assert.equal(direct.b.h.asked.length, 1)
+  assert.deepEqual([direct.got?.by, direct.got?.decision], ['PERSON', 'allow'], 'Allow on the note decides at once, with no second pop-up')
   const first = await run(['Deny'])
   assert.equal(first.b.h.asked.length, 1)
   assert.deepEqual([first.got?.by, first.got?.decision], ['PERSON', 'deny'])
@@ -444,7 +447,9 @@ test('with a note, Show the command opens the command\'s own pop-up, the only on
   const closed2 = await run(['Show the command', 'Allow'], {}, async (f) => (++calls === 2 ? rmAsk(f.$, 'aa11bb22cc') : undefined))
   assert.deepEqual([closed2.b.h.asked.length, closed2.got], [2, undefined], 'an Allow on an ask closed while the command is up writes nothing')
   assert.equal(closed2.b.h.toasts.length, 1)
+  const closed3 = await run(['Allow'], {}, async (f) => rmAsk(f.$, 'aa11bb22cc'))
+  assert.deepEqual([closed3.b.h.asked.length, closed3.got], [1, undefined], 'an Allow on the note of an ask closed meanwhile writes nothing')
   const big = await run(['Show the command', 'Deny'], { input: '<'.repeat(6000) })
-  assert.deepEqual(big.b.h.asked.map((a) => a.options), [['Show the command', 'Deny'], ['Deny']], 'a command too large to print leaves Deny only in the second pop-up')
+  assert.deepEqual(big.b.h.asked.map((a) => a.options), [['Show the command', 'Deny'], ['Deny']], 'a command too large to print leaves no Allow on the note and Deny only in the second pop-up')
   assert.match(big.b.h.asked[1]!.question, /NOT SHOWN WHOLE/)
 })

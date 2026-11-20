@@ -28,11 +28,11 @@ async function relaySteps($: any, ask: Ask, name: string, qs: readonly Question[
   return { picks }
 }
 
-// A tool ask the manager escalated with a note: the note first, with only Show the command and Deny, then the command's own pop-up, the only one that offers Allow. Leaving the first,
+// A tool ask the manager escalated with a note: the note first, where Allow or Deny decides and Show the command opens the command's own pop-up. Leaving the first,
 // or an ask closed between the two, ends it. Without a note, or for a cut ask, it is the command's pop-up alone.
 async function relayCall($: any, ask: Ask, name: string, note: string | undefined): Promise<Got> {
   if (note !== undefined && !ask.cut) {
-    const r = await personDialog($, relayNote(name, ask.tool, note), EXPIRE_MS)
+    const r = await personDialog($, relayNote(name, ask.tool, note, ask.input), EXPIRE_MS)
     if (!('label' in r) || r.label !== T['dialog.show']({})) return r
     if (!(await askOpen($, ask.id))) return { no: 'error' }
     if (mem.shown?.id === ask.id) mem.shown.tid = undefined

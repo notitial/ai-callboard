@@ -93,10 +93,11 @@ export function relayDialog(asker: string, tool: string, input: string, cut: boo
   }
 }
 
-// The manager's note, the first of two pop-ups for a tool ask it escalated: the note under its label (escaped and fenced like the input) and only Show the command or Deny, so a
-// click here never allows anything: Allow is offered only by relayDialog, with the whole command on screen. A note is at most 300 characters, so its escaped text fits the cap.
-export function relayNote(asker: string, tool: string, note: string): DialogSpec {
-  return { header: T['dialog.relay.header']({}), question: T['dialog.relay.note']({ asker, tool, note: printed(note, DIALOG_CAP).text }), options: [{ label: T['dialog.show']({}) }, { label: T['dialog.deny']({}) }] }
+// The manager's note, the first of two pop-ups for a tool ask it escalated: the note under its label (escaped and fenced like the input), with Allow, Show the command (the second
+// pop-up, relayDialog) and Deny. Allow is offered only where the whole command can be shown, as in relayDialog. A note is at most 300 characters, so its escaped text fits the cap.
+export function relayNote(asker: string, tool: string, note: string, input: string): DialogSpec {
+  const whole = !printed(input, DIALOG_CAP).cut
+  return { header: T['dialog.relay.header']({}), question: T['dialog.relay.note']({ asker, tool, note: printed(note, DIALOG_CAP).text }), options: [...(whole ? [{ label: T['dialog.allow']({}) }] : []), { label: T['dialog.show']({}) }, { label: T['dialog.deny']({}) }] }
 }
 
 // One question of a call (n of them), as a pop-up of its own with a Deny; the person's picks of several are sent together after the last. The buttons carry the labels, so the
