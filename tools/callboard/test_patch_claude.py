@@ -1187,13 +1187,14 @@ class Pie(Case):
             self.assertEqual(snap(ext), before, failing)
 
     def test_an_update_that_died_after_the_pie_went_in_leaves_leftovers_that_undo_clears(self):
-        for name, pie_in in (("linked", False), ("piein", True)):
+        for name, pie_in in (("linked", False), ("piein", True), ("pillin", "pill"), ("pieandpillin", "both")):
             ext = self.make(V327, name="die-" + name)
             orig_main, orig_js = self.js(ext), slurp(os.path.join(ext, self.WEBJS))
             self.older(ext, **NO_WEB)
             mod = load_module()
             if pie_in:
-                mod.set_web(ext, orig_js, mod.pie_web(orig_js))
+                new_js = {True: mod.pie_web, "pill": mod.pill_web, "both": lambda j: mod.pill_web(mod.pie_web(j))}[pie_in](orig_js)
+                mod.set_web(ext, orig_js, new_js)
                 self.assertNotEqual(slurp(os.path.join(ext, self.WEBJS)), orig_js)
             else:
                 os.link(os.path.join(ext, self.WEBJS), os.path.join(ext, self.BAK))

@@ -610,8 +610,8 @@ def undo(ext):
         if backup is None or m is None or digest(backup) == m.get(field):
             continue
         # An --update of an install made before the marker held web hashes can stop after the pie went in and before the new marker: the backup is the original
-        # then, shown by the script now being it, or the pie built from it.
-        if field == "web_original_sha256" and field not in m and js in (backup, pie_web(backup)):
+        # then, shown by the script now being it, or any of the pieces built from it.
+        if field == "web_original_sha256" and field not in m and js in (backup, pie_web(backup), pill_web(backup), pill_web(pie_web(backup))):
             continue
         refuse("%s does not match the marker's recorded original; left alone. Reinstall the extension instead" % name)
     raw = read(main)
