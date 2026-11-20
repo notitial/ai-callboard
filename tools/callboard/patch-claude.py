@@ -49,7 +49,7 @@ ID = rb"[A-Za-z_$][\w$]*"
 VERSION = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+")
 
 # The CSS pieces: each a style block of its own in the webview page the extension builds, put in front of the font configuration style tag. That tag
-# is the one anchor they share: it still matches once after each insert, and it comes after the page's stylesheet link, so the blocks win ties. Each block ends
+# is the one anchor they share: it still matches once after each insert. The rules carry !important, so they win over the page's own. Each block ends
 # up inside a JavaScript template literal, so it holds no backtick, backslash or "${". Class names of the page carry a build hash, so the selectors match their
 # stable prefix. A rule whose selector goes stale does not fail, so a piece goes in only when the shipped webview (webview/index.css and index.js) still carries
 # every token it names; one that misses is left out with a warning and the others still apply.
@@ -296,8 +296,10 @@ def problems(raw):
 
 
 def webview(ext):
-    """The shipped webview's stylesheet and script, which the CSS pieces check their tokens against (empty when missing)."""
-    return b"".join(read(os.path.join(ext, "webview", n)) or b"" for n in ("index.css", "index.js"))
+    """The shipped webview's stylesheet and script, which the CSS pieces check their tokens against. A missing, linked or odd file counts as empty, so the
+    CSS pieces are left out with a warning and the rest still applies."""
+    paths = [os.path.join(ext, "webview", n) for n in ("index.css", "index.js")]
+    return b"".join(read(p) for p in paths if os.path.isfile(p) and not os.path.islink(p))
 
 
 def patched(raw, web):

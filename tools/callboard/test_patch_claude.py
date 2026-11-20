@@ -343,6 +343,9 @@ class Css(Case):
         for part in ("inputWrapper_", "permissionsContainer_", "inputContainer_", "max-width:none"):
             self.assertIn(part, mod.WIDTH_CSS)
         self.assertEqual(mod.CHIP_CSS, '[aria-label="Remote Control"],[aria-label^="Connecting to claude.ai"]{display:none!important}')
+        # The error pill's label ("Remote Control error: ...") matches neither selector: one is exact, the other a prefix it does not start with.
+        self.assertNotIn('aria-label^="Remote', mod.CHIP_CSS)
+        self.assertNotIn("*=", mod.CHIP_CSS)
 
     @unittest.skipUnless(shutil.which("node"), "needs node")
     def test_the_patched_page_builder_still_runs_and_carries_the_blocks(self):
@@ -355,6 +358,14 @@ class Css(Case):
         self.assertIn(mod.WIDTH_CSS, page)
         self.assertIn(mod.CHIP_CSS, page)
         self.assertIn("--vscode-editor-font-family: mono", page)
+
+    def test_a_missing_or_linked_webview_leaves_out_only_the_css_pieces(self):
+        ext = self.make(V327, name="noweb", web={})
+        os.symlink(os.path.join(self.t, "elsewhere.js"), os.path.join(ext, "webview", "index.js"))
+        self.run_script(ext, "--apply")
+        marker = json.loads(slurp(os.path.join(ext, "callboard-cwd-patch.json")))
+        self.assertEqual((self.rc, marker["width"], marker["chip"], marker["restore"]), (0, False, False, True))
+        self.assertIn("the panel width is not in (the webview lacks", self.out)
 
     def test_a_webview_that_lacks_a_token_costs_only_that_piece(self):
         for field, other, web in (("chip", "width", {"index.css": WEB["index.css"]}), ("width", "chip", {"index.js": WEB["index.js"]})):
@@ -642,6 +653,29 @@ class Update(Case):
         self.assertEqual(sorted(os.listdir(self.ext)), ["callboard-cwd-patch.json", "extension.js", "extension.js.callboard-orig", "package.json", "webview"])
         self.assertUnchanged(self.ext)
         self.assertEqual((self.rc, self.out), (0, "patched 2.1.328\n"))
+
+    def test_an_install_with_the_old_look_block_reads_outdated_and_update_splits_it(self):
+        orig = self.js()
+        self.run_script(self.ext, "--apply")
+        mod = load_module()
+        blocks = b'<style id="callboard-width">' + mod.WIDTH_CSS.encode() + b'</style><style id="callboard-chip">' + mod.CHIP_CSS.encode() + b"</style>"
+        old = self.js().replace(blocks, b'<style id="callboard-look">a{b:c}</style>')
+        self.assertNotEqual(old, self.js())
+        mp = os.path.join(self.ext, "callboard-cwd-patch.json")
+        marker = json.loads(slurp(mp))
+        del marker["width"], marker["chip"]
+        marker.update(look=True, patched_sha256=hashlib.sha256(old).hexdigest())
+        for path, data in ((os.path.join(self.ext, "extension.js"), old), (mp, json.dumps(marker).encode())):
+            with open(path + ".t", "wb") as f:
+                f.write(data)
+            os.replace(path + ".t", path)
+        self.run_script(self.ext)
+        self.assertEqual((self.rc, self.out.splitlines()[0]), (1, "outdated 2.1.328: the panel width is not in"))
+        self.run_script(self.ext, "--update")
+        self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "updated 2.1.328"))
+        self.assertEqual(self.js(), self.current(orig))
+        marker = json.loads(slurp(mp))
+        self.assertEqual((marker["width"], marker["chip"], "look" in marker), (True, True, False))
 
     @unittest.skipUnless(shutil.which("node"), "needs node")
     def test_the_updated_code_still_runs(self):
