@@ -176,8 +176,9 @@ export const liveness = (v: View, s: Sid): Liveness => (v.rows === 'unknown' ? '
 export const isOff = (v: View, s: Sid): boolean => v.table[s]?.off === true
 export const isLead = (v: View, s: Sid): boolean => v.table[s]?.lead !== undefined && !isOff(v, s)
 export const capability = (v: View, s: Sid): Capability => (v.manager === s ? 'manager' : isLead(v, s) ? 'lead' : 'none')
-// The name a session was given (by /rename or a cue). The one Claude generates for a new panel (nameSource auto) is not: a row's name wins over it.
-export const givenName = (r: RegistryRow | undefined): string | undefined => (r?.nameSource === 'auto' ? undefined : r?.name)
+// The name a session was given (by /rename or a cue): its name source is `user`, or the registry gives none. Any other source (`auto` and `derived` are the ones seen) is the name
+// Claude generated for a new panel, and a row's name wins over it.
+export const givenName = (r: RegistryRow | undefined): string | undefined => (r?.nameSource === undefined || r.nameSource === 'user' ? r?.name : undefined)
 // A name that spells a sentinel (PERSON, unknown) is not shown: the texts read those two words as the person and as a parent not known, so such a session shows as its id.
 export const nameOf = (v: View, s: Sid): string => {
   const reg = v.rows === 'unknown' ? undefined : v.rows.get(s)

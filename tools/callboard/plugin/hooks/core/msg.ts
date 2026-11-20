@@ -51,7 +51,7 @@ export type RefuseCode =
 export type CommandName = 'status' | 'lanes' | 'help' | 'lead' | 'lead-off' | 'off' | 'on' | 'go' | 'go-off' | 'unattended' | 'config' | 'rest'
 
 // The lane list's columns and states (`/callboard lanes`, `lane_list`).
-export type UiColumn = 'name' | 'role' | 'state' | 'parent' | 'folder' | 'context' | 'fiveHour' | 'sevenDay' | 'cost' | 'read'
+export type UiColumn = 'name' | 'role' | 'state' | 'folder' | 'context' | 'fiveHour' | 'sevenDay' | 'cost' | 'read'
 export type UiState = 'live' | 'busy' | 'parked' | 'gone' | 'done' | 'off' | 'notOpened' | 'unknown'
 
 // One row of /callboard status: what is shown and its value, as the person reads it (a name, `PERSON` or `unknown` for a parent; a window's end as a time, or null).
@@ -70,9 +70,10 @@ type AskRef = { ask: string }
 export type Fixed = {
   // Notes and briefings: the plugin's frame around a briefing, then the three briefings (a parent with the ask rubric, the manager with its rules file, a child).
   'note.frame': { body: string }
-  'brief.parent': { name: string; repos: string[] }
+  'brief.parent': { name: string; sid: string; repos: string[] }
   'brief.manager': { name: string; rules: string; rulesCut: boolean }
-  'brief.child': { name: string; parent: string }
+  // `lead`: the parent is a lead, so the lane sends its questions to it instead of opening a dialog.
+  'brief.child': { name: string; sid: string; parent: string; lead: boolean }
 
   // Cue and compaction notes: the turns a parent's cue and a session's own compaction submit. There is no order nudge and no on-cue note.
   'cue.rename': Names
@@ -186,7 +187,6 @@ export type Fixed = {
   // UI: the status page, the lane list, prompt_list (the rules file first), the go list. A status row is its label and its value in one text.
   'ui.status.head': E
   'ui.status.row': StatusRow
-  'ui.person': E
   'ui.lanes.head': E
   'ui.lanes.none': E
   'ui.rules': { rules: string; cut: boolean }

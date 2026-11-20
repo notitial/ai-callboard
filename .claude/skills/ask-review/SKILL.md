@@ -1,6 +1,6 @@
 ---
 name: ask-review
-description: "MANAGER's regular look at the ask log for repeated read-only asks, ending in options for the person: a path-pinned allow, a standing line in their manager-rules file, or nothing. Read-only: it allows nothing and edits no settings or rules. Run by the manager about once a week, or when the person types /ask-review."
+description: "MANAGER's regular look at the ask log for repeated read-only asks, ending in options for the person: a path-pinned allow, a standing line in their manager-rules file, or nothing. Read-only: it allows nothing and edits no settings or rules. Run by the manager about once a week, by reading this file and following its steps, or when the person types /ask-review."
 disable-model-invocation: true
 ---
 
@@ -28,7 +28,10 @@ Role and run list: `docs/manager/README.md`.
    nothing), each option naming what it changes:
    - a path-pinned `allow` for that script in the repo's settings, and an `ask` on edits of the scripts folder so it
      cannot change unseen (a lead's PR, approved by the person);
-   - a standing line in the person's own manager-rules file: allow an ask that only runs `<path>`;
+   - a standing line in the person's own manager-rules file: allow an ask that only runs `<path>`. The line pins no
+     content: every ask still meets the rubric and a script is read whole first, so it saves the person's decision, not
+     the manager's reading. The person should also pin the script some other way (a committed script path, an `ask`
+     on edits of it), or the file behind the path can change unseen;
    - leave it as it is.
 
    Each option shows the exact command, how often it came and what it does. A sha256 may appear for the person's

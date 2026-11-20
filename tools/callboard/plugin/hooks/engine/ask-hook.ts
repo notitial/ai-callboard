@@ -80,7 +80,7 @@ export async function permissionRequest($: any, e: any, next: any) {
   const me = (await $.session.id()) as Sid
   const v = await getView($)
   if (isOff(v, me) || (await offFile($))) return next(e)
-  if (ownDialog(e)) return closeWhenDecided($, e, next.signal)
+  if (ownDialog(e)) return closeWhenDecided($, e, next.signal).catch(() => ({}))
   if (isSub(e)) {
     // A subagent's dialog is shown only after the hooks return, so nothing can wait for it: the chain beneath, else a deny that sends the main agent to run the call itself, but only
     // where the main session's own ask could rise (a lead is above it, or a window is on and it rises to the manager).

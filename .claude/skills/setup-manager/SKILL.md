@@ -1,6 +1,6 @@
 ---
 name: setup-manager
-description: "Walk the person through docs/setup.md on this Mac: prerequisites, callboard from the live checkout (extension link and default load), the two deny lines for the list file and the store, the two prompt answering lines (a deny and an ask rule, needed before `/callboard escalation`), the usage watcher (once the repo is public), the old-watcher cut-over, the callboard rule link, the manager's reserved name, and a final status table. Runs only read-only checks and dry runs; every --apply, sudo, settings edit, link and launchctl bootout is shown as an exact command for the person to run. Use on '/setup-manager'."
+description: "Walk the person through docs/setup.md on this Mac: prerequisites, callboard from the live checkout (extension link and default load), the deny line for the store, the protected-paths hook and its markers (needed before any tier's answer counts), the usage watcher (once the repo is public), the old-watcher cut-over, the callboard rule link, the manager-name file, and a final status table. Runs only read-only checks and dry runs; every --apply, sudo, settings edit, link and launchctl bootout is shown as an exact command for the person to run. Use on '/setup-manager'."
 disable-model-invocation: true
 ---
 
@@ -62,18 +62,19 @@ first; it is the source for every step here, and wins where the two differ.
      one included, and to run `/setup-manager` again to go on.
    - `false`: run `jq -e --arg m '<checkout>/tools/callboard/mod' '.env.CLAUDE_CODE_PLUGIN_DIRS // "" | IN("", "/usr/local/libexec/callboard/mod", $m)' ~/.claude/settings.json`.
      `true` means it is unset or holds an earlier build's path: give them the one-line command from
-     `tools/callboard/README.md`, Default load (every session), copied exactly with `<checkout>` filled in (it
-     replaces the old value), then the same restart and re-run. `false` means another value is there: tell the
-     person to decide by hand (callboard should be the only plugin on it, and never twice).
+     `tools/callboard/README.md`, Default load (every session), or for the earlier build's `mod` entry the switch
+     command in docs/setup.md, Switch to the plugin, copied exactly with `<checkout>` filled in (it replaces the old
+     value), then the same restart and re-run. `false` means another value is there: tell the person to decide by hand
+     (callboard should be the only plugin on it, and never twice).
 4. **Install check.** In the restarted session, ask the person to type `/callboard config` and note the ping value
    it shows. Then ask them to type `/callboard config ping 45` and then ask you to run it. Run it when asked: this is the one deliberate probe (Ground rules), and only on the person's own
    request in their own turn. The model-run one must not apply (the engine refuses a model's `/callboard` command). Then
    ask them to type `/callboard config ping <the value they noted>`. Never suggest `/callboard config reset`: it puts
    every callboard setting on this Mac back to its default, not only ping. If the model-run one applied, say so
    plainly: report it.
-5. **Deny lines and prompt answering lines.**
+5. **Deny line and protected-paths hook.**
    - Deny line: for the line in docs/setup.md (Manager setup: keep agents off the store (by hand)), run
-   `jq -e --arg r '<line>' '(.permissions.deny // []) | index($r) != null' ~/.claude/settings.json`. For any `false`,
+   `jq -e --arg r '<line>' '(.permissions.deny // []) | index($r) != null' ~/.claude/settings.json`. On `false`,
    show the person the missing line to add to `permissions.deny` by hand. The live checkout needs no deny lines: the hook and the markers below
    protect it (docs/setup.md, Keep agents off the live checkout).
    - Protected-paths hook: docs/setup.md, Escalation is on by default once the protected-paths hook is in place. Run
@@ -104,10 +105,10 @@ first; it is the source for every step here, and wins where the two differ.
    `mkdir -p ~/.claude/rules && ln -s <checkout>/rules/callboard.md ~/.claude/rules/callboard.md`. A link to another
    path, or a plain file: show it and let the person decide. Mention that ai-toolkit's `/setup-claude` and
    `/cleanup-claude` leave this link alone (docs/setup.md).
-10. **Reserved name.** Only when callboard is loaded. Ask the person which name this machine's manager
-    will carry. `MANAGER` needs nothing (it is built in). Another name (a second machine's manager): ask them to type
-    `/callboard reserve` and paste the answer. Not listed: give them `/callboard reserve add NAME` with their name filled
-    in, to type themselves (only their own prompt can change the list), then `/callboard reserve` again to check.
+10. **Manager name.** Ask the person which name this machine's manager will carry (a second machine needs another
+    name). Run `cat ~/.claude/callboard/manager-name`: it must print that one name. Missing or different: give them the
+    file block from docs/setup.md, Switch to the plugin, with their name filled in (the folder is one agents cannot
+    write, so they run it).
 11. **Tests.** Offer `bash tools/test-all.sh --quick` (run it on a yes; it only reads and uses temp folders).
 
 ## Status table
@@ -122,16 +123,16 @@ End with one table, from the checks as they stand now (run them again; do not re
 | Extension link | ok / missing / refused: ... |
 | Default load | ok / unset / other value / skipped |
 | Callboard install check | refused as it should / applied: report it / not run |
-| Deny lines | 8 of 8 / N of 8 |
-| Prompt answering lines | 2 of 2 / N of 2 |
+| Deny line | present / missing |
+| Protected-paths hook and markers | wired, 3 of 3 markers / missing: ... |
 | Old watcher | none / unloaded / still loaded: LABEL |
 | Usage watcher | ok / needs attention / skipped: repo not public |
 | SessionStart hook | ok / missing / skipped |
 | Rule link | ok / missing / points elsewhere |
-| Reserved name | MANAGER / NAME reserved / NAME not reserved / skipped |
+| Manager name | file holds NAME / missing / skipped |
 | Tests | passed / N failed / not run |
 
 Then the next step: start the manager as [docs/manager/README.md](../../../docs/manager/README.md), Starting and
-resuming, says (Opus, then `/callboard manager [NAME]` typed by the person). A second machine's manager uses the name
-reserved on that machine in step 10, for example `/callboard reserve BLUE` and then `/callboard manager BLUE`
-(docs/setup.md, Start the manager).
+resuming, says (Opus, then the person types `/rename NAME` with the name in the manager-name file). There is no manager
+command and no grant; a second machine's manager uses the name that machine's file holds (docs/setup.md, Start the
+manager).

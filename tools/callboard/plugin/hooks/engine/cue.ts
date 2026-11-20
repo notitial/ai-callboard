@@ -6,7 +6,7 @@
 // Bounds that hold for the same user (ADR 0002): the window opens only a folder of its own workspace, drops a request older than 60 s, reads plain files up to 1200 bytes and takes one
 // request at a time; the plugin checks capability, allowlist, name and the cap of live children before it writes. No rate limit and no lane store are checked beyond that.
 import type { Cue, CueResult, CueVerb, Sid, SpoolReply, SpoolRequest, View } from '../core/model.ts'
-import { nameOf, nameRefusal } from '../core/model.ts'
+import { givenName, nameOf, nameRefusal } from '../core/model.ts'
 import { CUE_WAIT_S, SPOOL_WAIT_S, cueAnswer, parseCue, parseResult } from '../core/lifecycle.ts'
 import { T } from '../texts.ts'
 import { ensureDir, log, path, pause, readText, rm, run, submitOwn, writeFile } from './io.ts'
@@ -34,11 +34,11 @@ export async function sendCue($: any, from: Sid, child: Sid, verb: CueVerb, name
 function ran($: any, command: string, args: string, ms: number): Promise<boolean> {
   return Promise.race([Promise.resolve($.command.run({ command, args })).then(() => true, () => false), $.clock.sleep(ms).then(() => false)])
 }
-// A lane whose panel still carries the name Claude generated takes its row's name at its first quiet tick, so it is named before lane_start. Once per process.
+// A lane whose panel still carries a name Claude generated takes its row's name at its first quiet tick, so it is named before lane_start. Once per process.
 async function selfName($: any, me: Sid, v: View): Promise<void> {
   const own = v.rows === 'unknown' ? undefined : v.rows.get(me)
   const row = v.table[me]
-  if (mem.selfNamed || row?.brief === undefined || own?.nameSource !== 'auto' || own.name === row.name || nameRefusal(v, row.name, me) !== undefined || !(await idle($, me))) return
+  if (mem.selfNamed || row?.brief === undefined || own === undefined || givenName(own) !== undefined || own.name === row.name || nameRefusal(v, row.name, me) !== undefined || !(await idle($, me))) return
   mem.selfNamed = true
   await ran($, 'rename', row.name, 10_000)
 }

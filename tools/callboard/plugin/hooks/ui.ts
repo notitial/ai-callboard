@@ -3,7 +3,6 @@
 // become escapes, so nothing closes a frame, hides text or reorders it); an input whose printed form had to be cut is reported cut, so no session may allow it.
 import { capBytes } from './core/asks.ts'
 import type { Ask, Capability, Decision, Question, Sid, StopVerb } from './core/model.ts'
-import { PERSON } from './core/model.ts'
 import type { RefuseCode, StatusRow, UiColumn, UiState } from './core/msg.ts'
 import { escBlock, escCell, T } from './texts.ts'
 
@@ -21,21 +20,37 @@ export const printed = (s: string, max: number): { text: string; cut: boolean } 
 export const statusPage = (rows: readonly StatusRow[]): string => `${T['ui.status.head']({})}\n\n| | |\n|---|---|\n${rows.map((r) => T['ui.status.row'](r)).join('\n')}`
 
 // ---- the lane table: /callboard lanes and lane_list ----
-// parent: a name, PERSON, or null. The usage figures are the engine's own; a figure that is absent or not a number reads `-`.
-export type LaneRow = { name: string; role: Capability; state: UiState; parent: string | null; folder: string; context?: number; fiveHour?: number; sevenDay?: number; cost?: number; readAgeMin?: number }
-const COLS: readonly UiColumn[] = ['name', 'role', 'state', 'parent', 'folder', 'context', 'fiveHour', 'sevenDay', 'cost', 'read']
+// sid and parentSid (a session id, PERSON, or null) order the table (see `tree`); the name is for display and is not unique. Neither is a column. The usage figures are the engine's own; a figure that is absent or not a number reads `-`.
+export type LaneRow = { sid: Sid; name: string; role: Capability; state: UiState; parentSid: Sid | null; folder: string; context?: number; fiveHour?: number; sevenDay?: number; cost?: number; readAgeMin?: number }
+const COLS: readonly UiColumn[] = ['name', 'role', 'state', 'folder', 'context', 'fiveHour', 'sevenDay', 'cost', 'read']
 const line = (v: readonly string[]): string => `| ${v.map(escCell).join(' | ')} |`
 const num = (n: number | undefined, f: (n: number) => string): string => (n !== undefined && Number.isFinite(n) ? f(n) : '-')
 
+// The rows as a tree, joined by session id (two sessions can share a name): a row whose parent is not listed starts a branch, and each row's children follow it, one `↳` deeper. A glyph, not spaces, which a table collapses.
+// Every row is placed once, so a parent that points back at its own child cannot loop; the rows of such a cycle come last.
+function tree(rows: readonly LaneRow[]): { row: LaneRow; depth: number }[] {
+  const out: { row: LaneRow; depth: number }[] = []
+  const placed = new Set<LaneRow>()
+  const place = (row: LaneRow, depth: number): void => {
+    if (placed.has(row)) return
+    placed.add(row)
+    out.push({ row, depth })
+    for (const c of rows) if (c.parentSid === row.sid) place(c, depth + 1)
+  }
+  for (const r of rows) if (!rows.some((p) => p.sid === r.parentSid)) place(r, 0)
+  for (const r of rows) place(r, 0)
+  return out
+}
+const folderName = (f: string): string => ((n) => (n === undefined ? '-' : `../${n}`))(f.split('/').filter((s) => s !== '').at(-1))
+
 export function lanesTable(rows: readonly LaneRow[]): string {
   if (rows.length === 0) return T['ui.lanes.none']({})
-  const cells = (r: LaneRow): Record<UiColumn, string> => ({
-    name: r.name, role: T[`ui.role.${r.role}`](), state: T[`ui.state.${r.state}`](), folder: r.folder,
-    parent: r.parent === null ? '-' : r.parent === PERSON ? T['ui.person']({}) : r.parent,
+  const cells = ({ row: r, depth }: { row: LaneRow; depth: number }): Record<UiColumn, string> => ({
+    name: depth === 0 ? r.name : `${'↳'.repeat(depth)} ${r.name}`, role: T[`ui.role.${r.role}`](), state: T[`ui.state.${r.state}`](), folder: folderName(r.folder),
     context: num(r.context, (n) => `${Math.round(n / 1000)}k`), fiveHour: num(r.fiveHour, (n) => `${Math.round(n)}%`), sevenDay: num(r.sevenDay, (n) => `${Math.round(n)}%`),
     cost: num(r.cost, (n) => `$${n.toFixed(2)}`), read: num(r.readAgeMin, (n) => `${Math.round(n)}m`),
   })
-  const body = rows.map((r) => ((c) => line(COLS.map((k) => c[k])))(cells(r)))
+  const body = tree(rows).map((r) => ((c) => line(COLS.map((k) => c[k])))(cells(r)))
   return [T['ui.lanes.head']({}), '', line(COLS.map((c) => T[`ui.col.${c}`]())), line(COLS.map(() => '---')), ...body, '', T['ui.usage.footnote']({})].join('\n')
 }
 

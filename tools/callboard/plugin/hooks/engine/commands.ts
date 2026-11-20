@@ -35,7 +35,7 @@ export async function laneRows($: any, v: View, me: Sid): Promise<LaneRow[]> {
     under.map(async (k) => {
       const u = await usageRead($, k, now)
       const reg = v.rows === 'unknown' ? undefined : v.rows.get(k)
-      return { name: nameOf(v, k), role: capability(v, k), state: childState(v, k, mem.signed.set.has(k), now), parent: person(v, parent(v, k)) === 'unknown' ? null : person(v, parent(v, k)), folder: reg?.folder ?? v.table[k]?.folder ?? '', context: u?.tokens, fiveHour: u?.fiveHour, sevenDay: u?.sevenDay, cost: u?.cost, readAgeMin: u === undefined ? undefined : (now - u.at) / 60_000 }
+      return { sid: k, name: nameOf(v, k), role: capability(v, k), state: childState(v, k, mem.signed.set.has(k), now), parentSid: parent(v, k) === 'unknown' ? null : parent(v, k), folder: reg?.folder ?? v.table[k]?.folder ?? '', context: u?.tokens, fiveHour: u?.fiveHour, sevenDay: u?.sevenDay, cost: u?.cost, readAgeMin: u === undefined ? undefined : (now - u.at) / 60_000 }
     }),
   )
 }
@@ -140,8 +140,8 @@ export async function promptCompose($: any, e: any, next: any) {
       if (cap === 'manager') {
         const rules = printed((await readRules($)) ?? '', RULES_CAP)
         body = T['brief.manager']({ name, rules: rules.text.replace(/^(\s*)\[(callboard|compact-cue)\]/gim, '$1[ $2]'), rulesCut: rules.cut })
-      } else if (cap === 'lead') body = T['brief.parent']({ name, repos: [v.table[me]!.folder, ...v.table[me]!.lead!.repos] })
-      else if (up !== PERSON && up !== 'unknown') body = T['brief.child']({ name, parent: nameOf(v, up) })
+      } else if (cap === 'lead') body = T['brief.parent']({ name, sid: me, repos: [v.table[me]!.folder, ...v.table[me]!.lead!.repos] })
+      else if (up !== PERSON && up !== 'unknown') body = T['brief.child']({ name, sid: me, parent: nameOf(v, up), lead: capability(v, up) === 'lead' })
     }
   } catch {}
   const out = await next(e)
