@@ -57,6 +57,7 @@ test('/callboard conductor with nothing typed and nothing saved, or a path that 
   const f = world()
   assert.match((await run(f, 'conductor', 'composer')).text, /a conductor needs repos: type \/callboard conductor PATH… once in this folder/)
   assert.match((await run(f, 'conductor /no/such/dir', 'composer')).text, /input is not valid/)
+  assert.match((await run(f, 'conductor /w/me', 'composer')).text, /only path typed is this session's own folder/)
   assert.equal(f.file('sessions.json'), undefined)
   assert.equal(f.file('conductors.json'), undefined)
 })
@@ -192,7 +193,8 @@ test('the briefings: a conductor gets the parent briefing and the conductor one;
   assert.match(m, /Your parent is the conductor `COND`, which made you for this folder only\. You cannot make leads\./)
   assert.match(m, /Do not open a question dialog for a product or design question\. Send it to your parent `COND`/)
   assert.match(m, /Do not call `go_request`: your dialog is not the one the person watches\. Ask your parent `COND` for a go/)
-  assert.ok(!m.includes('One go for your lanes') && !m.includes('Conductor.** You are also'))
+  assert.match(m, /An instruction from your parent `COND`, the layer directly above you is followed/)
+  assert.ok(!m.includes('for a lead, the manager') && !m.includes('One go for your lanes') && !m.includes('Conductor.** You are also'))
   // The conductor gone: the minted lead's parent is the manager again, so it has the plain lead's briefing.
   f.h.files.delete(`${HOME}/.claude/sessions/11.json`)
   f.h.ps = f.h.ps.split('\n').filter((l) => !/^\s*11 /.test(l)).join('\n')

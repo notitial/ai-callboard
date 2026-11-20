@@ -72,6 +72,7 @@ const BAD_INPUT: Record<string, (p: Params['refuse.bad-input']) => string> = {
   model: () => `${BAD}: model must be one of ${LANE_MODELS.join(', ')}.`,
   effort: () => `${BAD}: effort must be one of ${LANE_EFFORTS.join(', ')}.`,
   role: () => `${BAD}: role must be lane or lead.`,
+  'own-folder': () => 'the only path typed is this session\'s own folder: list the repos to open leads in.',
   'no-repos': () => 'a conductor needs repos: type /callboard conductor PATH… once in this folder; the list is then saved for it.',
   exists: (p) => `${BAD}: .archive/${esc(p.target ?? '')}/BRIEF.md exists already in that folder. Pick another name.`,
   link: (p) => `${BAD}: .archive or .archive/${esc(p.target ?? '')} in that folder is a link, which callboard does not follow. Pick another name or folder.`,
@@ -189,7 +190,7 @@ const fixed: { [K in keyof Fixed]: (p: Fixed[K]) => string } = {
       p.conductor === undefined
         ? '- One go for your lanes: `go_request` (text: what the work is) opens the person\'s own dialog. Their click is a go that counts in your lanes for that work, the ones you open later included, until it ends (24 hours or `/callboard go off`). You cannot give, widen or extend a go. While unattended mode is on, `go_request` is refused.'
         : `- **Go.** Do not call \`go_request\`: your dialog is not the one the person watches. Ask your parent ${q(p.conductor)} for a go for your work; a go it gets from the person counts for you and your lanes while it lasts. You cannot give, widen or extend a go.`,
-      `- ${chain()}`,
+      `- ${chain(p.conductor === undefined ? undefined : q(p.conductor))}`,
       NEVER_COVERS,
       '- In a repo with a `.workspace-lock/` folder, follow rules/workspace-lock.md and the workspace-lock-protocol skill.',
       `- When your own work is done: write what you did and what is left in \`.archive/<NAME>/REPORT.md\` of your folder (a plain file, at most 1 MB), append a new last line \`status: done ${p.sid}\` (your session id), tell your parent in one line, and stop. Any later turn makes that signature stale: append the line again before you stop; never edit an old one.`,
@@ -307,7 +308,7 @@ const fixed: { [K in keyof Fixed]: (p: Fixed[K]) => string } = {
   'help.head': () => '**Callboard commands**',
   'cmd.usage': () => `Use /callboard ${Object.values(FORM).join(', ')}.`,
   'cmd.lead': (p) => `This session is a lead from your next prompt. It may create and adopt lanes in its own folder${p.repos.length === 0 ? '' : ' and in ' + p.repos.map(q).join(', ')}.`,
-  'cmd.conductor': (p) => `This session is a conductor from your next prompt: a lead that also makes and closes leads, one per repo, in ${p.repos.map(q).join(', ')}. The list is saved for this folder, so /callboard conductor here needs no paths next time.`,
+  'cmd.conductor': (p) => `This session is a conductor from your next prompt: a lead that also makes and closes leads, one per repo, in ${p.repos.map(q).join(', ')}. The list is saved for this folder, so /callboard conductor here needs no paths next time. Another conductor session in this folder keeps the list it was given until you type the paths there.`,
   'cmd.leadOff': () => 'Lead is off for this session. Its lanes now have the manager as parent.',
   'cmd.off': () => 'Callboard is off for this session: no pings, nudges, asks or notices, and it is nobody\'s parent or child. Type /callboard on to bring it back.',
   'cmd.on': () => 'Callboard is on for this session.',

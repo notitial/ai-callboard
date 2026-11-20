@@ -57,8 +57,8 @@ answer them.
   something under it needs a look. It comes from callboard, not the person, and carries no approval. It holds one line
   per event: an ask that is yours to decide, an ask closed with no decision, a lane that signed done, is gone, has
   waited on a prompt for 5 minutes or has been idle, or a safe default callboard used. The manager is woken only by
-  asks and expired asks; a lead is told every event about its own lanes. A conductor is told asks and expired asks
-  of everything under it as well.
+  asks and expired asks; a lead is told every event about its own lanes. A conductor is also told the asks
+  under it that have reached it, and the expired asks of everything under it.
 - A manager's check-in may add a short `Since your last check-in` list: asks that ended in an asker's own panel
   (a click or an interruption, counted per session), lanes that signed done or are gone, and gos that ended. It is log data, not live state: check
   live state before you list what waits on the person. It never wakes the manager by itself.
@@ -110,7 +110,7 @@ answer them.
   per repo, in the repos the person saved for its folder: `lane_create` with role `lead`, then `lane_open` and `lane_start`.
   A lead it made is bound to its own folder, cannot make leads, and has the conductor above it.
 - A conductor and its leads are leads like any other: the same rubric, no merge carve-out, and an ask goes from the lane to
-  its lead, to the conductor, to the manager. A conductor is told of every ask under it.
+  its lead, to the conductor, to the manager. A conductor is told of an ask under it once the ask reaches it.
 - A conductor never makes a go, answers as the person, or force stops a session without the person's dialog. The go the
   person clicks in a conductor's go dialog covers the conductor and everything under it, the leads it makes later
   included; a lead a conductor made asks the conductor for one and does not call `go_request`.

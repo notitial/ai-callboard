@@ -82,6 +82,7 @@ async function perform($: any, cmd: Cmd, me: Sid, v: View, now: number, savedOk:
       const [own, ...typed] = (await realPaths($, v, me, cmd.paths)) ?? []
       if (own === undefined) return fail('path')
       // Paths typed now replace the list saved for this folder; none typed reuses it.
+      if (cmd.paths.length > 0 && typed.length === 0) return fail('own-folder')
       const repos = typed.length > 0 ? typed : await conductorRepos($, own)
       if (repos.length === 0) return fail('no-repos')
       if (typed.length > 0 && !(await saveConductorRepos($, own, typed))) return saved(false, '')
