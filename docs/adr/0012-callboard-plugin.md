@@ -87,10 +87,14 @@ an ask that reaches the person is a callboard pop-up in the manager's session, o
 either is the person's own act on that one ask.
 
 *Amended 2026-11-20 (escalation round).* The relay offers a call of 2 to 4 questions too: one pop-up per question, one
-combined answer, written only on the person's last pick (a dismissed pop-up writes nothing). A session still answers
-only a single question. The plugin has no handle to close a `$.ui.ask` pop-up, but its own PermissionRequest hook hears
-the pop-up, so the hook denies it once its ask is decided or closed elsewhere, which dismisses it; the out-of-date toast
-stays as a fallback 10 s later. The person's pick reaches the asker with a plugin note that it is their settled choice
+combined answer, written only on the person's last pick (a dismissed pop-up writes nothing); a single question uses the
+same pop-up with no counter, and it lists the options only when one has a description (the buttons carry the labels). A
+session still answers only a single question. The plugin has no handle to close a `$.ui.ask` pop-up. Its own
+PermissionRequest hook should hear the pop-up and deny it once its ask is decided or closed elsewhere, which would dismiss
+it, but a live test showed a stale pop-up staying open, so that dismiss depends on the engine and is not relied on. The
+fallback is a line the plugin puts under the pop-up with `$.ui.notice`, using the call id `tool.check` reports for it
+(`relayTick`, as soon as the ask is seen closed; skipped when no id was seen), and the out-of-date toast 10 s later. The
+hook and the tick log their steps (`relay-hook`, `relay-stale`) so the next test shows which part failed. The person's pick reaches the asker with a plugin note that it is their settled choice
 (only a pick made in the pop-up carries it: the plugin cannot tell the manager's own `prompt_answer` after a typed turn
 from the manager's own decision, so that answer keeps `answered by <manager>, not the person`). The manager's check-in
 also carries a short digest, "since your last check-in", of asks that ended in an asker's own panel (a click or an interruption), lanes done

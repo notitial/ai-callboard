@@ -27,6 +27,12 @@ export function toast($: any, text: string): void {
     Promise.resolve($.ui.toast(text)).catch(() => undefined)
   } catch {}
 }
+// A line under the open dialog of a call; the engine logs a refusal and throws nothing.
+export function notice($: any, tid: string, text: string): void {
+  try {
+    $.ui.notice(tid, text)
+  } catch {}
+}
 
 // The person's home, from the engine's environment; a path with an odd segment is no home. Everything lives under <home>/.claude/callboard/v2.
 export async function home($: any): Promise<string | undefined> {
@@ -122,7 +128,7 @@ export async function log($: any, sid: Sid, event: string, reason = ''): Promise
   const key = `${sid}|${event}|${reason}`
   if (p === undefined || mem.logged === key) return
   mem.logged = key
-  await ensureDir($, p.slice(0, p.lastIndexOf('/')))
+  await ensureDir($, p.slice(0, p.lastIndexOf('/'))).catch(() => undefined)
   await run($, ['/usr/bin/tee', '-a', '--', p], { stdin: `${JSON.stringify({ t: new Date(await $.clock.now()).toISOString(), event, reason })}\n` }).catch(() => undefined)
 }
 // A refusal or fallback about a session: logged and queued as a `report` event for the session above it (RECEIVES gives it to a lead).
