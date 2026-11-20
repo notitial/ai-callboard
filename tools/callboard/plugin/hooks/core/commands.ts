@@ -1,4 +1,4 @@
-// The /callboard command: its twelve forms, the settings schema, and the origin rule. Pure. Trust rule held here: a form that is not read-only (it widens what a session
+// The /callboard command: its thirteen forms, the settings schema, and the origin rule. Pure. Trust rule held here: a form that is not read-only (it widens what a session
 // may do, or changes a setting or a go or the window) runs only when the caller says it came from the person's own typed turn. The origin is an input: the adapter decides
 // it (the probe of a typed turn is not run yet), and originOk below is the one place it is judged. Anything but exactly `typed` counts as not typed.
 import type { Config, Decision } from './model.ts'
@@ -22,7 +22,7 @@ export function parseConfig(raw: unknown): Config {
 export type ConfigOp = 'show' | 'reset' | { key: 'keepalive'; value: boolean } | { key: Num; value: number }
 export type Cmd =
   | { op: 'status' | 'lanes' | 'help' | 'lead-off' | 'off' | 'on' | 'rest' }
-  | { op: 'lead'; paths: string[] }
+  | { op: 'lead' | 'conductor'; paths: string[] }
   | { op: 'go'; text: string }
   | { op: 'go-off'; id?: string }
   | { op: 'unattended'; span: Extract<SpanOp, { op: 'state' | 'off' | 'on' }> }
@@ -53,7 +53,9 @@ export function parseCommand(args: string, now: number): Cmd | Bad {
   const a = rest === '' ? [] : rest.split(/\s+/)
   const bad: Bad = { op: 'bad' }
   if ((WORDS as readonly string[]).includes(w)) return a.length === 0 ? { op: w as (typeof WORDS)[number] } : bad
-  if (w === 'lead') return rest === 'off' ? { op: 'lead-off' } : a.every((p) => /^~?\/[^\u0000-\u001f\u007f-\u009f]*$/.test(p)) ? { op: 'lead', paths: a } : bad
+  const plainPaths = a.every((p) => /^~?\/[^\u0000-\u001f\u007f-\u009f]*$/.test(p))
+  if (w === 'lead') return rest === 'off' ? { op: 'lead-off' } : plainPaths ? { op: 'lead', paths: a } : bad
+  if (w === 'conductor') return plainPaths ? { op: 'conductor', paths: a } : bad
   if (w === 'go') {
     const g = goCommand(rest)
     return g === 'bad' ? bad : g.op === 'give' ? { op: 'go', text: g.text } : { op: 'go-off', ...(g.id === undefined ? {} : { id: g.id }) }

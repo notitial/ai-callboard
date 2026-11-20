@@ -17,7 +17,7 @@ export const TOOL_SCHEMAS: Record<ToolName, { cap: 'any' | 'parent'; input: Sche
   lane_terminate: { cap: 'parent', input: lane },
   lane_unpark: { cap: 'parent', input: lane },
   lane_list: { cap: 'parent', input: none },
-  lane_create: { cap: 'parent', input: { type: 'object', properties: { name: text, folder: text, brief: text, model: { type: 'string', enum: [...LANE_MODELS] }, effort: { type: 'string', enum: [...LANE_EFFORTS] } }, required: ['name', 'folder', 'brief'] } },
+  lane_create: { cap: 'parent', input: { type: 'object', properties: { name: text, folder: text, brief: text, model: { type: 'string', enum: [...LANE_MODELS] }, effort: { type: 'string', enum: [...LANE_EFFORTS] }, role: { type: 'string', enum: ['lane', 'lead'] } }, required: ['name', 'folder', 'brief'] } },
   lane_open: { cap: 'parent', input: lane },
   lane_adopt: { cap: 'parent', input: { type: 'object', properties: { name: text }, required: ['name'] } },
   prompt_list: { cap: 'parent', input: none },

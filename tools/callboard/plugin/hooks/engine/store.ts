@@ -72,11 +72,12 @@ function parseTable(text: string): Table | undefined {
   for (const [k, r] of Object.entries(j)) {
     const o = r as Record<string, unknown> | null
     if (!KEY_RE.test(k) || typeof o !== 'object' || o === null || typeof o.name !== 'string' || typeof o.folder !== 'string') continue
-    const lead = o.lead as { repos?: unknown } | undefined
+    const lead = o.lead as { repos?: unknown; conductor?: unknown; minted?: unknown } | undefined
     const row: Row = { name: o.name, folder: o.folder }
     for (const f of ['report', 'under', 'brief'] as const) if (typeof o[f] === 'string') row[f] = o[f] as string
     for (const f of ['parked', 'goneAt'] as const) if (num(o[f]) !== undefined) row[f] = num(o[f])
-    if (typeof lead === 'object' && lead !== null && Array.isArray(lead.repos)) row.lead = { repos: lead.repos.filter((x): x is string => typeof x === 'string') }
+    // A row is a conductor or a minted lead, never both: a row that claims both is a minted lead, so the flag a conductor's powers rest on cannot ride on a minted row.
+    if (typeof lead === 'object' && lead !== null && Array.isArray(lead.repos)) row.lead = { repos: lead.repos.filter((x): x is string => typeof x === 'string'), ...(lead.minted === true ? { minted: true as const } : lead.conductor === true ? { conductor: true as const } : {}) }
     if (o.off === true) row.off = true
     if ((LANE_MODELS as readonly unknown[]).includes(o.model)) row.model = o.model as LaneModel
     if ((LANE_EFFORTS as readonly unknown[]).includes(o.effort)) row.effort = o.effort as LaneEffort
@@ -134,6 +135,22 @@ export async function writeConfig($: any, c: Config): Promise<boolean> {
   const p = await path($, 'config.json')
   mem.cfg = undefined
   return p !== undefined && writeFile($, p, JSON.stringify(c))
+}
+
+// ---- the conductor's repos: kept per conductor folder, written only by his typed command ----
+const CONDUCTOR_REPOS_MAX = 32
+const conductorFile = (t: string | undefined): Record<string, unknown> => {
+  const j = t === undefined ? undefined : safeJson(t)
+  return typeof j === 'object' && j !== null && !Array.isArray(j) ? (j as Record<string, unknown>) : {}
+}
+export async function conductorRepos($: any, folder: string): Promise<string[]> {
+  const p = await path($, 'conductors.json')
+  const l = conductorFile(p === undefined ? undefined : await readText($, p, 65_536))[folder]
+  return Array.isArray(l) ? l.filter((x): x is string => typeof x === 'string' && x.startsWith('/')).slice(0, CONDUCTOR_REPOS_MAX) : []
+}
+export async function saveConductorRepos($: any, folder: string, repos: string[]): Promise<boolean> {
+  const p = await path($, 'conductors.json')
+  return p !== undefined && (await locked($, 'conductors', async () => writeFile($, p, JSON.stringify({ ...conductorFile(await readText($, p, 65_536)), [folder]: repos.slice(0, CONDUCTOR_REPOS_MAX) })))) === true
 }
 
 // ---- goes and the window: written only by his typed command (and, in the ask steps, his click) ----

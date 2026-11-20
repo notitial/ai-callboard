@@ -76,7 +76,7 @@ async function markParked($: any, key: Sid, on: boolean) {
   return updateTable($, (t) => (t[key] === undefined ? t : { ...t, [key]: { ...t[key]!, parked: on ? now : undefined } }))
 }
 function dropRow($: any, key: Sid) {
-  return updateTable($, (t) => (t[key]?.lead === undefined ? Object.fromEntries(Object.entries(t).filter(([k]) => k !== key)) : t))
+  return updateTable($, (t) => (t[key]?.lead === undefined || t[key]!.lead!.minted ? Object.fromEntries(Object.entries(t).filter(([k]) => k !== key)) : t))
 }
 export async function stopVerbCall($: any, e: any, _next: any, verb: StopVerb) {
   const tool = `lane_${verb}`
@@ -168,16 +168,18 @@ export async function laneCreateCall($: any, e: any, _next: any) {
   if (!LANE_MODELS.includes(model)) return bad('model')
   const effort = e.effort as LaneEffort | undefined
   if (effort !== undefined && !LANE_EFFORTS.includes(effort)) return bad('effort')
+  const role = e.role ?? 'lane'
+  if (role !== 'lane' && role !== 'lead') return bad('role')
   const folder = await real($, want)
   if (folder === undefined) return bad('folder')
-  const no = mayCreate(v, me, name, folder)
+  const no = mayCreate(v, me, name, folder, role)
   if (no !== undefined) return deny(refusal('refuse', no, { tool, target: name }))
   const pending = Object.entries(v.table).filter(([k, r]) => k.startsWith(NEW_KEY) && r.under === me).length
   if (liveChildren(v, me) + pending >= MAX_LIVE_CHILDREN) return deny(refusal('refuse', 'cap', { tool, target: name }))
   const [dir, key] = [`${folder}/.archive/${name}`, `${NEW_KEY}${name}`]
   const brief = `${dir}/BRIEF.md`
   let taken = false
-  const row: Row = { name, folder, report: reportPath(folder, name), under: me, brief, model, ...(effort === undefined ? {} : { effort }) }
+  const row: Row = { name, folder, report: reportPath(folder, name), under: me, brief, model, ...(effort === undefined ? {} : { effort }), ...(role === 'lead' ? { lead: { repos: [], minted: true as const } } : {}) }
   const written = await updateTable($, (t) => ((taken = Object.values(t).some((r) => r.name === name)) ? t : { ...t, [key]: row }))
   if (taken || !written) return deny(refusal('refuse', taken ? 'name-taken' : 'table-unwritten', { tool, target: name }))
   const linked = !(await plainPath($, `${folder}/.archive`)) || !(await plainPath($, dir))
@@ -186,8 +188,8 @@ export async function laneCreateCall($: any, e: any, _next: any) {
     await dropRow($, key)
     return bad(why)
   }
-  await log($, me, 'lane-created', name)
-  return { result: say({ msg: 'lane.created', p: { name, folder, lead: nameOf(v, me) } }) }
+  await log($, me, role === 'lead' ? 'lead-created' : 'lane-created', name)
+  return { result: say({ msg: 'lane.created', p: { name, folder, lead: nameOf(v, me), ...(role === 'lead' ? { role } : {}) } }) }
 }
 export async function laneAdoptCall($: any, e: any, _next: any) {
   const tool = 'lane_adopt'

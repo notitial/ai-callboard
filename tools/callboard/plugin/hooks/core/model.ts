@@ -53,7 +53,8 @@ export type Row = {
   folder: Folder
   report?: string
   under?: Sid
-  lead?: { repos: Folder[] }
+  // `conductor`: set only by his typed `/callboard conductor`; `minted`: a lead a conductor made, whose `under` is read while that conductor lives.
+  lead?: { repos: Folder[]; conductor?: true; minted?: true }
   off?: true
   brief?: string
   parked?: number
@@ -177,6 +178,9 @@ export const liveness = (v: View, s: Sid): Liveness => (v.rows === 'unknown' ? '
 export const isOff = (v: View, s: Sid): boolean => v.table[s]?.off === true
 export const isLead = (v: View, s: Sid): boolean => v.table[s]?.lead !== undefined && !isOff(v, s)
 export const capability = (v: View, s: Sid): Capability => (v.manager === s ? 'manager' : isLead(v, s) ? 'lead' : 'none')
+// A conductor is a lead his typed command flagged; a minted lead is one a conductor made. A row holds one of the two: a typed `lead` or `conductor` rewrites the flags.
+export const isConductor = (v: View, s: Sid): boolean => isLead(v, s) && v.table[s]!.lead!.conductor === true
+export const isMinted = (v: View, s: Sid): boolean => v.table[s]?.lead?.minted === true
 // The name a session was given (by /rename or a cue): its name source is `user`, or the registry gives none. Any other source (`auto` and `derived` are the ones seen) is the name
 // Claude generated for a new panel, and a row's name wins over it.
 export const givenName = (r: RegistryRow | undefined): string | undefined => (r?.nameSource === undefined || r.nameSource === 'user' ? r?.name : undefined)
@@ -188,12 +192,13 @@ export const nameOf = (v: View, s: Sid): string => {
 }
 
 // The one parent: the lead in `under` while it is not known gone, holds the capability and is not off; else the manager, unless this is it; else the person.
-// A lead's `under` is never read and the manager's parent is the person, so a chain is at most lane, lead, manager. An off session is nobody's child.
+// A lead's `under` is read only when the lead is minted and `under` is a conductor, and the manager's parent is the person, so a chain is at most lane, lead, conductor,
+// manager. An off session is nobody's child.
 export function parent(v: View, s: Sid): Up {
   const row = v.table[s]
   if (row?.off || v.manager === s) return PERSON
-  const u = row?.lead ? undefined : row?.under
-  if (u !== undefined && isLead(v, u) && liveness(v, u) !== 'no') return u
+  const u = row?.lead && !row.lead.minted ? undefined : row?.under
+  if (u !== undefined && isLead(v, u) && liveness(v, u) !== 'no' && (!row?.lead || isConductor(v, u))) return u
   return v.manager ?? PERSON
 }
 // The sessions above s, nearest first, and what ends the chain: the person, or `unknown`.
@@ -233,10 +238,12 @@ const allowlist = (v: View, s: Sid): Folder[] | undefined => (isLead(v, s) ? [v.
 const plain = (f: Folder): boolean => f.startsWith('/') && f.split('/').slice(1).every((s) => s !== '' && s !== '.' && s !== '..')
 export const inside = (folder: Folder, repos: readonly Folder[]): boolean => plain(folder) && repos.some((r) => plain(r) && (folder === r || folder.startsWith(`${r}/`)))
 
-export function mayCreate(v: View, actor: Sid, name: string, folder: Folder): RefuseCode | undefined {
+// A conductor may also make a lead, but only inside its saved repos (not its own folder); any other lead is refused it.
+export function mayCreate(v: View, actor: Sid, name: string, folder: Folder, role: 'lane' | 'lead' = 'lane'): RefuseCode | undefined {
   const repos = allowlist(v, actor)
   if (repos === undefined) return 'not-lead'
-  return inside(folder, repos) ? (nameRefusal(v, name) ?? capRefusal(v, actor)) : 'folder-outside'
+  if (role === 'lead' && !isConductor(v, actor)) return 'not-conductor'
+  return inside(folder, role === 'lead' ? v.table[actor]!.lead!.repos : repos) ? (nameRefusal(v, name) ?? capRefusal(v, actor)) : 'folder-outside'
 }
 // Adopt by name: exactly one live session of that name, loose now (its parent is the manager or the person), not a lead, the manager or off, in the allowlist.
 export function mayAdopt(v: View, actor: Sid, name: string): { ok: Sid } | { no: RefuseCode } {

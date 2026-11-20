@@ -28,10 +28,16 @@ parent and a capability: none, lead or manager.
 - **Lead.** `/callboard lead [PATH…]`, typed by you in the session that coordinates a repo's lanes. It may create and
   adopt lanes in its own folder and the folders you list, and holds the tools that open, prompt, park, retire and list
   its lanes and answer their asks. A lead can also request a go (below).
+- **Conductor.** `/callboard conductor [PATH…]`, typed by you: a lead that also makes, starts and closes leads, one per
+  repo, in the repos you list (`lane_create` with role `lead`). Type the paths once: callboard saves the list for that
+  folder (`v2/conductors.json`), and a later `/callboard conductor` there needs none. A lead it makes acts only in its own
+  folder, cannot make leads, and asks the conductor for a go. The conductor and everything under it count 8 live
+  children per parent, leads and lanes together. [ADR 0013](../../docs/adr/0013-conductor.md).
 - **Manager.** The one session that carries the name in `~/.claude/callboard/manager-name`, found by its registry name
   while it is live. It reaches every session on the Mac. Its role is in `docs/manager/README.md`.
 
-The parent is computed, never stored: the session's lead if that is live, else the manager if live, else you.
+The parent is computed, never stored: the session's lead if that is live (for a lead a conductor made, its conductor),
+else the manager if live, else you.
 
 Three kinds of stop, from least to most final: `lane_park` closes the tab and keeps the conversation (`lane_unpark`
 reopens it with its history); `lane_retire` ends a signed-done session and removes the lane (final); `lane_terminate`
@@ -73,7 +79,7 @@ that signed done, is gone, has waited on a prompt for 5 minutes or has been idle
 `/callboard help` prints the full table and is the authority.
 
 - **Look:** `status`, `lanes`, `help`.
-- **Roles and switches:** `lead [PATH…]`, `lead off`, `off`, `on`.
+- **Roles and switches:** `lead [PATH…]`, `conductor [PATH…]`, `lead off`, `off`, `on`.
 - **Settings:** `config [keepalive on|off | ping 30-55 | stop 1-8 | idle 150-800 | working 150-900 | reset]`,
   `rest` (or `/rest`), `go TEXT`, `go off [ID]`, `unattended Nm|Nh|HH:MM|off`.
 
@@ -185,7 +191,7 @@ Under `~/.claude/callboard/` (nothing in a repo is trusted):
 | Path | Holds |
 |---|---|
 | `manager-name`, `manager-rules.md` | The two per-machine files you write: the manager's session name, and your standing rules for the manager (`docs/setup.md`) |
-| `v2/` | The plugin's state: its session table (`v2/sessions.json`), and the requests for the panels extension (`v2/open/`) |
+| `v2/` | The plugin's state: its session table (`v2/sessions.json`), the repos saved for each conductor folder (`v2/conductors.json`), and the requests for the panels extension (`v2/open/`) |
 | `OFF` | When this file exists, no tier's answers count; remove it to allow them again |
 
 The plugin's settings are in `~/.claude/plugins/store/callboard_*.json`. Lane briefs and reports stay in the repo

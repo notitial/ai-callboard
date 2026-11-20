@@ -42,4 +42,5 @@ repo's.
 | 0009 | A go given once (`0009-go-given-once.md`) | accepted | 2026-11-16 |
 | 0010 | PR notices for lanes (`0010-pr-notices.md`) | proposed, amended | 2026-11-15 |
 | 0011 | Every lane prompt rises up the chain (`0011-all-prompts-rise.md`) | superseded by 0012 | 2026-11-16 |
-| 0012 | Callboard as a plugin: one session model, one ask chain (`0012-callboard-plugin.md`) | accepted | 2026-11-19 |
+| 0012 | Callboard as a plugin: one session model, one ask chain (`0012-callboard-plugin.md`) | accepted, amended | 2026-11-19 |
+| 0013 | A conductor is a lead that makes leads (`0013-conductor.md`) | accepted | 2026-11-21 |

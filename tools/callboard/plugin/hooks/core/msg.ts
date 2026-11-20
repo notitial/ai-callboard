@@ -11,6 +11,7 @@ export type RefuseCode =
   | 'no-capability' // the caller is neither a lead nor the manager
   | 'not-a-parent' // the target is not a descendant of the caller now
   | 'not-lead'
+  | 'not-conductor' // lane_create role lead by a lead that is not a conductor
   | 'folder-outside' // the folder is not inside the lead's allowlist
   | 'name-taken'
   | 'name-reserved'
@@ -48,7 +49,7 @@ export type RefuseCode =
   | 'cue-stale'
 
 // The command forms. One help row each: `help.<name>`.
-export type CommandName = 'status' | 'lanes' | 'help' | 'lead' | 'lead-off' | 'off' | 'on' | 'go' | 'go-off' | 'unattended' | 'config' | 'rest'
+export type CommandName = 'status' | 'lanes' | 'help' | 'lead' | 'lead-off' | 'conductor' | 'off' | 'on' | 'go' | 'go-off' | 'unattended' | 'config' | 'rest'
 
 // The lane list's columns and states (`/callboard lanes`, `lane_list`).
 export type UiColumn = 'name' | 'role' | 'state' | 'folder' | 'context' | 'fiveHour' | 'sevenDay' | 'cost' | 'read'
@@ -70,7 +71,9 @@ type AskRef = { ask: string }
 export type Fixed = {
   // Notes and briefings: the plugin's frame around a briefing, then the three briefings (a parent with the ask rubric, the manager with its rules file, a child).
   'note.frame': { body: string }
-  'brief.parent': { name: string; sid: string; repos: string[] }
+  // `conductor`: the name of the conductor above this lead (a minted lead), which it asks for a go and for answers; `brief.conductor` is added for a conductor.
+  'brief.parent': { name: string; sid: string; repos: string[]; conductor?: string }
+  'brief.conductor': { repos: string[] }
   'brief.manager': { name: string; rules: string; rulesCut: boolean }
   // `lead`: the parent is a lead, so the lane sends its questions to it instead of opening a dialog.
   'brief.child': { name: string; sid: string; parent: string; lead: boolean }
@@ -126,7 +129,7 @@ export type Fixed = {
   // `done`: the process ended (or there was none, so no pid) and, for a retire or terminate, the row is removed; `alive`: it outlived its signal, call again.
   'lane.stopped': { verb: StopVerb; name: string; pid?: number; outcome: 'done' | 'alive' }
   'lane.unparked': { name: string; sid: string }
-  'lane.created': { name: string; folder: string; lead: string }
+  'lane.created': { name: string; folder: string; lead: string; role?: 'lead' }
   'lane.opened': { name: string; sid: string }
   'lane.notOpened': Names
   'lane.adopted': { name: string; lead: string }
@@ -140,6 +143,7 @@ export type Fixed = {
   'cmd.usage': E
   'cmd.lead': { repos: string[] }
   'cmd.leadOff': E
+  'cmd.conductor': { repos: string[] }
   'cmd.off': E
   'cmd.on': E
   'cmd.go': { id: string; end: string }
