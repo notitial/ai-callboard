@@ -131,3 +131,27 @@ test('a run that throws is answered by the hook itself and never calls next, so 
   assert.equal(calls, 0)
   assert.equal(mem.presetRun, undefined)
 })
+
+test('the rename checks the name again: a name another session took while the steps waited is not run, is named in the notice, and the other steps still run', async () => {
+  const f = await started()
+  await typed(f)
+  f.seed({ sid: 'sid-late', pid: 11, name: 'SENTINEL', cwd: '/w/late', kind: 'interactive' })
+  mem.view = undefined
+  await tick(f)
+  assert.deepEqual(f.h.compactRuns, ['model sonnet', 'effort high'])
+  assert.match(f.h.submitted[0]!, /Not set: name\./)
+})
+
+test('a tick that already submitted a text leaves the steps for the next one: nothing runs, nothing is lost', async () => {
+  const f = await started()
+  await typed(f)
+  mem.prNotes.push({ kind: 'green', pr: 'o/r#1', at: f.h.now })
+  await tick(f)
+  assert.equal(f.h.submitted.length, 1)
+  assert.match(f.h.submitted[0]!, /PR notice/)
+  assert.deepEqual([f.h.compactRuns, mem.presetRun === undefined], [[], false])
+  f.idle()
+  await tick(f)
+  assert.deepEqual(f.h.compactRuns, ['rename SENTINEL', 'model sonnet', 'effort high'])
+  assert.match(f.h.submitted[1]!, /^\[callboard\] The person ran \/sentinel/)
+})

@@ -192,7 +192,7 @@ async function tick($: any): Promise<void> {
     await step('relay', () => relayTick($, me, v, now))
     await step('pr-poll', () => prTick($, me, v))
     if (mem.submits === start) await step('pr-notice', () => prNoticeTick($, me))
-    if (mem.presetRun !== undefined) await step('preset', async () => (await quiet($, me)) && presetTick($, me, v))
+    if (mem.presetRun !== undefined && mem.submits === start) await step('preset', async () => (await quiet($, me)) && presetTick($, me, v))
     if (mem.submits === start) await step('owed', () => owedTick($, me, v))
     await step('keepalive', () => keepaliveTick($, me, v, start))
     await step('usage', () => usageFlush($, me))

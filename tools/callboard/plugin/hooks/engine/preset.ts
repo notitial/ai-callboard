@@ -60,7 +60,10 @@ export async function presetTick($: any, me: Sid, v: View): Promise<void> {
   if (isOff(v, me)) return
   const { command, name, model, effort } = r.preset
   const failed: string[] = []
-  if ((v.rows === 'unknown' ? undefined : v.rows.get(me))?.name !== name && !(await ran($, 'rename', name, 10_000))) failed.push('name')
+  // The name was checked at the typed run and may have been taken since: it is checked again on a fresh view, and a rename that would double a name is not run.
+  const now = await getView($, true)
+  const had = (now.rows === 'unknown' ? undefined : now.rows.get(me))?.name === name
+  if (!had && (nameRefusal(now, name, me) !== undefined || !(await ran($, 'rename', name, 10_000)))) failed.push('name')
   if (!(await ran($, 'model', model, 5_000)) || !(await modelHeld($, model))) failed.push('model')
   if (!(await ran($, 'effort', effort, 5_000))) failed.push('effort')
   mem.owed.push(T['cmd.toldPreset']({ command, result: r.result, failed }))
