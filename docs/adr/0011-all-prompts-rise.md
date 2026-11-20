@@ -80,11 +80,13 @@ five rules hold for both lists.
 else; a tier's briefing no longer carries it (ADR 0004, Generic judgment). "The rubric a tier is briefed with", below,
 now means the rubric `prompt_list` delivers.*
 
+*2026-11-20: the rerun row follows the cross-repo CI re-run rule: only the failed or cancelled jobs of a `pull_request` run on the lane's own pull request branch, once per run. The Claude review, a deploy, a workflow dispatch and a run on main or another branch go to the person.*
+
 | A tier handles, after the check named | A tier surfaces to the person (`prompt_escalate`) |
 |---|---|
-| A rerun of a CI run, once the tier has looked the run up and its head branch is the lane's pull request branch | Any workspace-lock clear, forced turn give or owner transfer |
+| A rerun of the failed or cancelled jobs of a CI run, once per run, once the tier has looked the run up and it is a `pull_request` run on the lane's pull request branch | Any workspace-lock clear, forced turn give or owner transfer |
 | A delete whose every path argument lies inside the lane's own clone: the `/tmp` path its brief or report names | A delete with a path outside the lane's own clone, or whose paths the tier cannot list |
-| A label or project write the lane's work clearly needs, a label delete excepted | A workflow dispatch |
+| A label or project write the lane's work clearly needs, a label delete excepted | A workflow dispatch, a rerun of the Claude review, a deploy, or a run on main or another branch |
 | | A cancel of a run the lane did not start (the tier looks up the run's actor and branch) |
 | | A label delete |
 | | An ask with no reason shown, with a reason that is not the guard's own (an ask rule hides it), or with a cut reason, unless the tool and method are plainly a case the tier handles |
