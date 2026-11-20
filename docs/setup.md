@@ -368,9 +368,11 @@ The limits of the hook are listed there too.
 
 ### Escalation is on by default once the protected-paths hook is in place
 
-A lead's or the manager's answer to an ask counts only while the hook below is wired and all three markers exist
-([ADR 0012](adr/0012-callboard-plugin.md)): callboard checks them at run time and refuses every answer from a tier while
-one is missing, so the ask stays with you. Callboard holds no rule of its own about what an agent may write: no tier is
+A lead's or the manager's answer to an ask counts only while the guard is in place
+([ADR 0012](adr/0012-callboard-plugin.md)): callboard checks at run time (every 60 seconds) that the settings wire a
+`PreToolUse` command hook that runs `protected-paths-guard.sh` with hooks not disabled, and that
+`~/.claude/callboard/.protected-checkout` exists. While either is missing it refuses every answer from a tier, so the ask
+stays with you. The other two markers (`<checkout>` and `<toolkit>`) are the hook's own protection, which callboard does not check. Callboard holds no rule of its own about what an agent may write: no tier is
 asked to judge an edit of the live checkouts, of `~/.claude/settings*.json` or of callboard's state folder, because
 ai-toolkit's `hooks/protected-paths-guard.sh` denies those before any prompt exists. It never asks, so no prompt is
 left for an agent to answer. Until the hook is in place:
@@ -398,11 +400,11 @@ The hook stops the file tools, the git server's tools and a shell line that name
 write verb. It does not read a script, an interpreter's program, `eval` or `bash -c`, a path built at run time, a `cd` to a
 variable or a hard link; its header lists the limits. Without it, or without a marker, nothing in callboard stops
 those edits: the rubric and auto mode's classifier are the only other layers, so install it first.
-Once the hook and the markers are in place, tier answers work by themselves. `touch ~/.claude/callboard/prompts/OFF` stops
+Once the hook and the markers are in place, tier answers work by themselves. `touch ~/.claude/callboard/OFF` stops
 every tier's answers at once; remove the file to allow them again. Do the probe (step 3) before you rely on it.
 
 ```
-touch ~/.claude/callboard/prompts/OFF
+touch ~/.claude/callboard/OFF
 ```
 
 ## 2. The usage watcher
@@ -498,7 +500,7 @@ checkout, without `CLAUDE_CONFIG_DIR`, on Opus (`/model opus`), named with `/ren
 `~/.claude/callboard/manager-name` ([Switch to the plugin](#switch-to-the-plugin)). The manager is the session that
 carries that name, found by its registry name while it is live; there is no manager command and no grant to restore.
 
-The only name callboard reserves is `MANAGER`. A manager on a second machine needs a different name, because Remote
+Callboard reserves `MANAGER` and the manager's own name. A manager on a second machine needs a different name, because Remote
 Control lists every machine's sessions: write that name into `manager-name` on that machine.
 
 ## 5. Final check

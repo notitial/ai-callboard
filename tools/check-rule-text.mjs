@@ -1,5 +1,5 @@
 // Checks that rules/callboard.md quotes the callboard plugin's fixed texts exactly: the keepalive text, the opener and the closing
-// line of the PR notice, the opener of the signed-done notice, the opener of the check-in and of the own-step notice (its three go-click
+// line of the PR notice, the opener of the signed-done notice, the opener of the check-in, of the closed-ask turn and of the own-step notice (its three go-click
 // forms), and the opener of each of the three compaction nudges. A session
 // matches those turns against the rule, so a drifted word would make it treat a real turn as an ordinary message.
 // It also checks that the rule carries the briefings' sentence on instructions from the layer above a session word for word.
@@ -48,11 +48,15 @@ for (const opener of ['[callboard] The person ran /callboard in this session:', 
   if (!ownStep.some((t) => t.startsWith(opener)) || !quoted(opener)) problems.push(`rules/callboard.md does not quote the own-step opener exactly: ${opener}`)
 }
 
+// The closed-ask turn (unattended mode): the rule quotes how it opens.
+const CLOSED_OPENER = '[callboard] Closed: the person is away and nobody is above you to decide this.'
+if (!T['ask.away']().startsWith(CLOSED_OPENER) || !quoted(CLOSED_OPENER)) problems.push(`rules/callboard.md does not quote the closed-ask opener exactly: ${CLOSED_OPENER}`)
+
 // The nudge section lists each opener as a backquoted line that starts with [callboard]; a trailing " ..." marks where the quote stops.
 const nudgeSection = rule.split('## The compaction nudge')[1]?.split('\n## ')[0] ?? ''
 const openers = [...nudgeSection.matchAll(/^ {2}- `(\[callboard\] [^`]*?)(?: \.\.\.)?`/gm)].map((m) => m[1])
-const kinds = ['idle', 'working', 'cache']
-const texts = kinds.map((kind) => T[`nudge.${kind}`]({ k: { idle: 300, working: 400, cache: 150 }[kind] }))
+const kinds = Object.keys(T).filter((id) => id.startsWith('nudge.')).map((id) => id.slice(6))
+const texts = kinds.map((kind) => T[`nudge.${kind}`]({ k: { idle: 300, working: 400, cache: 150 }[kind] ?? 300 }))
 if (openers.length !== texts.length) problems.push(`rules/callboard.md lists ${openers.length} nudge openers, the plugin has ${texts.length} nudge texts`)
 for (const opener of openers) {
   if (texts.filter((t) => t.startsWith(opener)).length !== 1) problems.push(`no nudge text starts with the quoted opener: ${opener}`)

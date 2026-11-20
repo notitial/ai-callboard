@@ -72,19 +72,18 @@ first; it is the source for every step here, and wins where the two differ.
    every callboard setting on this Mac back to its default, not only ping. If the model-run one applied, say so
    plainly: report it.
 5. **Deny lines and prompt answering lines.**
-   - Deny lines: for each of the two lines in docs/setup.md (Manager setup: keep agents off the list file and the
-   store (by hand)), run
+   - Deny line: for the line in docs/setup.md (Manager setup: keep agents off the store (by hand)), run
    `jq -e --arg r '<line>' '(.permissions.deny // []) | index($r) != null' ~/.claude/settings.json`. For any `false`,
-   show the person the missing lines to add to `permissions.deny` by hand. If they run a conductor repo, give them
-   `chmod go-w <conductor repo>/.claude`. The live checkout needs no deny lines: the hook and the markers below
+   show the person the missing line to add to `permissions.deny` by hand. The live checkout needs no deny lines: the hook and the markers below
    protect it (docs/setup.md, Keep agents off the live checkout).
    - Protected-paths hook: docs/setup.md, Escalation is on by default once the protected-paths hook is in place. Run
      `jq -e '[.hooks.PreToolUse[]?.hooks[]?.command] | any(. == "/bin/bash -p \"$HOME/.claude/hooks/protected-paths-guard.sh\" || exit 2")' ~/.claude/settings.json` (a rough pre-check: it finds the command the toolkit writes and does not look at the matcher, `disableAllHooks`, `env` or the entry's other fields; `/callboard status` is the authority)
      and `ls ~/.claude/hooks/protected-paths-guard.sh`. If either fails, tell the person to update their ai-toolkit
      checkout and run `/setup-claude` themselves, then come back: it is ai-toolkit's, never yours to wire or edit.
      Then run `ls <checkout>/.protected-checkout <toolkit>/.protected-checkout ~/.claude/callboard/.protected-checkout`; for each marker that is
-     missing, give the person the `touch` command from that section (the marker is theirs to make). Say that the
-     hook and all three markers are what escalation, on by default, needs before it turns on; `/callboard status` names what is missing, and `/callboard escalation off` is the person's off. Last, on the
+     missing, give the person the `touch` command from that section (the marker is theirs to make). Say that
+     a tier's answers count only while the hook is wired and `~/.claude/callboard/.protected-checkout` exists (the other two
+     markers are the hook's own protection), and that `touch ~/.claude/callboard/OFF` is the person's off. Last, on the
      person's own request in their own turn, run one probe: a Write of a scratch file inside `<checkout>` and another inside
      `<toolkit>`. Each must be denied by the hook; a write into a `/tmp` clone must go through. If the Write is accepted, report it.
 6. **Old watcher.** First ask whether the repo is public; if unsure, run the dry run

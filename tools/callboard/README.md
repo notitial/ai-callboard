@@ -84,7 +84,7 @@ your own prompt or phone. `off`, `rest`, `go off` and the prints are open to nar
 `/callboard config` shows the settings with their defaults: keepalive on, a ping after 50 minutes, a stop after 2
 hours, and the compaction nudge levels (300k and 400k tokens). `config reset` restores the defaults.
 
-Reserved names: the plugin reserves `MANAGER` only.
+Reserved names: `MANAGER` and the manager's own name.
 
 ## Install
 
@@ -186,7 +186,7 @@ Under `~/.claude/callboard/` (nothing in a repo is trusted):
 |---|---|
 | `manager-name`, `manager-rules.md` | The two per-machine files you write: the manager's session name, and your standing rules for the manager (`docs/setup.md`) |
 | `v2/` | The plugin's state: its session table (`v2/sessions.json`), and the requests for the panels extension (`v2/open/`) |
-| `prompts/OFF` | When this file exists, no tier's answers count; remove it to allow them again |
+| `OFF` | When this file exists, no tier's answers count; remove it to allow them again |
 
 The plugin's settings are in `~/.claude/plugins/store/callboard_*.json`. Lane briefs and reports stay in the repo
 under `.archive/<LANE>/`.
@@ -203,8 +203,8 @@ tell the person the reason. Look at `/callboard status` and `/callboard lanes` i
   folder as its first folder (or the patch is in).
 - **A stopped lane's tab stays.** Check the extension is linked and VS Code was started after the link.
 - **`/callboard` does nothing.** The plugin loaded only if a session started after the Default load line was set.
-- **No tier answers an ask.** A tier's answers count only while the protected-paths hook is wired, its three markers
-  exist and `~/.claude/callboard/prompts/OFF` is absent (`docs/setup.md`).
+- **No tier answers an ask.** A tier's answers count only while the protected-paths hook is wired in your settings,
+  `~/.claude/callboard/.protected-checkout` exists and `~/.claude/callboard/OFF` is absent (`docs/setup.md`).
 
 ## What callboard does not guard against
 

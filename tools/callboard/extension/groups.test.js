@@ -132,7 +132,7 @@ test('once the command is seen it is not looked up again', async () => {
   assert.equal(w.looked, 1)
 })
 
-test('under the plugin the session table decides: a row with lead to Lead, a row under a lead to Lanes; a loose or off row is not filed, a new: row has no session to file', async () => {
+test('under the plugin the session table decides: a row with lead to Lead, a row under a lead to Lanes; a loose or off row is not filed; a new: row is named by groupsFor and left to the registry check in the tick', async () => {
   const table = { [S(1)]: { name: 'CHIEF', folder: A, lead: { repos: [] } }, [S(2)]: { name: 'LAB', folder: A, under: S(1) }, [S(3)]: { name: 'LOOSE', folder: A }, [S(4)]: { name: 'OFF', folder: A, under: S(1), off: true }, 'new:X': { name: 'X', folder: A, under: S(1) } }
   assert.deepEqual([...groupsFor(table)], [[S(1), 'Lead'], [S(2), 'Lanes'], ['new:X', 'Lanes']])
   const w = world({ rows: [1, 2, 3, 4].map((n) => row(n, A)), table })

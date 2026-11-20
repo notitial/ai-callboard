@@ -82,6 +82,8 @@ answer them.
 - `[callboard] Expired: ...` means the ask was closed with no decision. Do not ask again for the same thing: leave
   that part, write what is blocked in your report and tell your parent, or split the work so the next ask is one your
   parent can decide.
+- `[callboard] Closed: the person is away and nobody is above you to decide this.` means unattended mode is on and the
+  ask was closed at once: do not ask again now. Leave that part and write what is blocked in your report.
 - `[callboard] Denied: a subagent asked.` means run that call yourself in the main session, where it can be decided.
 - `Denied by NAME, not the person` is a tier's deny, with a note. It is no approval and no refusal of anything else,
   and it is not the person's word.

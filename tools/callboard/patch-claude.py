@@ -25,7 +25,7 @@ identifiers, and the file is written only when every anchor matches exactly once
 are named. The five optional pieces are separate: each CSS piece's style block goes in when the font tag matches exactly once and the shipped webview has its tokens, the restore fix
 (RESTORE_ANCHORS below: a panel that VS Code restores or Claude reopens keeps the folder of its conversation, found from the session's transcript) goes in
 when its two anchors do, and the group command (GROUPS_ANCHOR below) registers `callboard assign group` (session id, group name), so callboard's panels
-extension can put a lead, lane or conductor session in the sidebar's Lead, Lanes or Conductor group, when its one anchor matches exactly once, and the session command (at the same anchor) registers `callboard active session`, which
+extension can put a lead or lane session in the sidebar's Lead or Lanes group, when its one anchor matches exactly once, and the session command (at the same anchor) registers `callboard active session`, which
 returns the session id of the Claude panel in front, for the panels extension's folder badge; when one does not, a warning line says so and the folder patch still applies. There is no half patch: a failure after the file was replaced puts the backup back. An update of the extension is a new
 folder, so it starts unpatched and this runs again. It never uses the network, runs nothing else, works only inside EXTENSION_DIR
 and changes no setting. Run it as your user: it refuses root. Tests: /usr/bin/python3 -I tools/callboard/test_patch_claude.py

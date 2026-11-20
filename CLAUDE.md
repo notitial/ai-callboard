@@ -8,8 +8,8 @@ does no work itself. Every go stays with the person. The repo also carries the t
 plugin, a usage watcher and the manager's project skills. ai-toolkit
 (https://github.com/notitial/ai-toolkit) is the base install; this repo builds on it.
 
-- **If you hold the callboard manager grant** (`/callboard manager`), read `docs/manager/README.md` and follow it.
-  Any other session: that folder is not for you.
+- **If your session carries the manager's name** (the one in `~/.claude/callboard/manager-name`), read
+  `docs/manager/README.md` and follow it. Any other session: that folder is not for you.
 
 ## Build / Test / Lint
 
@@ -33,7 +33,7 @@ Outside those directories, do not search for `package.json`, `Makefile`, or simi
 
 ## Layout
 
-- `docs/manager/` — the role, read only by the session holding the manager grant.
+- `docs/manager/` — the role, read only by the session that carries the manager's name.
 - `docs/adr/` — the decisions behind the design (index: `docs/adr/README.md`). Check them before proposing an
   architectural change; propose a new ADR when a significant decision is made.
 - `docs/setup.md` — the install order on a machine.
