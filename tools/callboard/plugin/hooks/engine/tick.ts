@@ -15,6 +15,7 @@ import { TICK_MS, log, submitOwn, toast } from './io.ts'
 import { getUp, mem, spendStarted } from './mem.ts'
 import { markDone } from './ask-hook.ts'
 import { prClaim, prTick } from './pr.ts'
+import { presetRegister, presetTick } from './preset.ts'
 import { relayTick } from './relay.ts'
 import { askOpen, getView, listGoes, logAsk, readAsks, rmAsk, tidyAsks, tidyAskLogs, updateTable } from './store.ts'
 import { isSub, say } from './tools-any.ts'
@@ -46,6 +47,7 @@ export async function sessionStart($: any, e: any, next: any) {
   await $.command.register({ name: 'callboard', description: T['help.status']() })
   await $.command.register({ name: 'rest', description: T['help.rest']() })
   await $.command.register({ name: 'unattended', description: T['help.unattended']() })
+  await presetRegister($).catch(() => undefined)
   return next(e)
 }
 export async function sessionEnd($: any, e: any, next: any) {
@@ -190,6 +192,7 @@ async function tick($: any): Promise<void> {
     await step('relay', () => relayTick($, me, v, now))
     await step('pr-poll', () => prTick($, me, v))
     if (mem.submits === start) await step('pr-notice', () => prNoticeTick($, me))
+    if (mem.presetRun !== undefined) await step('preset', async () => (await quiet($, me)) && presetTick($, me, v))
     if (mem.submits === start) await step('owed', () => owedTick($, me, v))
     await step('keepalive', () => keepaliveTick($, me, v, start))
     await step('usage', () => usageFlush($, me))

@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { CONFIG_DEFAULTS, configNext, originOk, parseCommand, parseConfig, planCommand } from './commands.ts'
+import { CONFIG_DEFAULTS, configNext, originOk, parseCommand, parseConfig, parsePreset, planCommand } from './commands.ts'
 import type { Cmd, Origin } from './commands.ts'
 import { NOW } from './gen.spec.ts'
 
@@ -60,4 +60,14 @@ test('a change that puts the idle level over the working level is refused', () =
   assert.equal(configNext(CONFIG_DEFAULTS, { key: 'workingK', value: 250 }), undefined)
   assert.deepEqual(configNext(CONFIG_DEFAULTS, { key: 'idleK', value: 400 }), { ...CONFIG_DEFAULTS, idleK: 400 })
   assert.deepEqual(configNext({ ...CONFIG_DEFAULTS, idleK: 150 }, 'reset'), CONFIG_DEFAULTS)
+})
+
+test('a lead preset file: all four fields right, else no preset; callboard\'s own commands and a command that is not a plain word are refused', () => {
+  const ok = { command: 'sentinel', name: 'SENTINEL', model: 'sonnet', effort: 'high' }
+  assert.deepEqual(parsePreset(JSON.stringify({ ...ok, extra: 1 })), ok)
+  assert.deepEqual(parsePreset(JSON.stringify({ ...ok, command: 'my-lead2', model: 'fable', effort: 'max' })), { ...ok, command: 'my-lead2', model: 'fable', effort: 'max' })
+  const bad: unknown[] = [undefined, '', '{', 'null', '3', '[]', '"x"', {}, ...(['command', 'name', 'model', 'effort'] as const).map((k) => ({ ...ok, [k]: undefined })),
+    { ...ok, command: 'callboard' }, { ...ok, command: 'rest' }, { ...ok, command: 'unattended' }, { ...ok, command: 'Sentinel' }, { ...ok, command: '/sentinel' }, { ...ok, command: '1a' }, { ...ok, command: 'a'.repeat(25) },
+    { ...ok, name: 'two words' }, { ...ok, name: '' }, { ...ok, name: 'x'.repeat(41) }, { ...ok, model: 'gpt' }, { ...ok, effort: 'extreme' }, { ...ok, model: 3 }]
+  for (const b of bad) assert.equal(parsePreset(typeof b === 'string' || b === undefined ? b : JSON.stringify(b)), undefined, JSON.stringify(b))
 })

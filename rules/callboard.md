@@ -140,6 +140,9 @@ answer them.
   `[callboard] The person clicked Yes on your go request`, `[callboard] The person declined the go you asked for` or
   `[callboard] The person said yes to the go you asked for, but it could not be saved`: then there is no go, and
   `go_status` says so.
+- After the person typed the command a folder's lead preset names (for example `/sentinel`), the session is a lead and
+  the plugin sets its name, model and effort; the turn then opens `[callboard] The person ran /NAME in this session:`
+  with the preset's command for NAME, and names any step that did not land.
 - It tells the session what the person did, so they need not type "done". It carries no approval, go or answer: a go
   is what `go_status` lists, never this turn.
 

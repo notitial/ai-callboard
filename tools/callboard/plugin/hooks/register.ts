@@ -4,6 +4,7 @@ import type { Register } from 'claude-code'
 import { CUE_VERBS, STOP_VERBS } from './core/model.ts'
 import { sessionStart, sessionEnd, postToolHook } from './engine/tick.ts'
 import { commandRun, commandComplete, promptCompose } from './engine/commands.ts'
+import { presetRun } from './engine/preset.ts'
 import { toolCheck, permissionRequest, doneHook } from './engine/ask-hook.ts'
 import { requestCompactCall, turnComplete, promptSubmit, turnStart, postCompact } from './engine/upkeep.ts'
 import { cueVerbCall, stopVerbCall, laneCreateCall, laneOpenCall, laneUnparkCall, laneAdoptCall, laneListCall } from './engine/tools-child.ts'
@@ -21,6 +22,7 @@ export const register: Register = (on) => {
   on('command.run', { command: 'callboard' }, ($, e) => commandRun($, e)).catch(() => ({ text: 'Callboard hit an error. Run /callboard status.' }))
   on('command.run', { command: 'rest' }, ($, e) => commandRun($, { ...e, args: 'rest' })).catch(() => ({ text: 'Callboard hit an error. Run /callboard status.' }))
   on('command.run', { command: 'unattended' }, ($, e) => commandRun($, { ...e, args: `unattended ${typeof (e as { args?: unknown }).args === 'string' ? (e as { args: string }).args : ''}` })).catch(() => ({ text: 'Callboard hit an error. Run /callboard status.' }))
+  on('command.run', presetRun)
   on('prompt.autocomplete', commandComplete).catch(($, e, next) => next(e))
   on('prompt.compose', promptCompose).catch(($, e, next) => next(e))
   on('prompt.submit', promptSubmit).catch(($, e, next) => next(e))

@@ -152,6 +152,10 @@ export type Fixed = {
   'cmd.rest': E
   // The notice turn after his own step in this session: a typed /callboard command that changed something, or his click on the go dialog.
   'cmd.told': { result: string }
+  // The same after a folder's lead preset command, sent once its name, model and effort steps ran; `failed` names the steps that did not land.
+  'cmd.toldPreset': { command: string; result: string; failed: string[] }
+  // The typeahead line of a preset's command.
+  'cmd.presetHelp': { name: string; model: string; effort: string }
   'go.clicked': { outcome: 'given' | 'declined' | 'unsaved' }
 
   // Dialogs: the go, the force stop and the relay pop-up, each as header and question, and their buttons.

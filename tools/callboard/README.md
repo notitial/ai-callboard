@@ -28,6 +28,14 @@ parent and a capability: none, lead or manager.
 - **Lead.** `/callboard lead [PATH…]`, typed by you in the session that coordinates a repo's lanes. It may create and
   adopt lanes in its own folder and the folders you list, and holds the tools that open, prompt, park, retire and list
   its lanes and answer their asks. A lead can also request a go (below).
+- **Lead preset.** A folder may hold `.claude/callboard-lead.json`, `{ "command", "name", "model", "effort" }`, for
+  example `{ "command": "sentinel", "name": "SENTINEL", "model": "sonnet", "effort": "high" }`. A session started
+  there lists `/<command>`. Typed by you, it does what `/callboard lead` does under that name (the name must be free,
+  the model one of `LANE_MODELS`, the effort one of `LANE_EFFORTS`), then on the next quiet moment renames the session
+  and sets its model and effort, and sends the lead one notice that names any step that failed. Only your typed turn
+  runs it. A file that does not parse, or names a built-in or callboard's own command (`callboard`, `rest`,
+  `unattended`), registers nothing. Any folder you start a session in can declare one, so read the file of a repo you
+  do not know before you type its command.
 - **Manager.** The one session that carries the name in `~/.claude/callboard/manager-name`, found by its registry name
   while it is live. It reaches every session on the Mac. Its role is in `docs/manager/README.md`.
 
