@@ -510,13 +510,22 @@ def update(ext):
         os.unlink(prev)
     os.link(main, prev)
     before_js = shipped(ext, WEB)
+    wb = os.path.join(ext, WEB_BACKUP)
+    made = new_js is not None and not os.path.lexists(wb)
+    touched = web_touched(ext, new_js)
     failed = None
     try:
         write_patch(ext, ver, orig, new, left, web[1], new_js)
     except BaseException as e:
-        # A no-op when the file was never replaced (both names are one inode), so the spare name goes either way. The webview script goes back to what it was.
+        # A no-op when the file was never replaced (both names are one inode), so the spare name goes either way. The webview script goes back to what it was: a
+        # backup this run made is renamed over it (atomic, needs no space, as in --apply), else the earlier patch of it is written back.
         os.replace(prev, main)
-        if web_touched(ext, new_js):
+        if made:
+            if os.path.lexists(wb):
+                os.replace(wb, os.path.join(ext, WEB))
+            if os.path.lexists(wb):
+                os.unlink(wb)
+        elif touched:
             set_web(ext, web[1], before_js)
         failed = e
     if os.path.lexists(prev):
@@ -539,9 +548,15 @@ def undo(ext):
     if orig is None and orig_js is None and not os.path.lexists(os.path.join(ext, MARKER)):
         print("nothing to undo")
         return 0
+    js = shipped(ext, WEB)
     for name, backup, field in ((BACKUP, orig, "original_sha256"), (WEB_BACKUP, orig_js, "web_original_sha256")):
-        if backup is not None and m is not None and digest(backup) != m.get(field):
-            refuse("%s does not match the marker's recorded original; left alone. Reinstall the extension instead" % name)
+        if backup is None or m is None or digest(backup) == m.get(field):
+            continue
+        # An --update of an install made before the marker held web hashes can stop after the pie went in and before the new marker: the backup is the original
+        # then, shown by the script now being it, or the pie built from it.
+        if field == "web_original_sha256" and field not in m and js in (backup, pie_web(backup)):
+            continue
+        refuse("%s does not match the marker's recorded original; left alone. Reinstall the extension instead" % name)
     raw = read(main)
     if orig_js is None and m is not None and "web_patched_sha256" in m and digest(shipped(ext, WEB)) != m["web_original_sha256"]:
         refuse("the backup of %s is gone and it is not known to be the original; reinstall the extension instead" % WEB)

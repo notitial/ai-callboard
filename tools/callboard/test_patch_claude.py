@@ -1122,6 +1122,77 @@ class Pie(Case):
             self.assertEqual(cm.exception.code, 1, failing)
             self.assertEqual(snap(ext), before, failing)
 
+    def test_an_update_that_died_after_the_pie_went_in_leaves_leftovers_that_undo_clears(self):
+        for name, pie_in in (("linked", False), ("piein", True)):
+            ext = self.make(V327, name="die-" + name)
+            orig_main, orig_js = self.js(ext), slurp(os.path.join(ext, self.WEBJS))
+            self.older(ext, PIE_ANCHORS=NO_PIE)
+            mod = load_module()
+            if pie_in:
+                mod.set_web(ext, orig_js, mod.pie_web(orig_js))
+                self.assertNotEqual(slurp(os.path.join(ext, self.WEBJS)), orig_js)
+            else:
+                os.link(os.path.join(ext, self.WEBJS), os.path.join(ext, self.BAK))
+            self.assertEqual(self.marker(ext).get("web_original_sha256"), None)
+            self.run_script(ext)
+            self.assertEqual((self.rc, self.out.splitlines()[0].split(":")[0]), (1, "leftovers 2.1.328"), name)
+            for flag in ("--apply", "--update"):
+                self.assertUnchanged(ext, flag)
+                self.assertEqual(self.rc, 1, name)
+                self.assertIn("run --undo first", self.err, name)
+            self.run_script(ext, "--undo")
+            self.assertEqual((self.rc, self.js(ext), slurp(os.path.join(ext, self.WEBJS)), sorted(os.listdir(ext))), (0, orig_main, orig_js, STOCK), name)
+            self.assertEqual(sorted(os.listdir(os.path.join(ext, "webview"))), ["index.css", "index.js"], name)
+
+    def test_a_failed_update_that_takes_the_pie_out_puts_it_back(self):
+        ext = self.make(V327, name="out-fail")
+        self.run_script(ext, "--apply")
+        before = snap(ext)
+        mod = load_module()
+        mod.PIE_ANCHORS = NO_PIE
+        real = mod.put
+
+        def put(path, content, mode):
+            if os.path.basename(path) == "extension.js":
+                raise OSError(28, "No space left on device")
+            real(path, content, mode)
+
+        mod.put = put
+        with self.assertRaises(SystemExit) as cm:
+            mod.update(ext)
+        self.assertEqual((cm.exception.code, snap(ext)), (1, before))
+
+    def test_undo_still_refuses_an_unrecorded_webview_backup_when_the_script_is_neither_it_nor_the_pie_of_it(self):
+        ext = self.make(V327, name="die-odd")
+        self.older(ext, PIE_ANCHORS=NO_PIE)
+        os.link(os.path.join(ext, self.WEBJS), os.path.join(ext, self.BAK))
+        os.unlink(os.path.join(ext, self.WEBJS))
+        with open(os.path.join(ext, self.WEBJS), "w") as f:
+            f.write("something else")
+        self.assertUnchanged(ext, "--undo")
+        self.assertEqual(self.rc, 1)
+        self.assertIn("index.js.callboard-orig does not match the marker's recorded original", self.err)
+
+    def test_an_update_whose_writes_and_webview_rollback_all_fail_still_puts_both_files_back(self):
+        ext = self.make(V327, name="rb")
+        self.older(ext, PIE_ANCHORS=NO_PIE)
+        before = snap(ext)
+        mod = load_module()
+        real, puts = mod.put, []
+
+        def put(path, content, mode):
+            if os.path.basename(path) == "index.js" and not puts:
+                puts.append(path)
+                return real(path, content, mode)
+            if os.path.basename(path) in ("index.js", "extension.js"):
+                raise OSError(28, "No space left on device")
+            real(path, content, mode)
+
+        mod.put = put
+        with self.assertRaises(SystemExit) as cm:
+            mod.update(ext)
+        self.assertEqual((cm.exception.code, len(puts), snap(ext)), (1, 1, before))
+
     def test_a_webview_script_that_is_not_the_one_patched_reads_as_leftovers_and_undo_recovers(self):
         ext = self.make(V327, name="lo")
         orig_js = slurp(os.path.join(ext, self.WEBJS))

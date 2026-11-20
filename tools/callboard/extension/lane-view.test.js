@@ -154,7 +154,7 @@ test('a click reopens the session in its own folder; a refusal is shown with its
 
 test('recent chats: a group per folder with a titled conversation, shown by its title and age, newest first; an untitled chat or one of a gone session is not listed', async () => {
   const w = world({
-    table: { [sid(1)]: { name: 'LAB', folder: '/w/a' }, [sid(4)]: { name: 'portent-web-6b', folder: '/w/a', goneAt: NOW - 3600000 } },
+    table: { [sid(1)]: { name: 'LAB', folder: '/w/a' }, [sid(4)]: { name: 'GONE', folder: '/w/a', goneAt: NOW - 3600000 } },
     rows: [reg(2, { name: 'from-registry', nameSource: 'derived' })],
     files: [
       [`${sid(1)}.jsonl`, `${custom('First chat')}\n`, NOW - 1 * MIN],
