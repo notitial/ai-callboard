@@ -1193,6 +1193,34 @@ class Pie(Case):
             mod.update(ext)
         self.assertEqual((cm.exception.code, len(puts), snap(ext)), (1, 1, before))
 
+    def test_an_update_that_cannot_put_the_earlier_pie_back_refuses_naming_undo_and_undo_restores_both(self):
+        ext = self.make(V327, name="stuck")
+        orig_main, orig_js = self.js(ext), slurp(os.path.join(ext, self.WEBJS))
+        mod = load_module()
+        first = mod.PIE_ANCHORS[0]
+        old = ((first[0], first[1], lambda m: b"/*old*/" + first[2](m)),) + mod.PIE_ANCHORS[1:]
+        self.older(ext, PIE_ANCHORS=old)
+        self.assertEqual(mod.state(ext)[:2], ("outdated", "2.1.328"))
+        real, puts = mod.put, []
+
+        def put(path, content, mode):
+            if os.path.basename(path) == "index.js" and not puts:
+                puts.append(path)
+                return real(path, content, mode)
+            if os.path.basename(path) in ("index.js", "extension.js"):
+                raise OSError(28, "No space left on device")
+            real(path, content, mode)
+
+        mod.put = put
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), self.assertRaises(SystemExit) as cm:
+            mod.update(ext)
+        self.assertEqual((cm.exception.code, len(puts)), (1, 1))
+        self.assertIn("run --undo", err.getvalue())
+        self.assertEqual((mod.state(ext)[0], os.path.exists(os.path.join(ext, "extension.js.callboard-prev"))), ("leftovers", False))
+        self.run_script(ext, "--undo")
+        self.assertEqual((self.rc, self.js(ext), slurp(os.path.join(ext, self.WEBJS)), sorted(os.listdir(ext))), (0, orig_main, orig_js, STOCK))
+
     def test_a_webview_script_that_is_not_the_one_patched_reads_as_leftovers_and_undo_recovers(self):
         ext = self.make(V327, name="lo")
         orig_js = slurp(os.path.join(ext, self.WEBJS))

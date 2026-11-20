@@ -513,7 +513,7 @@ def update(ext):
     wb = os.path.join(ext, WEB_BACKUP)
     made = new_js is not None and not os.path.lexists(wb)
     touched = web_touched(ext, new_js)
-    failed = None
+    failed = stuck = None
     try:
         write_patch(ext, ver, orig, new, left, web[1], new_js)
     except BaseException as e:
@@ -526,10 +526,16 @@ def update(ext):
             if os.path.lexists(wb):
                 os.unlink(wb)
         elif touched:
-            set_web(ext, web[1], before_js)
+            try:
+                set_web(ext, web[1], before_js)
+            except Exception as e2:
+                stuck = e2
         failed = e
     if os.path.lexists(prev):
         os.unlink(prev)
+    if stuck is not None:
+        # The backups are untouched, so --undo puts both files back.
+        refuse("could not update (%s) and %s could not be put back (%s); the two files are from different builds; free some space, then run --undo" % (reason(failed), WEB, reason(stuck)))
     if failed is not None:
         refuse("could not update (%s); the previous patch is back and nothing else changed" % reason(failed))
     print("updated %s" % ver)
