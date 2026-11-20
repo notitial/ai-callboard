@@ -98,7 +98,8 @@ hook and the tick log their steps (`relay-hook`, `relay-stale`) so the next test
 (only a pick made in the pop-up carries it: the plugin cannot tell the manager's own `prompt_answer` after a typed turn
 from the manager's own decision, so that answer keeps `answered by <manager>, not the person`). The manager's check-in
 also carries a short digest, "since your last check-in", of asks that ended in an asker's own panel (a click or an interruption), lanes done
-or gone and gos that ended: log data, no command text, never a wake-up by itself.
+or gone and gos that ended: log data, no command text, never a wake-up by itself. The pop-up for a tool ask shows the manager's own escalate note
+(stored in its `up` mark, never in the log) in place of the raw command; with no note it shows the command.
 
 **Callboard never judges who may answer.** An ask a session cannot decide (a plan-mode exit, a malformed question, a
 guard's own ask) is an ordinary ask that rises like any other; the rubric of the tier that reads it decides. What is

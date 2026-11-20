@@ -8,7 +8,7 @@ import { T } from '../texts.ts'
 import { relayDialog, relayStep } from '../ui.ts'
 import { log, notice, personDialog, toast } from './io.ts'
 import { mem } from './mem.ts'
-import { askOpen, getView, guardOk, logAsk, offFile } from './store.ts'
+import { askOpen, askState, getView, guardOk, logAsk, offFile } from './store.ts'
 import { answerAsk, openAsks } from './tools-ask.ts'
 import { say } from './tools-any.ts'
 import { idle } from './upkeep.ts'
@@ -34,7 +34,9 @@ async function relayRun($: any, ask: Ask, v: View): Promise<void> {
     const name = nameOf(v, ask.asker)
     mem.shown = { id: ask.id, name }
     const qs = ask.questions ?? (ask.question === undefined ? undefined : [ask.question])
-    const r = await (qs === undefined || ask.cut ? personDialog($, relayDialog(name, ask.tool, ask.input, ask.cut, ask.question), EXPIRE_MS) : relaySteps($, ask, name, qs)).finally(() => (mem.shown = undefined))
+    // The note the person reads is the manager's own, never a lead's: an escalate of the manager's with no note shows the command.
+    const note = qs === undefined ? (await askState($, ask.id)).ups.find((u) => u.kind === 'escalated' && u.by === v.manager)?.note : undefined
+    const r = await (qs === undefined || ask.cut ? personDialog($, relayDialog(name, ask.tool, ask.input, ask.cut, ask.question, note), EXPIRE_MS) : relaySteps($, ask, name, qs)).finally(() => (mem.shown = undefined))
     if (!('picks' in r) && !('label' in r)) {
       if (r.no === 'timeout') await logAsk($, { ev: 'relay-unanswered', ask: ask.id, asker: ask.asker })
       else if (r.no !== 'error') mem.relayed.delete(ask.id)

@@ -4,7 +4,7 @@
 import type { Ask, Decision, Owner, Sid, View } from '../core/model.ts'
 import { capability, chain, isOff, nameOf, refusal } from '../core/model.ts'
 import type { Open } from '../core/asks.ts'
-import { capBytes, decide, stage } from '../core/asks.ts'
+import { capBytes, decide, noteOf, stage } from '../core/asks.ts'
 import { GO_HOURS, covers, goTextOk } from '../core/go.ts'
 import type { RefuseCode } from '../core/msg.ts'
 import { T } from '../texts.ts'
@@ -96,7 +96,7 @@ export async function promptAnswerCall($: any, e: any, _next: any) {
     if (ask === undefined) return no('no-such-ask')
     if (st?.open !== true) return no('ask-closed')
     if (!st.eligible.includes(c.me)) return no('not-eligible')
-    if (!(await writeUp($, id, c.me, 'escalated', now))) return no('unknown-liveness')
+    if (!(await writeUp($, id, c.me, 'escalated', now, c.me === v.manager ? noteOf(e.note) : undefined))) return no('unknown-liveness')
     await logAsk($, { ev: 'escalated', ask: id, asker: ask.asker, by: c.me })
     const up = chain(v, ask.asker)
     const next = up.up[up.up.indexOf(c.me) + 1]

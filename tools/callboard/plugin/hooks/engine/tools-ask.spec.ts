@@ -150,3 +150,22 @@ test('his click on the go dialog owes the session that asked one notice: given (
   assert.match(mem.owed[0]!, /^\[callboard\] The person declined the go you asked for\. Sent by callboard/)
   assert.match(mem.owed[1]!, /^\[callboard\] The person clicked Yes on your go request; the go is what go_status lists\./)
 })
+
+test('prompt_answer escalate: the manager\'s note is stored on its own mark, cut at 300 characters, kept out of the log; a lead\'s is not stored; no note, a blank or a non-string one stores nothing', async () => {
+  const { f, lead, boss, put } = world({ t0: T0 - 6 * MIN, awake: 6 * MIN })
+  await put()
+  const mark = async (sid: string) => (await readAsks(f.$)).ups.get(ID)!.find((u) => u.by === sid)
+  assert.match((await call(lead, promptAnswerCall, { id: ID, decision: 'escalate', note: 'x'.repeat(500) })).result!, /passed up/)
+  assert.equal((await mark('sid-lead'))!.note, undefined)
+  await call(boss, promptAnswerCall, { id: ID, decision: 'escalate', note: 'y'.repeat(500) })
+  assert.equal((await mark('sid-boss'))!.note!.length, 300)
+  for (const note of [undefined, '  ', 7]) {
+    await call(boss, promptAnswerCall, { id: ID, decision: 'escalate', note })
+    assert.equal((await mark('sid-boss'))!.kind, 'escalated')
+    assert.equal((await mark('sid-boss'))!.note, undefined)
+  }
+  await call(boss, promptAnswerCall, { id: ID, decision: 'escalate', note: ' Builds it.\nLow risk. ' })
+  assert.equal((await mark('sid-boss'))!.note, 'Builds it. Low risk.')
+  const logs = [...f.h.files].filter(([k]) => k.includes('asks-'))
+  assert.ok(logs.length > 0 && logs.every(([, v]) => !v.includes('Builds it')), 'the ask log holds no note')
+})

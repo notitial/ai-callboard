@@ -374,3 +374,34 @@ test('a folder that cannot be listed leaves the pop-up open: the read failed, th
   const broken = { ...f.$, fs: { ...f.$.fs, list: () => Promise.reject(new Error('x')) } }
   assert.equal(await askOpen(broken, 'ee11ff22aa'), true)
 })
+
+test('the pop-up shows the manager\'s own note in place of the command, never the lead\'s; an escalate with no note, or a question, keeps what it showed', async () => {
+  const shown = async (id: string, over: Partial<Ask>, lead: string | undefined, boss: string | undefined) => {
+    const f = tiers()
+    const b = peer(f, 'sid-boss')
+    f.h.sleepMoves = false
+    await writeAsk(f.$, mk(id, over))
+    await writeUp(f.$, id, 'sid-lead', 'escalated', T0, lead)
+    await writeUp(f.$, id, 'sid-boss', 'escalated', T0, boss)
+    b.h.askAnswer = async () => 'Deny'
+    await tickRelay(b)
+    await settle()
+    return b.h.asked[0]!
+  }
+  const both = await shown('aa11bb22cc', {}, 'Lead: safe build.', 'Manager: runs make. Low risk.')
+  assert.match(both.question, /Manager: runs make\. Low risk\./)
+  assert.doesNotMatch(both.question, /Lead: safe|"command"/)
+  assert.deepEqual(both.options, ['Allow', 'Deny'])
+  const bare = await shown('bb11cc22dd', {}, 'Lead: safe build.', undefined)
+  assert.match(bare.question, /"command":"make"/)
+  assert.doesNotMatch(bare.question, /Lead: safe|manager's own note/)
+  const cut = await shown('cc11dd22ee', { cut: true }, undefined, 'Manager: runs make.')
+  assert.deepEqual(cut.options, ['Deny'])
+  assert.match(cut.question, /NOT SHOWN WHOLE/)
+  const q = { header: 'H', question: 'Which?', options: [{ label: 'A' }, { label: 'B' }] }
+  const asked = await shown('dd11ee22ff', { tool: 'AskUserQuestion', input: '{}', question: q }, undefined, 'Manager: a note.')
+  assert.doesNotMatch(asked.question, /Manager: a note/)
+  assert.deepEqual(asked.options, ['A', 'B', 'Deny'])
+  const stuck = await shown('ee11ff22aa', { tool: 'AskUserQuestion', input: '{}', cut: true, question: q }, undefined, 'Manager: a note.')
+  assert.doesNotMatch(stuck.question, /Manager: a note/)
+})

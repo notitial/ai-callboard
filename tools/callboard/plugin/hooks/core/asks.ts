@@ -177,6 +177,8 @@ export function capBytes(s: string, max: number): { text: string; cut: boolean }
   if (b.length <= max) return { text: s, cut: false }
   return { text: new TextDecoder().decode(b.slice(0, max)).replace(/\ufffd+$/, ''), cut: true }
 }
+// An escalate note as stored: one line, trimmed, at most 300 characters; empty or not a string is no note.
+export const noteOf = (x: unknown): string | undefined => (typeof x === 'string' ? Array.from(x.replace(/\s+/g, ' ').trim()).slice(0, 300).join('').trim() || undefined : undefined)
 export const STRING_CAP = 10 * 1024
 export const INPUT_CAP = 32 * 1024
 const KEY_CAP = 200

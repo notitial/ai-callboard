@@ -81,13 +81,14 @@ const yesNo = (): { label: string }[] => [{ label: T['dialog.yes']({}) }, { labe
 export const goDialog = (giver: string, text: string, end: string): DialogSpec => ({ header: T['dialog.go.header']({}), question: T['dialog.go.question']({ giver, text, end }), options: yesNo() })
 export const stopDialog = (name: string, verb: StopVerb): DialogSpec => ({ header: T['dialog.stop.header']({}), question: T['dialog.stop.question']({ name, verb }), options: yesNo() })
 // The relay pop-up: an input not shown whole (cut, or too large to print) gets Deny only, as `decide` refuses its allow. `cut` is that finding: the adapter stores it on the
-// ask, as it stores promptList's cutIds, so no other path allows the input. A question offers its own options (a click on one is that answer) in place of Allow.
-export function relayDialog(asker: string, tool: string, input: string, cut: boolean, q?: Question): DialogSpec & { cut: boolean } {
-  const p = printed(input, DIALOG_CAP)
-  const whole = !cut && !p.cut
+// ask, as it stores promptList's cutIds, so no other path allows the input. A question offers its own options (a click on one is that answer) in place of Allow. With the manager's
+// note, the note is shown in place of the input, escaped and capped the same way; the input must still fit the cap, or the person is left to Deny a command nobody could print.
+export function relayDialog(asker: string, tool: string, input: string, cut: boolean, q?: Question, note?: string): DialogSpec & { cut: boolean } {
+  const p = printed(note ?? input, DIALOG_CAP)
+  const whole = !cut && !p.cut && !printed(input, DIALOG_CAP).cut
   return {
     header: T['dialog.relay.header']({}),
-    question: T['dialog.relay.question']({ asker, tool, input: p.text, cut: !whole }),
+    question: T['dialog.relay.question']({ asker, tool, input: p.text, note: note !== undefined, cut: !whole }),
     options: [...(whole ? (q === undefined ? [{ label: T['dialog.allow']({}) }] : q.options.map((o) => ({ label: o.label }))) : []), { label: T['dialog.deny']({}) }],
     cut: !whole,
   }
