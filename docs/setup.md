@@ -129,7 +129,7 @@ EXT_DIR="$(ls -d "$HOME"/.vscode/extensions/anthropic.claude-code-* | sort -V | 
   same one; a missing one is created). Each session is filed once, so one you move out of its group stays out.
 - The sixth piece is the session command, optional in the same way (the marker's `session` field): `callboard active session`
   returns the session id of the Claude panel in front, so the folder badge below finds an unnamed session too.
-- An install patched by an older version of the script (before the width and chip blocks or the restore fix, say) shows `outdated` with a
+- An install that differs from what the current script builds shows `outdated` with a
   line saying what differs, or the old warning that a piece is not in. The check compares the installed file with what the current script
   builds from the backup original. `--update` (or `/patch-vs-claude`, which runs it) rebuilds the patch from the backup and
   swaps in `extension.js` and the marker, so no undo and apply by hand is needed; the backup is not touched, and a failed

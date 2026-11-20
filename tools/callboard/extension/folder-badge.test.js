@@ -26,7 +26,7 @@ test('folderOf: nothing when the name is unknown, dead, a terminal session, in t
 })
 
 test('folderOf: a session id finds the session whatever its name, and one that finds nothing leaves it to the label', () => {
-  const rows = [row('portent-admin-a5', '/w/b', { sessionId: 's2' }), row('LAB', '/w/a', { sessionId: 's1' })]
+  const rows = [row('auto-title-a5', '/w/b', { sessionId: 's2' }), row('LAB', '/w/a', { sessionId: 's1' })]
   assert.equal(folderOf('Test lane', rows, () => true, 's2'), '/w/b', 'a generated tab title')
   assert.equal(folderOf('LAB', rows, () => true, 'new:1'), '/w/a', 'an id no row carries')
 })
@@ -54,12 +54,12 @@ function world({ tab, folders = ['/w/a', '/w/b'], list, front }) {
 const claudeTab = (label) => ({ label, input: { viewType: 'mainThreadWebview-claudeVSCodePanel' } })
 
 test('the item shows the folder name of the Claude panel in front, with the full path as the tooltip, and follows tab changes', async () => {
-  const rows = [row('LAB', '/w/b/arkham'), row('OTHER', '/w/a')]
+  const rows = [row('LAB', '/w/b/repo'), row('OTHER', '/w/a')]
   const w = world({ tab: claudeTab('LAB'), list: async () => rows })
   await w.badge.refresh()
   assert.equal(w.state.alignment, 2, 'on the right side of the status bar')
-  assert.equal(w.item.text, '$(folder) arkham')
-  assert.match(w.item.tooltip, /\/w\/b\/arkham/)
+  assert.equal(w.item.text, '$(folder) repo')
+  assert.match(w.item.tooltip, /\/w\/b\/repo/)
   assert.equal(w.state.shown, true)
   w.state.tab = claudeTab('OTHER')
   await w.badge.refresh()
@@ -71,9 +71,9 @@ test('the item shows the folder name of the Claude panel in front, with the full
 })
 
 test('with the patch\'s session command the item finds an unnamed panel by its session id', async () => {
-  const w = world({ tab: claudeTab('Test lane'), list: async () => [row('portent-admin-a5', '/w/b/arkham', { sessionId: 's2' })], front: 's2' })
+  const w = world({ tab: claudeTab('Test lane'), list: async () => [row('auto-title-a5', '/w/b/repo', { sessionId: 's2' })], front: 's2' })
   await w.badge.refresh()
-  assert.equal(w.item.text, '$(folder) arkham')
+  assert.equal(w.item.text, '$(folder) repo')
   w.badge.dispose()
 })
 
