@@ -1,13 +1,13 @@
 # 12. Callboard as a plugin: one session model, one ask chain
 
-**Status:** proposed
+**Status:** accepted
 **Date:** 2026-11-19
 
 Scope: how callboard decides what a session is, who answers its asks and what unattended mode changes. It replaces the
-mod's kinds, grants and per-tier answering with one model, built beside the mod as a plugin (`tools/callboard/plugin`).
-It changes who may answer a permission prompt and who may widen a session's powers, so it is on the risk list. It takes
-effect when the person switches the one plugin entry over ([docs/setup.md](../setup.md), Switch to the plugin); until
-then the mod and the ADRs it rests on stand, and they are marked at the cleanup that deletes the mod.
+mod's kinds, grants and per-tier answering with one model, built as a plugin (`tools/callboard/plugin`). It changes who
+may answer a permission prompt and who may widen a session's powers, so it is on the risk list. It is built and live:
+the person switched the one plugin entry over ([docs/setup.md](../setup.md), Switch to the plugin) and the mod is
+deleted.
 
 It supersedes [ADR 0006](0006-conductor-opens-leads.md), [ADR 0007](0007-conductor-owns-leads.md) and
 [ADR 0011](0011-all-prompts-rise.md), and amends [ADR 0001](0001-manager-role.md), [ADR 0002](0002-callboard.md),
@@ -119,7 +119,7 @@ turning it off is the person's typed command.
 ## Consequences
 
 - One path replaces four, and a record of a gone or changed session routes nothing. The plugin is a fraction of the
-  mod's size; the mod's tests, spool and audit script go at the cleanup after the switch has held.
+  mod's size; the mod's tests, spool and audit script are deleted.
 - An unknown session is managed from its first turn. The cost is that a brand-new session that should be a lead needs
   the person's `/callboard lead` once.
 - The person reaches everything through the manager. That needs the manager's account to be the one they can reach
@@ -146,4 +146,4 @@ sessions.
 plugin, an organisation ceiling, or the GitHub guard) and shows it to the tier, but it does not use it to decide who may
 answer, because callboard must not judge. So today a lead can allow a pull-request call that ai-toolkit's GitHub guard
 asked the person about. The alternative is that an ask raised by a guard rises only to the manager, which is a carve-out
-and a second path. Decide it before the cleanup; until then the manager's rubric and rules file are the control.
+and a second path. It stays open: the manager's rubric and rules file are the control.

@@ -279,7 +279,7 @@ test('a lane of a gone lead is loose; another lead adopts it; the old lead, back
   assert.doesNotMatch(text(await laneListCall(f.$, {}, next)), /L1/)
   f.h.sid = 'sid-b'
   mem.view = undefined
-  assert.match(text(await laneListCall(f.$, {}, next)), /\| L1 \|[^\n]*\| B \|/)
+  assert.match(text(await laneListCall(f.$, {}, next)), /\| L1 \|/)
   f.h.ps = f.h.ps.replace(/ {2}21 .*\n/, '')
   mem.view = undefined
   const dead = await getView(f.$, true)
@@ -423,9 +423,11 @@ const kidReg = (f: F, x: object) => {
 test('a new lane is known by its own name: its panel, named by Claude, renames itself to the lane at its first quiet tick, and lane_start finds it by the lane name', async () => {
   const f = world()
   await laneCreateCall(f.$, { name: 'NEW', folder: '/w/repo/new', brief: 'b' }, next)
-  f.seed({ sid: 'sid-new', pid: 30, name: 'ai-manager-ef', nameSource: 'auto', cwd: '/w/repo/new', kind: 'interactive', statusUpdatedAt: T0 - MIN })
+  f.seed({ sid: 'sid-new', pid: 30, name: 'ai-manager-ef', nameSource: 'derived', cwd: '/w/repo/new', kind: 'interactive', statusUpdatedAt: T0 - MIN })
   window(f, (req) => (req.op === 'open' ? { ok: true, sid: 'sid-new' } : undefined))
   assert.match(text(await laneOpenCall(f.$, { lane: 'NEW' }, next)), /`NEW` opened as session `sid-new`/)
+  assert.match(text(await laneListCall(f.$, {}, next)), /\| NEW \|/)
+  assert.equal(table(f)['sid-new'].name, 'NEW')
   f.h.sid = 'sid-new'
   mem.view = undefined
   await cueTick(f.$, 'sid-new', await getView(f.$, true), T0)

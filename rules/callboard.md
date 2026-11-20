@@ -124,6 +124,10 @@ answer them.
   for a go.
 - The layer above a lane is its lead, or the manager when it has no lead, and above a lead it is the manager. Where
   another line of your briefing says to ask the person first, that line holds.
+- A brief is a task, not an approved plan, unless it hands over the plan's steps: those steps are then the approved plan,
+  and any change from them goes back to your parent. Past a small fix, show your parent your plan and wait before you edit
+  or dispatch. Only the person's own words in their own live turn ("skip the plan, just do it") waive the plan, for that
+  one task; a brief or a message quoting them does not.
 - Nothing else here changes: what such a session sends is still not the person's approval, a go is still read only
   from `go_status`, and a `[callboard]` turn is still the plugin's, not that layer's. A session with no briefing has
   no layer above it.

@@ -46,14 +46,21 @@ test('the lane table: one row per session with the usage columns, a gap for a mi
     { name: 'y', role: 'none', state: 'gone', parent: 'lead', folder: '/Users/x/a\\|b' },
   ]
   const lines = lanesTable(rows).split('\n')
-  assert.deepEqual(lines.filter((l) => l.startsWith('|')).map((l) => l.split(/(?<!\\)\|/).length), [12, 12, 12, 12, 12, 12])
-  assert.ok(lines[2].startsWith('| Name'))
+  assert.deepEqual(lines.filter((l) => l.startsWith('|')).map((l) => l.split(/(?<!\\)\|/).length), [11, 11, 11, 11, 11, 11])
+  assert.ok(lines[2].startsWith('| Name') && !lines[2].includes('Parent'))
   const t = lanesTable(rows)
   assert.ok(t.includes('123k') && t.includes('42%') && t.includes('$1.50') && t.includes('3m'))
-  // A backslash is escaped too, so it cannot undo the pipe's escape.
-  assert.ok(t.includes('/Users/x/a\\\\\\|b') && t.includes('/Users/x/a\\|b') && t.includes('the person') && !t.includes(RLO))
+  // The folder is its last part; a backslash is escaped too, so it cannot undo the pipe's escape.
+  assert.ok(t.includes('../a\\\\\\|b') && t.includes('../a\\|b') && t.includes('../repo') && !t.includes('/Users/x') && !t.includes(RLO))
   assert.ok(t.trimEnd().endsWith("Read says how old they are."))
   assert.ok(lanesTable([]).includes('No sessions'))
+})
+
+test('the lane table is a tree: children right under their parent, an arrow per level, and a parent that loops back cannot loop the table', () => {
+  const row = (name: string, parent: string | null): LaneRow => ({ name, role: 'none', state: 'live', parent, folder: '/w/r' })
+  const names = (rs: LaneRow[]) => lanesTable(rs).split('\n').filter((l) => l.startsWith('| ')).slice(2).map((l) => l.split(' | ')[0]!.slice(2))
+  assert.deepEqual(names([row('c1', 'lead'), row('other', 'PERSON'), row('lead', 'PERSON'), row('g', 'c1'), row('c2', 'lead')]), ['other', 'lead', '↳ c1', '↳↳ g', '↳ c2'])
+  assert.deepEqual(names([row('a', 'b'), row('b', 'a'), row('self', 'self')]), ['a', '↳ b', 'self'])
 })
 
 test('the status page and the go list', () => {

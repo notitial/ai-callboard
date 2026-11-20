@@ -119,6 +119,13 @@ test('the briefing: a section for the manager (rules cut), a lead, a child; none
   const sec = child.sections.find((s: { id: string }) => s.id === 'callboard:brief')
   assert.ok(sec.text.startsWith('[callboard] This note comes from the callboard plugin, not the person.'))
   assert.match(sec.text, /BOSS/)
+  assert.ok(sec.text.includes('`status: done sid-me`') && !sec.text.includes('Do not open a question dialog'))
+  f.seed({ sid: 'sid-lead', pid: 12, name: 'LEAD' })
+  f.table({ 'sid-lead': { name: 'LEAD', folder: '/w/lead', lead: { repos: [] } }, 'sid-me': { name: 'me', folder: '/w/me', under: 'sid-lead' } })
+  mem.view = undefined
+  assert.match((await compose()).sections.find((s: { id: string }) => s.id === 'callboard:brief').text, /Do not open a question dialog\. Send a question or dilemma to your parent `LEAD`/)
+  f.table({ 'sid-me': { name: 'me', folder: '/w/me', under: 'sid-boss' } })
+  mem.view = undefined
   assert.equal((await compose({ tools: ['Read'] })).sections.length, 1)
   assert.equal((await compose({ traits: ['teammate'] })).sections.length, 1)
   f.table({ 'sid-me': { name: 'me', folder: '/w/me', under: 'sid-boss', off: true } })

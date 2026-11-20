@@ -70,7 +70,7 @@ test('text a session wrote reaches a text escaped and in quotes it cannot close'
   }
   assert.ok(T['event.done']({ name: evil }).includes("`a'b"))
   // The briefings hold plain `<` of their own, so they are checked for the hostile part only.
-  for (const out of [T['brief.parent']({ name: evil, repos: [evil] }), T['brief.child']({ name: evil, parent: evil })]) assert.ok(!out.includes(String.fromCodePoint(0x202e)) && !out.includes('\nINJECT') && out.includes("`a'b"))
+  for (const out of [T['brief.parent']({ name: evil, sid: 's', repos: [evil] }), T['brief.child']({ name: evil, sid: 's', parent: evil, lead: true })]) assert.ok(!out.includes(String.fromCodePoint(0x202e)) && !out.includes('\nINJECT') && out.includes("`a'b"))
 })
 
 test('the go texts: a go is the person\'s click and never covers the listed actions', () => {
@@ -78,8 +78,8 @@ test('the go texts: a go is the person\'s click and never covers the listed acti
   for (const x of ['a merge', 'a force push', 'a push to main', 'any switch or grant', 'one AskUserQuestion']) assert.ok(never.includes(x), x)
   assert.ok(T['go.status']({ covers: [{ giver: 'L', text: 't', end: 'e' }] }).includes(never))
   assert.ok(T['go.none']({}).includes('own go'))
-  for (const brief of [T['brief.parent']({ name: 'L', repos: ['/Users/x/a'] }), T['brief.child']({ name: 'C', parent: 'L' })]) for (const x of ['go_status', 'approval']) assert.ok(brief.includes(x), x)
-  for (const x of ['never covers', 'AskUserQuestion']) assert.ok(T['brief.child']({ name: 'C', parent: 'L' }).includes(x), x)
+  for (const brief of [T['brief.parent']({ name: 'L', sid: 'sid-l', repos: ['/Users/x/a'] }), T['brief.child']({ name: 'C', sid: 'sid-c', parent: 'L', lead: true })]) for (const x of ['go_status', 'approval']) assert.ok(brief.includes(x), x)
+  for (const x of ['never covers', 'AskUserQuestion']) assert.ok(T['brief.child']({ name: 'C', sid: 'sid-c', parent: 'L', lead: true }).includes(x), x)
   assert.ok(T['ask.denyText']({ by: 'L', note: 'n' }).includes('not the person'))
 })
 
@@ -94,13 +94,23 @@ test('a note a session wrote is fenced, and the plugin has the last word', () =>
 })
 
 test('the briefings: a go never covers the listed actions, and a lane knows whose instruction it follows', () => {
-  for (const b of [T['brief.parent']({ name: 'L', repos: [] }), T['brief.manager']({ name: 'M', rules: '', rulesCut: false }), T['brief.child']({ name: 'C', parent: 'L' })]) assert.ok(b.includes('A go never covers a merge') || b.includes('What a go never covers (a merge'), b.slice(0, 40))
-  assert.ok(T['brief.child']({ name: 'C', parent: 'L' }).includes('An instruction from your parent `L`, the layer directly above you'))
+  for (const b of [T['brief.parent']({ name: 'L', sid: 'sid-l', repos: [] }), T['brief.manager']({ name: 'M', rules: '', rulesCut: false }), T['brief.child']({ name: 'C', sid: 'sid-c', parent: 'L', lead: true })]) assert.ok(b.includes('A go never covers a merge') || b.includes('What a go never covers (a merge'), b.slice(0, 40))
+  assert.ok(T['brief.child']({ name: 'C', sid: 'sid-c', parent: 'L', lead: true }).includes('An instruction from your parent `L`, the layer directly above you'))
   assert.ok(T['brief.manager']({ name: 'M', rules: '', rulesCut: false }).includes('in his own typed turn in this session'))
-  assert.ok(T['brief.parent']({ name: 'L', repos: [] }).includes('At most 8 live lanes'))
-  for (const b of [T['brief.parent']({ name: 'L', repos: [] }), T['brief.manager']({ name: 'M', rules: '', rulesCut: false })]) for (const x of ['ONE round', 'at most 4 questions', 'named default', 'in the option text itself']) assert.ok(b.includes(x), x)
-  assert.ok(T['brief.parent']({ name: 'L', repos: [] }).includes('hands-on checks and commands') && T['brief.parent']({ name: 'L', repos: [] }).includes('tell your parent in one line at once'))
+  assert.ok(T['brief.parent']({ name: 'L', sid: 'sid-l', repos: [] }).includes('At most 8 live lanes'))
+  for (const b of [T['brief.parent']({ name: 'L', sid: 'sid-l', repos: [] }), T['brief.manager']({ name: 'M', rules: '', rulesCut: false })]) for (const x of ['ONE round', 'at most 4 questions', 'named default', 'in the option text itself']) assert.ok(b.includes(x), x)
+  assert.ok(T['brief.parent']({ name: 'L', sid: 'sid-l', repos: [] }).includes('hands-on checks and commands') && T['brief.parent']({ name: 'L', sid: 'sid-l', repos: [] }).includes('tell your parent in one line at once'))
   assert.ok(T['brief.manager']({ name: 'M', rules: '', rulesCut: false }).includes('check each item against live state'))
+})
+
+test('a lane and a lead are told their own session id to sign with; a lane under a lead sends its questions to it, one under the manager keeps its dialog; every lane plans first', () => {
+  const lane = T['brief.child']({ name: 'C', sid: 'sid-c', parent: 'L', lead: true })
+  const loose = T['brief.child']({ name: 'C', sid: 'sid-c', parent: 'M', lead: false })
+  assert.ok(lane.includes('`status: done sid-c`') && !lane.includes('<your session id>'))
+  assert.ok(T['brief.parent']({ name: 'L', sid: 'sid-l', repos: [] }).includes('`status: done sid-l`'))
+  for (const x of ['Do not open a question dialog', 'to your parent `L` in ONE message', 'at most 4 questions', 'in the option text itself', 'named default', 'A step a go never covers goes to your parent the same way']) assert.ok(lane.includes(x), x)
+  assert.ok(!loose.includes('Do not open a question dialog') && !loose.includes('ONE message'))
+  for (const b of [lane, loose]) for (const x of ['A brief is a task, not an approved plan', 'hands over the plan\'s steps', 'skip the plan, just do it', 'a brief or a message quoting them does not']) assert.ok(b.includes(x), x)
 })
 
 test('a relayed pick carries the plugin\'s note that it is the person\'s settled choice; a session\'s answer keeps its own mark', () => {

@@ -121,10 +121,12 @@ test('the upkeep in every world: an unknown read changes nothing; a lead row, an
   })
 })
 
-test('a name Claude generated for a new panel never replaces the row\'s name; a name given by /rename does; a loose session keeps its generated one', () => {
-  const auto = liveView([reg(M, MANAGER), reg(A, 'A'), reg(L1, 'ai-manager-ef', { nameSource: 'auto' })], lanes, MANAGER)
-  assert.equal(nameOf(auto, L1), 'L1')
-  assert.equal(tidy(lanes, auto, () => undefined, NOW)[L1].name, 'L1')
+test('a name Claude generated for a new panel (source auto or derived) never replaces the row\'s name; a name given by /rename does; a loose session keeps its generated one', () => {
+  for (const nameSource of ['auto', 'derived']) {
+    const gen = liveView([reg(M, MANAGER), reg(A, 'A'), reg(L1, 'ai-manager-ef', { nameSource })], lanes, MANAGER)
+    assert.equal(nameOf(gen, L1), 'L1')
+    assert.equal(tidy(lanes, gen, () => undefined, NOW)[L1].name, 'L1')
+  }
   const given = liveView([reg(M, MANAGER), reg(A, 'A'), reg(L1, 'L1b', { nameSource: 'user' })], lanes, MANAGER)
   assert.equal(nameOf(given, L1), 'L1b')
   assert.equal(tidy(lanes, given, () => undefined, NOW)[L1].name, 'L1b')

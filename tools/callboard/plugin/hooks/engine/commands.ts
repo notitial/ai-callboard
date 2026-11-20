@@ -140,8 +140,8 @@ export async function promptCompose($: any, e: any, next: any) {
       if (cap === 'manager') {
         const rules = printed((await readRules($)) ?? '', RULES_CAP)
         body = T['brief.manager']({ name, rules: rules.text.replace(/^(\s*)\[(callboard|compact-cue)\]/gim, '$1[ $2]'), rulesCut: rules.cut })
-      } else if (cap === 'lead') body = T['brief.parent']({ name, repos: [v.table[me]!.folder, ...v.table[me]!.lead!.repos] })
-      else if (up !== PERSON && up !== 'unknown') body = T['brief.child']({ name, parent: nameOf(v, up) })
+      } else if (cap === 'lead') body = T['brief.parent']({ name, sid: me, repos: [v.table[me]!.folder, ...v.table[me]!.lead!.repos] })
+      else if (up !== PERSON && up !== 'unknown') body = T['brief.child']({ name, sid: me, parent: nameOf(v, up), lead: capability(v, up) === 'lead' })
     }
   } catch {}
   const out = await next(e)

@@ -2,6 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { HOME, MIN, T0, V2, as, peer, tiers } from '../../test/fake.ts'
 import type { Ask } from '../core/model.ts'
+import { T } from '../texts.ts'
 import { permissionRequest } from './ask-hook.ts'
 import { mem } from './mem.ts'
 import { relayTick } from './relay.ts'
@@ -125,6 +126,18 @@ test('the ask hook closes the relay pop-up once its ask is closed, and leaves it
   const r: any = await as(() => permissionRequest(boss.$, shown, noop))
   assert.equal(r.decision.behavior, 'deny')
   click('Allow')
+})
+test('a failure inside the pop-up close leaves the dialog to the person, as the loop does when it gives up', async () => {
+  const boss = peer(tiers(), 'sid-boss')
+  const own = { tool_name: 'AskUserQuestion', tool_input: { questions: [{ header: T['dialog.relay.header']({}), question: 'q', options: [{ label: 'Allow' }] }] }, tool_use_id: 'u1' }
+  mem.dialogs.add(`${own.tool_input.questions[0]!.header}\nq`)
+  Object.defineProperty(mem, 'shown', { configurable: true, get: () => { throw new Error('read failed') } })
+  try {
+    assert.deepEqual(await as(() => permissionRequest(boss.$, own, async () => ({ beneath: true }))), {})
+  } finally {
+    Object.defineProperty(mem, 'shown', { configurable: true, writable: true, value: undefined })
+    mem.dialogs.clear()
+  }
 })
 test('a call of several questions is relayed as one pop-up each, one combined answer lands, and it reaches the asker with the plugin\'s note on every answer', async () => {
   const f = tiers()

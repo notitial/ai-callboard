@@ -2,7 +2,7 @@
 // line of the PR notice, the opener of the signed-done notice, the opener of the check-in, of the closed-ask turn and of the own-step notice (its three go-click
 // forms), and the opener of each of the three compaction nudges. A session
 // matches those turns against the rule, so a drifted word would make it treat a real turn as an ordinary message.
-// It also checks that the rule carries the briefings' sentence on instructions from the layer above a session word for word.
+// It also checks that the rule carries the briefings' sentences on instructions from the layer above a session and on plan first word for word.
 //   node tools/check-rule-text.mjs
 // Exit 0 when every quote matches, 1 with one line per mismatch, 2 when a file cannot be read. Needs node 22.18 or later,
 // which runs the plugin's TypeScript as it is.
@@ -67,13 +67,18 @@ for (const [i, text] of texts.entries()) {
 
 // The sentence on the layer above: a lane's briefing carries it with its parent's name; the rule carries the form for a session with no named parent,
 // word for word, wrapped over its own lines. That form is in the lead's briefing, taken from there by its opening words.
-const lead = T['brief.parent']({ name: 'A', repos: [], rules: '', rulesCut: false })
+const lead = T['brief.parent']({ name: 'A', sid: 'S', repos: [], rules: '', rulesCut: false })
 const chain = lead.split('\n').map((l) => l.replace(/^- /, '')).find((l) => l.startsWith('An instruction from the layer directly above you'))
 if (!chain) problems.push('the lead briefing no longer carries the sentence on the layer above')
 else if (!rule.replace(/\s+/g, ' ').includes(`- ${chain} `)) problems.push("rules/callboard.md does not carry the briefings' sentence on the layer above exactly")
+
+// The plan-first sentence: a lane's briefing carries it as a line of its own; the rule carries it word for word.
+const planFirst = T['brief.child']({ name: 'A', sid: 'S', parent: 'P', lead: true }).split('\n').map((l) => l.replace(/^- /, '')).find((l) => l.startsWith('A brief is a task, not an approved plan'))
+if (!planFirst) problems.push('the lane briefing no longer carries the plan-first sentence')
+else if (!rule.replace(/\s+/g, ' ').includes(`- ${planFirst} `)) problems.push("rules/callboard.md does not carry the briefing's plan-first sentence exactly")
 
 if (problems.length) {
   for (const p of problems) console.error(p)
   process.exit(1)
 }
-console.log(`rules/callboard.md matches the plugin: keepalive, PR notice, signed-done line, check-in and own-step openers, ${openers.length} nudge openers, the layer-above sentence`)
+console.log(`rules/callboard.md matches the plugin: keepalive, PR notice, signed-done line, check-in and own-step openers, ${openers.length} nudge openers, the layer-above and plan-first sentences`)
