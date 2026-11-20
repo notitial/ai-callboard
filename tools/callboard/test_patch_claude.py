@@ -103,6 +103,11 @@ def snap(root):
     return out
 
 
+def mod_pill(js):
+    """The stand-in webview script with only the pill put in, as the script builds it."""
+    return load_module().pill_web(js.encode())
+
+
 def load_module():
     spec = importlib.util.spec_from_file_location("patch_claude", SCRIPT)
     mod = importlib.util.module_from_spec(spec)
@@ -110,8 +115,9 @@ def load_module():
     return mod
 
 
-# The pie's code in the shipped webview script, in the shape of the stock composer footer (ring, pie component, and the bar that passes the window); the names are
-# minified and differ by version (sv: the ring, pc: the pie component, tf: the threshold function).
+# The pie's and the pill's code in the shipped webview script, in the shape of the stock composer footer (ring, pie component, the bar that passes the window, and the
+# footer's model pill and list); the names are minified and differ by version (sv: the ring, pc: the pie component, tf: the threshold function, st: the fit stage,
+# mp: the model pill).
 PIE_JS = (
     'var MBn={{50:"M7"}};function {sv}({{percentage:e,className:t}}){{let n=PBn(e),i=MBn[n];return k("svg",{{width:"20",height:"20",viewBox:"0 0 20 20",fill:"none",'
     'xmlns:"http://www.w3.org/2000/svg",className:t,style:{{display:"block"}},children:[i&&m("path",{{d:i,stroke:"currentColor",strokeOpacity:"0.15",strokeWidth:"1.5",'
@@ -122,9 +128,11 @@ PIE_JS = (
     'onClick:t,onMouseEnter:()=>o(!0),onMouseLeave:()=>o(!1),children:m({sv},{{percentage:e,className:TAe.pie}})}}),i&&m(VA,{{text:`${{Math.round(r)}}% of context remaining until auto-compact.`,hint:"Click to compact now."}})]}})}}'
     'function Bar(e){{return k("div",{{children:[m("button",{{}}),m({pc},{{usedTokens:e.usageData.value.totalTokens,'
     'contextWindow:{tf}(e.usageData.value.contextWindow,e.usageData.value.maxOutputTokens),onCompact:a,buttonClassName:ia.usageButtonV2}}),m(BFt,{{session:e}})]}})}}'
+    'function Foot(e){{let Ft={{}},p={{isOpen:!1,onClose:0}},f=0,{st}=e.stage;return k("div",{{children:[m(BFt,{{session:e}}),{st}!==2&&m({mp},{{...Ft}}),'
+    'm($Ft,{{isOpen:p.isOpen,onClose:p.onClose,availableModels:e.drawnClaudeConfig.value?.models,anchor:f}})]}})}}'
 )
-JS329 = dict(sv="tBt", pc="nBt", tf="NFt", fb="FBn")
-JS328 = dict(sv="SFt", pc="kFt", tf="tFt", fb="dBn")
+JS329 = dict(sv="tBt", pc="nBt", tf="NFt", fb="FBn", st="_", mp="fAe")
+JS328 = dict(sv="SFt", pc="kFt", tf="tFt", fb="dBn", st="U$", mp="Rr")
 # A stand-in for the shipped webview, carrying the tokens the width piece checks and the pie's code, and what a stock extension folder then holds.
 WEB = {"index.css": ".inputWrapper_a1,.permissionsContainer_b2,.inputContainer_c3{max-width:680px}", "index.js": PIE_JS.format(**JS329)}
 STOCK = ["extension.js", "package.json", "webview"]
@@ -421,8 +429,8 @@ class Css(Case):
             self.assertNotIn(b"callboard-width", new, label)
             marker = json.loads(slurp(os.path.join(ext, "callboard-cwd-patch.json")))
             self.assertEqual((marker["width"], marker["pie"]), (False, False), label)
-            self.assertEqual(slurp(os.path.join(ext, "webview", "index.js")), WEB["index.js"].encode(), label)
-            self.assertFalse(os.path.exists(os.path.join(ext, "webview", "index.js.callboard-orig")), label)
+            self.assertEqual(slurp(os.path.join(ext, "webview", "index.js")), mod_pill(WEB["index.js"]), "only the pill, which needs no page block: " + label)
+            self.assertEqual(slurp(os.path.join(ext, "webview", "index.js.callboard-orig")), WEB["index.js"].encode(), label)
             self.run_script(ext)
             self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "patched 2.1.328"), label)
             self.assertIn("warning: the panel width is not in this patch.", self.out, label)
@@ -918,7 +926,7 @@ class Restore(Case):
         mod = load_module()
         ext = self.make(V327, name="older")
         with contextlib.redirect_stdout(io.StringIO()):
-            mod.PIECES = mod.PIECES[:2]
+            mod.PIECES = mod.PIECES[:3]
             mod.apply(ext)
         orig = self.js(ext)
         self.assertNotIn("restore", json.loads(slurp(os.path.join(ext, "callboard-cwd-patch.json"))))
@@ -964,6 +972,8 @@ console.log(JSON.stringify({ window: [props(1, 1000000).contextWindow, props(1, 
 CIRC = 2 * 3.141592653589793 * 7.25
 # What an older script that had no pie amounts to: anchors that match nothing, so the piece is left out.
 NO_PIE = (("pie component", rb"no such code", lambda m: b""),)
+# An older script that had neither the pie nor the pill, so the webview script is left as it was shipped.
+NO_WEB = dict(PIE_ANCHORS=NO_PIE, PILL_ANCHOR=rb"no such code")
 
 
 class Pie(Case):
@@ -993,7 +1003,7 @@ class Pie(Case):
             self.assertEqual((new.count(b"cbpCap("), new.count(b"cbpN;"), new.count(b"<circle"), new.count(b'"circle"')), (2, 1, 0, 2))
             self.assertNotIn(b"if(r>=50)return null", new)
             self.assertNotIn(b'"path"', new)
-            self.assertEqual((new.count(b'width:"16",height:"16"'), new.count(b'"20"'), new.count(b"cbpTip"), new.count(b"of context remaining")), (1, 0, 3, 0))
+            self.assertEqual((new.count(b'width:"12",height:"12"'), new.count(b'"20"'), new.count(b"cbpTip"), new.count(b"of context remaining")), (1, 0, 3, 0))
             self.assertEqual(sorted(os.listdir(ext)), sorted(STOCK + ["callboard-cwd-patch.json", "extension.js.callboard-orig"]))
             self.run_script(ext)
             self.assertEqual((self.rc, self.out), (0, "patched 2.1.328\n"))
@@ -1022,13 +1032,13 @@ class Pie(Case):
             self.assertEqual(self.shown(ext, " 5000000", names)["window"][0], 967000, "a level above the window changes nothing")
 
     @unittest.skipUnless(shutil.which("node"), "needs node")
-    def test_the_ring_is_16px_and_the_hover_is_used_over_limit_in_k(self):
+    def test_the_ring_is_12px_and_the_hover_is_used_over_limit_in_k(self):
         for names in (JS329, JS328):
             web = dict(WEB, **{"index.js": PIE_JS.format(**names)})
             ext = self.make(V327, name="hov" + names["pc"], web=web)
             self.run_script(ext, "--apply")
             got = self.shown(ext, "", names)
-            self.assertEqual(got["size"], ["16", "16", "0 0 20 20"], "the drawing keeps its 20 box, so the stroke scales")
+            self.assertEqual(got["size"], ["12", "12", "0 0 20 20"], "the drawing keeps its 20 box, so the stroke scales")
             self.assertEqual([h and h.get("text") for h in got["hover"]],
                              ["126k/200k", "0k/200k", "1k/200k", "0k/200k", "250k/200k", None, "0k/200k", "126k/967k"], "whole k; used past the limit shows as it is; no limit draws nothing")
             self.assertTrue(all(h is None or "hint" not in h for h in got["hover"]), "no hint line")
@@ -1046,7 +1056,7 @@ class Pie(Case):
             self.run_script(ext, "--apply")
             self.assertEqual((self.rc, self.out.count("warning")), (0, 0), self.out)
             new = slurp(os.path.join(ext, self.WEBJS))
-            self.assertEqual((self.marker(ext)["pie"], new.count(b'width:"16",height:"16"'), new.count(b"cbpTip"), new.count(b"cbpCap("), new.count(b"Click to compact now.")), (True, 1, 0, 2, 1 if label != "doubled" else 2), label)
+            self.assertEqual((self.marker(ext)["pie"], new.count(b'width:"12",height:"12"'), new.count(b"cbpTip"), new.count(b"cbpCap("), new.count(b"Click to compact now.")), (True, 1, 0, 2, 1 if label != "doubled" else 2), label)
             self.run_script(ext)
             self.assertEqual((self.rc, self.out), (0, "patched 2.1.328\n"), label)
 
@@ -1085,10 +1095,10 @@ class Pie(Case):
             self.run_script(ext, "--apply")
             self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "patched 2.1.328"), label)
             self.assertIn("warning: the context pie is not in (pie anchor ", self.out, label)
-            self.assertEqual(slurp(os.path.join(ext, self.WEBJS)), bad.encode(), label)
-            self.assertFalse(os.path.exists(os.path.join(ext, self.BAK)), label)
+            self.assertEqual(slurp(os.path.join(ext, self.WEBJS)), mod_pill(bad), "only the pill: " + label)
+            self.assertEqual(slurp(os.path.join(ext, self.BAK)), bad.encode(), label)
             marker = self.marker(ext)
-            self.assertEqual((marker["pie"], marker["width"], marker["restore"], "web_patched_sha256" in marker), (False, True, True, False), label)
+            self.assertEqual((marker["pie"], marker["pill"], marker["width"], marker["restore"]), (False, True, True, True), label)
             self.assertNotIn(b"callboard-pie", self.js(ext), label)
             self.run_script(ext)
             self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "patched 2.1.328"), label)
@@ -1102,14 +1112,13 @@ class Pie(Case):
         ext = self.make(V327, name="nofont", raw=raw)
         self.run_script(ext, "--apply")
         self.assertIn("the context pie is not in (font tag anchor (", self.out)
-        self.assertEqual(slurp(os.path.join(ext, self.WEBJS)), WEB["index.js"].encode())
-        self.assertFalse(os.path.exists(os.path.join(ext, self.BAK)))
+        self.assertEqual(slurp(os.path.join(ext, self.WEBJS)), mod_pill(WEB["index.js"]), "the pill needs no page block")
 
     def test_an_install_from_before_the_pie_reads_outdated_and_update_brings_it_in(self):
         mod = load_module()
         ext = self.make(V327, name="old")
         orig_js = slurp(os.path.join(ext, self.WEBJS))
-        self.older(ext, PIE_ANCHORS=NO_PIE)
+        self.older(ext, **NO_WEB)
         self.assertEqual(slurp(os.path.join(ext, self.WEBJS)), orig_js)
         self.run_script(ext)
         self.assertEqual((self.rc, self.out.splitlines()[0]), (1, "outdated 2.1.328: the context pie is not in"))
@@ -1126,7 +1135,7 @@ class Pie(Case):
 
     def test_an_install_made_with_the_earlier_pie_reads_outdated_and_update_rebuilds_it(self):
         old = load_module()
-        size = lambda rep: lambda m: rep(m).replace(b'width:"16",height:"16"', b'width:"20",height:"20"')
+        size = lambda rep: lambda m: rep(m).replace(b'width:"12",height:"12"', b'width:"20",height:"20"')
         earlier = tuple((n, p, size(r) if n == "pie drawing" else r) for n, p, r in old.PIE_ANCHORS)
         ext = self.make(V327, name="earlier")
         orig_js = slurp(os.path.join(ext, self.WEBJS))
@@ -1138,7 +1147,7 @@ class Pie(Case):
         self.run_script(ext, "--update")
         self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "updated 2.1.328"))
         new = slurp(os.path.join(ext, self.WEBJS))
-        self.assertEqual((new.count(b'width:"16"'), new.count(b'"20"'), new.count(b"cbpTip"), slurp(os.path.join(ext, self.BAK))), (1, 0, 3, orig_js))
+        self.assertEqual((new.count(b'width:"12"'), new.count(b'"20"'), new.count(b"cbpTip"), slurp(os.path.join(ext, self.BAK))), (1, 0, 3, orig_js))
         self.run_script(ext)
         self.assertEqual((self.rc, self.out), (0, "patched 2.1.328\n"))
         self.run_script(ext, "--undo")
@@ -1149,7 +1158,7 @@ class Pie(Case):
         ext = self.make(V327, name="out")
         orig_js = slurp(os.path.join(ext, self.WEBJS))
         self.run_script(ext, "--apply")
-        mod.PIE_ANCHORS = NO_PIE
+        vars(mod).update(NO_WEB)
         self.assertEqual(mod.state(ext)[:2], ("outdated", "2.1.328"))
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(mod.update(ext), 0)
@@ -1161,7 +1170,7 @@ class Pie(Case):
         mod = load_module()
         for failing in ("index.js", "extension.js", "callboard-cwd-patch.json"):
             ext = self.make(V327, name="uf-" + failing)
-            self.older(ext, PIE_ANCHORS=NO_PIE)
+            self.older(ext, **NO_WEB)
             before = snap(ext)
             mod = load_module()
             real = mod.put
@@ -1181,7 +1190,7 @@ class Pie(Case):
         for name, pie_in in (("linked", False), ("piein", True)):
             ext = self.make(V327, name="die-" + name)
             orig_main, orig_js = self.js(ext), slurp(os.path.join(ext, self.WEBJS))
-            self.older(ext, PIE_ANCHORS=NO_PIE)
+            self.older(ext, **NO_WEB)
             mod = load_module()
             if pie_in:
                 mod.set_web(ext, orig_js, mod.pie_web(orig_js))
@@ -1204,7 +1213,7 @@ class Pie(Case):
         self.run_script(ext, "--apply")
         before = snap(ext)
         mod = load_module()
-        mod.PIE_ANCHORS = NO_PIE
+        vars(mod).update(NO_WEB)
         real = mod.put
 
         def put(path, content, mode):
@@ -1219,7 +1228,7 @@ class Pie(Case):
 
     def test_undo_still_refuses_an_unrecorded_webview_backup_when_the_script_is_neither_it_nor_the_pie_of_it(self):
         ext = self.make(V327, name="die-odd")
-        self.older(ext, PIE_ANCHORS=NO_PIE)
+        self.older(ext, **NO_WEB)
         os.link(os.path.join(ext, self.WEBJS), os.path.join(ext, self.BAK))
         os.unlink(os.path.join(ext, self.WEBJS))
         with open(os.path.join(ext, self.WEBJS), "w") as f:
@@ -1230,7 +1239,7 @@ class Pie(Case):
 
     def test_an_update_whose_writes_and_webview_rollback_all_fail_still_puts_both_files_back(self):
         ext = self.make(V327, name="rb")
-        self.older(ext, PIE_ANCHORS=NO_PIE)
+        self.older(ext, **NO_WEB)
         before = snap(ext)
         mod = load_module()
         real, puts = mod.put, []
@@ -1325,6 +1334,114 @@ class Pie(Case):
         self.assertUnchanged(ext, "--undo")
         self.assertEqual(self.rc, 1)
         self.assertIn("index.js.callboard-orig does not match the marker's recorded original", self.err)
+
+
+# Runs the patched stand-in of the footer under fakes and returns what the folder pill draws for some folders of the session.
+PILL_RUNNER = r"""
+const vm = require('vm'), fs = require('fs')
+const [file] = process.argv.slice(1)
+const m = (t, p) => ({ t, p }), k = (t, p) => ({ t, p })
+const ctx = vm.createContext({ m, k, BFt: 'BFt', fAe: 'M', Rr: 'M', $Ft: 'L' })
+vm.runInContext(fs.readFileSync(file, 'utf8') + ';globalThis.Foot = Foot', ctx)
+const pill = (cwd, stage = 0) => {
+  const c = ctx.Foot({ stage, cwd: { value: cwd }, drawnClaudeConfig: { value: { models: [] } } }).p.children
+  const p = c.find((x) => x && x.t === 'span')
+  return { n: c.length, pill: p ? { text: p.p.children, keys: Object.keys(p.p).sort() } : null, order: c.map((x) => x && (x.t === 'span' ? 'pill' : x.t)) }
+}
+console.log(JSON.stringify([pill('/Users/x/My Proj'), pill('/Users/x/proj/'), pill('C:\\Users\\x\\win'), pill('/Users/x/<b>&"x"'), pill('/'), pill(''), pill(undefined), pill('/Users/x/proj', 2)]))
+"""
+
+
+class Pill(Case):
+    """The folder pill: one optional piece, in webview/index.js with the pie, after the model pill of the composer's footer."""
+
+    WEBJS = os.path.join("webview", "index.js")
+    BAK = os.path.join("webview", "index.js.callboard-orig")
+
+    def marker(self, ext):
+        return json.loads(slurp(os.path.join(ext, "callboard-cwd-patch.json")))
+
+    def test_the_pill_goes_in_once_after_the_model_pill_and_undo_takes_it_out(self):
+        for names in (JS329, JS328):
+            web = dict(WEB, **{"index.js": PIE_JS.format(**names)})
+            ext = self.make(V327, name="pill" + names["mp"], web=web)
+            orig = slurp(os.path.join(ext, self.WEBJS))
+            self.run_script(ext, "--apply")
+            self.assertEqual((self.rc, self.out.count("warning")), (0, 0), self.out)
+            new = slurp(os.path.join(ext, self.WEBJS))
+            self.assertEqual((self.marker(ext)["pill"], slurp(os.path.join(ext, self.BAK))), (True, orig))
+            self.assertEqual((new.count(b'"span"'), new.count(b".cwd.value.split("), new.count(b"title:")), (1, 1, 0), "one pill, no path in the page")
+            self.assertEqual(new.index(b'"span"') > new.index(b"m(%s,{...Ft})" % names["mp"].encode()), True, "after the model pill")
+            self.assertEqual(new.index(b'"span"') < new.index(b"m($Ft,"), True, "before the model list")
+            self.run_script(ext)
+            self.assertEqual((self.rc, self.out), (0, "patched 2.1.328\n"))
+            self.run_script(ext, "--undo")
+            self.assertEqual((self.rc, slurp(os.path.join(ext, self.WEBJS)), sorted(os.listdir(ext))), (0, orig, STOCK))
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_the_pill_shows_the_folder_name_as_plain_text_and_hides_with_the_model_pill(self):
+        for names in (JS329, JS328):
+            web = dict(WEB, **{"index.js": PIE_JS.format(**names)})
+            ext = self.make(V327, name="run" + names["mp"], web=web)
+            self.run_script(ext, "--apply")
+            p = subprocess.run(["node", "-e", PILL_RUNNER, os.path.join(ext, self.WEBJS)], capture_output=True, text=True, timeout=60)
+            self.assertEqual(p.returncode, 0, p.stderr)
+            got = json.loads(p.stdout)
+            self.assertEqual([g["pill"] and g["pill"].get("text") for g in got], ["My Proj", "proj", "win", '<b>&"x"', "/", None, None, None], "the last part, a text child as it is; a root folder shows itself")
+            self.assertEqual([g["pill"] is None for g in got], [False] * 5 + [True] * 3, "no folder, no pill; the narrowest stage hides it")
+            self.assertEqual(got[0]["order"], ["BFt", "M", "pill", "L"], "between the model pill and its list")
+            self.assertEqual(got[0]["pill"]["keys"], ["children", "style"], "a text child and a style: no title, no path")
+            self.assertEqual(got[7]["order"], ["BFt", False, False, "L"], "the narrowest fit stage hides it with the model pill")
+
+    def test_the_pill_costs_only_itself_when_its_anchor_misses_or_doubles(self):
+        mod = load_module()
+        js = WEB["index.js"]
+        cases = {
+            "no model pill": js.replace("m(fAe,{...Ft})", "m(fAe,{})", 1),
+            "member stage": js.replace("_!==2&&m(fAe", "e.stage!==2&&m(fAe", 1),
+            "no model list": js.replace("availableModels:e.drawnClaudeConfig", "availableModels:e.config", 1),
+            "doubled": js + js[js.index("function Foot"):],
+        }
+        for label, bad in cases.items():
+            ext = self.make(V327, name="miss" + label.replace(" ", ""), web=dict(WEB, **{"index.js": bad}))
+            before = snap(ext)
+            self.run_script(ext)
+            self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "unpatched-patchable 2.1.328"), label)
+            self.assertIn("warning: the folder pill would be left out (pill anchor ", self.out, label)
+            self.assertEqual(snap(ext), before, label)
+            self.run_script(ext, "--apply")
+            self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "patched 2.1.328"), label)
+            self.assertIn("warning: the folder pill is not in (pill anchor ", self.out, label)
+            marker = self.marker(ext)
+            self.assertEqual((marker["pill"], marker["pie"], marker["width"], marker["restore"]), (False, True, True, True), label)
+            self.assertNotIn(b'"span"', slurp(os.path.join(ext, self.WEBJS)), label)
+            self.assertIn(b"cbpCap(", slurp(os.path.join(ext, self.WEBJS)), label)
+            self.run_script(ext)
+            self.assertIn("warning: the folder pill is not in this patch.", self.out, label)
+            self.run_script(ext, "--undo")
+            self.assertEqual((self.rc, sorted(os.listdir(ext))), (0, STOCK), label)
+        self.assertIn('[class*="usageButtonV2_"] svg{width:12px!important;height:12px!important}', mod.PIE_CSS)
+
+    def test_an_install_from_before_the_pill_reads_outdated_and_update_brings_it_in(self):
+        ext = self.make(V327, name="old")
+        orig_js = slurp(os.path.join(ext, self.WEBJS))
+        self.older(ext, PILL_ANCHOR=rb"no such code")
+        self.assertNotIn(b'"span"', slurp(os.path.join(ext, self.WEBJS)))
+        self.run_script(ext)
+        self.assertEqual((self.rc, self.out.splitlines()[0]), (1, "outdated 2.1.328: the folder pill is not in"))
+        self.run_script(ext, "--update")
+        self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "updated 2.1.328"))
+        self.assertEqual((self.marker(ext)["pill"], slurp(os.path.join(ext, self.BAK)), slurp(os.path.join(ext, self.WEBJS)).count(b'"span"')), (True, orig_js, 1))
+        self.run_script(ext)
+        self.assertEqual((self.rc, self.out), (0, "patched 2.1.328\n"))
+
+    def test_a_webview_without_the_pie_still_takes_the_pill(self):
+        ext = self.make(V327, name="nopie", web=dict(WEB, **{"index.js": WEB["index.js"][WEB["index.js"].index("function Foot"):]}))
+        self.run_script(ext, "--apply")
+        self.assertIn("the context pie is not in (", self.out)
+        self.assertEqual((self.marker(ext)["pie"], self.marker(ext)["pill"]), (False, True))
+        self.run_script(ext, "--undo")
+        self.assertEqual((self.rc, sorted(os.listdir(ext))), (0, STOCK))
 
 
 class Refusals(Case):

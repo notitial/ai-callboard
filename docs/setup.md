@@ -122,24 +122,29 @@ EXT_DIR="$(ls -d "$HOME"/.vscode/extensions/anthropic.claude-code-* | sort -V | 
   The ring is measured against the compaction point of your `autoCompactWindow` setting (`~/.claude/settings.json`, or
   `CLAUDE_CONFIG_DIR` of the VS Code process; project settings are not read; read each time a panel opens, so a reload picks up
   a changed value): full where Claude Code compacts. With no such setting it uses the model's window, as the stock pie does.
-  The ring is 16px, and its hover text is `used/limit` in k (`126k/200k`, the limit being where the ring is full); a click
-  still compacts. It is the one piece that also edits `webview/index.js`, in three places that must each match once (the check
+  The ring is 12px with 2px around it (the footer's own stylesheet sizes it to 26px, so the piece's style block sets the size too), and its hover text is `used/limit` in k (`126k/200k`, the limit being where the ring is full); a click
+  still compacts. It also edits `webview/index.js`, as the folder pill below does, in three places that must each match once (the check
   names the one that does not), and in two more for the hover text: when either of those does not match once, the hover text
   stays Claude Code's and the rest of the piece still goes in, without a warning. The shipped script is kept as
   `webview/index.js.callboard-orig`, and `--update` and `--undo` handle both files. After
   a Claude Code update the new folder starts unpatched; if the pie's code moved, the check and `--apply` warn that the pie is
   left out, and the other pieces still apply.
+- The folder pill (the marker's `pill` field) puts the name of the session's folder (its last part only, as plain text,
+  no path and no tooltip) in a small pill next to the model name in the composer, hidden at the narrowest width like the
+  model pill. It is on whenever its one anchor in `webview/index.js` matches exactly once; when it does not, the check and
+  `--apply` warn that the pill is left out and the other pieces still apply. An install made before it reads `outdated`,
+  and `--update` brings it in.
 - The patch also carries a restore fix, optional in the same way (the marker's `restore` field, a warning when an anchor is not
   found, one `--undo`): a Claude panel that VS Code restores at a window reload, or that Claude Code reopens (Reopen Closed
   Session), starts in the folder that holds its conversation instead of the window's first folder, so it resumes that
   conversation. The folder is found from the session's transcript (`projects/<folder>/<session id>.jsonl` under Claude's
   config folder, from the `CLAUDE_CONFIG_DIR` of the VS Code process, not from the `claudeCode.environmentVariables` setting), as no saved panel state names it. With no transcript yet, a one-folder window, a folder that is a
   sub-folder of a window folder or a very long path, the panel starts in the first folder as before.
-- The fifth piece is the group command, optional in the same way (the marker's `groups` field): it adds the command
+- The group command is another piece, optional in the same way (the marker's `groups` field): it adds the command
   `callboard assign group`, which the panels extension calls to file a lead's session in the Session Manager group Lead
   and a lane's in Lanes, from the plugin's session table (a group of that name in any letter case, such as LEAD, is the
   same one; a missing one is created). Each session is filed once, so one you move out of its group stays out.
-- The sixth piece is the session command, optional in the same way (the marker's `session` field): `callboard active session`
+- The session command is the last piece, optional in the same way (the marker's `session` field): `callboard active session`
   returns the session id of the Claude panel in front, so the folder badge below finds an unnamed session too.
 - An install that differs from what the current script builds shows `outdated` with a
   line saying what differs, or the old warning that a piece is not in. The check compares the installed file with what the current script

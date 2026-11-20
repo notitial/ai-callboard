@@ -25,7 +25,7 @@ Callboard is then back to one repo per window. This is the person's way out at a
    quotes; no flag: changes nothing). Tell the person, before anything else: the extension version, whether it is patched
    (the first word of the output: `patched`, `outdated`, `unpatched-patchable`, `anchors-missing` or `leftovers`), whether the marker
    `callboard-cwd-patch.json` is in that folder, and, when the output has a `warning:` line, which optional piece (the panel width, the wider composer;
-   the context pie, which also edits `webview/index.js`; the restore fix, which makes a restored panel resume in its folder; or the group command
+   the context pie and the folder pill, which also edit `webview/index.js`; the restore fix, which makes a restored panel resume in its folder; or the group command
    `callboard assign group`, which files lead and lane sessions in the Session Manager's groups; or the session command
    `callboard active session`, which lets the folder badge find the panel in front) is not in or would be left out while the folder patch still applies.
 3. **`patched`:** is up to date (an older build reads `outdated`, below): say so, with the warning if there is one, and stop. **`outdated`:** an older version of the script
@@ -33,8 +33,8 @@ Callboard is then back to one repo per window. This is the person's way out at a
    patch from the backup original and swaps `extension.js` and the marker; the backup is not touched; a failed write puts the
    previous patch back), say what it printed and that each VS Code window needs Developer: Reload Window. If `--update`
    refuses, nothing was changed: report its message and stop. **`unpatched-patchable`:** run the same command with `--apply`, say the version and what
-   was changed (`extension.js`, backup `extension.js.callboard-orig`, marker `callboard-cwd-patch.json`, and, when the pie went in, `webview/index.js` with its backup `webview/index.js.callboard-orig`, all in that
-   folder), whether the width block, the context pie and the restore fix went in (a `warning:` line says which did not), and that each VS Code window needs Developer: Reload Window.
+   was changed (`extension.js`, backup `extension.js.callboard-orig`, marker `callboard-cwd-patch.json`, and, when the pie or the pill went in, `webview/index.js` with its backup `webview/index.js.callboard-orig`, all in that
+   folder), whether the width block, the context pie, the folder pill and the restore fix went in (a `warning:` line says which did not), and that each VS Code window needs Developer: Reload Window.
 4. **The check or the apply refuses** (`anchors-missing`: an update moved the minified code; nothing was changed): ask once
    with AskUserQuestion whether you may diagnose it and repair the script. Recommend yes. A yes means: read the new
    `extension.js` read-only, change the script's patterns and its test in a /tmp clone, test on a copy of the extension
