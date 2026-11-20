@@ -139,18 +139,25 @@ export async function writeConfig($: any, c: Config): Promise<boolean> {
 
 // ---- the conductor's repos: kept per conductor folder, written only by his typed command ----
 const CONDUCTOR_REPOS_MAX = 32
-const conductorFile = (t: string | undefined): Record<string, unknown> => {
-  const j = t === undefined ? undefined : safeJson(t)
-  return typeof j === 'object' && j !== null && !Array.isArray(j) ? (j as Record<string, unknown>) : {}
+const conductorFile = (t: string): Record<string, unknown> | undefined => {
+  const j = safeJson(t)
+  return typeof j === 'object' && j !== null && !Array.isArray(j) ? (j as Record<string, unknown>) : undefined
 }
 export async function conductorRepos($: any, folder: string): Promise<string[]> {
   const p = await path($, 'conductors.json')
-  const l = conductorFile(p === undefined ? undefined : await readText($, p, 65_536))[folder]
+  const t = p === undefined ? undefined : await readText($, p, 65_536)
+  const l = t === undefined ? undefined : conductorFile(t)?.[folder]
   return Array.isArray(l) ? l.filter((x): x is string => typeof x === 'string' && x.startsWith('/')).slice(0, CONDUCTOR_REPOS_MAX) : []
 }
+// Read again inside the lock; a file that is there and cannot be read whole is never overwritten (as for the session table).
 export async function saveConductorRepos($: any, folder: string, repos: string[]): Promise<boolean> {
   const p = await path($, 'conductors.json')
-  return p !== undefined && (await locked($, 'conductors', async () => writeFile($, p, JSON.stringify({ ...conductorFile(await readText($, p, 65_536)), [folder]: repos.slice(0, CONDUCTOR_REPOS_MAX) })))) === true
+  const saved = p === undefined ? undefined : await locked($, 'conductors', async () => {
+    const t = (await $.fs.exists(p).catch(() => true)) ? await readText($, p, 65_536) : '{}'
+    const cur = t === undefined ? undefined : conductorFile(t)
+    return cur !== undefined && (await writeFile($, p, JSON.stringify({ ...cur, [folder]: repos.slice(0, CONDUCTOR_REPOS_MAX) })))
+  })
+  return saved === true
 }
 
 // ---- goes and the window: written only by his typed command (and, in the ask steps, his click) ----

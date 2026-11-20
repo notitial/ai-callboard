@@ -85,6 +85,10 @@ test('the saved list: one file for every folder, written under its own lock, a b
   assert.ok((await conductorRepos(f.$, '/w/me')).every((p) => p.startsWith('/')))
   f.h.files.set(`${V2}/conductors.json`, '{"broken": ')
   assert.deepEqual(await conductorRepos(f.$, '/w/me'), [])
+  // A file that is there and cannot be read whole is never overwritten: the other folders' lists are not lost.
+  assert.equal(await saveConductorRepos(f.$, '/w/me', ['/w/repo']), false)
+  assert.equal(f.file('conductors.json'), '{"broken": ')
+  assert.equal(f.h.dirs.has(`${V2}/conductors.lock`), false)
   f.h.files.set(`${V2}/conductors.json`, '[1,2]')
   assert.deepEqual(await conductorRepos(f.$, '/w/me'), [])
 })

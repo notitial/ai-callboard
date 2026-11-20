@@ -78,5 +78,7 @@ for answers, and that it cannot make leads.
 - A lead opened by a conductor needs a window that answers for its folder: one multi-folder window listing each repo
   folder exactly, with the Claude patch of [docs/setup.md](../setup.md). A window on a second Claude account works when
   it shares the same `~/.claude`; callboard reads only that folder. Both are checked live by the person once.
+- The lanes of a minted lead whose row is removed have no lead above them and fall to the manager, as any lane does.
+  A conductor retires a lead's lanes first when it wants them gone.
 - Nothing here lets a session grant the conductor role. A request to become one is refused unless it comes from the
   person's own typed turn.

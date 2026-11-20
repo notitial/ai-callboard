@@ -75,6 +75,14 @@ test('lane_create role lead: only a conductor, only inside its saved repos (not 
   assert.equal(mayCreate(v, ML, 'new-lead', '/Users/x/repo', 'lead'), 'not-conductor')
   assert.equal(mayCreate(v, LOOSE, 'new-lead', '/Users/x/repo', 'lead'), 'not-lead')
   assert.equal(mayCreate(v, M, 'new-lead', '/Users/x/repo', 'lead'), 'not-lead')
+  // A saved repo that contains the conductor's own folder does not open that folder to a lead.
+  const wide = liveView(rows, { ...table, [C]: { ...table[C]!, lead: { repos: ['/Users/x'], conductor: true } } }, MANAGER)
+  assert.equal(mayCreate(wide, C, 'new-lead', '/Users/x/cond', 'lead'), 'folder-outside')
+  assert.equal(mayCreate(wide, C, 'new-lead', '/Users/x/repo', 'lead'), undefined)
+  // A row that claims both flags is a minted lead, not a conductor.
+  const both = liveView(rows, { ...table, [C]: { ...table[C]!, lead: { repos: ['/Users/x/repo'], conductor: true, minted: true } } }, MANAGER)
+  assert.equal(isConductor(both, C), false)
+  assert.equal(mayCreate(both, C, 'new-lead', '/Users/x/repo', 'lead'), 'not-conductor')
   // A conductor is a lead for lanes too: its own folder and the repos are its allowlist.
   assert.equal(mayCreate(v, C, 'new-lane', '/Users/x/cond'), undefined)
   assert.equal(mayCreate(v, C, 'new-lane', '/Users/x/repo/sub'), undefined)

@@ -179,7 +179,7 @@ export const isOff = (v: View, s: Sid): boolean => v.table[s]?.off === true
 export const isLead = (v: View, s: Sid): boolean => v.table[s]?.lead !== undefined && !isOff(v, s)
 export const capability = (v: View, s: Sid): Capability => (v.manager === s ? 'manager' : isLead(v, s) ? 'lead' : 'none')
 // A conductor is a lead his typed command flagged; a minted lead is one a conductor made. A row holds one of the two: a typed `lead` or `conductor` rewrites the flags.
-export const isConductor = (v: View, s: Sid): boolean => isLead(v, s) && v.table[s]!.lead!.conductor === true
+export const isConductor = (v: View, s: Sid): boolean => isLead(v, s) && v.table[s]!.lead!.conductor === true && v.table[s]!.lead!.minted !== true
 export const isMinted = (v: View, s: Sid): boolean => v.table[s]?.lead?.minted === true
 // The name a session was given (by /rename or a cue): its name source is `user`, or the registry gives none. Any other source (`auto` and `derived` are the ones seen) is the name
 // Claude generated for a new panel, and a row's name wins over it.
@@ -238,12 +238,13 @@ const allowlist = (v: View, s: Sid): Folder[] | undefined => (isLead(v, s) ? [v.
 const plain = (f: Folder): boolean => f.startsWith('/') && f.split('/').slice(1).every((s) => s !== '' && s !== '.' && s !== '..')
 export const inside = (folder: Folder, repos: readonly Folder[]): boolean => plain(folder) && repos.some((r) => plain(r) && (folder === r || folder.startsWith(`${r}/`)))
 
-// A conductor may also make a lead, but only inside its saved repos (not its own folder); any other lead is refused it.
+// A conductor may also make a lead, but only inside its saved repos and never in its own folder; any other lead is refused it.
 export function mayCreate(v: View, actor: Sid, name: string, folder: Folder, role: 'lane' | 'lead' = 'lane'): RefuseCode | undefined {
   const repos = allowlist(v, actor)
   if (repos === undefined) return 'not-lead'
   if (role === 'lead' && !isConductor(v, actor)) return 'not-conductor'
-  return inside(folder, role === 'lead' ? v.table[actor]!.lead!.repos : repos) ? (nameRefusal(v, name) ?? capRefusal(v, actor)) : 'folder-outside'
+  const ok = role === 'lead' ? folder !== v.table[actor]!.folder && inside(folder, v.table[actor]!.lead!.repos) : inside(folder, repos)
+  return ok ? (nameRefusal(v, name) ?? capRefusal(v, actor)) : 'folder-outside'
 }
 // Adopt by name: exactly one live session of that name, loose now (its parent is the manager or the person), not a lead, the manager or off, in the allowlist.
 export function mayAdopt(v: View, actor: Sid, name: string): { ok: Sid } | { no: RefuseCode } {
