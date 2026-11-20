@@ -2,7 +2,7 @@
 // Trust rules held here: one tick runs at a time and a step that throws is logged and does not stop the others; at most one text is submitted per tick; a notice is recomputed
 // from the sessions under this one now each time it is sent, a key is spent only when the turn carrying it starts, and nothing is sent unless the session is quiet.
 import type { Notice, Sid, ToolName, View } from '../core/model.ts'
-import { PERSON, TOOLS, capability, children, descendants, isOff, nameOf, parent } from '../core/model.ts'
+import { PERSON, TOOLS, capability, children, descendants, isConductor, isOff, nameOf, parent } from '../core/model.ts'
 import { tidy } from '../core/lifecycle.ts'
 import { sweep } from '../core/asks.ts'
 import { digest, notices } from '../core/notices.ts'
@@ -133,12 +133,12 @@ async function tableTick($: any, v: View, now: number): Promise<void> {
   const next = (t: typeof v.table) => tidy(t, v, (k) => mem.noSince.get(k), now)
   if (JSON.stringify(next(v.table)) !== JSON.stringify(v.table)) await updateTable($, next)
 }
-// Every 30 s: the sessions, this one and its children (the manager: everything under it, for its digest), whose report is signed.
+// Every 30 s: the sessions, this one and its children (the manager and a conductor: everything under it), whose report is signed.
 async function signedTick($: any, v: View, me: Sid, now: number): Promise<void> {
   if (now - mem.signed.at < 30_000) return
   mem.signed.at = now
   const set = new Set<Sid>()
-  await Promise.all([me, ...(capability(v, me) === 'none' ? [] : capability(v, me) === 'manager' ? descendants(v, me) : children(v, me))].map(async (k) => ((await signedNow($, k, v.table[k])) ? set.add(k) : undefined)))
+  await Promise.all([me, ...(capability(v, me) === 'none' ? [] : capability(v, me) === 'manager' || isConductor(v, me) ? descendants(v, me) : children(v, me))].map(async (k) => ((await signedNow($, k, v.table[k])) ? set.add(k) : undefined)))
   mem.signed = { at: now, set }
 }
 

@@ -122,24 +122,29 @@ EXT_DIR="$(ls -d "$HOME"/.vscode/extensions/anthropic.claude-code-* | sort -V | 
   The ring is measured against the compaction point of your `autoCompactWindow` setting (`~/.claude/settings.json`, or
   `CLAUDE_CONFIG_DIR` of the VS Code process; project settings are not read; read each time a panel opens, so a reload picks up
   a changed value): full where Claude Code compacts. With no such setting it uses the model's window, as the stock pie does.
-  The ring is 16px, and its hover text is `used/limit` in k (`126k/200k`, the limit being where the ring is full); a click
-  still compacts. It is the one piece that also edits `webview/index.js`, in three places that must each match once (the check
+  The ring is 12px with 2px around it (the footer's own stylesheet sizes it to 26px, so the piece's style block sets the size too), and its hover text is `used/limit` in k (`126k/200k`, the limit being where the ring is full); a click
+  still compacts. It also edits `webview/index.js`, as the folder pill below does, in three places that must each match once (the check
   names the one that does not), and in two more for the hover text: when either of those does not match once, the hover text
   stays Claude Code's and the rest of the piece still goes in, without a warning. The shipped script is kept as
   `webview/index.js.callboard-orig`, and `--update` and `--undo` handle both files. After
   a Claude Code update the new folder starts unpatched; if the pie's code moved, the check and `--apply` warn that the pie is
   left out, and the other pieces still apply.
+- The folder pill (the marker's `pill` field) puts the name of the session's folder (its last part only, as plain text,
+  no path and no tooltip) in a small pill next to the model name in the composer, hidden at the narrowest width like the
+  model pill. It is on whenever its one anchor in `webview/index.js` matches exactly once; when it does not, the check and
+  `--apply` warn that the pill is left out and the other pieces still apply. An install made before it reads `outdated`,
+  and `--update` brings it in.
 - The patch also carries a restore fix, optional in the same way (the marker's `restore` field, a warning when an anchor is not
   found, one `--undo`): a Claude panel that VS Code restores at a window reload, or that Claude Code reopens (Reopen Closed
   Session), starts in the folder that holds its conversation instead of the window's first folder, so it resumes that
   conversation. The folder is found from the session's transcript (`projects/<folder>/<session id>.jsonl` under Claude's
   config folder, from the `CLAUDE_CONFIG_DIR` of the VS Code process, not from the `claudeCode.environmentVariables` setting), as no saved panel state names it. With no transcript yet, a one-folder window, a folder that is a
   sub-folder of a window folder or a very long path, the panel starts in the first folder as before.
-- The fifth piece is the group command, optional in the same way (the marker's `groups` field): it adds the command
+- The group command is another piece, optional in the same way (the marker's `groups` field): it adds the command
   `callboard assign group`, which the panels extension calls to file a lead's session in the Session Manager group Lead
   and a lane's in Lanes, from the plugin's session table (a group of that name in any letter case, such as LEAD, is the
   same one; a missing one is created). Each session is filed once, so one you move out of its group stays out.
-- The sixth piece is the session command, optional in the same way (the marker's `session` field): `callboard active session`
+- The session command is the last piece, optional in the same way (the marker's `session` field): `callboard active session`
   returns the session id of the Claude panel in front, so the folder badge below finds an unnamed session too.
 - An install that differs from what the current script builds shows `outdated` with a
   line saying what differs, or the old warning that a piece is not in. The check compares the installed file with what the current script
@@ -210,7 +215,8 @@ The first test below is the install check: it shows that your own typing changes
 ### Switch to the plugin
 
 The plugin (`<checkout>/tools/callboard/plugin`, [ADR 0012](adr/0012-callboard-plugin.md)) is the only callboard build: one
-session model, one chain of asks, no conductor tier, no per-tier switches. A Mac whose `CLAUDE_CODE_PLUGIN_DIRS` still
+session model, one chain of asks, no tiers above the leads (a conductor is a lead with one more power,
+[ADR 0013](adr/0013-conductor.md)), no per-tier switches. A Mac whose `CLAUDE_CODE_PLUGIN_DIRS` still
 names the earlier build, `<checkout>/tools/callboard/mod`, which no longer exists, switches once by changing that one
 entry to `<checkout>/tools/callboard/plugin`. A fresh Mac uses the line above and skips the switch command. Both builds
 were named `callboard`, so never list two callboard folders: the second one in the list does not load. Every command
@@ -351,6 +357,32 @@ Create a lane named TESTLANE in this folder with the brief "Write hello as the f
 ```
 
 If the lane view is installed (see above), step 6 shows the lane in Callboard Lanes with its lead and its state.
+
+### Optional: a conductor across repos
+
+A conductor is one session that opens, starts and closes a lead in each of several repos, so you talk to one session
+instead of one per repo ([ADR 0013](adr/0013-conductor.md)). In the conductor's session type the first line once, with
+the real path of each repo; callboard saves the list for that session's folder, so any later conductor session in that
+folder types the second line alone. Only the repos listed are open to it, and only your typed turn changes the list.
+
+```
+/callboard conductor /Users/x/code/repo-a /Users/x/code/repo-b
+```
+
+```
+/callboard conductor
+```
+
+Each lead it makes needs a window that answers for its folder: open the conductor's windows as one multi-folder
+VS Code window that lists each repo folder exactly as the real path, with the patch described under "one multi-folder
+window" above applied.
+A window on a second Claude account works the same when it shares `~/.claude` (the same macOS login); callboard
+reads only that folder. Check live, once: the second window's session shows in `/callboard lanes` of the conductor
+after it opens, and a lead it makes there opens in its repo's folder within 30 seconds (else `lane_open` says the
+window did not answer).
+
+To end it, tell the conductor "wrap up": it closes every lead and lane under it. `/callboard lead off` takes the
+role away, and the saved list stays for the next time.
 
 ### Manager setup: keep agents off the store (by hand)
 

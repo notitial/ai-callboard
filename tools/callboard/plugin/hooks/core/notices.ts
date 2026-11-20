@@ -2,7 +2,7 @@
 // note goes. Pure. Trust rules held here: events follow current relationships, never a stored recipient; a gone row routes nothing but its own `gone` or `done`; the manager
 // is told only of asks and expired asks; a session with neither capability is told nothing.
 import type { AskLogRow, Go, Notice, Receives, Sid, View } from './model.ts'
-import { PERSON, capability, children, descendants, isOff, liveness, parent } from './model.ts'
+import { PERSON, capability, children, descendants, isConductor, isOff, liveness, parent } from './model.ts'
 import { NEW_KEY } from './lifecycle.ts'
 
 export const RECEIVES: Receives = {
@@ -32,6 +32,8 @@ export function notices(x: NoticeIn): Notice[] {
   if (cap === 'none') return []
   const r = RECEIVES[cap]
   const scope = new Set(r.from === 'children' ? children(x.v, x.me) : descendants(x.v, x.me))
+  // A conductor is told of every kind from its children, and of asks and expired asks from everything under it (its leads' lanes too).
+  const wide = isConductor(x.v, x.me) ? new Set(descendants(x.v, x.me)) : scope
   const all: Notice[] = []
   for (const a of x.asks) all.push({ kind: 'ask', key: `ask:${a.id}`, about: a.asker, ask: a.id })
   for (const l of x.log) if (l.ev === 'expired') all.push({ kind: 'expired', key: `expired:${l.ask}`, about: l.asker, ask: l.ask })
@@ -47,7 +49,7 @@ export function notices(x: NoticeIn): Notice[] {
     const waiting = reg.status === 'waiting' && !!reg.waitingFor && !x.asking.has(s)
     if ((quiet || waiting) && x.now - reg.statusAt >= (quiet ? QUIET_MS : WAITING_MS)) all.push({ kind: quiet ? 'quiet' : 'waiting', key: `${quiet ? 'quiet' : 'waiting'}:${s}:${reg.statusAt}`, about: s })
   }
-  return all.filter((n) => r.kinds.includes(n.kind) && scope.has(n.about) && (n.kind === 'gone' || n.kind === 'done' || x.v.table[n.about]?.goneAt === undefined))
+  return all.filter((n) => r.kinds.includes(n.kind) && (n.kind === 'ask' || n.kind === 'expired' ? wide : scope).has(n.about) && (n.kind === 'gone' || n.kind === 'done' || x.v.table[n.about]?.goneAt === undefined))
 }
 
 // What the manager is also told on a check-in, "since your last turn": asks that ended in the asker's own panel (the ask log's `closed` by `click`: a click, or an interruption), counted per

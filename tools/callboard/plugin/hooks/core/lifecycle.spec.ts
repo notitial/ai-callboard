@@ -109,13 +109,13 @@ test('the table\'s upkeep: gone after two reads 30 s apart, back clears it; a pl
   assert.equal(tidy(t, liveView('unknown', t, MANAGER), () => 0, NOW), t)
 })
 
-test('the upkeep in every world: an unknown read changes nothing; a lead row, an off row and a row a live session carries are never dropped', () => {
+test('the upkeep in every world: an unknown read changes nothing; a typed lead row, an off row and a row a live session carries are never dropped', () => {
   forAll(300, (r, w) => {
     const now = NOW + Math.floor(r() * 40 * 86_400_000)
     const out = tidy(w.table, w.v, () => (r() < 0.5 ? undefined : now - 60_000), now)
     if (w.v.rows === 'unknown') return assert.equal(out, w.table)
     for (const [k, row] of Object.entries(w.table)) {
-      if (row.lead !== undefined || row.off || w.v.rows.has(k)) assert.ok(out[k], `${k} dropped`)
+      if ((row.lead !== undefined && !row.lead.minted) || row.off || w.v.rows.has(k)) assert.ok(out[k], `${k} dropped`)
       if (w.v.rows.has(k)) assert.equal(out[k].goneAt, undefined)
     }
   })

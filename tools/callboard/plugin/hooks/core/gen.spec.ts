@@ -1,5 +1,5 @@
 // The generator the core's property tests share: random machines of every session shape (no row; a row under a live lead, a gone lead, a session that is no lead,
-// an off lead; a lead; the manager by name, two sessions with its name; off; parked; gone; unnamed; a row never opened; two registry rows for one id; an unreadable
+// an off lead; a lead; a conductor; a minted lead under a conductor, a gone one or a session that is none; the manager by name, two sessions with its name; off; parked; gone; unnamed; a row never opened; two registry rows for one id; an unreadable
 // registry or manager-name file), each session idle, busy, compacting or in a dialog. Seeded, so a failure names its seed.
 import type { ManagerName, RegistryRow, Row, Sid, Table, View, WindowReading } from './model.ts'
 import { liveView } from './model.ts'
@@ -40,12 +40,13 @@ export function world(r: () => number): World {
     if (r() < 0.6) {
       const t: Row = { name: name ?? 'unnamed', folder: row.folder }
       const shape = r()
-      if (shape < 0.25) t.lead = { repos: r() < 0.5 ? [] : ['/Users/x/other'] }
+      if (shape < 0.25) t.lead = { repos: r() < 0.5 ? [] : ['/Users/x/other'], ...(r() < 0.3 ? { conductor: true as const } : {}) }
       else if (shape < 0.75) t.under = pick(r, [...sids, ghost])
+      else if (shape < 0.85) (t.lead = { repos: [], minted: true as const }), (t.under = pick(r, [...sids, ghost]))
       if (r() < 0.12) t.off = true
       if (r() < 0.12) t.parked = NOW - Math.floor(r() * 40 * 86_400_000)
       if (r() < 0.15) t.goneAt = NOW - Math.floor(r() * 3 * 86_400_000)
-      if (r() < 0.1 && t.lead) t.under = pick(r, sids) // a lead's under is never read
+      if (r() < 0.1 && t.lead && !t.lead.minted) t.under = pick(r, sids) // a typed lead's under is never read
       table[sid] = t
     }
   }

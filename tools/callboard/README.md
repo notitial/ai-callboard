@@ -13,7 +13,7 @@ exact texts are in the code, and `/callboard help` lists every command. Nothing 
 | `plugin/` | The Claude Code plugin. A pure core in `plugin/hooks/core/` (no I/O, no text), adapters in `plugin/hooks/engine/` that feed it and act on what it returns, the texts table `plugin/hooks/texts.ts` and the one UI module `plugin/hooks/ui.ts` |
 | `extension/` | The VS Code extension that opens, reopens and closes lane panels. It has no commands of its own. What it does: [`extension/README.md`](extension/README.md) |
 | `link-extension.py` | Links that extension into VS Code from this checkout, once per machine (Install) |
-| `patch-claude.py` | Optional: patches the installed Claude Code extension so a lane of any folder of a multi-folder window opens there, widens the composer, shows the composer's context pie always against your autocompact level, makes a restored or reopened panel resume in its conversation's folder, adds a command (`callboard active session`) that names the panel in front, and adds a command that files lead and lane sessions in the sidebar's Lead and Lanes groups (docs/setup.md; `/patch-vs-claude`). Header comment: usage and exit codes |
+| `patch-claude.py` | Optional: patches the installed Claude Code extension so a lane of any folder of a multi-folder window opens there, widens the composer, shows the composer's context pie always against your autocompact level, puts the session's folder name next to the model name, makes a restored or reopened panel resume in its conversation's folder, adds a command (`callboard active session`) that names the panel in front, and adds a command that files lead and lane sessions in the sidebar's Lead and Lanes groups (docs/setup.md; `/patch-vs-claude`). Header comment: usage and exit codes |
 | `test.sh` | The test entry point (Tests) |
 
 ## The sessions
@@ -28,6 +28,11 @@ parent and a capability: none, lead or manager.
 - **Lead.** `/callboard lead [PATH…]`, typed by you in the session that coordinates a repo's lanes. It may create and
   adopt lanes in its own folder and the folders you list, and holds the tools that open, prompt, park, retire and list
   its lanes and answer their asks. A lead can also request a go (below).
+- **Conductor.** `/callboard conductor [PATH…]`, typed by you: a lead that also makes, starts and closes leads, one per
+  repo, in the repos you list (`lane_create` with role `lead`). Type the paths once: callboard saves the list for that
+  folder (`v2/conductors.json`), and a later `/callboard conductor` there needs none. A lead it makes acts only in its own
+  folder, cannot make leads, and asks the conductor for a go. The conductor and everything under it count 8 live
+  children per parent, leads and lanes together. [ADR 0013](../../docs/adr/0013-conductor.md).
 - **Lead preset.** A folder may hold `.claude/callboard-lead.json`, `{ "command", "name", "model", "effort" }`, for
   example `{ "command": "sentinel", "name": "SENTINEL", "model": "sonnet", "effort": "high" }`. A session started
   there lists `/<command>`. Typed by you, it does what `/callboard lead` does under that name (the name must be free,
@@ -39,7 +44,8 @@ parent and a capability: none, lead or manager.
 - **Manager.** The one session that carries the name in `~/.claude/callboard/manager-name`, found by its registry name
   while it is live. It reaches every session on the Mac. Its role is in `docs/manager/README.md`.
 
-The parent is computed, never stored: the session's lead if that is live, else the manager if live, else you.
+The parent is computed, never stored: the session's lead if that is live (for a lead a conductor made, its conductor),
+else the manager if live, else you.
 
 Three kinds of stop, from least to most final: `lane_park` closes the tab and keeps the conversation (`lane_unpark`
 reopens it with its history); `lane_retire` ends a signed-done session and removes the lane (final); `lane_terminate`
@@ -81,7 +87,7 @@ that signed done, is gone, has waited on a prompt for 5 minutes or has been idle
 `/callboard help` prints the full table and is the authority.
 
 - **Look:** `status`, `lanes`, `help`.
-- **Roles and switches:** `lead [PATH…]`, `lead off`, `off`, `on`.
+- **Roles and switches:** `lead [PATH…]`, `conductor [PATH…]`, `lead off`, `off`, `on`.
 - **Settings:** `config [keepalive on|off | ping 30-55 | stop 1-8 | idle 150-800 | working 150-900 | reset]`,
   `rest` (or `/rest`), `go TEXT`, `go off [ID]`, `unattended Nm|Nh|HH:MM|off`.
 
@@ -193,7 +199,7 @@ Under `~/.claude/callboard/` (nothing in a repo is trusted):
 | Path | Holds |
 |---|---|
 | `manager-name`, `manager-rules.md` | The two per-machine files you write: the manager's session name, and your standing rules for the manager (`docs/setup.md`) |
-| `v2/` | The plugin's state: its session table (`v2/sessions.json`), and the requests for the panels extension (`v2/open/`) |
+| `v2/` | The plugin's state: its session table (`v2/sessions.json`), the repos saved for each conductor folder (`v2/conductors.json`), and the requests for the panels extension (`v2/open/`) |
 | `OFF` | When this file exists, no tier's answers count; remove it to allow them again |
 
 The plugin's settings are in `~/.claude/plugins/store/callboard_*.json`. Lane briefs and reports stay in the repo
