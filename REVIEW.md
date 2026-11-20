@@ -1,6 +1,6 @@
 # REVIEW.md
 
-The owner's brief for the automatic PR review (`.claude/commands/claude-pr-review.md`). It narrows and directs the
+The owner's brief for the automatic PR review (the kit's review command). It narrows and directs the
 review; it does not replace CLAUDE.md, the finding format or the trigger rule.
 
 ## What this repo is
