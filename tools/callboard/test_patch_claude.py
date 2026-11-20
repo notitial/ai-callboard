@@ -128,7 +128,7 @@ PIE_JS = (
     'onClick:t,onMouseEnter:()=>o(!0),onMouseLeave:()=>o(!1),children:m({sv},{{percentage:e,className:TAe.pie}})}}),i&&m(VA,{{text:`${{Math.round(r)}}% of context remaining until auto-compact.`,hint:"Click to compact now."}})]}})}}'
     'function Bar(e){{return k("div",{{children:[m("button",{{}}),m({pc},{{usedTokens:e.usageData.value.totalTokens,'
     'contextWindow:{tf}(e.usageData.value.contextWindow,e.usageData.value.maxOutputTokens),onCompact:a,buttonClassName:ia.usageButtonV2}}),m(BFt,{{session:e}})]}})}}'
-    'function Foot(e){{let Ft={{}},p={{isOpen:!1,onClose:0}},f=0,{st}=e.stage;return k("div",{{children:[m(BFt,{{session:e}}),{st}!==2&&m({mp},{{...Ft}}),'
+    'function Foot(e){{let Ft={{}},p={{isOpen:!1,onClose:0}},f=e.cwd.value,{st}=e.stage;return k("div",{{children:[m(BFt,{{session:e}}),{st}!==2&&m({mp},{{...Ft}}),'
     'm($Ft,{{isOpen:p.isOpen,onClose:p.onClose,availableModels:e.drawnClaudeConfig.value?.models,anchor:f}})]}})}}'
 )
 JS329 = dict(sv="tBt", pc="nBt", tf="NFt", fb="FBn", st="_", mp="fAe")
@@ -1344,12 +1344,13 @@ const [file] = process.argv.slice(1)
 const m = (t, p) => ({ t, p }), k = (t, p) => ({ t, p })
 const ctx = vm.createContext({ m, k, BFt: 'BFt', fAe: 'M', Rr: 'M', $Ft: 'L' })
 vm.runInContext(fs.readFileSync(file, 'utf8') + ';globalThis.Foot = Foot', ctx)
+const nocwd = () => ctx.Foot({ stage: 0, cwd: { value: 5 }, drawnClaudeConfig: { value: { models: [] } } }).p.children.some((x) => x && x.t === 'span')
 const pill = (cwd, stage = 0) => {
   const c = ctx.Foot({ stage, cwd: { value: cwd }, drawnClaudeConfig: { value: { models: [] } } }).p.children
   const p = c.find((x) => x && x.t === 'span')
   return { n: c.length, pill: p ? { text: p.p.children, keys: Object.keys(p.p).sort() } : null, order: c.map((x) => x && (x.t === 'span' ? 'pill' : x.t)) }
 }
-console.log(JSON.stringify([pill('/Users/x/My Proj'), pill('/Users/x/proj/'), pill('C:\\Users\\x\\win'), pill('/Users/x/<b>&"x"'), pill('/'), pill(''), pill(undefined), pill('/Users/x/proj', 2)]))
+console.log(JSON.stringify([pill('/Users/x/My Proj'), pill('/Users/x/proj/'), pill('C:\\Users\\x\\win'), pill('/Users/x/<b>&"x"'), pill('/'), pill(''), pill(undefined), pill('/Users/x/proj', 2)].concat([nocwd()])))
 """
 
 
@@ -1388,6 +1389,7 @@ class Pill(Case):
             p = subprocess.run(["node", "-e", PILL_RUNNER, os.path.join(ext, self.WEBJS)], capture_output=True, text=True, timeout=60)
             self.assertEqual(p.returncode, 0, p.stderr)
             got = json.loads(p.stdout)
+            self.assertIs(got.pop(), False, "a cwd that is not a string draws no pill and does not throw")
             self.assertEqual([g["pill"] and g["pill"].get("text") for g in got], ["My Proj", "proj", "win", '<b>&"x"', "/", None, None, None], "the last part, a text child as it is; a root folder shows itself")
             self.assertEqual([g["pill"] is None for g in got], [False] * 5 + [True] * 3, "no folder, no pill; the narrowest stage hides it")
             self.assertEqual(got[0]["order"], ["BFt", "M", "pill", "L"], "between the model pill and its list")
@@ -1402,17 +1404,18 @@ class Pill(Case):
             "member stage": js.replace("_!==2&&m(fAe", "e.stage!==2&&m(fAe", 1),
             "no model list": js.replace("availableModels:e.drawnClaudeConfig", "availableModels:e.config", 1),
             "doubled": js + js[js.index("function Foot"):],
+            "no cwd read": js.replace(".cwd.value", ".cwdx.value"),
         }
         for label, bad in cases.items():
             ext = self.make(V327, name="miss" + label.replace(" ", ""), web=dict(WEB, **{"index.js": bad}))
             before = snap(ext)
             self.run_script(ext)
             self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "unpatched-patchable 2.1.328"), label)
-            self.assertIn("warning: the folder pill would be left out (pill anchor ", self.out, label)
+            self.assertIn("warning: the folder pill would be left out (" + ("no cwd read" if label == "no cwd read" else "pill anchor "), self.out, label)
             self.assertEqual(snap(ext), before, label)
             self.run_script(ext, "--apply")
             self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "patched 2.1.328"), label)
-            self.assertIn("warning: the folder pill is not in (pill anchor ", self.out, label)
+            self.assertIn("warning: the folder pill is not in (" + ("no cwd read" if label == "no cwd read" else "pill anchor "), self.out, label)
             marker = self.marker(ext)
             self.assertEqual((marker["pill"], marker["pie"], marker["width"], marker["restore"]), (False, True, True, True), label)
             self.assertNotIn(b'"span"', slurp(os.path.join(ext, self.WEBJS)), label)

@@ -193,13 +193,15 @@ PILL_STYLE = (
 
 
 def pill_problem(_raw, web):
-    """Why the pill cannot go in (None when it can): its anchor does not match exactly once in the shipped index.js."""
+    """Why the pill cannot go in (None when it can): its anchor does not match exactly once in the shipped index.js, or the shipped script never reads a session's cwd value."""
     n = len(re.findall(PILL_ANCHOR, web[1]))
-    return None if n == 1 else "pill anchor (%s)" % ("no match" if n == 0 else "%d matches" % n)
+    if n != 1:
+        return "pill anchor (%s)" % ("no match" if n == 0 else "%d matches" % n)
+    return None if b".cwd.value" in web[1] else "no cwd read"
 
 
 def pill_web(js):
-    return re.sub(PILL_ANCHOR, lambda m: m.group(0) + m.group("st") + b"!==2&&" + m.group("s") + b".cwd.value&&" + m.group("jsx") + b'("span",{style:' + PILL_STYLE
+    return re.sub(PILL_ANCHOR, lambda m: m.group(0) + m.group("st") + b"!==2&&typeof " + m.group("s") + b'.cwd?.value=="string"&&' + m.group("s") + b".cwd.value&&" + m.group("jsx") + b'("span",{style:' + PILL_STYLE
                   + b",children:" + m.group("s") + rb".cwd.value.split(/[\\/]/).filter(Boolean).pop()||" + m.group("s") + b".cwd.value}),", js)
 
 
