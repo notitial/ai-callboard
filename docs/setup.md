@@ -215,7 +215,8 @@ The first test below is the install check: it shows that your own typing changes
 ### Switch to the plugin
 
 The plugin (`<checkout>/tools/callboard/plugin`, [ADR 0012](adr/0012-callboard-plugin.md)) is the only callboard build: one
-session model, one chain of asks, no conductor tier, no per-tier switches. A Mac whose `CLAUDE_CODE_PLUGIN_DIRS` still
+session model, one chain of asks, no tiers above the leads (a conductor is a lead with one more power,
+[ADR 0013](adr/0013-conductor.md)), no per-tier switches. A Mac whose `CLAUDE_CODE_PLUGIN_DIRS` still
 names the earlier build, `<checkout>/tools/callboard/mod`, which no longer exists, switches once by changing that one
 entry to `<checkout>/tools/callboard/plugin`. A fresh Mac uses the line above and skips the switch command. Both builds
 were named `callboard`, so never list two callboard folders: the second one in the list does not load. Every command
@@ -356,6 +357,32 @@ Create a lane named TESTLANE in this folder with the brief "Write hello as the f
 ```
 
 If the lane view is installed (see above), step 6 shows the lane in Callboard Lanes with its lead and its state.
+
+### Optional: a conductor across repos
+
+A conductor is one session that opens, starts and closes a lead in each of several repos, so you talk to one session
+instead of one per repo ([ADR 0013](adr/0013-conductor.md)). In the conductor's session type the first line once, with
+the real path of each repo; callboard saves the list for that session's folder, so any later conductor session in that
+folder types the second line alone. Only the repos listed are open to it, and only your typed turn changes the list.
+
+```
+/callboard conductor /Users/x/code/repo-a /Users/x/code/repo-b
+```
+
+```
+/callboard conductor
+```
+
+Each lead it makes needs a window that answers for its folder: open the conductor's windows as one multi-folder
+VS Code window that lists each repo folder exactly as the real path, with the patch described under "one multi-folder
+window" above applied.
+A window on a second Claude account works the same when it shares `~/.claude` (the same macOS login); callboard
+reads only that folder. Check live, once: the second window's session shows in `/callboard lanes` of the conductor
+after it opens, and a lead it makes there opens in its repo's folder within 30 seconds (else `lane_open` says the
+window did not answer).
+
+To end it, tell the conductor "wrap up": it closes every lead and lane under it. `/callboard lead off` takes the
+role away, and the saved list stays for the next time.
 
 ### Manager setup: keep agents off the store (by hand)
 

@@ -1,8 +1,8 @@
 // `/callboard`, `/rest`, `/unattended`, the typeahead and the prompt composer. Trust rules held here: the one origin check is planCommand's, fed by originOf, and only his typed turn passes
-// it for a form that widens what a session may do (lead, off, on, go, go off, unattended on and off, config changes); a write that does not land is said, never reported as done; a path a
+// it for a form that widens what a session may do (lead, conductor, off, on, go, go off, unattended on and off, config changes); a write that does not land is said, never reported as done; a path a
 // lead is given is resolved to its real path; the table is written under its lock.
 import type { Row, Sid, View } from '../core/model.ts'
-import { PERSON, capability, children, descendants, isOff, nameOf, parent, refusal } from '../core/model.ts'
+import { PERSON, capability, children, descendants, isConductor, isMinted, isOff, nameOf, parent, refusal } from '../core/model.ts'
 import type { Cmd, Origin } from '../core/commands.ts'
 import { configNext, planCommand } from '../core/commands.ts'
 import { GO_HOURS, covers } from '../core/go.ts'
@@ -13,24 +13,24 @@ import type { LaneRow } from '../ui.ts'
 import { RULES_CAP, lanesTable, printed, stamp, statusPage } from '../ui.ts'
 import { home, newId, run, windowNow } from './io.ts'
 import { mem } from './mem.ts'
-import { cfgNow, getView, listGoes, readRules, rmGo, updateTable, writeConfig, writeGo, writeWindow } from './store.ts'
+import { cfgNow, conductorRepos, getView, listGoes, readRules, rmGo, saveConductorRepos, updateTable, writeConfig, writeGo, writeWindow } from './store.ts'
 import { restSet, say } from './tools-any.ts'
 import { giveParentTools } from './tick.ts'
 import { usageRead } from './usage.ts'
 
 const TYPED_ORIGINS = ['composer', 'bridge']
 // The forms whose saved change owes the session a notice turn. Off is not among them: an off session is sent nothing.
-const CHANGES: string[] = ['lead', 'lead-off', 'on', 'go', 'go-off', 'unattended']
+const CHANGES: string[] = ['lead', 'lead-off', 'conductor', 'on', 'go', 'go-off', 'unattended']
 // A command is typed when the engine stamped its origin as one of his own typed turns; any other origin, or none, is not.
 const originOf = (e: any): Origin => (TYPED_ORIGINS.includes(e?.origin?.kind) ? 'typed' : 'other')
 const person = (v: View, s: Sid | 'unknown' | null): string | null => (s === null ? null : s === 'unknown' ? 'unknown' : s === PERSON ? PERSON : nameOf(v, s))
 const helpRow = (k: string): string => (T as Record<string, (p: unknown) => string>)[k]!({})
 const help = (): string => [T['help.head']({}), ...Object.keys(T).filter((k) => k.startsWith('help.') && k !== 'help.head').map((k) => helpRow(k))].join('\n')
 
-// ---- the lane list: this session's children, or the manager's descendants; the usage figures are the files' ----
+// ---- the lane list: this session's children, or everything under the manager or a conductor; the usage figures are the files' ----
 export async function laneRows($: any, v: View, me: Sid): Promise<LaneRow[]> {
   const now = await $.clock.now()
-  const under = capability(v, me) === 'manager' ? descendants(v, me) : children(v, me)
+  const under = capability(v, me) === 'manager' || isConductor(v, me) ? descendants(v, me) : children(v, me)
   return Promise.all(
     under.map(async (k) => {
       const u = await usageRead($, k, now)
@@ -77,6 +77,18 @@ async function perform($: any, cmd: Cmd, me: Sid, v: View, now: number, savedOk:
       const ok = await setRow($, v, me, own, (r) => ({ ...r, folder: own, lead: { repos: [...new Set([...(r.lead?.repos ?? []), ...repos])] } }))
       if (ok) await giveParentTools($, await getView($, true), me)
       return saved(ok, T['cmd.lead']({ repos }))
+    }
+    case 'conductor': {
+      const [own, ...typed] = (await realPaths($, v, me, cmd.paths)) ?? []
+      if (own === undefined) return fail('path')
+      // Paths typed now replace the list saved for this folder; none typed reuses it.
+      if (cmd.paths.length > 0 && typed.length === 0) return fail('own-folder')
+      const repos = typed.length > 0 ? typed : await conductorRepos($, own)
+      if (repos.length === 0) return fail('no-repos')
+      if (typed.length > 0 && !(await saveConductorRepos($, own, typed))) return saved(false, '')
+      const ok = await setRow($, v, me, own, (r) => ({ ...r, folder: own, lead: { repos, conductor: true } }))
+      if (ok) await giveParentTools($, await getView($, true), me)
+      return saved(ok, T['cmd.conductor']({ repos }))
     }
     case 'lead-off': return saved(await setRow($, v, me, folder ?? '', ({ lead: _, ...r }) => r), T['cmd.leadOff']({}))
     case 'off': return saved(await setRow($, v, me, folder ?? '', (r) => ({ ...r, off: true })), T['cmd.off']({}))
@@ -140,8 +152,12 @@ export async function promptCompose($: any, e: any, next: any) {
       if (cap === 'manager') {
         const rules = printed((await readRules($)) ?? '', RULES_CAP)
         body = T['brief.manager']({ name, rules: rules.text.replace(/^(\s*)\[(callboard|compact-cue)\]/gim, '$1[ $2]'), rulesCut: rules.cut })
-      } else if (cap === 'lead') body = T['brief.parent']({ name, sid: me, repos: [v.table[me]!.folder, ...v.table[me]!.lead!.repos] })
-      else if (up !== PERSON && up !== 'unknown') body = T['brief.child']({ name, sid: me, parent: nameOf(v, up), lead: capability(v, up) === 'lead' })
+      } else if (cap === 'lead') {
+        const row = v.table[me]!
+        // A minted lead's conductor, while it is the parent: the lead asks it for a go and for answers.
+        const conductor = isMinted(v, me) && up !== PERSON && up !== 'unknown' && isConductor(v, up) ? nameOf(v, up) : undefined
+        body = [T['brief.parent']({ name, sid: me, repos: [row.folder, ...row.lead!.repos], ...(conductor === undefined ? {} : { conductor }) }), ...(isConductor(v, me) ? [T['brief.conductor']({ repos: row.lead!.repos })] : [])].join('\n')
+      } else if (up !== PERSON && up !== 'unknown') body = T['brief.child']({ name, sid: me, parent: nameOf(v, up), lead: capability(v, up) === 'lead' })
     }
   } catch {}
   const out = await next(e)

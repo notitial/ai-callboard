@@ -32,7 +32,8 @@ Consequences).
 - **Keep the mod and patch it.** Rejected: each earlier repair is the evidence. The mod's kinds and special cases are
   what the failures came from.
 - **A conductor tier above the leads.** Rejected: the need is one project lead over several repos, which is a lead
-  with a repo allowlist, not a tier.
+  with a repo allowlist, not a tier. *Amended 2026-11-21 ([ADR 0013](0013-conductor.md)):* a lead with one more power,
+  making leads inside repos the person saved, is allowed; the tier stays rejected.
 - **Rules per tier, judged by code.** Rejected: which ask a lead may answer is a judgment (a rubric the tier reads),
   not a table. Code enforces the timing and who may write an answer, never the judgment.
 - **Unattended mode as its own set of rules** (a manager that answers or parks, a lane cap, a return list).

@@ -10,13 +10,13 @@ const B = 'sid-lead-b'
 const L1 = 'sid-lane-1'
 const LOOSE = 'sid-loose'
 
-test('parent() gives every session a value, chains end within three steps, and no session is its own ancestor', () => {
+test('parent() gives every session a value, chains end within four steps, and no session is its own ancestor', () => {
   forAll(400, (_r, w) => {
     for (const s of w.sids) {
       const p = parent(w.v, s)
       assert.ok(p === PERSON || p === 'unknown' || typeof p === 'string')
       const c = chain(w.v, s)
-      assert.ok(c.up.length <= 2, `chain of ${s} is ${c.up.join(' > ')}`)
+      assert.ok(c.up.length <= 3, `chain of ${s} is ${c.up.join(' > ')}`)
       assert.ok(!c.up.includes(s))
       // A parent is the manager or a lead that is not off and not known gone.
       for (const a of c.up) assert.ok(a === w.v.manager || (isLead(w.v, a) && liveness(w.v, a) !== 'no'), `${a} above ${s} is neither the manager nor a live lead`)
