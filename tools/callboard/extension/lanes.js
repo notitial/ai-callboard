@@ -56,7 +56,7 @@ function createLanes({ vscode, registry, sleep, now, workspaceFolders = () => un
     throw new Error('registry-incomplete: the session registry could not be read in full')
   }
 
-  // The Claude extension's open command, bounded: one that never settles would hold the serial chain, and with it every later open, reopen and the spool.
+  // The Claude extension's open command, bounded: one that never settles would hold the serial chain, and with it every later open and reopen.
   // It fails with a timeout once limitMs has passed; the panel may still come up later, which the callers already handle as a late panel.
   async function bounded(p, limitMs, what) {
     let state = 0
@@ -91,7 +91,7 @@ function createLanes({ vscode, registry, sleep, now, workspaceFolders = () => un
   // A new panel's process writes its registry row, and the row can be rewritten with another session id once the panel's session is up (seen: about a
   // second after the first write on a fast open, and the first id never appears in the registry again). The row is followed by its pid until its session
   // id and start time have held for settleMs, and that id is the answer. An id still moving when `end` passes is a timeout, as is a row that is gone by then:
-  // the panel stays tracked as late (trackLate), and the mod names it from the registry.
+  // the panel stays tracked as late (trackLate), and the plugin names it from the registry.
   async function settled(first, cwd, end) {
     const same = (a, b) => (a.pid !== undefined ? a.pid === b.pid : a.sessionId === b.sessionId)
     let cur = first
@@ -113,7 +113,7 @@ function createLanes({ vscode, registry, sleep, now, workspaceFolders = () => un
   }
 
   // Opens one panel without a prompt and returns its session id. Opens run one at a time.
-  // The spool passes a shorter timeoutMs than the lead's wait, and refuseUnnamed: a panel that registers after that
+  // The spool passes a shorter timeoutMs than the plugin's wait, and refuseUnnamed: a panel that registers after that
   // timeout still sits unnamed in the folder, so a retry is refused until the lead names it instead of opening a second.
   function open(folder, { timeoutMs: limitMs = timeoutMs, refuseUnnamed = false } = {}) {
     if (typeof folder !== 'string' || !folder.startsWith('/')) return Promise.reject(new Error('folder must be an absolute path'))
@@ -127,7 +127,7 @@ function createLanes({ vscode, registry, sleep, now, workspaceFolders = () => un
       let refocused = false
       try {
         // The fifth argument opens it as a full editor, like a panel opened by hand: no panel header, the editor's background.
-        // One time limit covers the registry read, the command and the wait, so the spool still answers before the lead stops waiting.
+        // One time limit covers the registry read, the command and the wait, so the spool still answers before the plugin stops waiting.
         await bounded(vscode.commands.executeCommand('claude-vscode.editor.open', undefined, undefined, undefined, undefined, true, ...cwdArg(folder)), left(start, limitMs), 'the open command')
         const row = await waitNew(before, folder, left(start, limitMs))
         // The panel took focus when it opened: the lead's tab gets it back now, not after the wait for the id to settle.
@@ -270,9 +270,9 @@ function createLanes({ vscode, registry, sleep, now, workspaceFolders = () => un
   const rowLive = async (e) => (await procState(e.pid, e.procStart)) === 'live'
 
   // Reopens a saved conversation by its session id. Only a registry row whose process is alive counts (the registry keeps the rows of processes that died), and
-  // alive means its pid answers and `ps` agrees with the row's procStart, as the mod checks: a pid reused by another process leaves the old row dead. A live
+  // alive means its pid answers and `ps` agrees with the row's procStart, as the plugin checks: a pid reused by another process leaves the old row dead. A live
   // panel of that id returns at once, a live row that is not a panel (a terminal) is refused rather than opened a second time, and the wait takes only a live
-  // panel whose pid is new, so a row left by the stopped process is never taken for the reopened one. The spool passes a timeout shorter than the lead's wait.
+  // panel whose pid is new, so a row left by the stopped process is never taken for the reopened one. The spool passes a timeout shorter than the plugin's wait.
   // `folder`, when given, is the lane's folder: the patched Claude extension resumes the conversation there (the transcript is looked up from the panel's folder).
   function reopen(sid, { timeoutMs: limitMs = timeoutMs, folder } = {}) {
     if (!SID_RE.test(String(sid))) return Promise.reject(new Error('bad session id'))
@@ -395,7 +395,7 @@ function createLanes({ vscode, registry, sleep, now, workspaceFolders = () => un
     }
   }
 
-  // A close request the mod writes after it stopped a lane's session (the spool hands it over): the panel was not opened by this extension, but the sweep may
+  // A close request the plugin writes after it stopped a session (the spool hands it over): the panel was not opened by this extension, but the sweep may
   // close its tab under the same rules, so the request adds nothing a forged file could use: the pid must be dead, no live session may carry the name,
   // and only the one Claude tab with that label goes. The number of adopted panels is bounded.
   function adopt(sid, { name, pid } = {}) {

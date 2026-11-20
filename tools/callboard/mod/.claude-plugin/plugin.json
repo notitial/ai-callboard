@@ -1,6 +1,0 @@
-{
-  "name": "callboard",
-  "version": "0.1.0",
-  "description": "Coordinates Claude Code sessions on one machine: manager, conductors, leads and lanes.",
-  "types": "./types/index.d.ts"
-}

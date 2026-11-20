@@ -1,6 +1,6 @@
 # 8. Unattended mode: the manager decides while the person is away
 
-**Status:** proposed
+**Status:** proposed; the mod build it describes is replaced by [ADR 0012](0012-callboard-plugin.md)
 **Date:** 2026-11-16
 
 Scope: what callboard does with a lane's prompts and questions, and with a tier's own, while the person is away. It

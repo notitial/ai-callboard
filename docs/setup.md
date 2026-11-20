@@ -37,7 +37,7 @@ node --version && claude --version && /usr/bin/python3 --version && jq --version
 Details: [tools/callboard/README.md](../tools/callboard/README.md), Install. Design: [ADR 0002](adr/0002-callboard.md)
 and [ADR 0003](adr/0003-symlinked-install.md).
 
-Callboard has no installer. The mod loads from `<checkout>/tools/callboard/mod`, and the panels extension is a link
+Callboard has no installer. The plugin loads from `<checkout>/tools/callboard/plugin`, and the panels extension is a link
 to `<checkout>/tools/callboard/extension`. Nothing needs sudo, and nothing is fetched.
 
 ### Link the panels extension (VS Code)
@@ -146,7 +146,7 @@ EXT_DIR="$(ls -d "$HOME"/.vscode/extensions/anthropic.claude-code-* | sort -V | 
   the session by its id through the session command; without that piece, only a session with a name it was given
   (`/rename`, or a lane's own name, which callboard gives its panel), matched by the tab's label, since a tab still
   showing the title Claude generated names no session.
-- It serves the plugin build's lanes (the old mod keeps one repo per window). A tab that Claude Code itself restores or reopens
+- It serves the lanes of every folder of the window. A tab that Claude Code itself restores or reopens
   resumes in its conversation's folder through the restore fix; where that fix is not in or finds no transcript, it starts in
   the window's first folder.
 - The patch is made for 2.1.327 and 2.1.328. A later version may rename or restructure the code it hooks into; then
@@ -160,7 +160,7 @@ EXT_DIR="$(ls -d "$HOME"/.vscode/extensions/anthropic.claude-code-* | sort -V | 
 
 The panels extension adds a tree, Callboard Lanes, in Claude Code's Session Manager below its session list (when that
 list is on; otherwise at the bottom of the Explorer): one row per callboard session in this window's folders that the
-plugin's session table and the old lane stores know, with its folder and state (live, working, waiting, parked, closed,
+plugin's session table knows, with its folder and state (live, working, waiting, parked, closed,
 gone), a lane under the lead that owns it. A click reopens the session in its own folder, so a parked or closed lane
 comes back with its conversation. With the patch above every folder of the window is listed; without it, only its first
 folder, the one a panel can open in. Below the lanes, one group
@@ -177,16 +177,15 @@ VS Code (Cmd+Q), fast-forward the checkout ([Updating](#updating)), run this in 
 
 ### Load it in every session
 
-Add this line to the `env` block of `~/.claude/settings.json`, with `<checkout>` written as an absolute path. It loads
-the mod, the build every session runs until you [switch to the plugin](#switch-to-the-plugin):
+Add this line to the `env` block of `~/.claude/settings.json`, with `<checkout>` written as an absolute path:
 
 ```json
-"CLAUDE_CODE_PLUGIN_DIRS": "<checkout>/tools/callboard/mod"
+"CLAUDE_CODE_PLUGIN_DIRS": "<checkout>/tools/callboard/plugin"
 ```
 
 - Claude Code applies it to every session it starts: VS Code opened from the Dock, any terminal `claude`, peers and
-  background workers.
-- Settings ask rules do not gate the mod's tools, so add none: their own checks are the gate, and `lane_terminate`
+  background workers. A list separates its entries with `:`, and a folder that does not exist is skipped with a warning.
+- Settings ask rules do not gate the plugin's tools, so add none: their own checks are the gate, and `lane_terminate`
   asks for itself.
 - If `env.CLAUDE_CODE_PLUGIN_DIRS` already holds another value, keep it and decide by hand. Callboard should be the
   only plugin on this variable: another plugin loaded in a session can run `/callboard` and may answer its dialogs
@@ -194,26 +193,21 @@ the mod, the build every session runs until you [switch to the plugin](#switch-t
 - The callboard README, Default load (every session), has a one-line command that backs the file up, adds the key
   and shows the diff.
 
-**Install check.** In a restarted session, type `/callboard config ping 45` once yourself, and once ask the model to
-run it. First type `/callboard config` and note the ping value. The typed one must apply; the model-run one must be
-refused with "Only you can change callboard settings". If the model-run one applies, report it (ADR 0002, Design
-addition v13.2: keepalive pings and `/callboard config`). Then type `/callboard config ping <the value you noted>`. Do not use
-`/callboard config reset` for this: it puts every callboard setting on this Mac back to its default.
+The first test below is the install check: it shows that your own typing changes settings and a model's does not.
 
 ### Switch to the plugin
 
-The plugin (`<checkout>/tools/callboard/plugin`, [ADR 0012](adr/0012-callboard-plugin.md)) replaces the mod: one session
-model, one chain of asks, no conductor tier, no per-tier switches. You switch once, by changing the one entry in
-`CLAUDE_CODE_PLUGIN_DIRS` from `<checkout>/tools/callboard/mod` to `<checkout>/tools/callboard/plugin`, and you can
-switch back the same way. Both builds are named `callboard`, so never list both: the second one in the list does not
-load. A list separates its entries with `:`, and a folder that does not exist is skipped with a warning. Every command
+The plugin (`<checkout>/tools/callboard/plugin`, [ADR 0012](adr/0012-callboard-plugin.md)) is the only callboard build: one
+session model, one chain of asks, no conductor tier, no per-tier switches. A Mac whose `CLAUDE_CODE_PLUGIN_DIRS` still
+names the earlier build, `<checkout>/tools/callboard/mod`, which no longer exists, switches once by changing that one
+entry to `<checkout>/tools/callboard/plugin`. A fresh Mac uses the line above and skips the switch command. Both builds
+were named `callboard`, so never list two callboard folders: the second one in the list does not load. Every command
 here is yours to run; an agent never edits settings.
 
 **Before you switch.**
 
-- The checkout holds a commit with the plugin: fast-forward it as in [Updating](#updating), then reload each VS Code
-  window (Command Palette, Developer: Reload Window). The panels extension then serves both builds, each from its own
-  folder under `~/.claude/callboard`.
+- The checkout holds this commit: fast-forward it as in [Updating](#updating), then reload each VS Code
+  window (Command Palette, Developer: Reload Window).
 - The protected-paths hook is wired and `~/.claude/callboard/.protected-checkout` exists
   ([Escalation is on by default once the protected-paths hook is in place](#escalation-is-on-by-default-once-the-protected-paths-hook-is-in-place)).
   Without them the plugin refuses every answer from a tier, and asks stay with you.
@@ -231,10 +225,10 @@ touch ~/.claude/callboard/manager-rules.md
 ```
 
 - Pick a quiet moment: no lane mid-task and no unattended window. Open lanes, goes and the window do not cross the
-  switch, because the plugin starts with its own state under `~/.claude/callboard/v2` and reads nothing of the mod's.
+  switch, because the plugin keeps its own state under `~/.claude/callboard/v2` and reads nothing of the mod's.
   Every session is loose until a lead adopts it again (see below).
 
-**The switch.** One command, the entry replaced where it sits in the list, every other byte of the file kept, a backup
+**The switch (only from the mod's entry).** One command, the entry replaced where it sits in the list, every other byte of the file kept, a backup
 named with the time, and the one-line change shown. It refuses and changes nothing unless the file holds exactly one
 such entry, and it writes through the real path, so a `settings.json` that is a symlink stays one. Set `CHECKOUT` on
 the first line to your checkout's absolute path, the only value to change. `diff` exits 1 when it shows the change,
@@ -252,19 +246,6 @@ with the mod's arguments (`lane_create` with name, task and model, say) is then 
 session has the plugin's. Start the manager session and name it with the manager's name from the file (`/rename`). Each lead then takes
 its lanes back by name with `lane_adopt`, and you give goes again as needed (`/callboard go TEXT`, or a lead's
 `go_request`).
-
-**The way back.** The same command with the two paths swapped (set `CHECKOUT` the same way), then a restart of every
-session:
-
-```
-CHECKOUT='<checkout>'
-BAK=~/.claude/settings.json.bak-callboard-$(date +%Y%m%d-%H%M%S)
-cp ~/.claude/settings.json "$BAK" && /usr/bin/python3 -I -c "import os,re,sys;p=os.path.realpath(os.path.expanduser('~/.claude/settings.json'));t=open(p,encoding='utf-8').read();o=sys.argv[1]+sys.argv[2];n=sys.argv[1]+sys.argv[3];u,k=re.subn(re.escape(o)+r'(?=[\":,;])',lambda m:n,t);k==1 or sys.exit('expected one callboard entry, found %d'%k);f=p+'.tmp';open(f,'w',encoding='utf-8').write(u);os.chmod(f,os.stat(p).st_mode&0o777);os.replace(f,p)" "$CHECKOUT" /tools/callboard/plugin /tools/callboard/mod && diff "$BAK" ~/.claude/settings.json
-```
-
-Going back loses what the plugin did: its session rows, the lanes it created or adopted, lead capabilities, goes, the
-unattended window, its ask log and its settings. The mod finds its own state as it was at the switch, its lane stores
-possibly stale, and any saved grant older than 30 days lapsed.
 
 **The first test.** One round, once the sessions are restarted. Each step names what you should see; stop at the
 first one that differs and tell the manager session, or me, which.
@@ -359,29 +340,25 @@ Create a lane named TESTLANE in this folder with the brief "Write hello as the f
 
 If the lane view is installed (see above), step 6 shows the lane in Callboard Lanes with its lead and its state.
 
-### Manager setup: keep agents off the list file and the store (by hand)
+### Manager setup: keep agents off the store (by hand)
 
-Why, and what these lines do not cover: [callboard README, Manager setup: keep agents off the list file and the
-store (by hand)](../tools/callboard/README.md#manager-setup-keep-agents-off-the-list-file-and-the-store-by-hand). Do it
-now, by hand: an agent must not edit permission settings, and the `/setup-claude` templates do not carry these lines.
+Why, and what this line does not cover: [callboard README, Manager setup: keep agents off the store
+(by hand)](../tools/callboard/README.md#manager-setup-keep-agents-off-the-store-by-hand). Do it now, by hand: an agent
+must not edit permission settings, and the `/setup-claude` templates do not carry this line.
 
-Add these two lines to `permissions.deny` in your global `~/.claude/settings.json` (an `Edit` rule covers the
-Write tool too, so no `Write` line is needed; adding one only draws a warning):
+Add this line to `permissions.deny` in your global `~/.claude/settings.json` (an `Edit` rule covers the Write tool
+too, so no `Write` line is needed; adding one only draws a warning):
 
 ```json
-"Edit(**/.claude/callboard-conductor.json)",
 "Edit(~/.claude/plugins/store/callboard_*.json)"
 ```
 
-They keep an agent's Edit and Write tools off a conductor repo's list file and off the mod's store file, which holds
-the saved grants and this machine's reserved names; they do not stop a shell write. A pattern without a leading `/`,
-`~/` or `//` is relative to the session's folder, so the `**/` lines cover only sessions started in or above the
-conductor repo: for each conductor repo, add the absolute form too
-(`Edit(//Users/x/cond/.claude/callboard-conductor.json)`).
+It keeps an agent's Edit and Write tools off callboard's store file, which holds this machine's callboard settings;
+it does not stop a shell write.
 
 ### Keep agents off the live checkout
 
-No deny lines are needed for this. The live checkout feeds every session more than the mod: the extension, the
+No deny lines are needed for this. The live checkout feeds every session more than the plugin: the extension, the
 always-on rule `rules/callboard.md`, `CLAUDE.md`, the skills under `.claude/` and the manager's `docs/`. Its `.git/`
 decides what a pull brings and what git runs. ai-toolkit's protected-paths hook, with the `.protected-checkout` marker
 in the checkout, denies an agent's writes to it. Agents never need to edit it: they work in `/tmp` clones, and `.archive/` (state,
@@ -389,21 +366,16 @@ reports) stays in the checkout. Set the hook and
 the markers up as described in [Escalation is on by default once the protected-paths hook is in place](#escalation-is-on-by-default-once-the-protected-paths-hook-is-in-place).
 The limits of the hook are listed there too.
 
-If you run a conductor repo: callboard refuses its `.claude` folder as unsafe when group or other may write it (as
-under umask 002). Run this once:
-
-```
-chmod go-w <conductor repo>/.claude
-```
-
 ### Escalation is on by default once the protected-paths hook is in place
 
-Escalation, the switch for prompt answering ([ADR 0004](adr/0004-prompt-answering.md)), is on by default, but only
-while the hook below is wired and all three markers exist: callboard checks them at run time (at most once a minute) and
-stays off while one is missing; `/callboard status` names what is missing. Callboard holds no rule of its own about what an agent may write: no tier is asked to judge an edit of the
-live checkouts, of `~/.claude/settings*.json` or of callboard's state folder, because ai-toolkit's
-`hooks/protected-paths-guard.sh` denies those before any prompt exists. It never asks, so no prompt is left for an
-agent to answer. Until the hook is in place, escalation stays off on that machine:
+A lead's or the manager's answer to an ask counts only while the guard is in place
+([ADR 0012](adr/0012-callboard-plugin.md)): callboard checks at run time (every 60 seconds) that the settings wire a
+`PreToolUse` command hook that runs `protected-paths-guard.sh` with hooks not disabled, and that
+`~/.claude/callboard/.protected-checkout` exists. While either is missing it refuses every answer from a tier, so the ask
+stays with you. The other two markers (`<checkout>` and `<toolkit>`) are the hook's own protection, which callboard does not check. Callboard holds no rule of its own about what an agent may write: no tier is
+asked to judge an edit of the live checkouts, of `~/.claude/settings*.json` or of callboard's state folder, because
+ai-toolkit's `hooks/protected-paths-guard.sh` denies those before any prompt exists. It never asks, so no prompt is
+left for an agent to answer. Until the hook is in place:
 
 1. ai-toolkit carries the hook and your toolkit checkout is up to date. Run `/setup-claude` yourself: it links the
    hook into `~/.claude/hooks/` and wires it in `~/.claude/settings.json`, as `/bin/bash -p "$HOME/.claude/hooks/protected-paths-guard.sh" || exit 2`.
@@ -428,12 +400,11 @@ The hook stops the file tools, the git server's tools and a shell line that name
 write verb. It does not read a script, an interpreter's program, `eval` or `bash -c`, a path built at run time, a `cd` to a
 variable or a hard link; its header lists the limits. Without it, or without a marker, nothing in callboard stops
 those edits: the rubric and auto mode's classifier are the only other layers, so install it first.
-Once the hook and the markers are in place it turns on by itself, and the first time it does you get one toast. `/callboard escalation off`
-turns it off and keeps it off; `touch ~/.claude/callboard/prompts/OFF` stops it at once. Typing `/callboard escalation` yourself
-pins it on, with no guard. Do the probe (step 3) before you rely on it.
+Once the hook and the markers are in place, tier answers work by themselves. `touch ~/.claude/callboard/OFF` stops
+every tier's answers at once; remove the file to allow them again. Do the probe (step 3) before you rely on it.
 
 ```
-touch ~/.claude/callboard/prompts/OFF
+touch ~/.claude/callboard/OFF
 ```
 
 ## 2. The usage watcher
@@ -525,28 +496,12 @@ ai-toolkit's `/setup-claude` and `/cleanup-claude` leave everything in this guid
 ## 4. Start the manager
 
 Follow [docs/manager/README.md](manager/README.md), Starting and resuming. In short: a plain session in this
-checkout, without `CLAUDE_CONFIG_DIR`, on Opus (`/model opus`), then type `/callboard manager [NAME]` yourself. With
-no NAME the session is named `MANAGER`. The grant lives in memory and your yes saves it: the same conversation, started or resumed, asks whether to restore the manager (a compaction asks nothing; an unanswered question is asked again after the next prompt there).
+checkout, without `CLAUDE_CONFIG_DIR`, on Opus (`/model opus`), named with `/rename` to the name in
+`~/.claude/callboard/manager-name` ([Switch to the plugin](#switch-to-the-plugin)). The manager is the session that
+carries that name, found by its registry name while it is live; there is no manager command and no grant to restore.
 
-With the plugin there is no `/callboard manager` and no grant to restore: the manager is the session that carries the
-name in `~/.claude/callboard/manager-name` ([Switch to the plugin](#switch-to-the-plugin)), found by its registry name
-while it is live. The rest of this section is the mod's.
-
-The only name callboard reserves built in is `MANAGER`. A manager on a second machine needs a different name, because
-Remote Control lists every machine's sessions. Reserve it on that machine first, typed yourself, then use it:
-
-```
-/callboard reserve BLUE
-```
-
-```
-/callboard manager BLUE
-```
-
-The reserved list is kept per machine, in the mod's store: `/callboard reserve` shows it and
-`/callboard reserve remove NAME` takes a name off. Only you can change it, from your own prompt or phone; a name a
-lane or a live lead carries cannot be reserved. Details: callboard README, Commands (reserved names); design:
-ADR 0002, Design addition v15.1: per-machine reserved names.
+Callboard reserves `MANAGER` and the manager's own name. A manager on a second machine needs a different name, because Remote
+Control lists every machine's sessions: write that name into `manager-name` on that machine.
 
 ## 5. Final check
 
@@ -557,11 +512,11 @@ ADR 0002, Design addition v15.1: per-machine reserved names.
 | Old install gone | `ls /usr/local/libexec/callboard` | No such file or directory |
 | Panels extension | `ls -l ~/.vscode/extensions \| grep callboard-panels` | one link, to `<checkout>/tools/callboard/extension` |
 | Panels entry | `/usr/bin/python3 -I <checkout>/tools/callboard/link-extension.py` | it prints `already linked` and no `DRY:` line |
-| Default load | type `! echo $CLAUDE_CODE_PLUGIN_DIRS` in a new session | `<checkout>/tools/callboard/mod`, or `<checkout>/tools/callboard/plugin` once you have switched |
-| Mod loaded | type `/callboard status` in a session | it answers a status table with a `Lane` row (`NONE`) and a `Lead` row (`OFF`) or similar |
-| Reserved names | type `/callboard reserve` | the manager's name, when it is not `MANAGER`, is listed |
-| Deny lines | read `permissions.deny` in `~/.claude/settings.json` | the two store and list-file lines are there |
-| Protected-paths hook | `jq -e '[.hooks.PreToolUse[]?.hooks[]?.command] \| any(. == "/bin/bash -p \"$HOME/.claude/hooks/protected-paths-guard.sh\" \|\| exit 2")' ~/.claude/settings.json` (a rough pre-check: it finds the command the toolkit writes and does not look at the matcher, `disableAllHooks`, `env` or the entry's other fields), and `ls <checkout>/.protected-checkout <toolkit>/.protected-checkout ~/.claude/callboard/.protected-checkout` | `true`, and all three markers exist; escalation is on by default only while this holds (`/callboard status` is the authority and names what is missing) |
+| Default load | type `! echo $CLAUDE_CODE_PLUGIN_DIRS` in a new session | `<checkout>/tools/callboard/plugin` |
+| Plugin loaded | type `/callboard status` in a session | it answers a table of Role, Parent, Manager, Callboard, Keepalive, Unattended and Goes |
+| Manager name | `cat ~/.claude/callboard/manager-name` | the manager session's name |
+| Deny line | read `permissions.deny` in `~/.claude/settings.json` | the store line is there |
+| Protected-paths hook | `jq -e '[.hooks.PreToolUse[]?.hooks[]?.command] \| any(. == "/bin/bash -p \"$HOME/.claude/hooks/protected-paths-guard.sh\" \|\| exit 2")' ~/.claude/settings.json` (a rough pre-check: it finds the command the toolkit writes and does not look at the matcher, `disableAllHooks`, `env` or the entry's other fields), and `ls <checkout>/.protected-checkout <toolkit>/.protected-checkout ~/.claude/callboard/.protected-checkout` | `true`, and all three markers exist; a tier's answers count only while this holds |
 | Usage watcher | `bash tools/usage-watcher/install.sh --status --ref <commit>` | exit 0, the job loaded |
 | Summary | `ls -l ~/.local/state/usage-watcher/usage-summary.json` | written in the last 5 minutes |
 | Retired hook | read `hooks.SessionStart` in `~/.claude/settings.json` | no `account-stamp.sh` entry |
@@ -609,7 +564,7 @@ extension's version is fixed, so the link stays and the reload loads the new cod
 Panels shows the build it loaded (the checkout's commit). Only when `extension/package.json` itself changed
 (`activationEvents`, `engines`, `extensionDependencies`, `main`) is the version bumped, because VS Code caches the
 manifest: then quit VS Code (Cmd+Q), merge as above, run `link-extension.py --apply` in a plain Terminal, then reopen
-VS Code. After an update of the Claude Code extension itself, run the optional patch again if you use it (above). Restart every session, and restart every conductor session before it calls `lead_open`: from extension 1.3.0 the answer to a lead open carries a nonce, which a conductor still on the older mod refuses (the panel opens, but the conductor is told the open failed). Before
+VS Code. After an update of the Claude Code extension itself, run the optional patch again if you use it (above). Restart every session. Before
 you turn unattended mode on, restart every session started before the update: a lane and a tier both on older code
 can still relay a prompt to you. For the usage watcher, run its installer again with the new `--ref`.
 

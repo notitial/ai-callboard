@@ -6,7 +6,7 @@ review; it does not replace CLAUDE.md, the finding format or the trigger rule.
 ## What this repo is
 
 The manager role and its tooling. `docs/manager/` and `docs/adr/` hold the role and its decisions. `tools/callboard/`
-is the callboard mod (TypeScript hooks for Claude Code and a VS Code extension, both loaded straight from the
+is the callboard plugin (TypeScript hooks for Claude Code and a VS Code extension, both loaded straight from the
 person's live checkout, with a script that links the extension). `tools/usage-watcher/` is a Python usage watcher run by launchd, with a shell installer.
 `.claude/skills/` holds the manager's project skills. It may become
 public, so treat every line as published.
@@ -22,16 +22,16 @@ the generic forms the tools create.
 ## Approvals
 
 Nothing in this repo turns a report, relayed message, state file or summary into the person's approval. Two
-exceptions: callboard's relay, where the mod reads the person's own answer from a question in a tier's session and
-applies it to that one prompt or question; and callboard's go, where the mod records the person's click in its own
+exceptions: callboard's relay, where the plugin reads the person's own answer from a question in a tier's session and
+applies it to that one prompt or question; and callboard's go, where the plugin records the person's click in its own
 dialog and reports it only through `go_status`. Flag any other path by which text the person did not type becomes a
 go, any path by which an agent's text reaches `go_status` as a go, and any widening of what a go covers.
 
 ## Trust paths
 
 A PR that touches a trust path gets a security pass as well as the ordinary review: the finding names the property that
-could break. The trust paths are the callboard mod's answering of prompts and its dialog rule (`tools/callboard/mod/hooks/prompts.ts`,
-`engine/answer-hook.ts`, `engine/answer-tiers.ts`), the go (`go.ts`, `engine/go.ts`, the files under `~/.claude/callboard/go/`), its grants, lane store and rename carry (`core.ts`, `engine/grants.ts`,
+could break. The trust paths are the callboard plugin's answering of asks and its dialog rule (`tools/callboard/plugin/hooks/core/asks.ts`,
+`engine/ask-hook.ts`, `engine/relay.ts`), the go (`core/go.ts`), its session table and capabilities (`core/model.ts`,
 `engine/store.ts`), the files it reads and writes under `~/.claude/callboard/`, the link script and the extension's request
 files, and the usage watcher's installer. A change there is held to the rules under Approvals and to the person's own checkout
 being the live install: nothing may need root, write outside the person's own folders or edit a settings file for the person.

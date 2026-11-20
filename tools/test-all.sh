@@ -53,10 +53,8 @@ suite() {  # suite <name> <slow:0|1> <needs> <command>; needs is one or more com
 }
 
 # callboard needs node 22.18 or later, the claude CLI (claude plugin validate, claude plugin test) and
-# /usr/bin/python3 (for link-extension.py). CALLBOARD_SKIP_MOD_TESTS=1 skips `claude plugin test mod` inside the callboard
-# suite (the slow part); the row still shows pass, so run this without it before any change to
-# tools/callboard/mod. CI does not set it.
-# rule-text needs node 22.18 or later: it checks that rules/callboard.md quotes the mod's fixed texts exactly.
+# /usr/bin/python3 (for link-extension.py).
+# rule-text needs node 22.18 or later: it checks that rules/callboard.md quotes the plugin's fixed texts exactly.
 # test-turn checks the machine-wide turn of this script and of tools/callboard/test.sh, on a lock folder of its own.
 # usage-watcher-install needs macOS (plutil), the Command Line Tools and /usr/bin/python3 3.9 or later.
 suites() {

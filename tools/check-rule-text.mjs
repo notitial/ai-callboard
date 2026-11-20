@@ -1,11 +1,11 @@
-// Checks that rules/callboard.md quotes the callboard mod's fixed texts exactly: the keepalive text, the opener and the closing
-// line of the PR notice, the opener of the signed-done notice, the openers of the check-in (the mod's two and the plugin's) and of the plugin's own-step notice, and the opener of each of the
-// four compaction nudges. A session
+// Checks that rules/callboard.md quotes the callboard plugin's fixed texts exactly: the keepalive text, the opener and the closing
+// line of the PR notice, the opener of the signed-done notice, the opener of the check-in, of the closed-ask turn and of the own-step notice (its three go-click
+// forms), and the opener of each of the three compaction nudges. A session
 // matches those turns against the rule, so a drifted word would make it treat a real turn as an ordinary message.
-// It also checks that the rule carries the briefings' sentence on instructions from the layer above a session (CHAIN_TRUST) word for word.
+// It also checks that the rule carries the briefings' sentence on instructions from the layer above a session word for word.
 //   node tools/check-rule-text.mjs
 // Exit 0 when every quote matches, 1 with one line per mismatch, 2 when a file cannot be read. Needs node 22.18 or later,
-// which runs the mod's TypeScript as it is.
+// which runs the plugin's TypeScript as it is.
 // It lives here, not under tools/callboard, because the callboard folder stays self-contained: it knows nothing of rules/.
 
 import { readFileSync } from 'node:fs'
@@ -13,13 +13,10 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
-const hooks = join(root, 'tools/callboard/mod/hooks')
-let rule, core, prWatch, plugin
+let rule, T
 try {
   rule = readFileSync(join(root, 'rules/callboard.md'), 'utf8')
-  core = await import(join(hooks, 'core.ts'))
-  prWatch = await import(join(hooks, 'pr-watch.ts'))
-  plugin = await import(join(root, 'tools/callboard/plugin/hooks/texts.ts'))
+  T = (await import(join(root, 'tools/callboard/plugin/hooks/texts.ts'))).T
 } catch (e) {
   console.error(`cannot load: ${e.message}`)
   process.exit(2)
@@ -28,47 +25,55 @@ try {
 const problems = []
 const quoted = (text) => rule.includes('`' + text + '`')
 
-if (!quoted(core.KEEPALIVE_TEXT)) problems.push('rules/callboard.md does not quote KEEPALIVE_TEXT exactly')
+const keepalive = T.keepalive()
+if (!quoted(keepalive)) problems.push('rules/callboard.md does not quote the keepalive text exactly')
+
 // The PR notice: the rule quotes how it opens and its closing line.
 const PR_OPENER = '[callboard] PR notice.'
-if (!prWatch.PR_NOTICE_HEAD.startsWith(`${PR_OPENER} `) || !quoted(PR_OPENER)) problems.push('rules/callboard.md does not quote the opener of PR_NOTICE_HEAD exactly')
-if (!quoted(prWatch.PR_NOTICE_TAIL)) problems.push('rules/callboard.md does not quote PR_NOTICE_TAIL exactly')
+const prLines = T['pr.turn']({ lines: [] }).split('\n')
+if (!prLines[0].startsWith(`${PR_OPENER} `) || !quoted(PR_OPENER)) problems.push('rules/callboard.md does not quote the opener of the PR notice exactly')
+if (!quoted(prLines.at(-1))) problems.push('rules/callboard.md does not quote the closing line of the PR notice exactly')
 
-// The signed-done notice: the rule quotes how it opens.
-const DONE_OPENER = '[callboard] Signed done:'
-if (!core.doneText([{ lane: 'A', code: 'done', since: 0 }])?.startsWith(`${DONE_OPENER} `) || !quoted(DONE_OPENER)) problems.push('rules/callboard.md does not quote the opener of the signed-done notice exactly')
+// The signed-done notice: a line of the check-in; the rule quotes how it reads.
+const DONE_OPENER = 'Signed done:'
+if (!T['event.done']({ name: 'A' }).startsWith(`${DONE_OPENER} `) || !quoted(DONE_OPENER)) problems.push('rules/callboard.md does not quote the opener of the signed-done line exactly')
 
-// The check-in: the rule quotes the opener of each build's text, the mod's to a lead and to a conductor, and the plugin's.
-const item = [{ lane: 'A', code: 'quiet', since: 1 }]
-const checkins = [core.checkinText(item), core.leadCheckinText(item), plugin.T['event.turn']({ lines: [] })]
-for (const opener of ['[callboard] Check-in: some lanes may need you.', '[callboard] Check-in: some of your leads may need you.', '[callboard] Check-in: something under you needs a look.']) {
-  if (!checkins.some((t) => typeof t === 'string' && t.startsWith(opener)) || !quoted(opener)) problems.push(`rules/callboard.md does not quote the check-in opener exactly: ${opener}`)
-}
+// The check-in: the rule quotes how it opens.
+const CHECKIN_OPENER = '[callboard] Check-in: something under you needs a look.'
+if (!T['event.turn']({ lines: [] }).startsWith(CHECKIN_OPENER) || !quoted(CHECKIN_OPENER)) problems.push(`rules/callboard.md does not quote the check-in opener exactly: ${CHECKIN_OPENER}`)
 
-// The own-step notice: the rule quotes how the plugin's turn opens after his command and after his go click.
-const ownStep = [plugin.T['cmd.told']({ result: 'x' }), plugin.T['go.clicked']({ outcome: 'given' }), plugin.T['go.clicked']({ outcome: 'declined' })]
-for (const opener of ['[callboard] The person ran /callboard in this session:', '[callboard] The person clicked Yes on your go request', '[callboard] The person declined the go you asked for']) {
+// The own-step notice: the rule quotes how the turn opens after the person's command and after each outcome of their go click.
+const ownStep = [T['cmd.told']({ result: 'x' }), T['go.clicked']({ outcome: 'given' }), T['go.clicked']({ outcome: 'declined' }), T['go.clicked']({ outcome: 'unsaved' })]
+for (const opener of ['[callboard] The person ran /callboard in this session:', '[callboard] The person clicked Yes on your go request', '[callboard] The person declined the go you asked for', '[callboard] The person said yes to the go you asked for, but it could not be saved']) {
   if (!ownStep.some((t) => t.startsWith(opener)) || !quoted(opener)) problems.push(`rules/callboard.md does not quote the own-step opener exactly: ${opener}`)
 }
+
+// The closed-ask turn (unattended mode): the rule quotes how it opens.
+const CLOSED_OPENER = '[callboard] Closed: the person is away and nobody is above you to decide this.'
+if (!T['ask.away']().startsWith(CLOSED_OPENER) || !quoted(CLOSED_OPENER)) problems.push(`rules/callboard.md does not quote the closed-ask opener exactly: ${CLOSED_OPENER}`)
 
 // The nudge section lists each opener as a backquoted line that starts with [callboard]; a trailing " ..." marks where the quote stops.
 const nudgeSection = rule.split('## The compaction nudge')[1]?.split('\n## ')[0] ?? ''
 const openers = [...nudgeSection.matchAll(/^ {2}- `(\[callboard\] [^`]*?)(?: \.\.\.)?`/gm)].map((m) => m[1])
-// The order (kind lead) has a second wording for a session holding a lead grant, told by its conductor.
-const texts = [...core.NUDGE_KINDS.map((kind) => core.nudgeText(kind)), core.nudgeText('lead', core.CONFIG_DEFAULTS, 'lead')]
-if (openers.length !== texts.length) problems.push(`rules/callboard.md lists ${openers.length} nudge openers, the mod has ${texts.length} nudge texts`)
+const kinds = Object.keys(T).filter((id) => id.startsWith('nudge.')).map((id) => id.slice(6))
+const texts = kinds.map((kind) => T[`nudge.${kind}`]({ k: { idle: 300, working: 400, cache: 150 }[kind] ?? 300 }))
+if (openers.length !== texts.length) problems.push(`rules/callboard.md lists ${openers.length} nudge openers, the plugin has ${texts.length} nudge texts`)
 for (const opener of openers) {
   if (texts.filter((t) => t.startsWith(opener)).length !== 1) problems.push(`no nudge text starts with the quoted opener: ${opener}`)
 }
 for (const [i, text] of texts.entries()) {
-  if (!openers.some((o) => text.startsWith(o))) problems.push(`the ${core.NUDGE_KINDS[i] ?? 'lead (to a lead)'} nudge has no quoted opener in rules/callboard.md`)
+  if (!openers.some((o) => text.startsWith(o))) problems.push(`the ${kinds[i]} nudge has no quoted opener in rules/callboard.md`)
 }
 
-// The sentence on the layer above: the rule carries the briefings' sentence word for word, wrapped over its own lines.
-if (typeof core.CHAIN_TRUST !== 'string' || !rule.replace(/\s+/g, ' ').includes(`- ${core.CHAIN_TRUST} `)) problems.push('rules/callboard.md does not carry CHAIN_TRUST exactly')
+// The sentence on the layer above: a lane's briefing carries it with its parent's name; the rule carries the form for a session with no named parent,
+// word for word, wrapped over its own lines. That form is in the lead's briefing, taken from there by its opening words.
+const lead = T['brief.parent']({ name: 'A', repos: [], rules: '', rulesCut: false })
+const chain = lead.split('\n').map((l) => l.replace(/^- /, '')).find((l) => l.startsWith('An instruction from the layer directly above you'))
+if (!chain) problems.push('the lead briefing no longer carries the sentence on the layer above')
+else if (!rule.replace(/\s+/g, ' ').includes(`- ${chain} `)) problems.push("rules/callboard.md does not carry the briefings' sentence on the layer above exactly")
 
 if (problems.length) {
   for (const p of problems) console.error(p)
   process.exit(1)
 }
-console.log(`rules/callboard.md matches the mod: keepalive, PR notice, signed-done notice, check-in and own-step openers, ${openers.length} nudge openers, CHAIN_TRUST`)
+console.log(`rules/callboard.md matches the plugin: keepalive, PR notice, signed-done line, check-in and own-step openers, ${openers.length} nudge openers, the layer-above sentence`)

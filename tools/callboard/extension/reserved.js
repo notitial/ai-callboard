@@ -1,10 +1,8 @@
 'use strict'
-// Rules the extension's files share: the session id and lane name grammars, the pid check, reserved lane names and the pin rule.
-// Reserved lane names, matched by skeleton as the mod does (mod/hooks/core.ts reservedHit): upper case, no - or _, no
-// trailing digits, look-alike digits read as letters (1 is I or L). MANAGER_, MANAGER-2 and MANAG3R are reserved.
-// The built-in list only. Names a machine reserves with /callboard reserve live in the mod's store; the mod refuses them for every new
-// lane record it writes and refuses to reserve a name a record carries, so such a record is rare (one written in the
-// moment of a reserve); the extension does not protect it.
+// Rules the extension's files share: the session id and lane name grammars, the pid check and reserved lane names.
+// Reserved lane names, matched by skeleton: upper case, no - or _, no trailing digits, look-alike digits read as letters (1 is I or L).
+// MANAGER_, MANAGER-2 and MANAG3R are reserved. The built-in list only: the extension does not read the names a machine reserves with
+// /callboard reserve.
 const RESERVED = ['MANAGER']
 
 const SID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
@@ -33,16 +31,4 @@ function reservedHit(name) {
   return RESERVED.includes(String(name).toUpperCase()) || skeletons(name).some((k) => RESERVED_SKELETONS.includes(k))
 }
 
-// A folder too broad to hold lead-made lanes (same rules as the mod's pinRefusal).
-const BROAD_HOME = ['Documents', 'Desktop', 'Downloads', 'Library', 'Public', 'Movies', 'Music', 'Pictures', 'Applications']
-function pinRefusal(pin, home) {
-  if (typeof pin !== 'string' || !/^\/[\x21-\x7e]*$/.test(pin) || pin.split('/').some((s) => s === '..' || s === '.') || pin.includes('//')) return 'pin-path'
-  if (pin === '/') return 'pin-broad'
-  const parts = pin.split('/').filter(Boolean)
-  if (parts.length < 3) return 'pin-broad'
-  if (['tmp', 'var', 'private', 'Volumes', 'etc', 'usr', 'opt', 'bin', 'sbin', 'System', 'Library', 'Applications'].includes(parts[0]) && parts.length < 4) return 'pin-broad'
-  if (pin === home || (pin.startsWith(`${home}/`) && (BROAD_HOME.includes(pin.slice(home.length + 1)) || pin.startsWith(`${home}/Library/`)))) return 'pin-broad'
-  return undefined
-}
-
-module.exports = { reservedHit, pinRefusal, SID_RE, NAME_RE, pidAlive }
+module.exports = { reservedHit, SID_RE, NAME_RE, pidAlive }

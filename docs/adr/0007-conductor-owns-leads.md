@@ -1,6 +1,6 @@
 # 7. A conductor owns its leads
 
-**Status:** proposed
+**Status:** superseded by [ADR 0012](0012-callboard-plugin.md) (was: proposed)
 **Date:** 2026-11-15
 
 Scope: who a lead belongs to, what its conductor and the manager may do to it, and who hears from it. It changes
