@@ -9,20 +9,21 @@
         unpatched-patchable      every anchor was found exactly once: --apply would patch it
         anchors-missing <names>  an update moved the code the patch hooks into (a name is missing or matches twice): --apply refuses
       --apply: patch extension.js, keep the original beside it as extension.js.callboard-orig and write callboard-cwd-patch.json
-      (the marker callboard's panels extension reads; its "width", "chip", "restore", "groups" and "session" fields say whether the panel width, the chip hiding, the restore fix, the group command and the session command below went in). Patched already: says so and stops; outdated: refuses and names --update. A window reload (Developer: Reload
+      (the marker callboard's panels extension reads; its "width", "pie", "restore", "groups" and "session" fields say whether the panel width, the context pie, the restore fix, the group command and the session command below went in). Patched already: says so and stops; outdated: refuses and names --update. A window reload (Developer: Reload
       Window) loads it.
       --update: for an `outdated` install, build the patch again from the backup original and swap it in: extension.js and the marker are
-      replaced, the backup is not touched. The new bytes are built before anything is written (a refusal changes nothing), and a failed write puts the
-      previous patched file back. Any other state: the same as --apply.
-      --undo: put the original back from the backup and remove the backup and the marker.
+      replaced (and webview/index.js, when the context pie is or goes in or out), the backups are not touched. The new bytes are built before anything is written (a refusal changes nothing), and a failed write puts the
+      previous patched files back. Any other state: the same as --apply. An install made by a script that still hid the Remote Control chip reads outdated: --update leaves the chip out.
+      --undo: put the original back from the backup (webview/index.js too, when the pie was in) and remove the backups and the marker.
 
 The patch gives `claude-vscode.editor.open` a `cwd` in its sixth argument ({cwd: folder}), which becomes the working folder of the
 new panel instead of the window's first folder, when it is one of the window's folders (4 edits). A fresh panel opened by a + New session button
 (a call with an options object but no `cwd` or session id) in a window with several folders first shows VS Code's own folder list and uses the pick; Escape
 opens nothing; a bare call (the palette, Open, an @-mention), a resume and a one-folder window never ask. The panel width (WIDTH_CSS below, a style block added to the webview page the extension builds) lets the composer and its permission box use the panel's
-width, and the chip hiding (CHIP_CSS) hides the Remote Control chip while it is connected or connecting; its error still shows. Each anchor is a pattern that tolerates renamed minified
+width. Each anchor is a pattern that tolerates renamed minified
 identifiers, and the file is written only when every anchor matches exactly once: otherwise nothing changes and the missing ones
-are named. The five optional pieces are separate: each CSS piece's style block goes in when the font tag matches exactly once and the shipped webview has its tokens, the restore fix
+are named. The optional pieces are separate: the width block goes in when the font tag matches exactly once and the shipped webview has its tokens, the context pie (PIE_ANCHORS below: the composer's stock pie shown always, as one ring,
+against the autocompact level of the settings, in webview/index.js, kept as webview/index.js.callboard-orig) goes in when the font tag and its three anchors there each match once, the restore fix
 (RESTORE_ANCHORS below: a panel that VS Code restores or Claude reopens keeps the folder of its conversation, found from the session's transcript) goes in
 when its two anchors do, and the group command (GROUPS_ANCHOR below) registers `callboard assign group` (session id, group name), so callboard's panels
 extension can put a lead or lane session in the sidebar's Lead or Lanes group, when its one anchor matches exactly once, and the session command (at the same anchor) registers `callboard active session`, which
@@ -43,6 +44,8 @@ MAIN = "extension.js"
 BACKUP = "extension.js.callboard-orig"
 PREVIOUS = "extension.js.callboard-prev"
 MARKER = "callboard-cwd-patch.json"
+WEB = "webview/index.js"
+WEB_BACKUP = WEB + ".callboard-orig"
 PATCH = 1
 NAME = b"cbCwd"
 ID = rb"[A-Za-z_$][\w$]*"
@@ -50,7 +53,7 @@ VERSION = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+")
 
 # The CSS pieces: each a style block of its own in the webview page the extension builds, put in front of the font configuration style tag. That tag
 # is the one anchor they share: it still matches once after each insert. The rules carry !important, so they win over the page's own. Each block ends
-# up inside a JavaScript template literal, so it holds no backtick, backslash or "${". Class names of the page carry a build hash, so the selectors match their
+# up inside a JavaScript template literal, so it holds no backtick or backslash, and no "${" but the pie's one (below). Class names of the page carry a build hash, so the selectors match their
 # stable prefix. A rule whose selector goes stale does not fail, so a piece goes in only when the shipped webview (webview/index.css and index.js) still carries
 # every token it names; one that misses is left out with a warning and the others still apply.
 CSS_ANCHOR = b'<style id="claude-font-configuration">'
@@ -62,12 +65,9 @@ WIDTH_CSS = (
     '[class*="inputWrapper_"],[class*="permissionsContainer_"]{max-width:none!important}'
     '[class*="inputContainer_"]:not([data-permission-mode]){max-width:none!important;left:8px!important;right:8px!important}'
 )
-# The Remote Control chip, hidden while it is connected or connecting (its two aria-labels in the shipped index.js); its error state stays visible.
-CHIP_CSS = '[aria-label="Remote Control"],[aria-label^="Connecting to claude.ai"]{display:none!important}'
 # (marker field, name in messages, the name of its CSS in this module, the tokens the shipped webview must carry).
 CSS_PIECES = (
     ("width", "panel width", "WIDTH_CSS", ("inputWrapper_", "permissionsContainer_", "inputContainer_")),
-    ("chip", "chip hiding", "CHIP_CSS", ('"aria-label":"Remote Control"', "Connecting to claude.ai")),
 )
 
 
@@ -101,13 +101,59 @@ def css_problem(raw, web, field, tokens):
         return "font tag anchor (%s)" % ("no match" if n == 0 else "%d matches" % n)
     if css_tag(field) in raw:
         return "the file already contains callboard-%s" % field
-    miss = [t for t in tokens if t.encode() not in web]
+    miss = [t for t in tokens if t.encode() not in b"".join(web)]
     return "the webview lacks %s" % ", ".join(miss) if miss else None
 
 
 def css_in(raw, field, css):
     return raw.replace(CSS_ANCHOR, css_tag(field) + css.encode("ascii") + b"</style>" + CSS_ANCHOR, 1)
 
+
+# The context pie. The composer's stock pie is hidden until half of the context is used, has three fixed shapes, and measures against the model's window, not the
+# autocompact level of the person's settings. This piece shows it always, as one ring, against that level. It edits webview/index.js (its own backup, WEB_BACKUP)
+# in three places, and puts the level into the page as the CSS variable --callboard-compact: the pie's style block, in extension.js, reads `autoCompactWindow` from
+# <CLAUDE_CONFIG_DIR or ~/.claude>/settings.json each time a panel's page is built (0 when it is not a number above 0; project settings are not read). Where the
+# level is below the model's window, the stock threshold (window - the smaller of the output limit and 20000 - 13000) is taken from the level instead of the window.
+# The three anchors are patterns on the minified code; the piece goes in only when each matches exactly once in the shipped index.js and the font tag matches once.
+PIE_CSS = (
+    ":root{--callboard-compact:${(()=>{try{let p=require(\"path\"),n=JSON.parse(require(\"fs\").readFileSync(p.join(process.env.CLAUDE_CONFIG_DIR||"
+    "p.join(require(\"os\").homedir(),\".claude\"),\"settings.json\"),\"utf8\")).autoCompactWindow;return Number.isInteger(n)&&n>0?n:0}catch{return 0}})()}}"
+)
+PIE_CAP = (
+    b'var cbpN;function cbpCap(cbpW){cbpN??=parseInt(getComputedStyle(document.documentElement).getPropertyValue("--callboard-compact"))||0;'
+    b"return cbpN>0&&cbpW>cbpN?cbpN:cbpW}"
+)
+PIE_ANCHORS = (
+    ("pie component",
+     rb"(function ID\(\{usedTokens:ID,contextWindow:(ID),onCompact:ID,buttonClassName:ID\}\)\{let ID=\2>0\?Math\.min\(ID/\2\*100,100\):0,ID=100-ID;if\(\2===0\)return null;)if\(ID>=50\)return null;".replace(b"ID", ID),
+     lambda m: PIE_CAP + m.group(1)),
+    ("pie drawing",
+     rb'(function ID\(\{percentage:(ID),className:(ID)\}\)\{)let ID=ID\(\2\),ID=ID\[ID\];return (ID)\("svg",\{(width:"20",height:"20",viewBox:"0 0 20 20",fill:"none",'
+     rb'xmlns:"http://www.w3.org/2000/svg",className:\3,style:\{display:"block"\},children:)\[ID&&(ID)\("path",\{d:ID,stroke:"currentColor",strokeOpacity:"0.15",strokeWidth:"1.5",'
+     rb'strokeLinecap:"round"\}\),\6\("path",\{d:ID\[ID\],stroke:"var\(--app-claude-clay-button-orange\)",strokeWidth:"1.5",strokeLinecap:"round"\}\)\]\}\)\}'.replace(b"ID", ID),
+     lambda m: (m.group(1) + b"let cbpR=Math.max(0,Math.min(100,+" + m.group(2) + b"||0))/100*2*Math.PI*7.25;return " + m.group(4) + b'("svg",{' + m.group(5)
+                + b'[' + m.group(6) + b'("circle",{cx:"10",cy:"10",r:"7.25",stroke:"currentColor",strokeOpacity:"0.15",strokeWidth:"1.5"}),cbpR>0&&' + m.group(6)
+                + b'("circle",{cx:"10",cy:"10",r:"7.25",stroke:"var(--app-claude-clay-button-orange)",strokeWidth:"1.5",strokeLinecap:"round",strokeDasharray:cbpR+" 100",'
+                b'transform:"rotate(-90 10 10)"})]})}')),
+    ("pie window",
+     rb"contextWindow:(ID)\((ID)\.usageData\.value\.contextWindow,\2\.usageData\.value\.maxOutputTokens\),onCompact:".replace(b"ID", ID),
+     lambda m: b"contextWindow:" + m.group(1) + b"(cbpCap(" + m.group(2) + b".usageData.value.contextWindow)," + m.group(2) + b".usageData.value.maxOutputTokens),onCompact:"),
+)
+
+
+def pie_problem(raw, web):
+    """Why the pie cannot go in (None when it can): the font tag, or an anchor in the shipped index.js, does not match exactly once (a patched script matches none)."""
+    why = css_problem(raw, web, "pie", ())
+    for label, pat, _ in PIE_ANCHORS:
+        n = len(re.findall(pat, web[1]))
+        why = why or (None if n == 1 else "pie anchor %s (%s)" % (label, "no match" if n == 0 else "%d matches" % n))
+    return why
+
+
+def pie_web(js):
+    for _, pat, rep in PIE_ANCHORS:
+        js = re.sub(pat, rep, js)
+    return js
 
 # The restore fix: a Claude panel that VS Code restores (or Claude reopens) for a session starts in the window's first folder, where that session is not in the
 # list, so it comes back as a new empty session. The saved panel state names no folder, so the fix finds it: the window folder whose project folder holds
@@ -193,6 +239,7 @@ def session_in(raw):
 # with a warning, and the folder patch still applies.
 PIECES = (
     *((f, n, lambda raw, web, f=f, t=t: css_problem(raw, web, f, t), lambda raw, f=f, c=c: css_in(raw, f, globals()[c])) for f, n, c, t in CSS_PIECES),
+    ("pie", "context pie", pie_problem, lambda raw: css_in(raw, "pie", PIE_CSS)),
     ("restore", "restore fix", restore_problem, restore_in),
     ("groups", "group command", lambda raw, _: command_problem(raw, GROUPS_COMMAND), groups_in),
     ("session", "session command", lambda raw, _: command_problem(raw, SESSION_COMMAND), session_in),
@@ -295,16 +342,26 @@ def problems(raw):
     return out
 
 
+def shipped(ext, *paths):
+    """The first of these files (paths inside EXTENSION_DIR) that is a regular file, read never through a link; b"" when none is."""
+    if os.path.islink(os.path.join(ext, "webview")):
+        return b""
+    for p in paths:
+        if os.path.isfile(os.path.join(ext, p)) and not os.path.islink(os.path.join(ext, p)):
+            return read(os.path.join(ext, p))
+    return b""
+
+
 def webview(ext):
-    """The shipped webview's stylesheet and script, which the CSS pieces check their tokens against. A missing, linked or odd file counts as empty, so the
-    CSS pieces are left out with a warning and the rest still applies."""
-    paths = [os.path.join(ext, "webview", n) for n in ("index.css", "index.js")]
-    return b"".join(read(p) for p in paths if os.path.isfile(p) and not os.path.islink(p))
+    """The shipped webview's (stylesheet, script): the CSS pieces check their tokens against both, the pie patches the script, which is read from its backup when
+    the pie is in. A missing, linked or odd file counts as empty, so those pieces are left out with a warning and the rest still applies."""
+    return shipped(ext, "webview/index.css"), shipped(ext, WEB_BACKUP, WEB)
 
 
 def patched(raw, web):
-    """(the patched bytes, {piece: why it is left out, or None when it went in}). Every anchor is replaced on these very bytes and must match exactly once,
-    else nothing is written; the optional pieces are the anchors that may miss, and the CSS pieces check their tokens in `web`."""
+    """(the patched bytes, {piece: why it is left out, or None when it went in}, the patched webview script or None when the pie is not in). Every anchor is
+    replaced on these very bytes and must match exactly once, else nothing is written; the optional pieces are the anchors that may miss, and the CSS pieces
+    check their tokens in `web`."""
     for label, pat, rep in ANCHORS:
         raw, n = re.subn(pat, rep, raw)
         if n != 1:
@@ -314,7 +371,7 @@ def patched(raw, web):
         left[field] = problem(raw, web)
         if left[field] is None:
             raw = put_in(raw)
-    return raw, left
+    return raw, left, pie_web(web[1]) if left["pie"] is None else None
 
 
 def warn_left_out(left, tail):
@@ -331,8 +388,11 @@ def stale(ext, raw, m):
     bad = problems(orig)
     if bad:
         return "this script no longer fits the backup: " + "; ".join(bad)
-    new, left = patched(orig, webview(ext))
-    if digest(new) == digest(raw):
+    web = webview(ext)
+    if os.path.lexists(os.path.join(ext, WEB_BACKUP)) and digest(web[1]) != m.get("web_original_sha256"):
+        return "%s does not match the marker's recorded original" % WEB_BACKUP
+    new, left, new_js = patched(orig, web)
+    if digest(new) == digest(raw) and (web[1] if new_js is None else new_js) == shipped(ext, WEB):
         return None
     for field, name, _, _ in PIECES:
         if left[field] is None and m.get(field) is not True:
@@ -347,10 +407,12 @@ def state(ext):
     if raw is None:
         refuse("%s has no %s" % (show(ext), MAIN))
     m = marker_of(ext)
-    if m is not None and m["patched_sha256"] == digest(raw):
+    # The webview script is as the marker says: patched (its hash named) with its backup beside it, or not touched and with no backup.
+    web = m is not None and os.path.lexists(os.path.join(ext, WEB_BACKUP)) == ("web_patched_sha256" in m) and ("web_patched_sha256" not in m or m["web_patched_sha256"] == digest(shipped(ext, WEB)))
+    if m is not None and m["patched_sha256"] == digest(raw) and web:
         why = stale(ext, raw, m)
         return ("outdated", ver, why) if why else ("patched", ver, "")
-    left = [n for n in (MARKER, BACKUP) if os.path.lexists(os.path.join(ext, n))]
+    left = [n for n in (MARKER, BACKUP, WEB_BACKUP) if os.path.lexists(os.path.join(ext, n))]
     if left:
         return "leftovers", ver, ", ".join(left)
     bad = problems(raw)
@@ -361,13 +423,34 @@ def reason(e):
     return e.strerror if isinstance(e, OSError) and e.strerror else type(e).__name__
 
 
-def write_patch(ext, ver, orig, new, left):
-    """The one write of a patch, for --apply and --update: the patched file, read back, then the marker that vouches for it."""
+def set_web(ext, orig, new):
+    """Bring webview/index.js to `new`, which is `orig` (the shipped script) or the pie's patch of it; the shipped one stays beside it as WEB_BACKUP while they differ."""
+    path, backup = os.path.join(ext, WEB), os.path.join(ext, WEB_BACKUP)
+    if new != orig and not os.path.lexists(backup):
+        os.link(path, backup)
+    if shipped(ext, WEB) != new:
+        put(path, new, os.stat(path).st_mode & 0o777)
+        if shipped(ext, WEB) != new:
+            raise OSError("the file read back differs")
+    if new == orig and os.path.lexists(backup):
+        os.unlink(backup)
+
+
+def web_touched(ext, new_js):
+    """Whether a write has to bring webview/index.js to a state: the pie goes in, or an earlier patch of it is in (its backup is there)."""
+    return new_js is not None or os.path.lexists(os.path.join(ext, WEB_BACKUP))
+
+
+def write_patch(ext, ver, orig, new, left, orig_js, new_js):
+    """The one write of a patch, for --apply and --update: the webview script when the pie is in (or goes out), the patched file, read back, then the marker that vouches for them."""
+    if web_touched(ext, new_js):
+        set_web(ext, orig_js, orig_js if new_js is None else new_js)
     main = os.path.join(ext, MAIN)
     put(main, new, os.stat(main).st_mode & 0o777)
     if read(main) != new:
         raise OSError("the file read back differs")
-    put(os.path.join(ext, MARKER), json.dumps({"patch": PATCH, "version": ver, **{f: left[f] is None for f, _, _, _ in PIECES}, "original_sha256": digest(orig), "patched_sha256": digest(new)}).encode() + b"\n", 0o644)
+    web = {} if new_js is None else {"web_original_sha256": digest(orig_js), "web_patched_sha256": digest(new_js)}
+    put(os.path.join(ext, MARKER), json.dumps({"patch": PATCH, "version": ver, **{f: left[f] is None for f, _, _, _ in PIECES}, "original_sha256": digest(orig), "patched_sha256": digest(new), **web}).encode() + b"\n", 0o644)
 
 
 def apply(ext):
@@ -385,17 +468,19 @@ def apply(ext):
         return 1
     main = os.path.join(ext, MAIN)
     raw = read(main)
-    new, left = patched(raw, webview(ext))
+    web = webview(ext)
+    new, left, new_js = patched(raw, web)
     backup = os.path.join(ext, BACKUP)
     try:
         # A hard link costs no space, and the patched file is a new inode, so the backup keeps the original.
         os.link(main, backup)
-        write_patch(ext, ver, raw, new, left)
+        write_patch(ext, ver, raw, new, left, web[1], new_js)
     except BaseException as e:
         # Back to the original: renaming the backup over the file is atomic and needs no space (a no-op when both are still one inode).
-        if os.path.lexists(backup):
-            os.replace(backup, main)
-        for n in (BACKUP, MARKER):
+        for b, f in ((BACKUP, MAIN), (WEB_BACKUP, WEB)):
+            if os.path.lexists(os.path.join(ext, b)):
+                os.replace(os.path.join(ext, b), os.path.join(ext, f))
+        for n in (BACKUP, WEB_BACKUP, MARKER):
             if os.path.lexists(os.path.join(ext, n)):
                 os.unlink(os.path.join(ext, n))
         refuse("could not patch (%s); the original is back and nothing is left over" % reason(e))
@@ -415,18 +500,24 @@ def update(ext):
     bad = problems(orig)
     if bad:
         refuse("this script cannot build the patch from the backup (%s); nothing was changed" % "; ".join(bad))
-    new, left = patched(orig, webview(ext))
+    web = webview(ext)
+    if "does not match" in detail:
+        refuse("%s; nothing was changed. Run --undo, or reinstall the extension" % detail)
+    new, left, new_js = patched(orig, web)
     # The previous patched file stays reachable under a second name (a hard link, no space) until the new one is in: a failed write puts it back.
     prev = os.path.join(ext, PREVIOUS)
     if os.path.lexists(prev):
         os.unlink(prev)
     os.link(main, prev)
+    before_js = shipped(ext, WEB)
     failed = None
     try:
-        write_patch(ext, ver, orig, new, left)
+        write_patch(ext, ver, orig, new, left, web[1], new_js)
     except BaseException as e:
-        # A no-op when the file was never replaced (both names are one inode), so the spare name goes either way.
+        # A no-op when the file was never replaced (both names are one inode), so the spare name goes either way. The webview script goes back to what it was.
         os.replace(prev, main)
+        if web_touched(ext, new_js):
+            set_web(ext, web[1], before_js)
         failed = e
     if os.path.lexists(prev):
         os.unlink(prev)
@@ -444,21 +535,27 @@ def undo(ext):
     main = os.path.join(ext, MAIN)
     m = marker_of(ext)
     orig = read(os.path.join(ext, BACKUP))
-    if orig is None and not os.path.lexists(os.path.join(ext, MARKER)):
+    orig_js = read(os.path.join(ext, WEB_BACKUP))
+    if orig is None and orig_js is None and not os.path.lexists(os.path.join(ext, MARKER)):
         print("nothing to undo")
         return 0
-    if orig is not None and m is not None and digest(orig) != m["original_sha256"]:
-        refuse("%s does not match the marker's recorded original; left alone. Reinstall the extension instead" % BACKUP)
+    for name, backup, field in ((BACKUP, orig, "original_sha256"), (WEB_BACKUP, orig_js, "web_original_sha256")):
+        if backup is not None and m is not None and digest(backup) != m.get(field):
+            refuse("%s does not match the marker's recorded original; left alone. Reinstall the extension instead" % name)
     raw = read(main)
+    if orig_js is None and m is not None and "web_patched_sha256" in m and digest(shipped(ext, WEB)) != m["web_original_sha256"]:
+        refuse("the backup of %s is gone and it is not known to be the original; reinstall the extension instead" % WEB)
     if orig is None:
         if m is None or raw is None or digest(raw) != m["original_sha256"]:
             refuse("the backup is gone and %s is not known to be the original; reinstall the extension instead" % MAIN)
     elif raw != orig:
         put(main, orig, os.stat(main).st_mode & 0o777)
-    for n in (BACKUP, MARKER, PREVIOUS):
+    if orig_js is not None and shipped(ext, WEB) != orig_js:
+        put(os.path.join(ext, WEB), orig_js, os.stat(os.path.join(ext, WEB)).st_mode & 0o777)
+    for n in (BACKUP, WEB_BACKUP, MARKER, PREVIOUS):
         if os.path.lexists(os.path.join(ext, n)):
             os.unlink(os.path.join(ext, n))
-    print("undone: the original %s is back, backup and marker removed" % MAIN)
+    print("undone: the original %s is back, backups and marker removed" % MAIN)
     print("Reload the VS Code window to load it.")
     return 0
 
