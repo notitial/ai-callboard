@@ -9,12 +9,12 @@
         unpatched-patchable      every anchor was found exactly once: --apply would patch it
         anchors-missing <names>  an update moved the code the patch hooks into (a name is missing or matches twice): --apply refuses
       --apply: patch extension.js, keep the original beside it as extension.js.callboard-orig and write callboard-cwd-patch.json
-      (the marker callboard's panels extension reads; its "width", "pie", "restore", "groups" and "session" fields say whether the panel width, the context pie, the restore fix, the group command and the session command below went in). Patched already: says so and stops; outdated: refuses and names --update. A window reload (Developer: Reload
+      (the marker callboard's panels extension reads; its "width", "pie", "pill", "restore", "groups" and "session" fields say whether the panel width, the context pie, the folder pill, the restore fix, the group command and the session command below went in). Patched already: says so and stops; outdated: refuses and names --update. A window reload (Developer: Reload
       Window) loads it.
       --update: for an `outdated` install, build the patch again from the backup original and swap it in: extension.js and the marker are
-      replaced (and webview/index.js, when the context pie is or goes in or out), the backups are not touched. The new bytes are built before anything is written (a refusal changes nothing), and a failed write puts the
+      replaced (and webview/index.js, when the context pie or the folder pill is or goes in or out), the backups are not touched. The new bytes are built before anything is written (a refusal changes nothing), and a failed write puts the
       previous patched files back. Any other state: the same as --apply. An install made by a script that still hid the Remote Control chip reads outdated: --update leaves the chip out.
-      --undo: put the original back from the backup (webview/index.js too, when the pie was in) and remove the backups and the marker.
+      --undo: put the original back from the backup (webview/index.js too, when the pie or the pill was in) and remove the backups and the marker.
 
 The patch gives `claude-vscode.editor.open` a `cwd` in its sixth argument ({cwd: folder}), which becomes the working folder of the
 new panel instead of the window's first folder, when it is one of the window's folders (4 edits). A fresh panel opened by a + New session button
@@ -23,7 +23,8 @@ opens nothing; a bare call (the palette, Open, an @-mention), a resume and a one
 width. Each anchor is a pattern that tolerates renamed minified
 identifiers, and the file is written only when every anchor matches exactly once: otherwise nothing changes and the missing ones
 are named. The optional pieces are separate: the width block goes in when the font tag matches exactly once and the shipped webview has its tokens, the context pie (PIE_ANCHORS below: the composer's stock pie shown always, as one ring,
-against the autocompact level of the settings, in webview/index.js, kept as webview/index.js.callboard-orig) goes in when the font tag and its three anchors there each match once, the restore fix
+against the autocompact level of the settings, in webview/index.js, kept as webview/index.js.callboard-orig) goes in when the font tag and its three anchors there each match once, the folder pill (PILL_ANCHOR below: the session's folder name next to the model name in the composer, also in webview/index.js) goes in when its one anchor there
+matches once, the restore fix
 (RESTORE_ANCHORS below: a panel that VS Code restores or Claude reopens keeps the folder of its conversation, found from the session's transcript) goes in
 when its two anchors do, and the group command (GROUPS_ANCHOR below) registers `callboard assign group` (session id, group name), so callboard's panels
 extension can put a lead or lane session in the sidebar's Lead or Lanes group, when its one anchor matches exactly once, and the session command (at the same anchor) registers `callboard active session`, which
@@ -115,13 +116,16 @@ def css_in(raw, field, css):
 # <CLAUDE_CONFIG_DIR or ~/.claude>/settings.json each time a panel's page is built (0 when it is not a number above 0; project settings are not read). Where the
 # level is below the model's window, the stock threshold (window - the smaller of the output limit and 20000 - 13000) is taken from the level instead of the window.
 # The three anchors are patterns on the minified code; the piece goes in only when each matches exactly once in the shipped index.js and the font tag matches once.
-# The ring is drawn 16px wide (its viewBox stays 20, so the stroke scales). The hover text is `used/limit` in k (126k/200k) in place of Claude Code's "37% of
+# The ring is drawn 12px wide (its viewBox stays 20, so the stroke scales). The composer's footer stylesheet sizes the button and its svg to 26px, which wins over the
+# svg's width attribute, so the pie's style block also sets the svg to 12px and the button to fit it with 2px around (the attribute is the fallback when the class
+# names change). The hover text is `used/limit` in k (126k/200k) in place of Claude Code's "37% of
 # context remaining until auto-compact. Click to compact now.": the pie component hands the used tokens and its limit (its window, where the ring is full) to the
 # tooltip component. That is PIE_TIP_ANCHORS, two edits that go in together; when either does not match exactly once in the shipped script, the ring is still the
 # new one and the hover text stays Claude Code's.
 PIE_CSS = (
     ":root{--callboard-compact:${(()=>{try{let p=require(\"path\"),n=JSON.parse(require(\"fs\").readFileSync(p.join(process.env.CLAUDE_CONFIG_DIR||"
     "p.join(require(\"os\").homedir(),\".claude\"),\"settings.json\"),\"utf8\")).autoCompactWindow;return Number.isInteger(n)&&n>0?n:0}catch{return 0}})()}}"
+    '[class*="usageButtonV2_"]{width:auto!important;height:auto!important;padding:2px!important}[class*="usageButtonV2_"] svg{width:12px!important;height:12px!important}'
 )
 PIE_CAP = (
     b'var cbpN;function cbpCap(cbpW){cbpN??=parseInt(getComputedStyle(document.documentElement).getPropertyValue("--callboard-compact"))||0;'
@@ -135,7 +139,7 @@ PIE_ANCHORS = (
      rb'(function ID\(\{percentage:(ID),className:(ID)\}\)\{)let ID=ID\(\2\),ID=ID\[ID\];return (ID)\("svg",\{(width:"20",height:"20",viewBox:"0 0 20 20",fill:"none",'
      rb'xmlns:"http://www.w3.org/2000/svg",className:\3,style:\{display:"block"\},children:)\[ID&&(ID)\("path",\{d:ID,stroke:"currentColor",strokeOpacity:"0.15",strokeWidth:"1.5",'
      rb'strokeLinecap:"round"\}\),\6\("path",\{d:ID\[ID\],stroke:"var\(--app-claude-clay-button-orange\)",strokeWidth:"1.5",strokeLinecap:"round"\}\)\]\}\)\}'.replace(b"ID", ID),
-     lambda m: (m.group(1) + b"let cbpR=Math.max(0,Math.min(100,+" + m.group(2) + b"||0))/100*2*Math.PI*7.25;return " + m.group(4) + b'("svg",{' + m.group(5).replace(b'width:"20",height:"20"', b'width:"16",height:"16"', 1)
+     lambda m: (m.group(1) + b"let cbpR=Math.max(0,Math.min(100,+" + m.group(2) + b"||0))/100*2*Math.PI*7.25;return " + m.group(4) + b'("svg",{' + m.group(5).replace(b'width:"20",height:"20"', b'width:"12",height:"12"', 1)
                 + b'[' + m.group(6) + b'("circle",{cx:"10",cy:"10",r:"7.25",stroke:"currentColor",strokeOpacity:"0.15",strokeWidth:"1.5"}),cbpR>0&&' + m.group(6)
                 + b'("circle",{cx:"10",cy:"10",r:"7.25",stroke:"var(--app-claude-clay-button-orange)",strokeWidth:"1.5",strokeLinecap:"round",strokeDasharray:cbpR+" 100",'
                 b'transform:"rotate(-90 10 10)"})]})}')),
@@ -172,6 +176,34 @@ def pie_web(js):
         for _, pat, rep in PIE_TIP_ANCHORS:
             js = re.sub(pat, rep, js, flags=re.S)
     return js
+
+
+# The folder pill: the last part of the session's folder name, a small pill after the model name in the composer's footer, in webview/index.js. The anchor is the
+# model pill (shown unless the footer's fit stage is 2, the narrowest) followed by the model list; the session is read from that list's props. The pill takes the
+# model pill's own look through the page's CSS variables, inline, so it needs no stylesheet, is hidden at the same fit stage, and is plain text: the folder's name
+# is a text child (escaped by the page's renderer), there is no title and no path in the page.
+PILL_ANCHOR = (
+    rb"(?<![\w$.])(?P<st>ID)!==2&&(?P<jsx>ID)\(ID,\{\.\.\.ID\}\),(?=(?P=jsx)\(ID,\{isOpen:ID\.isOpen,onClose:ID\.onClose,availableModels:(?P<s>ID)\.drawnClaudeConfig\.value\?\.models,)"
+    .replace(b"ID", ID)
+)
+PILL_STYLE = (
+    b'{flexShrink:1,minWidth:0,maxWidth:"11em",boxSizing:"border-box",padding:"0 8px",borderRadius:9999,fontSize:".85em",lineHeight:"var(--app-pill-min-height)",'
+    b'background:"var(--app-pill-background)",color:"var(--app-pill-foreground)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}'
+)
+
+
+def pill_problem(_raw, web):
+    """Why the pill cannot go in (None when it can): its anchor does not match exactly once in the shipped index.js, or the shipped script never reads a session's cwd value."""
+    n = len(re.findall(PILL_ANCHOR, web[1]))
+    if n != 1:
+        return "pill anchor (%s)" % ("no match" if n == 0 else "%d matches" % n)
+    return None if b".cwd.value" in web[1] else "no cwd read"
+
+
+def pill_web(js):
+    return re.sub(PILL_ANCHOR, lambda m: m.group(0) + m.group("st") + b"!==2&&typeof " + m.group("s") + b'.cwd?.value=="string"&&' + m.group("s") + b".cwd.value&&" + m.group("jsx") + b'("span",{style:' + PILL_STYLE
+                  + b",children:" + m.group("s") + rb".cwd.value.split(/[\\/]/).filter(Boolean).pop()||" + m.group("s") + b".cwd.value}),", js)
+
 
 # The restore fix: a Claude panel that VS Code restores (or Claude reopens) for a session starts in the window's first folder, where that session is not in the
 # list, so it comes back as a new empty session. The saved panel state names no folder, so the fix finds it: the window folder whose project folder holds
@@ -258,6 +290,7 @@ def session_in(raw):
 PIECES = (
     *((f, n, lambda raw, web, f=f, t=t: css_problem(raw, web, f, t), lambda raw, f=f, c=c: css_in(raw, f, globals()[c])) for f, n, c, t in CSS_PIECES),
     ("pie", "context pie", pie_problem, lambda raw: css_in(raw, "pie", PIE_CSS)),
+    ("pill", "folder pill", pill_problem, lambda raw: raw),  # webview-only: nothing goes into extension.js
     ("restore", "restore fix", restore_problem, restore_in),
     ("groups", "group command", lambda raw, _: command_problem(raw, GROUPS_COMMAND), groups_in),
     ("session", "session command", lambda raw, _: command_problem(raw, SESSION_COMMAND), session_in),
@@ -389,7 +422,9 @@ def patched(raw, web):
         left[field] = problem(raw, web)
         if left[field] is None:
             raw = put_in(raw)
-    return raw, left, pie_web(web[1]) if left["pie"] is None else None
+    js = pie_web(web[1]) if left["pie"] is None else web[1]
+    js = pill_web(js) if left["pill"] is None else js
+    return raw, left, None if js == web[1] else js
 
 
 def warn_left_out(left, tail):
@@ -577,8 +612,8 @@ def undo(ext):
         if backup is None or m is None or digest(backup) == m.get(field):
             continue
         # An --update of an install made before the marker held web hashes can stop after the pie went in and before the new marker: the backup is the original
-        # then, shown by the script now being it, or the pie built from it.
-        if field == "web_original_sha256" and field not in m and js in (backup, pie_web(backup)):
+        # then, shown by the script now being it, or any of the pieces built from it.
+        if field == "web_original_sha256" and field not in m and js in (backup, pie_web(backup), pill_web(backup), pill_web(pie_web(backup))):
             continue
         refuse("%s does not match the marker's recorded original; left alone. Reinstall the extension instead" % name)
     raw = read(main)
