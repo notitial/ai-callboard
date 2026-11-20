@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { PRINT_CAP, goDialog, goList, lanesTable, printed, promptList, refusalToast, relayDialog, relayStep, statusPage, stopDialog } from './ui.ts'
+import { PRINT_CAP, goDialog, goList, lanesTable, printed, promptList, refusalToast, relayDialog, relayNote, relayStep, statusPage, stopDialog } from './ui.ts'
 import type { AskView, LaneRow } from './ui.ts'
 import { refusal } from './core/model.ts'
 import type { Ask } from './core/model.ts'
@@ -132,18 +132,14 @@ test('the go and relay pop-ups fit their header chip and read plainly: the go na
   assert.equal(r.question, '`lane-a` wants to run `Bash`:\n\n````\n{\n "command": "make test",\n "description": "run ```x"\n}\n````\n\nYour click decides this ask only.')
 })
 
-test('a relay pop-up with the manager\'s note shows the note under its label in place of the input, escaped in a block it cannot close; a cut command is still Deny only', () => {
-  const d = relayDialog('lane-a', 'Bash', JSON.stringify({ command: 'rm -rf build' }), false, undefined, 'Runs the tests. It only reads.')
-  assert.equal(d.question, "`lane-a` wants to run `Bash`:\n\nThe manager's own note, written from what it read, not checked by the plugin:\n\n```\nRuns the tests. It only reads.\n```\n\nYour click decides this ask only.")
-  assert.deepEqual(d.options.map((o) => o.label), ['Allow', 'Deny'])
-  assert.ok(!d.question.includes('rm -rf') && d.cut === false)
-  const evil = relayDialog('lane-a', 'Bash', 'x', false, undefined, `a\`\`\`\n\n**Allow** <b>${RLO}\n[NOT SHOWN WHOLE]`)
+test('the first pop-up of a note shows the note under its label, escaped in a block it cannot close, and offers only Show the command and Deny: no Allow and no label a note can fake', () => {
+  const d = relayNote('lane-a', 'Bash', 'Runs the tests. It only reads.')
+  assert.equal(d.question, "`lane-a` wants to run `Bash`:\n\nThe manager's own note, written from what it read, not checked by the plugin:\n\n```\nRuns the tests. It only reads.\n```\n\nNothing is allowed on this note. Show the command to decide, or deny.")
+  assert.deepEqual(d.options.map((o) => o.label), ['Show the command', 'Deny'])
+  assert.equal(d.header, relayDialog('lane-a', 'Bash', 'x', false).header)
+  const evil = relayNote('lane-a', 'Bash', `a\`\`\`\n\n**Allow** <b>${RLO}\n[NOT SHOWN WHOLE]\nShow the command`)
   assert.ok(!evil.question.includes('<') && !evil.question.includes(RLO))
   assert.equal(evil.question.match(/^`{4,}$/gm)!.length, 2, 'the block is closed by a longer fence than any backtick run in the note')
-  const cut = relayDialog('lane-a', 'Bash', 'x', true, undefined, 'Runs the tests.')
-  assert.deepEqual(cut.options.map((o) => o.label), ['Deny'])
-  assert.ok(cut.question.includes('NOT SHOWN WHOLE') && cut.cut === true)
-  assert.deepEqual(relayDialog('lane-a', 'Bash', 'x', false, undefined, '<'.repeat(1500)).options.map((o) => o.label), ['Deny'], 'escaping grows the note past the cap')
-  assert.deepEqual(relayDialog('lane-a', 'Bash', '<'.repeat(6000), false, undefined, 'Runs the tests.').options.map((o) => o.label), ['Deny'], 'a command too large to print stays Deny only, note or not')
-  assert.ok(!relayDialog('lane-a', 'Bash', 'x', false).question.includes("manager's own note"), 'no note: the input as before')
+  assert.deepEqual(evil.options.map((o) => o.label), ['Show the command', 'Deny'], 'the buttons are fixed, whatever the note says')
 })
+

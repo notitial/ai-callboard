@@ -136,7 +136,9 @@ Nothing else moves:
   inside the lane's own branch and repo or is easily undone, that cannot return personal data or secrets, that
   touches nothing on the risk list, and that it has seen whole. Otherwise it passes the request up.
 - **Risk-list calls still go to the person.** No tier allows one. The top live tier relays it, and the person's
-  click decides.
+  click decides. The click is on what the pop-up shows, never on a description of it: when the manager escalates with a
+  note, the pop-up shows the note first and only offers Show the command and Deny, and Allow appears only in the
+  second pop-up, with the whole command on screen.
 - **`GO_NEVER`, the strictest-tier rules, the 30-second head start, the windows, the comment cap and the truncation
   rule are unchanged.**
 - **Callboard's `tool.check` still only observes.** A deny rule or a hook's deny stands; no prompt exists for it.

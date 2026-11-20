@@ -45,7 +45,7 @@ export function stage(x: StageIn): Stage {
 }
 
 // One check for an answer: it names this ask, and its author is eligible now, or the person on an ask that has reached him (the relay pop-up). Then it must fit
-// the ask: deny for either kind; allow for a permission ask and answer for a question, each only on an input a reader saw whole. The label comes from the live input.
+// the ask: deny for either kind; allow for a permission ask and answer for a question, each only on an input a reader saw whole (a note about it is never that: the person's pop-up offers Allow only with the whole command shown). The label comes from the live input.
 export type Verdict = Decision<'allow' | 'deny' | 'ignore'> | { act: 'answer'; by: string; picks: { question: string; label: string }[] }
 export function decide(a: Answer, ask: Ask, s: Open, v: View, liveInput: unknown): Verdict {
   const no = (code: RefuseCode): Verdict => refusal('ignore', code, { tool: 'prompt_answer', target: ask.id })
