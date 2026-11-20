@@ -109,25 +109,27 @@ EXT_DIR="$(ls -d "$HOME"/.vscode/extensions/anthropic.claude-code-* | sort -V | 
   changes nothing and names the anchor that is missing. It keeps the original as `extension.js.callboard-orig` and writes
   `callboard-cwd-patch.json` (the marker the panels extension reads), both in the extension's folder. A second run says
   `already patched`.
-- The same patch adds a panel look: one style block in the page Claude Code builds for its panels, so the composer and its permission
-  box use the panel's width (no 680 px cap, a smaller side margin) and the Remote Control chip is always icon-only. It is optional
-  inside the patch: when its anchor is not found the check and `--apply` print a warning line and the folder patch still applies
-  (the marker's `look` field says which it was). Its selectors are the one `LOOK_CSS` constant at the top of `patch-claude.py`;
-  the side-margin selector is a guess that only a rendered panel confirms, so tune it there after one look, then `--update`.
-  `--undo` takes it out with the rest.
+- The same patch adds two style blocks to the page Claude Code builds for its panels, each optional on its own: the panel width
+  (the marker's `width` field), so the composer and its permission box use the panel's width (no 680 px cap, a smaller side
+  margin), and the chip hiding (`chip`), which hides the Remote Control chip while it is connected or connecting; its error state
+  still shows. Each goes in only when the page's font configuration tag is found and the shipped `webview/index.css` or
+  `index.js` still carries the class prefixes or labels it uses; otherwise the check and `--apply` print a warning line for that
+  block and the rest still applies. Their CSS is `WIDTH_CSS` and `CHIP_CSS` at the top of `patch-claude.py`; the side-margin
+  selector is a guess that only a rendered panel confirms, so tune it there after one look, then `--update`. `--undo` takes
+  them out with the rest.
 - The patch also carries a restore fix, optional in the same way (the marker's `restore` field, a warning when an anchor is not
   found, one `--undo`): a Claude panel that VS Code restores at a window reload, or that Claude Code reopens (Reopen Closed
   Session), starts in the folder that holds its conversation instead of the window's first folder, so it resumes that
   conversation. The folder is found from the session's transcript (`projects/<folder>/<session id>.jsonl` under Claude's
   config folder, from the `CLAUDE_CONFIG_DIR` of the VS Code process, not from the `claudeCode.environmentVariables` setting), as no saved panel state names it. With no transcript yet, a one-folder window, a folder that is a
   sub-folder of a window folder or a very long path, the panel starts in the first folder as before.
-- The fourth piece is the group command, optional in the same way (the marker's `groups` field): it adds the command
+- The fifth piece is the group command, optional in the same way (the marker's `groups` field): it adds the command
   `callboard assign group`, which the panels extension calls to file a lead's session in the Session Manager group Lead
   and a lane's in Lanes, from the plugin's session table (a group of that name in any letter case, such as LEAD, is the
   same one; a missing one is created). Each session is filed once, so one you move out of its group stays out.
-- The fifth piece is the session command, optional in the same way (the marker's `session` field): `callboard active session`
+- The sixth piece is the session command, optional in the same way (the marker's `session` field): `callboard active session`
   returns the session id of the Claude panel in front, so the folder badge below finds an unnamed session too.
-- An install patched by an older version of the script (before the panel look or the restore fix, say) shows `outdated` with a
+- An install patched by an older version of the script (before the width and chip blocks or the restore fix, say) shows `outdated` with a
   line saying what differs, or the old warning that a piece is not in. The check compares the installed file with what the current script
   builds from the backup original. `--update` (or `/patch-vs-claude`, which runs it) rebuilds the patch from the backup and
   swaps in `extension.js` and the marker, so no undo and apply by hand is needed; the backup is not touched, and a failed

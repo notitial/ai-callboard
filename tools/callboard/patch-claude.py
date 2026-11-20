@@ -9,7 +9,7 @@
         unpatched-patchable      every anchor was found exactly once: --apply would patch it
         anchors-missing <names>  an update moved the code the patch hooks into (a name is missing or matches twice): --apply refuses
       --apply: patch extension.js, keep the original beside it as extension.js.callboard-orig and write callboard-cwd-patch.json
-      (the marker callboard's panels extension reads; its "look", "restore", "groups" and "session" fields say whether the panel look, the restore fix, the group command and the session command below went in). Patched already: says so and stops; outdated: refuses and names --update. A window reload (Developer: Reload
+      (the marker callboard's panels extension reads; its "width", "chip", "restore", "groups" and "session" fields say whether the panel width, the chip hiding, the restore fix, the group command and the session command below went in). Patched already: says so and stops; outdated: refuses and names --update. A window reload (Developer: Reload
       Window) loads it.
       --update: for an `outdated` install, build the patch again from the backup original and swap it in: extension.js and the marker are
       replaced, the backup is not touched. The new bytes are built before anything is written (a refusal changes nothing), and a failed write puts the
@@ -19,10 +19,10 @@
 The patch gives `claude-vscode.editor.open` a `cwd` in its sixth argument ({cwd: folder}), which becomes the working folder of the
 new panel instead of the window's first folder, when it is one of the window's folders (4 edits). A fresh panel opened by a + New session button
 (a call with an options object but no `cwd` or session id) in a window with several folders first shows VS Code's own folder list and uses the pick; Escape
-opens nothing; a bare call (the palette, Open, an @-mention), a resume and a one-folder window never ask. The panel look (LOOK_CSS below, a style block added to the webview page the extension builds) lets the composer and its permission box use the panel's
-width and keeps the Remote Control chip icon-only. Each anchor is a pattern that tolerates renamed minified
+opens nothing; a bare call (the palette, Open, an @-mention), a resume and a one-folder window never ask. The panel width (WIDTH_CSS below, a style block added to the webview page the extension builds) lets the composer and its permission box use the panel's
+width, and the chip hiding (CHIP_CSS) hides the Remote Control chip while it is connected or connecting; its error still shows. Each anchor is a pattern that tolerates renamed minified
 identifiers, and the file is written only when every anchor matches exactly once: otherwise nothing changes and the missing ones
-are named. The four optional pieces are separate: the panel look's style block goes in when its one anchor matches exactly once, the restore fix
+are named. The five optional pieces are separate: each CSS piece's style block goes in when the font tag matches exactly once and the shipped webview has its tokens, the restore fix
 (RESTORE_ANCHORS below: a panel that VS Code restores or Claude reopens keeps the folder of its conversation, found from the session's transcript) goes in
 when its two anchors do, and the group command (GROUPS_ANCHOR below) registers `callboard assign group` (session id, group name), so callboard's panels
 extension can put a lead, lane or conductor session in the sidebar's Lead, Lanes or Conductor group, when its one anchor matches exactly once, and the session command (at the same anchor) registers `callboard active session`, which
@@ -48,20 +48,27 @@ NAME = b"cbCwd"
 ID = rb"[A-Za-z_$][\w$]*"
 VERSION = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+")
 
-# The panel look: the one block of CSS the patch adds to the webview page, and the one place to tune it. It ends up inside a JavaScript template literal of
-# the extension, so it holds no backtick, backslash or "${". Class names of the page carry a build hash, so the selectors match their stable prefix.
-# CONFIRMED against the shipped index.css: the 680px cap on `inputWrapper_` and `permissionsContainer_` (both centred with margin:0 auto), and
-# the Remote Control chip's `aria-label`. A GUESS, which only a rendered panel can confirm: `inputContainer_`, the composer's outer box (absolute,
-# max-width 680px, left and right 16px). The guess is limited to the rule that has no `data-permission-mode`, because the inner box of the same prefix has it.
-# If the side margin does not change, find the element that holds the margin in the window's developer tools and change that selector and the 8px.
-LOOK_CSS = (
+# The CSS pieces: each a style block of its own in the webview page the extension builds, put in front of the font configuration style tag. That tag
+# is the one anchor they share: it still matches once after each insert, and it comes after the page's stylesheet link, so the blocks win ties. Each block ends
+# up inside a JavaScript template literal, so it holds no backtick, backslash or "${". Class names of the page carry a build hash, so the selectors match their
+# stable prefix. A rule whose selector goes stale does not fail, so a piece goes in only when the shipped webview (webview/index.css and index.js) still carries
+# every token it names; one that misses is left out with a warning and the others still apply.
+CSS_ANCHOR = b'<style id="claude-font-configuration">'
+# The panel width: the composer and its permission box use the panel's width. CONFIRMED against the shipped index.css: the 680px cap on `inputWrapper_` and
+# `permissionsContainer_` (both centred with margin:0 auto). A GUESS, which only a rendered panel can confirm: `inputContainer_`, the composer's outer box
+# (absolute, max-width 680px, left and right 16px). The guess is limited to the rule that has no `data-permission-mode`, because the inner box of the same prefix
+# has it. If the side margin does not change, find the element that holds the margin in the window's developer tools and change that selector and the 8px.
+WIDTH_CSS = (
     '[class*="inputWrapper_"],[class*="permissionsContainer_"]{max-width:none!important}'
     '[class*="inputContainer_"]:not([data-permission-mode]){max-width:none!important;left:8px!important;right:8px!important}'
-    '[aria-label="Remote Control"]{padding:0!important}'
-    '[aria-label="Remote Control"] svg{display:block!important}'
-    '[aria-label="Remote Control"] span{display:none!important}'
 )
-LOOK_ID = b"callboard-look"
+# The Remote Control chip, hidden while it is connected or connecting (its two aria-labels in the shipped index.js); its error state stays visible.
+CHIP_CSS = '[aria-label="Remote Control"],[aria-label^="Connecting to claude.ai"]{display:none!important}'
+# (marker field, name in messages, the name of its CSS in this module, the tokens the shipped webview must carry).
+CSS_PIECES = (
+    ("width", "panel width", "WIDTH_CSS", ("inputWrapper_", "permissionsContainer_", "inputContainer_")),
+    ("chip", "chip hiding", "CHIP_CSS", ('"aria-label":"Remote Control"', "Connecting to claude.ai")),
+)
 
 
 # (label, pattern, replacement). The replacement gets the match; each pattern is checked on the unpatched file.
@@ -83,21 +90,23 @@ ANCHORS = (
 )
 
 
-# The panel look's anchor: the webview page's stylesheet link followed by the font configuration style tag. The block goes between them, after the page's own
-# stylesheet, so it wins ties. Optional: when it does not match exactly once the folder patch still applies.
-LOOK_ANCHOR = rb'(<link href="\$\{[^}`]{1,60}\}" rel="stylesheet">)(\s*)(<style id="claude-font-configuration">)'
+def css_tag(field):
+    return b'<style id="callboard-' + field.encode() + b'">'
 
 
-def look_block(m):
-    return m.group(1) + m.group(2) + b'<style id="' + LOOK_ID + b'">' + LOOK_CSS.encode("ascii") + b"</style>" + m.group(2) + m.group(3)
-
-
-def look_problem(raw):
-    """Why the panel look cannot go in (None when it can): its anchor does not match exactly once, or the page already has the block."""
-    n = len(re.findall(LOOK_ANCHOR, raw))
+def css_problem(raw, web, field, tokens):
+    """Why a CSS piece cannot go in (None when it can): the font tag does not match exactly once, the page already has the block, or the webview lacks a token."""
+    n = raw.count(CSS_ANCHOR)
     if n != 1:
-        return "look anchor (%s)" % ("no match" if n == 0 else "%d matches" % n)
-    return "the file already contains %s" % LOOK_ID.decode() if LOOK_ID in raw else None
+        return "font tag anchor (%s)" % ("no match" if n == 0 else "%d matches" % n)
+    if css_tag(field) in raw:
+        return "the file already contains callboard-%s" % field
+    miss = [t for t in tokens if t.encode() not in web]
+    return "the webview lacks %s" % ", ".join(miss) if miss else None
+
+
+def css_in(raw, field, css):
+    return raw.replace(CSS_ANCHOR, css_tag(field) + css.encode("ascii") + b"</style>" + CSS_ANCHOR, 1)
 
 
 # The restore fix: a Claude panel that VS Code restores (or Claude reopens) for a session starts in the window's first folder, where that session is not in the
@@ -122,7 +131,7 @@ RESTORE_ANCHORS = (
 )
 
 
-def restore_problem(raw):
+def restore_problem(raw, _web):
     """Why the restore fix cannot go in (None when it can): an anchor does not match exactly once, or the file already has the method."""
     for label, pat, _ in RESTORE_ANCHORS:
         n = len(re.findall(pat, raw))
@@ -135,10 +144,6 @@ def restore_in(raw):
     for _, pat, rep in RESTORE_ANCHORS:
         raw = re.sub(pat, rep, raw)
     return raw
-
-
-def look_in(raw):
-    return re.sub(LOOK_ANCHOR, look_block, raw)
 
 
 # The group command's anchor: the registration of the stock command that adds the active tab to a group, which sits inside an `x.subscriptions.push(...)` call
@@ -187,10 +192,10 @@ def session_in(raw):
 # The optional pieces, in the order they go in: (marker field, name in messages, why it cannot go in, how it goes in). A piece that cannot go in is left out
 # with a warning, and the folder patch still applies.
 PIECES = (
-    ("look", "panel look", look_problem, look_in),
+    *((f, n, lambda raw, web, f=f, t=t: css_problem(raw, web, f, t), lambda raw, f=f, c=c: css_in(raw, f, globals()[c])) for f, n, c, t in CSS_PIECES),
     ("restore", "restore fix", restore_problem, restore_in),
-    ("groups", "group command", lambda raw: command_problem(raw, GROUPS_COMMAND), groups_in),
-    ("session", "session command", lambda raw: command_problem(raw, SESSION_COMMAND), session_in),
+    ("groups", "group command", lambda raw, _: command_problem(raw, GROUPS_COMMAND), groups_in),
+    ("session", "session command", lambda raw, _: command_problem(raw, SESSION_COMMAND), session_in),
 )
 
 
@@ -290,16 +295,21 @@ def problems(raw):
     return out
 
 
-def patched(raw):
+def webview(ext):
+    """The shipped webview's stylesheet and script, which the CSS pieces check their tokens against (empty when missing)."""
+    return b"".join(read(os.path.join(ext, "webview", n)) or b"" for n in ("index.css", "index.js"))
+
+
+def patched(raw, web):
     """(the patched bytes, {piece: why it is left out, or None when it went in}). Every anchor is replaced on these very bytes and must match exactly once,
-    else nothing is written; the optional pieces are the anchors that may miss."""
+    else nothing is written; the optional pieces are the anchors that may miss, and the CSS pieces check their tokens in `web`."""
     for label, pat, rep in ANCHORS:
         raw, n = re.subn(pat, rep, raw)
         if n != 1:
             refuse("%s matched %d times; nothing was changed" % (label, n))
     left = {}
     for field, _, problem, put_in in PIECES:
-        left[field] = problem(raw)
+        left[field] = problem(raw, web)
         if left[field] is None:
             raw = put_in(raw)
     return raw, left
@@ -319,7 +329,7 @@ def stale(ext, raw, m):
     bad = problems(orig)
     if bad:
         return "this script no longer fits the backup: " + "; ".join(bad)
-    new, left = patched(orig)
+    new, left = patched(orig, webview(ext))
     if digest(new) == digest(raw):
         return None
     for field, name, _, _ in PIECES:
@@ -373,7 +383,7 @@ def apply(ext):
         return 1
     main = os.path.join(ext, MAIN)
     raw = read(main)
-    new, left = patched(raw)
+    new, left = patched(raw, webview(ext))
     backup = os.path.join(ext, BACKUP)
     try:
         # A hard link costs no space, and the patched file is a new inode, so the backup keeps the original.
@@ -403,7 +413,7 @@ def update(ext):
     bad = problems(orig)
     if bad:
         refuse("this script cannot build the patch from the backup (%s); nothing was changed" % "; ".join(bad))
-    new, left = patched(orig)
+    new, left = patched(orig, webview(ext))
     # The previous patched file stays reachable under a second name (a hard link, no space) until the new one is in: a failed write puts it back.
     prev = os.path.join(ext, PREVIOUS)
     if os.path.lexists(prev):
@@ -470,7 +480,7 @@ def main(argv):
     name, ver, detail = state(ext)
     print("%s %s%s" % (name, ver, ": " + detail if detail else ""))
     if name == "unpatched-patchable":
-        warn_left_out(patched(read(os.path.join(ext, MAIN)))[1], ("would be left out", "the folder patch would still apply."))
+        warn_left_out(patched(read(os.path.join(ext, MAIN)), webview(ext))[1], ("would be left out", "the folder patch would still apply."))
     if name == "patched":
         for field, piece, _, _ in PIECES:
             if marker_of(ext).get(field) is not True:
