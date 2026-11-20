@@ -73,15 +73,35 @@ function projects(folder, files) {
   return root
 }
 
-test('recentChats: the folder\'s .jsonl files by name and time, newest first, capped; other names are skipped and no content is read', async () => {
-  const files = [1, 2, 3, 4].map((n) => [`${sid(n)}.jsonl`, 'SECRET CONTENT', NOW - n * 1000])
-  files.push(['notes.txt', 'x'], ['not-a-session.jsonl', 'x'], [`${sid(9)}.json`, 'x'])
+const custom = (t) => JSON.stringify({ type: 'custom-title', customTitle: t, sessionId: sid(1) })
+const generated = (t) => JSON.stringify({ type: 'ai-title', aiTitle: t, sessionId: sid(1) })
+const turn = (n = 1) => JSON.stringify({ type: 'user', message: { content: 'x'.repeat(n) } })
+
+test('recentChats: the folder\'s titled .jsonl files, newest first, capped; other names and untitled chats are skipped', async () => {
+  const files = [1, 2, 3, 4].map((n) => [`${sid(n)}.jsonl`, `${turn()}\n${custom(`Title ${n}`)}\n`, NOW - n * 1000])
+  files.push(['notes.txt', 'x'], ['not-a-session.jsonl', custom('x')], [`${sid(9)}.json`, custom('x')], [`${sid(7)}.jsonl`, `${turn()}\n`, NOW])
   const root = projects('/Users/x/my repo', files)
   const got = await recentChats(root, '/Users/x/my repo', 3)
-  assert.deepEqual(got.map((c) => c.sid), [sid(1), sid(2), sid(3)])
-  assert.deepEqual(Object.keys(got[0]).sort(), ['at', 'sid'])
+  assert.deepEqual(got.map((c) => [c.sid, c.title]), [[sid(1), 'Title 1'], [sid(2), 'Title 2'], [sid(3), 'Title 3']])
+  assert.deepEqual(Object.keys(got[0]).sort(), ['at', 'sid', 'title'])
   assert.deepEqual(await recentChats(root, '/Users/x/other'), [])
   assert.deepEqual(await recentChats(root, `/${'a'.repeat(250)}`), [])
+})
+
+test('recentChats: the title is the last rename, else the last generated one, found at the end or the start of a long transcript; a missing or odd one lists nothing', async () => {
+  const filler = `${turn(70000)}\n`
+  const root = projects('/w/a', [
+    [`${sid(1)}.jsonl`, `${generated('Made up')}\n${custom('Old')}\n${turn()}\n${custom('  Kept\n   name ')}\n${generated('Newer made up')}\n`, NOW - 1 * MIN],
+    [`${sid(2)}.jsonl`, `${generated('Only generated')}\n${turn()}\n`, NOW - 2 * MIN],
+    [`${sid(3)}.jsonl`, `${custom('At the start')}\n${filler}${filler}`, NOW - 3 * MIN],
+    [`${sid(4)}.jsonl`, `${filler}${filler}${custom('At the end')}\n`, NOW - 4 * MIN],
+    [`${sid(5)}.jsonl`, `${filler}${custom('Lost in the middle')}\n${filler}${filler}`, NOW - 5 * MIN],
+    [`${sid(6)}.jsonl`, `{"type": "custom-title", "customTitle": "Spaced", "sessionId": "x"}\n${turn()}\n`, NOW - 6 * MIN],
+    [`${sid(7)}.jsonl`, `${custom('   ')}\n${custom(5)}\n{"type":"custom-title","customTitle":"cut\n`, NOW - 7 * MIN],
+    [`${sid(8)}.jsonl`, custom('x'.repeat(300)), NOW - 8 * MIN],
+  ])
+  const got = await recentChats(root, '/w/a')
+  assert.deepEqual(got.map((c) => c.title), ['Kept name', 'Only generated', 'At the start', 'At the end', 'Spaced', 'x'.repeat(100)])
 })
 
 // A fake VS Code: the tree view's provider, the command it registered and the warnings are kept for the test.
@@ -132,11 +152,16 @@ test('a click reopens the session in its own folder; a refusal is shown with its
   w.view.dispose()
 })
 
-test('recent chats: a group per folder with a conversation, named from a known session else by id and age, newest first', async () => {
+test('recent chats: a group per folder with a titled conversation, shown by its title and age, newest first; an untitled chat or one of a gone session is not listed', async () => {
   const w = world({
-    table: { [sid(1)]: { name: 'LAB', folder: '/w/a' } },
-    rows: [reg(2, { name: 'from-registry' })],
-    files: [[`${sid(1)}.jsonl`, 'x', NOW - 1 * MIN], [`${sid(2)}.jsonl`, 'x', NOW - 2 * MIN], [`${sid(3)}.jsonl`, 'x', NOW - 3 * 3600000]],
+    table: { [sid(1)]: { name: 'LAB', folder: '/w/a' }, [sid(4)]: { name: 'GONE', folder: '/w/a', goneAt: NOW - 3600000 } },
+    rows: [reg(2, { name: 'from-registry', nameSource: 'derived' })],
+    files: [
+      [`${sid(1)}.jsonl`, `${custom('First chat')}\n`, NOW - 1 * MIN],
+      [`${sid(2)}.jsonl`, `${generated('Second chat')}\n`, NOW - 2 * MIN],
+      [`${sid(3)}.jsonl`, `${turn()}\n`, NOW - 3 * 3600000],
+      [`${sid(4)}.jsonl`, `${turn()}\n`, NOW - 4 * 3600000],
+    ],
     folders: ['/w/a', '/w/empty'],
   })
   const top = await w.items()
@@ -145,9 +170,8 @@ test('recent chats: a group per folder with a conversation, named from a known s
   assert.deepEqual(top.filter((x) => x.n.kind === 'group').length, 1, 'a folder with no conversation has no group')
   const chats = await w.items(group.n)
   assert.deepEqual(chats.map((x) => [x.item.label, x.item.description, x.item.command.arguments]), [
-    ['LAB', '1m', [sid(1), '/w/a']],
-    ['from-registry', '2m', [sid(2), '/w/a']],
-    ['00000003', '3h', [sid(3), '/w/a']],
+    ['First chat', '1m', [sid(1), '/w/a']],
+    ['Second chat', '2m', [sid(2), '/w/a']],
   ])
   w.view.dispose()
 })
@@ -181,6 +205,7 @@ test('one tree in two places: the Session Manager view and the Explorer view, as
   const views = require('./package.json').contributes.views
   assert.deepEqual(w.ids.sort(), [...views['claude-sessions-sidebar'], ...views.explorer].map((v) => v.id).sort())
   assert.equal(views.explorer[0].when, `!${views['claude-sessions-sidebar'][0].when}`)
+  assert.deepEqual([...views['claude-sessions-sidebar'], ...views.explorer].map((v) => v.visibility), ['collapsed', 'collapsed'])
   const icons = (await w.items()).map((x) => [x.item.label, x.item.iconPath.id, x.item.iconPath.color?.id])
   assert.deepEqual(icons, [['L', 'circle-filled', undefined], ['W', 'circle-filled', 'charts.orange']])
   w.view.dispose()

@@ -1,8 +1,8 @@
 {
   "name": "callboard-panels",
   "displayName": "Callboard Panels",
-  "description": "Opens, reopens and closes Claude Code lane panels for the callboard mod, and opens or reopens a lead's panel for a conductor, so a lead session can run its lanes in this window.",
-  "version": "1.6.0",
+  "description": "Opens, reopens and closes Claude Code panels for callboard, so a lead session can run its lanes in this window, and lists them in a Callboard Lanes view.",
+  "version": "1.7.0",
   "publisher": "notitial",
   "icon": "icon.png",
   "galleryBanner": { "color": "#101d22", "theme": "dark" },
@@ -15,8 +15,8 @@
   "main": "./extension.js",
   "contributes": {
     "views": {
-      "claude-sessions-sidebar": [{ "id": "callboardLanesSidebar", "name": "Callboard Lanes", "when": "claude-vscode.sessionsListEnabled" }],
-      "explorer": [{ "id": "callboardLanes", "name": "Callboard Lanes", "when": "!claude-vscode.sessionsListEnabled" }]
+      "claude-sessions-sidebar": [{ "id": "callboardLanesSidebar", "name": "Callboard Lanes", "when": "claude-vscode.sessionsListEnabled", "visibility": "collapsed" }],
+      "explorer": [{ "id": "callboardLanes", "name": "Callboard Lanes", "when": "!claude-vscode.sessionsListEnabled", "visibility": "collapsed" }]
     }
   },
   "activationEvents": ["onStartupFinished"],

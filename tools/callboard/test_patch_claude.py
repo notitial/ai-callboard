@@ -110,9 +110,21 @@ def load_module():
     return mod
 
 
-# A stand-in for the shipped webview, carrying the tokens the CSS pieces check, and what a stock extension folder then holds.
-WEB = {"index.css": ".inputWrapper_a1,.permissionsContainer_b2,.inputContainer_c3{max-width:680px}",
-       "index.js": 'm("a",{"aria-label":"Remote Control"});let o="Connecting to claude.ai/code"'}
+# The pie's code in the shipped webview script, in the shape of the stock composer footer (ring, pie component, and the bar that passes the window); the names are
+# minified and differ by version (sv: the ring, pc: the pie component, tf: the threshold function).
+PIE_JS = (
+    'var MBn={{50:"M7"}};function {sv}({{percentage:e,className:t}}){{let n=PBn(e),i=MBn[n];return k("svg",{{width:"20",height:"20",viewBox:"0 0 20 20",fill:"none",'
+    'xmlns:"http://www.w3.org/2000/svg",className:t,style:{{display:"block"}},children:[i&&m("path",{{d:i,stroke:"currentColor",strokeOpacity:"0.15",strokeWidth:"1.5",'
+    'strokeLinecap:"round"}}),m("path",{{d:DBn[n],stroke:"var(--app-claude-clay-button-orange)",strokeWidth:"1.5",strokeLinecap:"round"}})]}})}}'
+    'function {pc}({{usedTokens:e,contextWindow:t,onCompact:n,buttonClassName:i}}){{let o=t>0?Math.min(e/t*100,100):0,r=100-o;if(t===0)return null;if(r>=50)return null;'
+    'return m(FBn,{{percentageUsed:o,onCompact:n,buttonClassName:i}})}}'
+    'function Bar(e){{return k("div",{{children:[m("button",{{}}),m({pc},{{usedTokens:e.usageData.value.totalTokens,'
+    'contextWindow:{tf}(e.usageData.value.contextWindow,e.usageData.value.maxOutputTokens),onCompact:a,buttonClassName:ia.usageButtonV2}}),m(BFt,{{session:e}})]}})}}'
+)
+JS329 = dict(sv="tBt", pc="nBt", tf="NFt")
+JS328 = dict(sv="SFt", pc="kFt", tf="tFt")
+# A stand-in for the shipped webview, carrying the tokens the width piece checks and the pie's code, and what a stock extension folder then holds.
+WEB = {"index.css": ".inputWrapper_a1,.permissionsContainer_b2,.inputContainer_c3{max-width:680px}", "index.js": PIE_JS.format(**JS329)}
 STOCK = ["extension.js", "package.json", "webview"]
 
 
@@ -141,6 +153,14 @@ class Case(unittest.TestCase):
 
     def js(self, ext=None):
         return slurp(os.path.join(ext or self.ext, "extension.js"))
+
+    def older(self, ext, **attrs):
+        """Patches ext in this process with a stand-in for an older script: the module's own apply, with some of its constants changed."""
+        mod = load_module()
+        for k, v in attrs.items():
+            setattr(mod, k, v)
+        with contextlib.redirect_stdout(io.StringIO()):
+            mod.apply(ext)
 
     def assertUnchanged(self, ext, *args):
         before = snap(ext)
@@ -245,7 +265,7 @@ class Apply(Case):
             self.assertEqual(got["sidebar"], {"last": [], "n": 0, "picks": 0}, "the sidebar target never asks and opens no panel")
 
     def test_a_failed_write_puts_the_original_back_and_leaves_nothing(self):
-        for failing in ("extension.js", "callboard-cwd-patch.json"):
+        for failing in ("index.js", "extension.js", "callboard-cwd-patch.json"):
             ext = self.make(V327, name="f-" + failing)
             mod = load_module()
             orig = self.js(ext)
@@ -266,10 +286,10 @@ class Apply(Case):
     def test_every_anchor_must_match_once_on_the_bytes_that_are_written(self):
         mod = load_module()
         raw = build(V327)
-        self.assertEqual(mod.patched(raw, b"")[0].count(b"cbCwd"), 6)
+        self.assertEqual(mod.patched(raw, (b"", b""))[0].count(b"cbCwd"), 6)
         doubled = raw + raw[raw.index(b"x.push(Wp("):raw.index(b'x.push(Wp("claude-vscode.editor.openLast')]
         with self.assertRaises(SystemExit):
-            mod.patched(doubled, b"")
+            mod.patched(doubled, (b"", b""))
 
     def test_a_corrupt_marker_reads_as_leftovers_and_undo_recovers_from_the_backup(self):
         orig = self.js()
@@ -329,23 +349,24 @@ class Css(Case):
     def test_each_block_goes_in_front_of_the_font_tag_once(self):
         mod = load_module()
         ext, marker = self.applied(build(V327))
-        self.assertEqual((self.rc, marker["width"], marker["chip"]), (0, True, True))
+        self.assertEqual((self.rc, marker["width"], marker["pie"], "chip" in marker), (0, True, True, False))
         self.assertEqual(self.out.count("warning"), 0)
         new = self.js(ext).decode("utf-8")
-        self.assertEqual((new.count('<style id="callboard-width">'), new.count('<style id="callboard-chip">')), (1, 1))
-        self.assertIn('rel="stylesheet">\n        <style id="callboard-width">' + mod.WIDTH_CSS + '</style><style id="callboard-chip">' + mod.CHIP_CSS
+        self.assertEqual((new.count('<style id="callboard-width">'), new.count('<style id="callboard-pie">')), (1, 1))
+        self.assertIn('rel="stylesheet">\n        <style id="callboard-width">' + mod.WIDTH_CSS + '</style><style id="callboard-pie">' + mod.PIE_CSS
                       + '</style><style id="claude-font-configuration">', new)
 
-    def test_the_css_is_safe_inside_a_template_literal_and_hides_the_chip_but_not_its_error(self):
+    def test_the_css_is_safe_inside_a_template_literal_and_the_remote_control_chip_is_left_alone(self):
         mod = load_module()
         for bad in ("`", "\\", "${"):
-            self.assertNotIn(bad, mod.WIDTH_CSS + mod.CHIP_CSS)
+            self.assertNotIn(bad, mod.WIDTH_CSS)
+        for bad in ("`", "\\"):
+            self.assertNotIn(bad, mod.PIE_CSS)
+        self.assertEqual(mod.PIE_CSS.count("${"), 1)
         for part in ("inputWrapper_", "permissionsContainer_", "inputContainer_", "max-width:none"):
             self.assertIn(part, mod.WIDTH_CSS)
-        self.assertEqual(mod.CHIP_CSS, '[aria-label="Remote Control"],[aria-label^="Connecting to claude.ai"]{display:none!important}')
-        # The error pill's label ("Remote Control error: ...") matches neither selector: one is exact, the other a prefix it does not start with.
-        self.assertNotIn('aria-label^="Remote', mod.CHIP_CSS)
-        self.assertNotIn("*=", mod.CHIP_CSS)
+        self.assertFalse(hasattr(mod, "CHIP_CSS"))
+        self.assertNotIn("aria-label", slurp(SCRIPT).decode())
 
     @unittest.skipUnless(shutil.which("node"), "needs node")
     def test_the_patched_page_builder_still_runs_and_carries_the_blocks(self):
@@ -356,24 +377,24 @@ class Css(Case):
         page = json.loads(p.stdout)
         self.assertIn('<link href="/a.css" rel="stylesheet">', page)
         self.assertIn(mod.WIDTH_CSS, page)
-        self.assertIn(mod.CHIP_CSS, page)
+        self.assertIn(":root{--callboard-compact:0}", page, "no settings are readable in the stand-in: no level")
         self.assertIn("--vscode-editor-font-family: mono", page)
 
-    def test_a_missing_or_linked_webview_leaves_out_only_the_css_pieces(self):
+    def test_a_missing_or_linked_webview_leaves_out_the_pieces_that_need_it(self):
         ext = self.make(V327, name="noweb", web={})
         os.symlink(os.path.join(self.t, "elsewhere.js"), os.path.join(ext, "webview", "index.js"))
         self.run_script(ext, "--apply")
         marker = json.loads(slurp(os.path.join(ext, "callboard-cwd-patch.json")))
-        self.assertEqual((self.rc, marker["width"], marker["chip"], marker["restore"]), (0, False, False, True))
+        self.assertEqual((self.rc, marker["width"], marker["pie"], marker["restore"]), (0, False, False, True))
         self.assertIn("the panel width is not in (the webview lacks", self.out)
+        self.assertIn("the context pie is not in (pie anchor pie component (no match))", self.out)
 
-    def test_a_webview_that_lacks_a_token_costs_only_that_piece(self):
-        for field, other, web in (("chip", "width", {"index.css": WEB["index.css"]}), ("width", "chip", {"index.js": WEB["index.js"]})):
-            ext, marker = self.applied(build(V327), name="tok-" + field, web=web)
-            self.assertEqual((self.rc, marker[field], marker[other]), (0, False, True), field)
-            self.assertIn("is not in (the webview lacks", self.out, field)
-            self.assertNotIn(b"callboard-" + field.encode(), self.js(ext), field)
-            self.assertIn(b"callboard-" + other.encode(), self.js(ext), field)
+    def test_a_webview_that_lacks_a_token_costs_only_the_width(self):
+        ext, marker = self.applied(build(V327), name="tok", web={"index.js": WEB["index.js"]})
+        self.assertEqual((self.rc, marker["width"], marker["pie"]), (0, False, True))
+        self.assertIn("is not in (the webview lacks", self.out)
+        self.assertNotIn(b"callboard-width", self.js(ext))
+        self.assertIn(b"callboard-pie", self.js(ext))
 
     def test_a_missing_font_tag_costs_only_the_css_pieces(self):
         misses = {
@@ -388,7 +409,7 @@ class Css(Case):
             self.run_script(ext)
             self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "unpatched-patchable 2.1.328"), label)
             self.assertIn("warning: the panel width would be left out (font tag anchor (", self.out, label)
-            self.assertIn("warning: the chip hiding would be left out (font tag anchor (", self.out, label)
+            self.assertIn("warning: the context pie would be left out (font tag anchor (", self.out, label)
             self.assertEqual(snap(ext), before, label)
             self.run_script(ext, "--apply")
             self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "patched 2.1.328"), label)
@@ -397,7 +418,9 @@ class Css(Case):
             self.assertEqual(new.count(b"cbCwd"), 6, label)
             self.assertNotIn(b"callboard-width", new, label)
             marker = json.loads(slurp(os.path.join(ext, "callboard-cwd-patch.json")))
-            self.assertEqual((marker["width"], marker["chip"]), (False, False), label)
+            self.assertEqual((marker["width"], marker["pie"]), (False, False), label)
+            self.assertEqual(slurp(os.path.join(ext, "webview", "index.js")), WEB["index.js"].encode(), label)
+            self.assertFalse(os.path.exists(os.path.join(ext, "webview", "index.js.callboard-orig")), label)
             self.run_script(ext)
             self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "patched 2.1.328"), label)
             self.assertIn("warning: the panel width is not in this patch.", self.out, label)
@@ -408,17 +431,19 @@ class Css(Case):
     def test_a_page_that_already_has_a_block_keeps_it_and_takes_the_other(self):
         raw = build(V327, HTML.replace("<head>", '<head><style id="callboard-width"></style>'))
         ext, marker = self.applied(raw, name="have")
-        self.assertEqual((self.rc, marker["width"], marker["chip"]), (0, False, True))
+        self.assertEqual((self.rc, marker["width"], marker["pie"]), (0, False, True))
         self.assertEqual(self.js(ext).count(b"callboard-width"), 1)
         self.assertIn("the file already contains callboard-width", self.out)
 
     def test_undo_takes_the_blocks_out_with_the_rest(self):
         raw = build(V327)
         ext, _ = self.applied(raw, name="undo")
-        self.assertIn(b"callboard-chip", self.js(ext))
+        self.assertIn(b"callboard-pie", self.js(ext))
         self.run_script(ext, "--undo")
         self.assertEqual((self.rc, self.js(ext)), (0, raw))
+        self.assertEqual(slurp(os.path.join(ext, "webview", "index.js")), WEB["index.js"].encode())
         self.assertEqual(sorted(os.listdir(ext)), STOCK)
+        self.assertEqual(sorted(os.listdir(os.path.join(ext, "webview"))), ["index.css", "index.js"])
 
 
 # Runs the patched stand-in's group command against a fake provider that keeps the group list the way Claude's settings do, and prints what it did.
@@ -467,7 +492,7 @@ class Groups(Case):
             self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "patched 2.1.328"))
             self.assertEqual(self.out.count("warning"), 0)
             marker = json.loads(slurp(os.path.join(ext, "callboard-cwd-patch.json")))
-            self.assertEqual((marker["patch"], marker["width"], marker["chip"], marker["groups"], marker["session"]), (1, True, True, True, True))
+            self.assertEqual((marker["patch"], marker["width"], marker["pie"], marker["groups"], marker["session"]), (1, True, True, True, True))
             new = self.js(ext)
             self.assertEqual((new.count(b"callboard assign group"), new.count(b"callboard active session")), (1, 1))
             self.assertEqual(new.count(b"cbCwd"), 6)
@@ -605,14 +630,6 @@ class Groups(Case):
 class Update(Case):
     """An install made by an older script reads outdated; --update rebuilds it from the backup original and never leaves a half patch."""
 
-    def older(self, ext, **attrs):
-        """Patches ext in this process with a stand-in for an older script: the module's own apply, with some of its constants changed."""
-        mod = load_module()
-        for k, v in attrs.items():
-            setattr(mod, k, v)
-        with contextlib.redirect_stdout(io.StringIO()):
-            mod.apply(ext)
-
     def current(self, raw):
         mod = load_module()
         return mod.patched(raw, mod.webview(self.ext))[0]
@@ -654,28 +671,31 @@ class Update(Case):
         self.assertUnchanged(self.ext)
         self.assertEqual((self.rc, self.out), (0, "patched 2.1.328\n"))
 
-    def test_an_install_with_the_old_look_block_reads_outdated_and_update_splits_it(self):
+    def test_an_install_with_the_chip_hiding_block_reads_outdated_and_update_takes_it_out(self):
         orig = self.js()
         self.run_script(self.ext, "--apply")
-        mod = load_module()
-        blocks = b'<style id="callboard-width">' + mod.WIDTH_CSS.encode() + b'</style><style id="callboard-chip">' + mod.CHIP_CSS.encode() + b"</style>"
-        old = self.js().replace(blocks, b'<style id="callboard-look">a{b:c}</style>')
+        chip = b'<style id="callboard-chip">[aria-label="Remote Control"],[aria-label^="Connecting to claude.ai"]{display:none!important}</style>'
+        old = self.js().replace(b'<style id="callboard-pie">', chip + b'<style id="callboard-pie">')
         self.assertNotEqual(old, self.js())
         mp = os.path.join(self.ext, "callboard-cwd-patch.json")
         marker = json.loads(slurp(mp))
-        del marker["width"], marker["chip"]
-        marker.update(look=True, patched_sha256=hashlib.sha256(old).hexdigest())
+        marker.update(chip=True, patched_sha256=hashlib.sha256(old).hexdigest())
         for path, data in ((os.path.join(self.ext, "extension.js"), old), (mp, json.dumps(marker).encode())):
             with open(path + ".t", "wb") as f:
                 f.write(data)
             os.replace(path + ".t", path)
         self.run_script(self.ext)
-        self.assertEqual((self.rc, self.out.splitlines()[0]), (1, "outdated 2.1.328: the panel width is not in"))
+        self.assertEqual((self.rc, self.out.splitlines()[0]), (1, "outdated 2.1.328: the patch code differs from this script's"))
         self.run_script(self.ext, "--update")
         self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "updated 2.1.328"))
         self.assertEqual(self.js(), self.current(orig))
-        marker = json.loads(slurp(mp))
-        self.assertEqual((marker["width"], marker["chip"], "look" in marker), (True, True, False))
+        self.assertNotIn(b"callboard-chip", self.js())
+        self.assertNotIn(b"Remote Control", self.js())
+        self.assertEqual(self.js(), slurp(os.path.join(self.ext, "extension.js")))
+        self.assertNotIn("chip", json.loads(slurp(mp)))
+        self.assertEqual(slurp(os.path.join(self.ext, "extension.js.callboard-orig")), orig)
+        self.assertUnchanged(self.ext)
+        self.assertEqual((self.rc, self.out), (0, "patched 2.1.328\n"))
 
     @unittest.skipUnless(shutil.which("node"), "needs node")
     def test_the_updated_code_still_runs(self):
@@ -918,6 +938,338 @@ class Restore(Case):
         self.assertFalse(marker["restore"])
         self.run_script(ext)
         self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "patched 2.1.328"))
+
+
+# Runs the patched stand-in of the webview script under fakes: the composer's pie component, the ring and the bar that passes the window, with the level the
+# page carries as a CSS variable.
+WEB_RUNNER = r"""
+const vm = require('vm'), fs = require('fs')
+const [file, level, sv, pc] = process.argv.slice(1)
+const m = (t, p) => ({ t, p }), k = (t, p) => ({ t, p })
+const stock = (w, o) => w - Math.min(o, 20000) - 13000
+const ctx = vm.createContext({ m, k, FBn: 'FBn', BFt: 'BFt', ia: { usageButtonV2: 'u' }, a: 'compact', PBn: () => 50, DBn: { 50: 'd' }, NFt: stock, tFt: stock,
+  getComputedStyle: () => ({ getPropertyValue: (n) => (n === '--callboard-compact' ? level : '') }), document: { documentElement: {} } })
+vm.runInContext(fs.readFileSync(file, 'utf8') + ';globalThis.F = { sv: ' + sv + ', pc: ' + pc + ', Bar }', ctx)
+const props = (used, w, o = 20000) => ctx.F.Bar({ usageData: { value: { totalTokens: used, contextWindow: w, maxOutputTokens: o } } }).p.children[1].p
+const used = (u, w) => { const r = ctx.F.pc(props(u, w)); return r && r.p.percentageUsed }
+const ring = (x) => ctx.F.sv({ percentage: x, className: 'c' }).p.children.map((c) => c && { r: c.p.r, d: c.p.strokeDasharray, s: c.p.stroke })
+console.log(JSON.stringify({ window: [props(1, 1000000).contextWindow, props(1, 400000).contextWindow, props(1, 1000000, 8000).contextWindow], used: [used(1000, 1000000), used(233500, 1000000), used(900000, 1000000)],
+  ring: [ring(0), ring(50), ring(150), ring(NaN), ring(undefined)] }))
+"""
+CIRC = 2 * 3.141592653589793 * 7.25
+# What an older script that had no pie amounts to: anchors that match nothing, so the piece is left out.
+NO_PIE = (("pie component", rb"no such code", lambda m: b""),)
+
+
+class Pie(Case):
+    """The context pie: one optional piece that edits webview/index.js (kept as webview/index.js.callboard-orig) and puts the autocompact level into the page."""
+
+    WEBJS = os.path.join("webview", "index.js")
+    BAK = os.path.join("webview", "index.js.callboard-orig")
+
+    def marker(self, ext):
+        return json.loads(slurp(os.path.join(ext, "callboard-cwd-patch.json")))
+
+    def shown(self, ext, level, names=JS329):
+        p = subprocess.run(["node", "-e", WEB_RUNNER, os.path.join(ext, self.WEBJS), level, names["sv"], names["pc"]], capture_output=True, text=True, timeout=60)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        return json.loads(p.stdout)
+
+    def test_the_patch_edits_the_three_places_once_keeps_the_shipped_script_and_undo_puts_it_back(self):
+        for names in (JS329, JS328):
+            web = dict(WEB, **{"index.js": PIE_JS.format(**names)})
+            ext = self.make(V327, name="pie" + names["pc"], web=web)
+            orig = slurp(os.path.join(ext, self.WEBJS))
+            self.run_script(ext, "--apply")
+            self.assertEqual((self.rc, self.out.count("warning")), (0, 0), self.out)
+            new, marker = slurp(os.path.join(ext, self.WEBJS)), self.marker(ext)
+            self.assertEqual(slurp(os.path.join(ext, self.BAK)), orig)
+            self.assertEqual((marker["pie"], marker["web_original_sha256"], marker["web_patched_sha256"]), (True, hashlib.sha256(orig).hexdigest(), hashlib.sha256(new).hexdigest()))
+            self.assertEqual((new.count(b"cbpCap("), new.count(b"cbpN;"), new.count(b"<circle"), new.count(b'"circle"')), (2, 1, 0, 2))
+            self.assertNotIn(b"if(r>=50)return null", new)
+            self.assertNotIn(b'"path"', new)
+            self.assertEqual(sorted(os.listdir(ext)), sorted(STOCK + ["callboard-cwd-patch.json", "extension.js.callboard-orig"]))
+            self.run_script(ext)
+            self.assertEqual((self.rc, self.out), (0, "patched 2.1.328\n"))
+            self.run_script(ext, "--undo")
+            self.assertEqual((self.rc, slurp(os.path.join(ext, self.WEBJS))), (0, orig))
+            self.assertEqual((sorted(os.listdir(ext)), sorted(os.listdir(os.path.join(ext, "webview")))), (STOCK, ["index.css", "index.js"]))
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_the_pie_always_shows_against_the_level_and_the_ring_is_continuous(self):
+        for names in (JS329, JS328):
+            web = dict(WEB, **{"index.js": PIE_JS.format(**names)})
+            ext = self.make(V327, name="run" + names["pc"], web=web)
+            self.run_script(ext, "--apply")
+            got = self.shown(ext, " 500000", names)
+            self.assertEqual(got["window"], [467000, 367000, 467000 + 12000], "the level caps the window; a smaller window stays; the output limit still counts")
+            self.assertEqual(got["used"], [1000 / 467000 * 100, 50, 100], "shown from the first token, against the level, never past full")
+            track, ring = got["ring"][1]
+            self.assertEqual((track["r"], ring["r"], track.get("d")), ("7.25", "7.25", None))
+            self.assertAlmostEqual(float(ring["d"].split()[0]), CIRC / 2, places=6)
+            self.assertEqual(got["ring"][0][1], False, "no arc at zero")
+            self.assertAlmostEqual(float(got["ring"][2][1]["d"].split()[0]), CIRC, places=6)
+            self.assertEqual(got["ring"][3][1], False)
+            self.assertEqual(got["ring"][4][1], False)
+            for none in ("", " 0", " garbage", " -5"):
+                self.assertEqual(self.shown(ext, none, names)["window"][0], 967000, "no usable level: the stock window")
+            self.assertEqual(self.shown(ext, " 5000000", names)["window"][0], 967000, "a level above the window changes nothing")
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_the_page_carries_the_level_from_the_settings_of_the_config_folder(self):
+        ext, _ = Css.applied(self, build(V327), name="page")
+        cfg = os.path.join(self.t, "cfg")
+        os.makedirs(cfg)
+        script = PAGE.replace("require: () => ({})", "require, process: { env: { CLAUDE_CONFIG_DIR: process.argv[2] } }")
+        for text, want in (('{"autoCompactWindow": 500000}', 500000), ('{"autoCompactWindow": "500000"}', 0), ('{"autoCompactWindow": -1}', 0), ('{"autoCompactWindow": 1.5}', 0), ("{}", 0), ("[", 0), (None, 0)):
+            if text is None:
+                os.path.exists(os.path.join(cfg, "settings.json")) and os.unlink(os.path.join(cfg, "settings.json"))
+            else:
+                with open(os.path.join(cfg, "settings.json"), "w") as f:
+                    f.write(text)
+            p = subprocess.run(["node", "-e", script, os.path.join(ext, "extension.js"), cfg], capture_output=True, text=True, timeout=60)
+            self.assertEqual(p.returncode, 0, p.stderr)
+            self.assertIn(":root{--callboard-compact:%d}" % want, json.loads(p.stdout), text)
+
+    def test_an_anchor_that_misses_or_doubles_costs_only_the_pie(self):
+        mod = load_module()
+        js = WEB["index.js"]
+        cases = {
+            "threshold": js.replace("e.usageData.value.contextWindow,e.usageData", "e.usageData.value.window,e.usageData", 1),
+            "pie component": js.replace("if(r>=50)return null;", "", 1),
+            "drawing": js.replace('strokeOpacity:"0.15"', 'strokeOpacity:"0.2"', 1),
+            "doubled": js + js[js.index("function nBt"):js.index("function Bar")],
+        }
+        for label, bad in cases.items():
+            ext = self.make(V327, name="miss" + label.replace(" ", ""), web=dict(WEB, **{"index.js": bad}))
+            before = snap(ext)
+            self.run_script(ext)
+            self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "unpatched-patchable 2.1.328"), label)
+            self.assertIn("warning: the context pie would be left out (pie anchor ", self.out, label)
+            self.assertEqual(snap(ext), before, label)
+            self.run_script(ext, "--apply")
+            self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "patched 2.1.328"), label)
+            self.assertIn("warning: the context pie is not in (pie anchor ", self.out, label)
+            self.assertEqual(slurp(os.path.join(ext, self.WEBJS)), bad.encode(), label)
+            self.assertFalse(os.path.exists(os.path.join(ext, self.BAK)), label)
+            marker = self.marker(ext)
+            self.assertEqual((marker["pie"], marker["width"], marker["restore"], "web_patched_sha256" in marker), (False, True, True, False), label)
+            self.assertNotIn(b"callboard-pie", self.js(ext), label)
+            self.run_script(ext)
+            self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "patched 2.1.328"), label)
+            self.assertIn("warning: the context pie is not in this patch.", self.out, label)
+            self.run_script(ext, "--undo")
+            self.assertEqual((self.rc, sorted(os.listdir(ext))), (0, STOCK), label)
+        self.assertEqual(len(mod.PIE_ANCHORS), 3)
+
+    def test_the_pie_is_left_out_whole_when_the_page_builder_cannot_take_its_block(self):
+        raw = build(V327, "")
+        ext = self.make(V327, name="nofont", raw=raw)
+        self.run_script(ext, "--apply")
+        self.assertIn("the context pie is not in (font tag anchor (", self.out)
+        self.assertEqual(slurp(os.path.join(ext, self.WEBJS)), WEB["index.js"].encode())
+        self.assertFalse(os.path.exists(os.path.join(ext, self.BAK)))
+
+    def test_an_install_from_before_the_pie_reads_outdated_and_update_brings_it_in(self):
+        mod = load_module()
+        ext = self.make(V327, name="old")
+        orig_js = slurp(os.path.join(ext, self.WEBJS))
+        self.older(ext, PIE_ANCHORS=NO_PIE)
+        self.assertEqual(slurp(os.path.join(ext, self.WEBJS)), orig_js)
+        self.run_script(ext)
+        self.assertEqual((self.rc, self.out.splitlines()[0]), (1, "outdated 2.1.328: the context pie is not in"))
+        self.run_script(ext, "--update")
+        self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "updated 2.1.328"))
+        self.assertEqual((slurp(os.path.join(ext, self.BAK)), self.marker(ext)["pie"]), (orig_js, True))
+        self.assertNotEqual(slurp(os.path.join(ext, self.WEBJS)), orig_js)
+        self.run_script(ext)
+        self.assertEqual((self.rc, self.out), (0, "patched 2.1.328\n"))
+        self.run_script(ext, "--update")
+        self.assertEqual(self.out, "already patched 2.1.328\n")
+        self.run_script(ext, "--undo")
+        self.assertEqual((slurp(os.path.join(ext, self.WEBJS)), sorted(os.listdir(os.path.join(ext, "webview")))), (orig_js, ["index.css", "index.js"]))
+
+    def test_update_follows_the_pie_out_when_the_script_can_no_longer_build_it(self):
+        mod = load_module()
+        ext = self.make(V327, name="out")
+        orig_js = slurp(os.path.join(ext, self.WEBJS))
+        self.run_script(ext, "--apply")
+        mod.PIE_ANCHORS = NO_PIE
+        self.assertEqual(mod.state(ext)[:2], ("outdated", "2.1.328"))
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(mod.update(ext), 0)
+        self.assertEqual(slurp(os.path.join(ext, self.WEBJS)), orig_js)
+        self.assertEqual((self.marker(ext)["pie"], "web_patched_sha256" in self.marker(ext), os.path.exists(os.path.join(ext, self.BAK))), (False, False, False))
+        self.assertEqual(mod.state(ext)[0], "patched")
+
+    def test_a_failed_update_puts_the_webview_script_back_too(self):
+        mod = load_module()
+        for failing in ("index.js", "extension.js", "callboard-cwd-patch.json"):
+            ext = self.make(V327, name="uf-" + failing)
+            self.older(ext, PIE_ANCHORS=NO_PIE)
+            before = snap(ext)
+            mod = load_module()
+            real = mod.put
+
+            def put(path, content, mode, failing=failing, real=real):
+                if os.path.basename(path) == failing:
+                    raise OSError(28, "No space left on device")
+                real(path, content, mode)
+
+            mod.put = put
+            with self.assertRaises(SystemExit) as cm:
+                mod.update(ext)
+            self.assertEqual(cm.exception.code, 1, failing)
+            self.assertEqual(snap(ext), before, failing)
+
+    def test_an_update_that_died_after_the_pie_went_in_leaves_leftovers_that_undo_clears(self):
+        for name, pie_in in (("linked", False), ("piein", True)):
+            ext = self.make(V327, name="die-" + name)
+            orig_main, orig_js = self.js(ext), slurp(os.path.join(ext, self.WEBJS))
+            self.older(ext, PIE_ANCHORS=NO_PIE)
+            mod = load_module()
+            if pie_in:
+                mod.set_web(ext, orig_js, mod.pie_web(orig_js))
+                self.assertNotEqual(slurp(os.path.join(ext, self.WEBJS)), orig_js)
+            else:
+                os.link(os.path.join(ext, self.WEBJS), os.path.join(ext, self.BAK))
+            self.assertEqual(self.marker(ext).get("web_original_sha256"), None)
+            self.run_script(ext)
+            self.assertEqual((self.rc, self.out.splitlines()[0].split(":")[0]), (1, "leftovers 2.1.328"), name)
+            for flag in ("--apply", "--update"):
+                self.assertUnchanged(ext, flag)
+                self.assertEqual(self.rc, 1, name)
+                self.assertIn("run --undo first", self.err, name)
+            self.run_script(ext, "--undo")
+            self.assertEqual((self.rc, self.js(ext), slurp(os.path.join(ext, self.WEBJS)), sorted(os.listdir(ext))), (0, orig_main, orig_js, STOCK), name)
+            self.assertEqual(sorted(os.listdir(os.path.join(ext, "webview"))), ["index.css", "index.js"], name)
+
+    def test_a_failed_update_that_takes_the_pie_out_puts_it_back(self):
+        ext = self.make(V327, name="out-fail")
+        self.run_script(ext, "--apply")
+        before = snap(ext)
+        mod = load_module()
+        mod.PIE_ANCHORS = NO_PIE
+        real = mod.put
+
+        def put(path, content, mode):
+            if os.path.basename(path) == "extension.js":
+                raise OSError(28, "No space left on device")
+            real(path, content, mode)
+
+        mod.put = put
+        with self.assertRaises(SystemExit) as cm:
+            mod.update(ext)
+        self.assertEqual((cm.exception.code, snap(ext)), (1, before))
+
+    def test_undo_still_refuses_an_unrecorded_webview_backup_when_the_script_is_neither_it_nor_the_pie_of_it(self):
+        ext = self.make(V327, name="die-odd")
+        self.older(ext, PIE_ANCHORS=NO_PIE)
+        os.link(os.path.join(ext, self.WEBJS), os.path.join(ext, self.BAK))
+        os.unlink(os.path.join(ext, self.WEBJS))
+        with open(os.path.join(ext, self.WEBJS), "w") as f:
+            f.write("something else")
+        self.assertUnchanged(ext, "--undo")
+        self.assertEqual(self.rc, 1)
+        self.assertIn("index.js.callboard-orig does not match the marker's recorded original", self.err)
+
+    def test_an_update_whose_writes_and_webview_rollback_all_fail_still_puts_both_files_back(self):
+        ext = self.make(V327, name="rb")
+        self.older(ext, PIE_ANCHORS=NO_PIE)
+        before = snap(ext)
+        mod = load_module()
+        real, puts = mod.put, []
+
+        def put(path, content, mode):
+            if os.path.basename(path) == "index.js" and not puts:
+                puts.append(path)
+                return real(path, content, mode)
+            if os.path.basename(path) in ("index.js", "extension.js"):
+                raise OSError(28, "No space left on device")
+            real(path, content, mode)
+
+        mod.put = put
+        with self.assertRaises(SystemExit) as cm:
+            mod.update(ext)
+        self.assertEqual((cm.exception.code, len(puts), snap(ext)), (1, 1, before))
+
+    def test_an_update_that_cannot_put_the_earlier_pie_back_refuses_naming_undo_and_undo_restores_both(self):
+        ext = self.make(V327, name="stuck")
+        orig_main, orig_js = self.js(ext), slurp(os.path.join(ext, self.WEBJS))
+        mod = load_module()
+        first = mod.PIE_ANCHORS[0]
+        old = ((first[0], first[1], lambda m: b"/*old*/" + first[2](m)),) + mod.PIE_ANCHORS[1:]
+        self.older(ext, PIE_ANCHORS=old)
+        self.assertEqual(mod.state(ext)[:2], ("outdated", "2.1.328"))
+        real, puts = mod.put, []
+
+        def put(path, content, mode):
+            if os.path.basename(path) == "index.js" and not puts:
+                puts.append(path)
+                return real(path, content, mode)
+            if os.path.basename(path) in ("index.js", "extension.js"):
+                raise OSError(28, "No space left on device")
+            real(path, content, mode)
+
+        mod.put = put
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), self.assertRaises(SystemExit) as cm:
+            mod.update(ext)
+        self.assertEqual((cm.exception.code, len(puts)), (1, 1))
+        self.assertIn("run --undo", err.getvalue())
+        self.assertEqual((mod.state(ext)[0], os.path.exists(os.path.join(ext, "extension.js.callboard-prev"))), ("leftovers", False))
+        self.run_script(ext, "--undo")
+        self.assertEqual((self.rc, self.js(ext), slurp(os.path.join(ext, self.WEBJS)), sorted(os.listdir(ext))), (0, orig_main, orig_js, STOCK))
+
+    def test_a_webview_script_that_is_not_the_one_patched_reads_as_leftovers_and_undo_recovers(self):
+        ext = self.make(V327, name="lo")
+        orig_js = slurp(os.path.join(ext, self.WEBJS))
+        self.run_script(ext, "--apply")
+        with open(os.path.join(ext, self.WEBJS), "w") as f:
+            f.write("something else")
+        self.run_script(ext)
+        self.assertEqual((self.rc, self.out.splitlines()[0]), (1, "leftovers 2.1.328: callboard-cwd-patch.json, extension.js.callboard-orig, webview/index.js.callboard-orig"))
+        self.assertUnchanged(ext, "--apply")
+        self.assertEqual(self.rc, 1)
+        self.run_script(ext, "--undo")
+        self.assertEqual((self.rc, slurp(os.path.join(ext, self.WEBJS)), sorted(os.listdir(ext))), (0, orig_js, STOCK))
+
+    def test_undo_refuses_when_the_webview_backup_is_gone_and_leaves_both_files_alone(self):
+        ext = self.make(V327, name="gone")
+        self.run_script(ext, "--apply")
+        os.unlink(os.path.join(ext, self.BAK))
+        self.assertUnchanged(ext, "--undo")
+        self.assertEqual(self.rc, 1)
+        self.assertIn("the backup of webview/index.js is gone", self.err)
+
+    def test_a_corrupt_webview_backup_reads_outdated_and_update_refuses_it(self):
+        ext = self.make(V327, name="corrupt")
+        self.run_script(ext, "--apply")
+        with open(os.path.join(ext, self.BAK), "w") as f:
+            f.write("truncated")
+        self.run_script(ext)
+        self.assertEqual((self.rc, self.out.splitlines()[0]), (1, "outdated 2.1.328: webview/index.js.callboard-orig does not match the marker's recorded original"))
+        self.assertUnchanged(ext, "--update")
+        self.assertEqual(self.rc, 1)
+        self.assertIn("nothing was changed", self.err)
+
+    def test_a_linked_webview_folder_leaves_the_pie_out(self):
+        ext = self.make(V327, name="lw")
+        shutil.move(os.path.join(ext, "webview"), os.path.join(self.t, "real-webview"))
+        os.symlink(os.path.join(self.t, "real-webview"), os.path.join(ext, "webview"))
+        self.run_script(ext, "--apply")
+        self.assertEqual(self.rc, 0)
+        self.assertIn("the context pie is not in (", self.out)
+        self.assertEqual(slurp(os.path.join(self.t, "real-webview", "index.js")), WEB["index.js"].encode())
+
+    def test_undo_refuses_a_webview_backup_that_is_not_the_recorded_original(self):
+        ext = self.make(V327, name="bad")
+        self.run_script(ext, "--apply")
+        with open(os.path.join(ext, self.BAK), "w") as f:
+            f.write("not the original")
+        self.assertUnchanged(ext, "--undo")
+        self.assertEqual(self.rc, 1)
+        self.assertIn("index.js.callboard-orig does not match the marker's recorded original", self.err)
 
 
 class Refusals(Case):
