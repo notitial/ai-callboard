@@ -200,7 +200,7 @@ test('a process that outlives SIGKILL still ends the run, and a late close chang
 test('Cancel stops the group and the result says it was cancelled, with the output so far', async () => {
   const w = world({ script: (c, sig) => { if (!sig) { c.out('partial\n'); setImmediate(() => w.cancel()) } else c.close(null, sig) } })
   const r = await ask(w)
-  assert.deepEqual(w.kills, [[-4242, 'SIGTERM']])
+  assert.deepEqual(w.kills, [[-4242, 'SIGTERM'], [-4242, 'SIGKILL']], 'the group is reaped when the run ends')
   assert.match(r.text, /\(cancelled, /)
   assert.match(r.text, /Output:\n```\npartial\n\n```/)
   assert.equal(w.cancel, undefined, 'the cancel listener is gone')
@@ -286,17 +286,18 @@ test('dispose stops a live run with SIGTERM and says VS Code closed it; with no 
   assert.match(r.text, /\(stopped: VS Code closed it, /)
 })
 
-test('when the shell dies on the SIGTERM of a Cancel or a timeout, a survivor in the group still gets the SIGKILL', async () => {
+test('when the shell dies on the SIGTERM of a Cancel or a timeout, with or without close, a survivor in the group still gets the SIGKILL', async () => {
   for (const how of ['timeout', 'cancel']) {
-    const w = world({ extra: { graceMs: 10, timeoutMs: how === 'timeout' ? 40 : 5000 },
-      script: (c, sig) => {
-        if (!sig && how === 'cancel') setImmediate(() => w.cancel())
-        else if (sig === 'SIGTERM') c.emit('exit', null, 'SIGTERM')
-        else if (sig === 'SIGKILL') c.close(null, 'SIGKILL')
-      } })
-    const r = await ask(w)
-    assert.deepEqual(w.kills, [[-4242, 'SIGTERM'], [-4242, 'SIGKILL']], how)
-    assert.match(r.text, how === 'timeout' ? /\(timed out after /: /\(cancelled, /)
+    for (const dies of ['exit', 'close']) {
+      const w = world({ extra: { graceMs: 10, timeoutMs: how === 'timeout' ? 40 : 5000 },
+        script: (c, sig) => {
+          if (!sig && how === 'cancel') setImmediate(() => w.cancel())
+          else if (sig === 'SIGTERM') (dies === 'exit' ? c.emit('exit', null, 'SIGTERM') : c.close(null, 'SIGTERM'))
+        } })
+      const r = await ask(w)
+      assert.deepEqual(w.kills, [[-4242, 'SIGTERM'], [-4242, 'SIGKILL']], `${how} ${dies}`)
+      assert.match(r.text, how === 'timeout' ? /\(timed out after / : /\(cancelled, /)
+    }
   }
 })
 

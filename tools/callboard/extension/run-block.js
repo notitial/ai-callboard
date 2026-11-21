@@ -107,7 +107,7 @@ function createRunBlock({ vscode, spawn, kill = (pid, sig) => process.kill(pid, 
     return '/bin/zsh'
   }
 
-  // Runs it with Cancel and a timeout: SIGTERM to its process group, SIGKILL after killMs, and a result even if the pipes never close.
+  // Runs it with Cancel and a timeout: SIGTERM to its process group, then SIGKILL when the run ends (at the latest killMs later), and a result even if the pipes never close.
   const exec = (text, cwd) =>
     vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `Running: ${oneLine(text.trimStart().split('\n')[0]).slice(0, 60)}`, cancellable: true }, (_progress, token) =>
       new Promise((resolve) => {
@@ -119,14 +119,7 @@ function createRunBlock({ vscode, spawn, kill = (pid, sig) => process.kill(pid, 
         let stopped
         let sub
         let done = false
-        const finish = (status) => {
-          if (done) return
-          done = true
-          stopLive = undefined
-          timers.forEach(clearTimeout)
-          if (sub) sub.dispose()
-          resolve({ status, ms: now() - started, out: out.text(), err: err.text() })
-        }
+        let reaped = false
         const signal = (sig) => {
           try {
             kill(-child.pid, sig)
@@ -138,14 +131,27 @@ function createRunBlock({ vscode, spawn, kill = (pid, sig) => process.kill(pid, 
             }
           }
         }
+        // A stopped run's group gets its SIGKILL once, whichever way the run ends: a survivor of the SIGTERM (the shell may die on it, with or without 'close') must not outlive it.
+        const reap = () => {
+          if (stopped && !reaped) {
+            reaped = true
+            signal('SIGKILL')
+          }
+        }
+        const finish = (status) => {
+          if (done) return
+          done = true
+          reap()
+          stopLive = undefined
+          timers.forEach(clearTimeout)
+          if (sub) sub.dispose()
+          resolve({ status, ms: now() - started, out: out.text(), err: err.text() })
+        }
         const stop = (why) => {
           if (done || stopped) return
           stopped = why
           signal('SIGTERM')
-          timers.push(setTimeout(() => {
-            signal('SIGKILL')
-            timers.push(setTimeout(() => finish(stopped), killMs))
-          }, killMs))
+          timers.push(setTimeout(() => finish(stopped), killMs))
         }
         try {
           child = spawn(shell(), ['-lc', text], { cwd, detached: true, stdio: ['ignore', 'pipe', 'pipe'],
@@ -158,17 +164,16 @@ function createRunBlock({ vscode, spawn, kill = (pid, sig) => process.kill(pid, 
           child.on('error', (e) => finish(`could not start: ${e.message}`))
           child.on('close', (code, sig) => finish(status(code, sig)))
           // A background process that keeps the pipes open (`server &`) holds 'close' back, so the shell's own exit ends the run after a short grace.
-          // Once a stop has begun, its SIGKILL step ends the run instead: a survivor of the SIGTERM must still get the SIGKILL.
-          child.on('exit', (code, sig) => timers.push(setTimeout(() => { if (!stopped) finish(status(code, sig)) }, graceMs)))
+          child.on('exit', (code, sig) => timers.push(setTimeout(() => finish(status(code, sig)), graceMs)))
         } catch (e) {
           return finish(`could not start: ${e instanceof Error ? e.message : e}`)
         }
         timers.push(setTimeout(() => stop(`timed out after ${timeoutMs / 1000} s`), timeoutMs))
         sub = token.onCancellationRequested(() => stop('cancelled'))
-        // Nothing outlives a disposal to escalate later, so the group gets SIGKILL at once as well.
+        // Nothing outlives a disposal to escalate later, so the run ends, and the group gets its SIGKILL, at once.
         stopLive = () => {
           stop('stopped: VS Code closed it')
-          signal('SIGKILL')
+          finish(stopped)
         }
       }),
     )
