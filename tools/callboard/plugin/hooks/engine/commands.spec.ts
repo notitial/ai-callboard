@@ -100,6 +100,20 @@ test('status and lanes read the machine: the role, the parent, the goes that cov
   assert.match(lanes, /200k/)
   assert.match(lanes, /5m/)
 })
+test('status role: LANE only under a lead; SESSION under the manager or the person; MANAGER for the manager', async () => {
+  const f = fake()
+  me(f)
+  f.seed({ sid: 'sid-boss', pid: 11, name: 'BOSS' })
+  f.seed({ sid: 'sid-lead', pid: 12, name: 'LEAD' })
+  f.h.files.set(`${HOME}/.claude/callboard/manager-name`, 'BOSS\n')
+  const role = async () => (await run(f, 'status')).text.match(/\| Role \| (\w+) \|/)![1]
+  f.table({ 'sid-lead': { name: 'LEAD', folder: '/w/lead', lead: { repos: [] } }, 'sid-me': { name: 'me', folder: '/w/me', under: 'sid-lead' } })
+  assert.equal(await role(), 'LANE')
+  f.table({ 'sid-lead': { name: 'LEAD', folder: '/w/lead', lead: { repos: [] } }, 'sid-me': { name: 'me', folder: '/w/me', under: 'sid-boss' } })
+  assert.equal(await role(), 'SESSION')
+  f.table({ 'sid-me': { name: 'me', folder: '/w/me' } })
+  assert.equal(await role(), 'SESSION')
+})
 test('the typeahead offers the commands after /callboard and nothing elsewhere', async () => {
   const f = fake()
   const next = async () => ({ suggestions: [{ text: 'x', label: 'x', description: '' }] })
