@@ -44,12 +44,13 @@ test('the start registers the preset\'s command beside callboard\'s; a missing o
   assert.equal(mem.preset?.name, 'SENTINEL')
 })
 
-test('typed by the person it saves the lead row under the preset\'s name and gives the lead tools; run by a plugin, a session or anything else it is refused and saves nothing', async () => {
+test('typed by the person it saves the lead row under the session\'s own name and gives the lead tools, and the row takes the preset\'s name once the rename has landed; run by a plugin, a session or anything else it is refused and saves nothing', async () => {
   const f = await started()
   assert.match((await typed(f)).text, /This session is a lead from your next prompt/)
-  assert.deepEqual(table(f)['sid-me'], { name: 'SENTINEL', folder: '/w/me', lead: { repos: [] } })
+  assert.deepEqual(table(f)['sid-me'], { name: 'me', folder: '/w/me', lead: { repos: [] } })
   await tick(f)
   assert.ok(f.h.tools.includes('lane_create'))
+  assert.deepEqual(table(f)['sid-me'], { name: 'SENTINEL', folder: '/w/me', lead: { repos: [] } })
   for (const kind of ['plugin', 'sdk', 'peer', 'something-new', undefined]) {
     const g = await started()
     const r = (await presetRun(g.$, { command: 'sentinel', args: '', origin: kind === undefined ? undefined : { kind } }, next)) as { text: string }
@@ -111,6 +112,7 @@ test('a step that did not land is named in the notice, and the others still run:
   assert.deepEqual(f.h.compactRuns, ['model sonnet', 'effort high'])
   assert.match(f.h.submitted[0]!, /Not set: name, model\. Say so to the person\./)
   assert.doesNotMatch(f.h.submitted[0]!, /Not set:.*effort/)
+  assert.equal(table(f)['sid-me'].name, 'me', 'a rename that failed leaves the row\'s name as it was')
 })
 
 test('a session turned off before the tick is left alone: no steps, no notice', async () => {
@@ -142,6 +144,7 @@ test('the rename checks the name again: a name another session took while the st
   await tick(f)
   assert.deepEqual(f.h.compactRuns, ['model sonnet', 'effort high'])
   assert.match(f.h.submitted[0]!, /Not set: name\./)
+  assert.equal(table(f)['sid-me'].name, 'me', 'a rename that was skipped leaves the row\'s name as it was')
 })
 
 test('a tick that already submitted a text leaves the steps for the next one: nothing runs, nothing is lost', async () => {
@@ -159,13 +162,14 @@ test('a tick that already submitted a text leaves the steps for the next one: no
 })
 
 const old = (extra: object = {}) => ({ name: 'SENTINEL', folder: '/w/me', lead: { repos: [] }, ...extra })
-test('a second session in the folder takes the name over from the preset\'s own ended lead, and that row goes with the save; other rows stay', async () => {
+test('a second session in the folder takes the name over from the preset\'s own ended lead, and that row goes when the name is set; other rows stay', async () => {
   const f = await started()
   f.table({ 'sid-old': old(), 'sid-other': { name: 'other', folder: '/w/other', lead: { repos: [] } } })
   assert.match((await typed(f)).text, /This session is a lead from your next prompt/)
+  assert.deepEqual(Object.keys(table(f)).sort(), ['sid-me', 'sid-old', 'sid-other'], 'nothing is dropped before the name is set')
+  await tick(f)
   assert.deepEqual(Object.keys(table(f)).sort(), ['sid-me', 'sid-other'])
   assert.equal(table(f)['sid-me'].name, 'SENTINEL')
-  await tick(f)
   assert.deepEqual(f.h.compactRuns, ['rename SENTINEL', 'model sonnet', 'effort high'])
   assert.match(f.h.submitted[0]!, /^\[callboard\] The person ran \/sentinel/)
   assert.doesNotMatch(f.h.submitted[0]!, /Not set/)

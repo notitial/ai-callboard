@@ -22,7 +22,7 @@ export function parseConfig(raw: unknown): Config {
 export type ConfigOp = 'show' | 'reset' | { key: 'keepalive'; value: boolean } | { key: Num; value: number }
 export type Cmd =
   | { op: 'status' | 'lanes' | 'help' | 'lead-off' | 'off' | 'on' | 'rest' }
-  | { op: 'lead'; paths: string[]; preset?: Preset }
+  | { op: 'lead'; paths: string[] }
   | { op: 'conductor'; paths: string[] }
   | { op: 'go'; text: string }
   | { op: 'go-off'; id?: string }

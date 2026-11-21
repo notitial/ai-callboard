@@ -38,7 +38,7 @@ export async function presetRun($: any, e: any, next: any) {
   }
 }
 // The rows of this preset's own ended leads: another typed lead in this session's folder that holds the preset's name and has no live session. Its name is free to take, and its row goes
-// when the new one is saved (a typed lead's row is never expired). A live holder, a lane, a conductor, a minted lead and a row of another folder are not in it.
+// when the new name is set (a typed lead's row is never expired). A live holder, a lane, a conductor, a minted lead and a row of another folder are not in it.
 async function ended($: any, v: View, me: Sid, p: Preset): Promise<Sid[]> {
   const own = v.rows === 'unknown' ? undefined : (await realPaths($, v, me, []))?.[0]
   if (v.rows === 'unknown' || own === undefined) return []
@@ -56,12 +56,9 @@ async function runPreset($: any, e: any, p: Preset): Promise<{ text: string }> {
   const code = nameFree(v, p, me, gone)
   if (code !== undefined) return { text: say(refusal('refuse', code, { tool: p.command, target: p.name })) }
   let ok = false
-  const cmd: Cmd = { op: 'lead', paths: [], preset: p }
+  const cmd: Cmd = { op: 'lead', paths: [] }
   const result = await perform($, cmd, me, v, now, () => void (ok = true))
-  if (ok) {
-    mem.presetRun = { preset: p, result }
-    if (gone.length > 0) await updateTable($, (t) => Object.fromEntries(Object.entries(t).filter(([k, r]) => !(gone.includes(k) && r.name === p.name))))
-  }
+  if (ok) mem.presetRun = { preset: p, result }
   return { text: result }
 }
 
@@ -73,10 +70,13 @@ export async function presetTick($: any, me: Sid, v: View): Promise<void> {
   if (isOff(v, me)) return
   const { command, name, model, effort } = r.preset
   const failed: string[] = []
-  // The name was checked at the typed run and may have been taken since: it is checked again on a fresh view, and a rename that would double a name is not run.
+  // The typed run saved the lead row under the session's own name. The preset's name was checked then and may have been taken since: it is checked again on a fresh view, and a rename
+  // that would double a name is not run. The row takes the name only once the rename has landed, with the preset's own ended leads dropped in the same write; a name that was not set leaves nothing to undo.
   const now = await getView($, true)
+  const gone = await ended($, now, me, r.preset)
   const had = (now.rows === 'unknown' ? undefined : now.rows.get(me))?.name === name
-  if (!had && (nameFree(now, r.preset, me, await ended($, now, me, r.preset)) !== undefined || !(await ran($, 'rename', name, 10_000)))) failed.push('name')
+  if (!had && (nameFree(now, r.preset, me, gone) !== undefined || !(await ran($, 'rename', name, 10_000)))) failed.push('name')
+  else await updateTable($, (t) => ({ ...Object.fromEntries(Object.entries(t).filter(([k, x]) => !(gone.includes(k) && x.name === name))), ...(t[me] && { [me]: { ...t[me], name } }) }))
   if (!(await ran($, 'model', model, 5_000)) || !(await modelHeld($, model))) failed.push('model')
   if (!(await ran($, 'effort', effort, 5_000))) failed.push('effort')
   mem.owed.push(T['cmd.toldPreset']({ command, result: r.result, failed }))

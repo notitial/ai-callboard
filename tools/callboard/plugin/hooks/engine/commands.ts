@@ -74,7 +74,7 @@ export async function perform($: any, cmd: Cmd, me: Sid, v: View, now: number, s
     case 'lead': {
       const [own, ...repos] = (await realPaths($, v, me, cmd.paths)) ?? []
       if (own === undefined) return fail('path')
-      const ok = await setRow($, v, me, own, (r) => ({ ...r, ...(cmd.preset && { name: cmd.preset.name }), folder: own, lead: { repos: [...new Set([...(r.lead?.repos ?? []), ...repos])] } }))
+      const ok = await setRow($, v, me, own, (r) => ({ ...r, folder: own, lead: { repos: [...new Set([...(r.lead?.repos ?? []), ...repos])] } }))
       if (ok) await giveParentTools($, await getView($, true), me)
       return saved(ok, T['cmd.lead']({ repos }))
     }
