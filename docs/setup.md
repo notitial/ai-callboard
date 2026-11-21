@@ -141,9 +141,12 @@ EXT_DIR="$(ls -d "$HOME"/.vscode/extensions/anthropic.claude-code-* | sort -V | 
   config folder, from the `CLAUDE_CONFIG_DIR` of the VS Code process, not from the `claudeCode.environmentVariables` setting), as no saved panel state names it. With no transcript yet, a one-folder window, a folder that is a
   sub-folder of a window folder or a very long path, the panel starts in the first folder as before.
 - The group command is another piece, optional in the same way (the marker's `groups` field): it adds the command
-  `callboard assign group`, which the panels extension calls to file a lead's session in the Session Manager group Lead
-  and a lane's in Lanes, from the plugin's session table (a group of that name in any letter case, such as LEAD, is the
-  same one; a missing one is created). Each session is filed once, so one you move out of its group stays out.
+  `callboard file session`, which the panels extension calls to file each callboard session in the Session Manager group
+  of its tier: the manager in Manager, a conductor in Conductor, a lead in Lead and a lane in Lanes (a group of that name
+  in any letter case, such as LEAD, is the same one; a missing one is created). These groups come first, in that order,
+  and any other group after them. A session moves into its tier's group from wherever it sits, and again whenever its
+  tier changes; one you move by hand stays moved until then. An install with the older `callboard assign group` reads
+  `outdated`, and grouping waits until `--update`.
 - The session command is the last piece, optional in the same way (the marker's `session` field): `callboard active session`
   returns the session id of the Claude panel in front, so the folder badge below finds an unnamed session too.
 - An install that differs from what the current script builds shows `outdated` with a

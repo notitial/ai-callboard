@@ -9,7 +9,7 @@ const { createSpool } = require('./spool-v2.js')
 const { createRegistry } = require('./registry.js')
 const { claudePatched } = require('./claude-patch.js')
 const { createFolderBadge } = require('./folder-badge.js')
-const { createGroups } = require('./groups.js')
+const { createGroups, readManagerName } = require('./groups.js')
 const { createLaneView, readTable } = require('./lane-view.js')
 
 const CLAUDE = path.join(os.homedir(), '.claude')
@@ -62,7 +62,7 @@ function activate(context) {
   const sweep = setInterval(() => lanes.sweep().catch(() => undefined), 2000)
   context.subscriptions.push({ dispose: () => clearInterval(sweep) })
   const groups = createGroups({ vscode, registry, state: context.workspaceState, workspaceFolders: windowFolders,
-    loadTable: () => readTable(tablePath),
+    loadTable: () => readTable(tablePath), managerName: () => readManagerName(path.join(CLAUDE, 'callboard', 'manager-name')),
   })
   const groupTick = setInterval(() => groups.tick(), groups.TICK_MS)
   context.subscriptions.push({ dispose: () => clearInterval(groupTick) })

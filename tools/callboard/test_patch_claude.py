@@ -462,18 +462,18 @@ GROUPS_RUNNER = r"""
 const vm = require('vm'), fs = require('fs')
 const code = fs.readFileSync(process.argv[1], 'utf8')
 const start = JSON.parse(process.argv[2])
-async function run(groups, sid, name) {
+async function run(groups, sid, name, order) {
   const H = {}, saved = []
   const provider = { settings: { getSessionGroups: () => groups, getArchivedSessionIds: () => start.archived || [] }, persistGroupsFromHost: (g) => saved.push(g), addActiveSessionTabToGroup: async () => true, activePanelSessionId: () => 'sid-front' }
   const fake = { workspace: {}, window: {}, commands: { registerCommand: (id, fn) => { H[id] = fn; return {} } } }
   const ctx = vm.createContext({ x: [], Wp: () => {}, F: () => ({}), G: provider, Gq: provider, $e: fake, Pe: fake, require: (m) => (m === 'crypto' ? { randomUUID: () => 'new-id' } : fake) })
   vm.runInContext(code, ctx)
-  const result = await H['callboard assign group'](sid, name)
+  const result = await H['callboard file session'](sid, name, order)
   return { result, saved, front: H['callboard active session'](), stock: typeof H['claude-vscode.addSessionTabToGroup'], other: typeof H['claude-vscode.toggleFocusView'] }
 }
 ;(async () => {
   const out = []
-  for (const [sid, name] of start.calls) out.push(await run(JSON.parse(JSON.stringify(start.groups)), sid, name))
+  for (const [sid, name, order] of start.calls) out.push(await run(JSON.parse(JSON.stringify(start.groups)), sid, name, order))
   console.log(JSON.stringify(out))
 })()
 """
@@ -505,34 +505,48 @@ class Groups(Case):
             marker = json.loads(slurp(os.path.join(ext, "callboard-cwd-patch.json")))
             self.assertEqual((marker["patch"], marker["width"], marker["pie"], marker["groups"], marker["session"]), (1, True, True, True, True))
             new = self.js(ext)
-            self.assertEqual((new.count(b"callboard assign group"), new.count(b"callboard active session")), (1, 1))
+            self.assertEqual((new.count(b"callboard file session"), new.count(b"callboard active session")), (1, 1))
             self.assertEqual(new.count(b"cbCwd"), 6)
 
     def test_the_command_goes_in_front_of_the_stock_one_inside_its_push_call(self):
         ext, _ = self.applied(build(V328), name="front")
         new = self.js(ext).decode("utf-8")
-        i, j = new.index("Pe.commands.registerCommand(\"callboard assign group\""), new.index("Pe.commands.registerCommand(\"claude-vscode.addSessionTabToGroup\"")
+        i, j = new.index("Pe.commands.registerCommand(\"callboard file session\""), new.index("Pe.commands.registerCommand(\"claude-vscode.addSessionTabToGroup\"")
         self.assertLess(i, j)
         self.assertEqual(new[i:j].count("registerCommand"), 2, "the group command, then the session command")
         self.assertTrue(new[:i].endswith("x.push("))
         self.assertTrue(new[i:j].endswith('Pe.commands.registerCommand("callboard active session",()=>Gq.activePanelSessionId()),'))
 
     @unittest.skipUnless(shutil.which("node"), "needs node")
-    def test_the_command_puts_a_session_in_a_group_by_name_creates_a_missing_one_and_leaves_a_grouped_session(self):
+    def test_the_command_files_a_session_by_name_creates_a_missing_group_and_moves_a_grouped_session(self):
         for variant in (V327, V328):
             ext = self.make(variant, name="run%s" % variant["pv"])
             self.run_script(ext, "--apply")
-            r = self.drive(ext, [G1, G2], ["s1", "Lanes"], ["s2", "Conductor"], ["s0", "Lead"], ["s9", "lanes"], [5, "Lead"], ["s3", ""], ["s1", "lead"])
-            joined = lambda g, sid, n: {**g, "sessionIds": g["sessionIds"] + [sid]}
-            self.assertEqual(r[0]["saved"], [[joined(G1, "s1", 0), G2]], "a name in another letter case finds the group")
+            r = self.drive(ext, [G1, G2], ["s1", "Lanes"], ["s2", "Conductor"], ["s0", "Lead"], ["s9", "lead"], [5, "Lead"], ["s3", ""], ["s1", "lead"])
+            joined = lambda g, sid: {**g, "sessionIds": g["sessionIds"] + [sid]}
+            self.assertEqual(r[0]["saved"], [[joined(G1, "s1"), G2]], "a name in another letter case finds the group")
             self.assertEqual(r[1]["saved"], [[G1, G2, {"id": "new-id", "name": "Conductor", "collapsed": False, "sessionIds": ["s2"]}]], "a missing group is created")
-            self.assertEqual((r[2]["result"], r[2]["saved"]), (True, []), "a session already in a group stays where it is")
-            self.assertEqual((r[3]["result"], r[3]["saved"]), (True, []))
+            self.assertEqual(r[2]["saved"], [[{**G1, "sessionIds": []}, joined(G2, "s0")]], "a session in another group moves, and the emptied group stays")
+            self.assertEqual((r[3]["result"], r[3]["saved"]), (True, []), "a session already in the group changes nothing")
             self.assertEqual([(x["result"], x["saved"]) for x in r[4:6]], [(False, []), (False, [])], "bad arguments do nothing")
-            self.assertEqual(r[6]["saved"], [[G1, joined(G2, "s1", 0)]])
-            self.assertEqual([x["result"] for x in (r[0], r[1], r[6])], [True, True, True])
+            self.assertEqual(r[6]["saved"], [[G1, joined(G2, "s1")]])
+            self.assertEqual([x["result"] for x in (r[0], r[1], r[2], r[6])], [True, True, True, True])
             self.assertEqual((r[0]["stock"], r[0]["other"]), ("function", "function"), "the stock commands are still registered")
             self.assertEqual(r[0]["front"], "sid-front", "the session command returns the provider's panel in front")
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_the_order_puts_the_named_groups_first_in_its_order_and_the_others_after_in_theirs(self):
+        ext = self.make(V328, name="order")
+        self.run_script(ext, "--apply")
+        order = ["Manager", "Conductor", "Lead", "Lanes"]
+        mine = {"id": "g3", "name": "Mine", "collapsed": False, "sessionIds": ["m1"]}
+        other = {"id": "g4", "name": "Other", "collapsed": False, "sessionIds": []}
+        r = self.drive(ext, [mine, G1, other, G2], ["s5", "Manager", order], ["s0", "lead", order], ["s1", "Mine", order], ["s9", "Lead", order])
+        manager = {"id": "new-id", "name": "Manager", "collapsed": False, "sessionIds": ["s5"]}
+        self.assertEqual(r[0]["saved"], [[manager, G2, G1, mine, other]], "a new group takes its tier's place; a Lanes-above-Lead list is sorted too")
+        self.assertEqual(r[1]["saved"], [[{**G2, "sessionIds": ["s9", "s0"]}, {**G1, "sessionIds": []}, mine, other]], "a move sorts as it saves")
+        self.assertEqual(r[2]["saved"], [[G2, G1, {**mine, "sessionIds": ["m1", "s1"]}, other]], "a group outside the order takes a session and stays after")
+        self.assertEqual((r[3]["result"], r[3]["saved"]), (True, []), "nothing to move: nothing is saved, not even a sort")
 
     @unittest.skipUnless(shutil.which("node"), "needs node")
     def test_the_command_refuses_an_archived_session_and_the_stock_list_limits(self):
@@ -544,9 +558,12 @@ class Groups(Case):
         r = self.drive(ext, full, ["s1", "Lanes"], ["s1", "n5"])
         self.assertEqual((r[0]["result"], r[0]["saved"]), (False, []), "100 groups: no new one")
         self.assertEqual(r[1]["result"], True, "an existing group still takes the session")
-        crowded = [{"id": "g1", "name": "A", "collapsed": False, "sessionIds": ["x%d" % i for i in range(1000)]}, G2]
-        r = self.drive(ext, crowded, ["s1", "A"])
+        crowded = [{"id": "g1", "name": "A", "collapsed": False, "sessionIds": ["x%d" % i for i in range(999)]}, G2]
+        r = self.drive(ext, crowded, ["s1", "A"], ["x0", "Lead"])
         self.assertEqual((r[0]["result"], r[0]["saved"]), (False, []), "1000 sessions: no more")
+        self.assertEqual((r[1]["result"], r[1]["saved"][0][1]["sessionIds"]), (True, ["s9", "x0"]), "a move adds no session, so it still goes")
+        held = [{**g, "sessionIds": ["s7"]} if g["id"] == "g1" else g for g in full]
+        self.assertEqual([(x["result"], x["saved"]) for x in self.drive(ext, held, ["s7", "Lanes"])], [(False, [])], "100 groups: a move to a new group is refused and the session stays where it was")
 
     def test_a_missing_or_doubled_anchor_costs_only_the_group_command(self):
         stock = GROUP.replace("addSessionTabToGroup", "addSessionToGroup")
@@ -563,7 +580,7 @@ class Groups(Case):
             self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "patched 2.1.328"), label)
             self.assertIn("warning: the group command is not in (groups anchor (", self.out, label)
             new = self.js(ext)
-            self.assertEqual((new.count(b"cbCwd"), new.count(b"callboard assign group")), (6, 0), label)
+            self.assertEqual((new.count(b"cbCwd"), new.count(b"callboard file session")), (6, 0), label)
             marker = json.loads(slurp(os.path.join(ext, "callboard-cwd-patch.json")))
             self.assertEqual((marker["patch"], marker["groups"], marker["width"]), (1, False, True), label)
             self.run_script(ext)
@@ -572,10 +589,10 @@ class Groups(Case):
             self.assertEqual((self.rc, self.js(ext)), (0, raw), label)
 
     def test_a_file_that_already_has_the_command_is_left_alone(self):
-        raw = build(V327, grp=GROUP + 'x.push(Wp("callboard assign group",()=>1));')
+        raw = build(V327, grp=GROUP + 'x.push(Wp("callboard file session",()=>1));')
         ext, marker = self.applied(raw, name="have")
         self.assertEqual((self.rc, marker["groups"]), (0, False))
-        self.assertEqual(self.js(ext).count(b"callboard assign group"), 1)
+        self.assertEqual(self.js(ext).count(b"callboard file session"), 1)
 
     def test_a_patch_from_before_the_command_reads_outdated_and_update_brings_it_in(self):
         mod = load_module()
@@ -584,7 +601,7 @@ class Groups(Case):
             old = load_module()
             old.GROUPS_ANCHOR = rb"(NO)(MATCH)(HERE)"
             old.apply(ext)
-        self.assertNotIn(b"callboard assign group", self.js(ext))
+        self.assertNotIn(b"callboard file session", self.js(ext))
         self.assertEqual(json.loads(slurp(os.path.join(ext, "callboard-cwd-patch.json")))["groups"], False)
         self.assertUnchanged(ext)
         self.assertEqual((self.rc, self.out.splitlines()[0]), (1, "outdated 2.1.328: the group command is not in"))
@@ -598,7 +615,7 @@ class Groups(Case):
     def test_undo_takes_the_command_out_with_the_rest(self):
         raw = build(V328)
         ext, _ = self.applied(raw, name="undo")
-        self.assertIn(b"callboard assign group", self.js(ext))
+        self.assertIn(b"callboard file session", self.js(ext))
         self.run_script(ext, "--undo")
         self.assertEqual((self.rc, self.js(ext)), (0, raw))
         self.assertEqual(sorted(os.listdir(ext)), STOCK)
@@ -627,7 +644,7 @@ class Groups(Case):
             marker = json.loads(slurp(os.path.join(ext, "callboard-cwd-patch.json")))
             self.assertEqual(marker["patch"], 1)
             if marker["groups"]:
-                self.assertEqual(self.js(ext).count(b"callboard assign group"), 1, d)
+                self.assertEqual(self.js(ext).count(b"callboard file session"), 1, d)
                 for member in (b".settings.getSessionGroups()", b".settings.getArchivedSessionIds()", b"persistGroupsFromHost("):
                     self.assertIn(member, raw, "%s: the members the command uses" % d)
             if marker["session"]:
