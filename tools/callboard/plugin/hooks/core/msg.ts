@@ -55,12 +55,12 @@ export type CommandName = 'status' | 'lanes' | 'help' | 'lead' | 'lead-off' | 'c
 export type UiColumn = 'name' | 'role' | 'state' | 'folder' | 'context' | 'fiveHour' | 'sevenDay' | 'cost' | 'read'
 export type UiState = 'live' | 'busy' | 'parked' | 'gone' | 'done' | 'off' | 'notOpened' | 'unknown'
 
-// One row of /callboard status: what is shown and its value, as the person reads it (a name, `PERSON` or `unknown` for a parent; a window's end as a time, or null).
+// One row of /callboard status: what is shown and its value, as the person reads it (a name, `PERSON` or `unknown` for a parent; whole minutes left of a window, or null).
 export type StatusRow =
-  | { field: 'role'; value: Capability }
+  | { field: 'role'; value: 'manager' | 'lead' | 'conductor' | 'lane' | 'session' }
   | { field: 'parent' | 'manager'; value: string | null }
   | { field: 'off' | 'keepalive'; value: boolean }
-  | { field: 'unattended'; value: string | null }
+  | { field: 'unattended'; value: number | null }
   | { field: 'goes'; value: number }
 
 type E = Record<never, never>
