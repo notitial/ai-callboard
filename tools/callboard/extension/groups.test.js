@@ -14,7 +14,8 @@ const row = (n, cwd, extra = {}) => ({ sessionId: S(n), cwd, entrypoint: 'claude
 // A fake VS Code and state: `commands` are the ids that exist, `calls` records every call's session and group (the order argument is checked on each),
 // `failing` makes the command throw. `leads` and `lanes` are sessions with a table row of that role (a lead with `lead`, a lane `under` S(99)); `table` adds
 // rows as they are. `done` is the stored record; `manager` the manager-name file's line (an Error: a file that cannot be read); `incomplete` marks the registry read as one with doubt in it.
-function world({ commands = [COMMAND], rows = [], lanes = [], leads = [], table: extra = {}, folders = [A], done = {}, manager = null, incomplete = false, failing = false, failOn = 0, failSid, refuse = [], loadError = false, alive = () => true } = {}) {
+// `startOf` is `ps`: by default each pid starts when its row says, so a row whose pid answers is its own process.
+function world({ commands = [COMMAND], rows = [], lanes = [], leads = [], table: extra = {}, folders = [A], done = {}, manager = null, incomplete = false, failing = false, failOn = 0, failSid, refuse = [], loadError = false, alive = () => true, startOf = async (pid) => rows.find((r) => r.pid === pid)?.procStart } = {}) {
   const table = { ...Object.fromEntries(lanes.map((l) => [l.sid, { name: 'L', folder: A, under: S(99) }])), ...Object.fromEntries(leads.map((l) => [l.sid, { name: 'D', folder: A, lead: { repos: [] } }])), ...extra }
   const w = { calls: [], store: { done }, updates: 0, listed: 0, looked: 0 }
   const vscode = {
@@ -31,9 +32,11 @@ function world({ commands = [COMMAND], rows = [], lanes = [], leads = [], table:
   }
   const state = { get: (k, d) => (k === 'callboard.groups.done' ? w.store.done : d), update: async (k, v) => { assert.equal(k, 'callboard.groups.done'); w.store.done = v; w.updates++ } }
   const registry = { list: async () => { w.listed++; return Object.defineProperty([...rows], 'complete', { value: !incomplete }) } }
-  w.groups = createGroups({ vscode, registry, state, loadTable: async () => { if (loadError) throw new Error('bad table'); return table }, managerName: async () => { if (manager instanceof Error) throw manager; return manager }, workspaceFolders: () => folders, alive })
+  w.groups = createGroups({ vscode, registry, state, loadTable: async () => { if (loadError) throw new Error('bad table'); return table }, managerName: async () => { if (manager instanceof Error) throw manager; return manager }, workspaceFolders: () => folders, alive, startOf })
   return w
 }
+// A session carrying the manager's name, with a pid and a start time.
+const boss = (n, procStart = '2026-11-21T09:00:00Z', extra = {}) => row(n, A, { name: 'BOSS', pid: 100 + n, procStart, ...extra })
 
 test('groupsFor: the manager, a conductor, a lead (a minted one too) and a lane each to their group; a loose, off or empty row is not filed', () => {
   const m = groupsFor({ [S(1)]: { lead: {} }, [S(2)]: { under: S(1) }, [S(3)]: {}, [S(4)]: { under: S(1), off: true }, [S(5)]: null, [S(6)]: { lead: { conductor: true } }, [S(7)]: { lead: { conductor: true, minted: true }, under: S(6) } }, S(8))
@@ -44,13 +47,16 @@ test('groupsFor: the manager, a conductor, a lead (a minted one too) and a lane 
   assert.deepEqual(ORDER, ['Manager', 'Conductor', 'Lead', 'Lanes'])
 })
 
-test('managerOf: the oldest live row with the name, not one whose row is off; none without a name', () => {
-  const rows = [row(1, A, { name: 'BOSS', procStart: '2026-11-21T10:00:00Z' }), row(2, B, { name: 'BOSS', procStart: '2026-11-21T09:00:00Z' }), row(3, A, { name: 'OTHER', procStart: '2026-11-21T08:00:00Z' })]
-  assert.equal(managerOf(rows, {}, 'BOSS'), S(2), 'the oldest, in any window')
-  assert.equal(managerOf(rows, { [S(2)]: { off: true } }, 'BOSS'), S(1))
-  assert.equal(managerOf(rows, {}, null), undefined)
-  assert.equal(managerOf(rows, {}, 'NOBODY'), undefined)
-  assert.equal(managerOf([row(4, A, { name: 'BOSS' }), row(1, A, { name: 'BOSS', procStart: '2026-11-21T10:00:00Z' })], {}, 'BOSS'), S(1), 'a row with no start time is the youngest')
+test('managerOf: the oldest proven row with the name, not one whose row is off or whose process is dead; unknown when one cannot be told; none without a name', async () => {
+  const live = async () => 'live'
+  const rows = [boss(1, '2026-11-21T10:00:00Z'), { ...boss(2, '2026-11-21T09:00:00Z'), cwd: B }, row(3, A, { name: 'OTHER', pid: 103, procStart: '2026-11-21T08:00:00Z' })]
+  assert.equal(await managerOf(rows, {}, 'BOSS', live), S(2), 'the oldest, in any window')
+  assert.equal(await managerOf(rows, { [S(2)]: { off: true } }, 'BOSS', live), S(1))
+  assert.equal(await managerOf(rows, {}, 'BOSS', async (pid) => (pid === 102 ? 'dead' : 'live')), S(1), 'a dead row (its pid gone or reused) is not the manager')
+  assert.equal(await managerOf(rows, {}, 'BOSS', async (pid) => (pid === 101 ? 'maybe' : 'live')), 'unknown', 'one row that cannot be told makes the manager unknown')
+  assert.equal(await managerOf(rows, {}, null, live), undefined)
+  assert.equal(await managerOf(rows, {}, 'NOBODY', live), undefined)
+  assert.equal(await managerOf([boss(4, null), boss(1, '2026-11-21T10:00:00Z')], {}, 'BOSS', live), S(1), 'a row with no start time is the youngest')
 })
 
 test('readManagerName: the first line trimmed; null for a missing or empty file; a file that cannot be read throws', async () => {
@@ -69,7 +75,7 @@ test('readManagerName: the first line trimmed; null for a missing or empty file;
 
 test('the tick files each live session in the window in its group, once, and remembers the group', async () => {
   const w = world({
-    rows: [row(1, A), row(2, `${A}/sub`), row(3, A, { name: 'BOSS' })],
+    rows: [row(1, A), row(2, `${A}/sub`), boss(3)],
     lanes: [{ sid: S(1) }],
     leads: [{ sid: S(2) }],
     manager: 'BOSS',
@@ -113,6 +119,31 @@ test('a dead process carrying the manager name is not the manager', async () => 
   const w = world({ rows: [row(1, A, { name: 'BOSS', pid: 7, procStart: '2026-11-21T08:00:00Z' }), row(2, A, { name: 'BOSS', pid: 8, procStart: '2026-11-21T09:00:00Z' })], manager: 'BOSS', alive: (pid) => pid === 8 })
   await w.groups.tick()
   assert.deepEqual(w.calls, [[S(2), 'Manager']])
+  const rows = [boss(1, '2026-11-21T08:00:00Z'), boss(2, '2026-11-21T09:00:00Z')]
+  const reused = world({ rows, manager: 'BOSS', startOf: async (pid) => (pid === 101 ? 'Sat Nov 21 11:00:00 2026' : rows[1].procStart) })
+  await reused.groups.tick()
+  assert.deepEqual(reused.calls, [[S(2), 'Manager']], 'an older row whose pid another process took is dead too')
+})
+
+test('a manager-named row whose process cannot be told files nothing that tick, as the plugin then knows no manager', async () => {
+  const w = world({ rows: [boss(1), row(2, A)], lanes: [{ sid: S(2) }], manager: 'BOSS', startOf: async () => undefined })
+  await w.groups.tick()
+  assert.deepEqual([w.calls, w.updates], [[], 0])
+})
+
+test('a manager closed and resumed with the same session id is not filed again, so a hand move stays', async () => {
+  const rows = [boss(1), row(2, A)]
+  const w = world({ rows, lanes: [{ sid: S(2) }], manager: 'BOSS' })
+  await w.groups.tick()
+  const up = rows.shift()
+  await w.groups.tick()
+  assert.deepEqual(w.store.done, { [S(1)]: 'Manager', [S(2)]: 'Lanes' }, 'its entry is kept while no manager runs')
+  rows.unshift(up)
+  await w.groups.tick()
+  assert.deepEqual(w.calls, [[S(1), 'Manager'], [S(2), 'Lanes']])
+  rows.splice(0, 1, boss(3))
+  await w.groups.tick()
+  assert.deepEqual(w.store.done, { [S(3)]: 'Manager', [S(2)]: 'Lanes' }, 'a new manager running drops the old entry')
 })
 
 test('a registry read with doubt in it, or a manager-name file that cannot be read, files nothing', async () => {

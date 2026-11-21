@@ -3,13 +3,14 @@
 // `callboard file session` that the optional group piece of patch-claude.py adds to the Claude Code extension. The command creates a missing group, matches
 // names in any letter case, moves the session out of any other group, and keeps these groups first, in tier order. Without the patch the command does not exist
 // and this does nothing.
-// The tiers come from the plugin's own records: the manager is the oldest live session named in the manager-name file (the plugin's rule, core/model.ts), a
+// The tiers come from the plugin's own records: the manager is the oldest running session named in the manager-name file (the plugin's rule, core/model.ts), a
 // conductor is a table row whose `lead` the person's `/callboard conductor` flagged, any other `lead` row is a lead, one `under` a lead a lane. A session is
 // handled in the window whose folders hold its registry row (Claude keeps its groups per window, under the window's first folder). The group each session was
 // filed in is this window's own state: a session is filed again only when its tier's group differs from that one, so a session the person moves by hand stays
 // moved until its tier changes. The command answers false for a session it refused (an archived one, or the list limits): that one is tried again.
 const fs = require('node:fs')
 const { pidAlive } = require('./reserved.js')
+const { procStateWith } = require('./proc.js')
 
 const COMMAND = 'callboard file session'
 const DONE_KEY = 'callboard.groups.done'
@@ -27,11 +28,18 @@ async function readManagerName(file) {
   }
 }
 
-// The manager among live registry rows: the oldest that carries the manager's name and whose table row is not off, as the plugin picks it.
-function managerOf(rows, table, name) {
+// The manager, as the plugin picks it: of the registry rows that carry the manager's name and whose table row is not off, the oldest whose process is proven
+// to be the one that wrote the row (`state`: proc.js, so a dead row whose pid was reused is not taken). `unknown` when one of them can be neither proven nor
+// ruled out, as the plugin's view is then unknown too.
+async function managerOf(rows, table, name, state) {
   const start = (r) => (Number.isFinite(Date.parse(r.procStart)) ? Date.parse(r.procStart) : Infinity)
-  const named = name ? rows.filter((r) => r.name === name && table[r.sessionId]?.off !== true) : []
-  return named.sort((a, b) => start(a) - start(b) || (a.sessionId < b.sessionId ? -1 : 1))[0]?.sessionId
+  const live = []
+  for (const r of name ? rows.filter((x) => x.name === name && table[x.sessionId]?.off !== true) : []) {
+    const s = await state(r.pid, r.procStart)
+    if (s === 'maybe') return 'unknown'
+    if (s === 'live') live.push(r)
+  }
+  return live.sort((a, b) => start(a) - start(b) || (a.sessionId < b.sessionId ? -1 : 1))[0]?.sessionId
 }
 
 // session id -> group name: the manager first, then the table's rows. A row marked off is not callboard's; a loose row is not filed.
@@ -45,9 +53,10 @@ function groupsFor(table = {}, manager) {
   return out
 }
 
-function createGroups({ vscode, registry, state, loadTable, managerName, workspaceFolders, alive = pidAlive }) {
+function createGroups({ vscode, registry, state, loadTable, managerName, workspaceFolders, alive = pidAlive, startOf }) {
   let busy = false
   let present = false
+  const procState = procStateWith({ alive, startOf })
   const inWindow = (cwd) => typeof cwd === 'string' && workspaceFolders().some((f) => cwd === f || cwd.startsWith(`${f}/`))
 
   async function tick() {
@@ -60,8 +69,10 @@ function createGroups({ vscode, registry, state, loadTable, managerName, workspa
       const [table, list, name] = await Promise.all([loadTable(), registry.list(), managerName()])
       // A read with doubt in it could miss the oldest manager and file another session as it: wait for a clean one.
       if (list.complete === false) return
+      const manager = await managerOf(list, table, name, procState)
+      if (manager === 'unknown') return
       const rows = list.filter((r) => !Number.isInteger(r.pid) || alive(r.pid))
-      const want = groupsFor(table, managerOf(rows, table, name))
+      const want = groupsFor(table, manager)
       const was = state.get(DONE_KEY, {})
       // Anything but a plain object (the session list an older version kept) is no record: every session is filed once more.
       const filed = was && typeof was === 'object' && !Array.isArray(was) ? { ...was } : {}
@@ -73,8 +84,10 @@ function createGroups({ vscode, registry, state, loadTable, managerName, workspa
           // One session that fails does not stop the others; it is tried again at the next tick.
         }
       }
-      // Only sessions still in a tier are remembered, so the record cannot outgrow them.
-      const keep = Object.fromEntries(Object.entries(filed).filter(([sid]) => want.has(sid)))
+      // Only sessions still in a tier are remembered, so the record cannot outgrow them. The manager is in a tier only while it runs, so while no manager
+      // runs its entry is kept: a manager closed and resumed is not filed again.
+      const managed = [...want.values()].includes('Manager')
+      const keep = Object.fromEntries(Object.entries(filed).filter(([sid, group]) => want.has(sid) || (!managed && group === 'Manager')))
       if (JSON.stringify(keep) !== JSON.stringify(was)) await state.update(DONE_KEY, keep)
     } catch {
       // Grouping is a convenience: an unreadable table or registry is tried again at the next tick, silently.
