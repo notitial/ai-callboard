@@ -4,6 +4,7 @@ import type { Ask, AskLogRow, Config, Folder, Sid, View, WindowReading } from '.
 import type { CheckFacts, Open } from '../core/asks.ts'
 import type { Counters, Req } from '../core/upkeep.ts'
 import type { PrNote } from '../core/pr.ts'
+import type { Preset } from '../core/commands.ts'
 
 // What outlives a reload (the cache is still warm) and not a restart. `due`: a nudge recorded at a turn's end, sent by the tick once the session is quiet; its kind follows the size
 // at the send. `req` carries the session id it was made in and the time its compaction ended.
@@ -54,6 +55,9 @@ const fresh = () => ({
   prNotes: [] as PrNote[],
   // Notice turns owed to this session for his own step in it (cmd.told, go.clicked), sent one a tick once it is quiet.
   owed: [] as string[],
+  // This folder's lead preset as registered at the session start, and one typed run of it whose name, model and effort steps are still to run (its notice follows them).
+  preset: undefined as Preset | undefined,
+  presetRun: undefined as { preset: Preset; result: string } | undefined,
   prLost: new Map<string, number>(),
   prLooks: [] as number[],
   prPollAt: 0,

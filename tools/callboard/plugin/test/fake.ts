@@ -32,6 +32,7 @@ export function fake(o: { sid?: string } = {}) {
     agents: [] as { status: string }[],
     tools: [] as string[],
     commands: [] as string[],
+    listed: [] as { name: string; source: string; description?: string }[],
     compactRuns: [] as string[],
     model: 'claude-sonnet-5-5',
     ps: '',
@@ -160,7 +161,7 @@ export function fake(o: { sid?: string } = {}) {
     },
     ui: { toast: async (t: string) => void h.toasts.push(t), notice: (tid: string, t: string) => void h.notices.push([tid, t]), ask: (q: string, o: { options: string[]; header: string }) => (h.asked.push({ question: q, options: o.options, header: o.header }), h.askAnswer(q)) },
     agent: { list: async () => h.agents },
-    command: { register: async (c: { name: string }) => void h.commands.push(c.name), run: async (c: { command: string; args: string }) => {
+    command: { register: async (c: { name: string }) => void h.commands.push(c.name), list: async () => h.listed, run: async (c: { command: string; args: string }) => {
       h.compactRuns.push(`${c.command} ${c.args}`)
       if (c.command === 'model') h.model = `claude-${c.args}-5-5`
     } },

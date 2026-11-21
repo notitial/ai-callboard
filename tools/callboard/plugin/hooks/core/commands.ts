@@ -1,8 +1,8 @@
 // The /callboard command: its thirteen forms, the settings schema, and the origin rule. Pure. Trust rule held here: a form that is not read-only (it widens what a session
 // may do, or changes a setting or a go or the window) runs only when the caller says it came from the person's own typed turn. The origin is an input: the adapter decides
 // it (the probe of a typed turn is not run yet), and originOk below is the one place it is judged. Anything but exactly `typed` counts as not typed.
-import type { Config, Decision } from './model.ts'
-import { refusal } from './model.ts'
+import type { Config, Decision, LaneEffort, LaneModel } from './model.ts'
+import { LANE_EFFORTS, LANE_MODELS, NAME_RE, refusal } from './model.ts'
 import { goCommand } from './go.ts'
 import { parseSpan } from './unattended.ts'
 import type { SpanOp } from './unattended.ts'
@@ -22,7 +22,8 @@ export function parseConfig(raw: unknown): Config {
 export type ConfigOp = 'show' | 'reset' | { key: 'keepalive'; value: boolean } | { key: Num; value: number }
 export type Cmd =
   | { op: 'status' | 'lanes' | 'help' | 'lead-off' | 'off' | 'on' | 'rest' }
-  | { op: 'lead' | 'conductor'; paths: string[] }
+  | { op: 'lead'; paths: string[] }
+  | { op: 'conductor'; paths: string[] }
   | { op: 'go'; text: string }
   | { op: 'go-off'; id?: string }
   | { op: 'unattended'; span: Extract<SpanOp, { op: 'state' | 'off' | 'on' }> }
@@ -79,4 +80,20 @@ export function planCommand(args: string, origin: Origin, now: number): { act: '
   const cmd = parseCommand(args, now)
   if (cmd.op === 'bad') return cmd.detail === undefined ? { act: 'refuse', msg: 'cmd.usage', p: {} } : refusal('refuse', 'bad-input', { tool: 'callboard', target: 'unattended', detail: cmd.detail })
   return originOk(cmd, origin) ? { act: 'run', cmd } : refusal('refuse', 'bad-origin', { tool: 'callboard', target: cmd.op })
+}
+
+// A folder's lead preset (.claude/callboard-lead.json): the command that makes a session there a lead, and the name, model and effort it is given. A file that is not an
+// object with all four fields right, or whose command is one of callboard's own, is no preset. Whether the command is a built-in is the engine's to check.
+export type Preset = { command: string; name: string; model: LaneModel; effort: LaneEffort }
+const OWN_COMMANDS: readonly string[] = ['callboard', 'rest', 'unattended']
+export function parsePreset(text: string | undefined): Preset | undefined {
+  let r: Record<string, unknown> | null
+  try {
+    r = JSON.parse(text ?? '')
+  } catch {
+    return undefined
+  }
+  const { command, name, model, effort } = r ?? {}
+  const ok = typeof command === 'string' && /^[a-z][a-z0-9-]{0,23}$/.test(command) && !OWN_COMMANDS.includes(command) && typeof name === 'string' && NAME_RE.test(name)
+  return ok && (LANE_MODELS as readonly unknown[]).includes(model) && (LANE_EFFORTS as readonly unknown[]).includes(effort) ? { command, name, model: model as LaneModel, effort: effort as LaneEffort } : undefined
 }

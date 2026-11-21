@@ -33,6 +33,15 @@ parent and a capability: none, lead or manager.
   folder (`v2/conductors.json`), and a later `/callboard conductor` there needs none. A lead it makes acts only in its own
   folder, cannot make leads, and asks the conductor for a go. The conductor and everything under it count 8 live
   children per parent, leads and lanes together. [ADR 0013](../../docs/adr/0013-conductor.md).
+- **Lead preset.** A folder may hold `.claude/callboard-lead.json`, `{ "command", "name", "model", "effort" }`, for
+  example `{ "command": "sentinel", "name": "SENTINEL", "model": "sonnet", "effort": "high" }`. A session started
+  there lists `/<command>`. Typed by you, it does what `/callboard lead` does (the name must be free,
+  the model one of `LANE_MODELS`, the effort one of `LANE_EFFORTS`), then on the next quiet moment renames the session
+  (its row takes the name only once the rename has landed) and sets its model and effort, and sends the lead one
+  notice that names any step that failed. Only your typed turn
+  runs it. A file that does not parse, or names a built-in or callboard's own command (`callboard`, `rest`,
+  `unattended`), registers nothing. Any folder you start a session in can declare one, so read the file of a repo you
+  do not know before you type its command.
 - **Manager.** The one session that carries the name in `~/.claude/callboard/manager-name`, found by its registry name
   while it is live. It reaches every session on the Mac. Its role is in `docs/manager/README.md`.
 

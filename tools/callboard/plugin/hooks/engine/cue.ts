@@ -31,8 +31,12 @@ export async function sendCue($: any, from: Sid, child: Sid, verb: CueVerb, name
 
 // ---- the child's side, every tick ----
 // A slash command run in this session, bounded so a cue's answer still comes inside the parent's wait.
-function ran($: any, command: string, args: string, ms: number): Promise<boolean> {
+export function ran($: any, command: string, args: string, ms: number): Promise<boolean> {
   return Promise.race([Promise.resolve($.command.run({ command, args })).then(() => true, () => false), $.clock.sleep(ms).then(() => false)])
+}
+// /model can report a model it could not switch to without failing: the session's model, read back within 5 s, must name the alias ("claude-haiku-5-5").
+export async function modelHeld($: any, alias: string): Promise<boolean> {
+  return String(await Promise.race([Promise.resolve().then(() => $.session.model()), $.clock.sleep(5_000)]).catch(() => '')).toLowerCase().includes(alias)
 }
 // A lane whose panel still carries a name Claude generated takes its row's name at its first quiet tick, so it is named before lane_start. Once per process.
 async function selfName($: any, me: Sid, v: View): Promise<void> {
@@ -54,8 +58,7 @@ async function act($: any, me: Sid, v: View, cue: Cue): Promise<CueResult> {
   if (cue.verb === 'start' && (brief === undefined || !brief.startsWith(`${row!.folder}/.archive/`) || brief.includes('..'))) return refused('no-brief')
   if (own?.name !== name && !(await ran($, 'rename', name, 10_000))) return refused('rename-failed')
   for (const k of ['model', 'effort'] as const) if (cue.verb === 'start' && row![k] !== undefined && !(await ran($, k, row![k]!, 5_000))) return refused(`${k}-failed`)
-  // /model can report a model it could not switch to without failing: the session's model, read back within 5 s, must name the alias ("claude-haiku-5-5").
-  if (cue.verb === 'start' && row!.model !== undefined && !String(await Promise.race([Promise.resolve().then(() => $.session.model()), $.clock.sleep(5_000)]).catch(() => '')).toLowerCase().includes(row!.model)) return refused('model-failed')
+  if (cue.verb === 'start' && row!.model !== undefined && !(await modelHeld($, row!.model))) return refused('model-failed')
   if (cue.verb === 'start' && !(await submitOwn($, T['cue.start']({ name, brief: brief!, parent: nameOf(v, cue.from) })).then(() => true, () => false))) return refused('failed')
   return { id: cue.id, outcome: 'ok' }
 }

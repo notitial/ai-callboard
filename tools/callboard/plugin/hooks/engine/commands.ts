@@ -22,7 +22,7 @@ const TYPED_ORIGINS = ['composer', 'bridge']
 // The forms whose saved change owes the session a notice turn. Off is not among them: an off session is sent nothing.
 const CHANGES: string[] = ['lead', 'lead-off', 'conductor', 'on', 'go', 'go-off', 'unattended']
 // A command is typed when the engine stamped its origin as one of his own typed turns; any other origin, or none, is not.
-const originOf = (e: any): Origin => (TYPED_ORIGINS.includes(e?.origin?.kind) ? 'typed' : 'other')
+export const originOf = (e: any): Origin => (TYPED_ORIGINS.includes(e?.origin?.kind) ? 'typed' : 'other')
 const person = (v: View, s: Sid | 'unknown' | null): string | null => (s === null ? null : s === 'unknown' ? 'unknown' : s === PERSON ? PERSON : nameOf(v, s))
 const helpRow = (k: string): string => (T as Record<string, (p: unknown) => string>)[k]!({})
 const help = (): string => [T['help.head']({}), ...Object.keys(T).filter((k) => k.startsWith('help.') && k !== 'help.head').map((k) => helpRow(k))].join('\n')
@@ -41,7 +41,7 @@ export async function laneRows($: any, v: View, me: Sid): Promise<LaneRow[]> {
 }
 
 // This session's real folder and the real paths of what it was given (`~` is the person's home); undefined when one does not resolve.
-async function realPaths($: any, v: View, me: Sid, paths: string[]): Promise<string[] | undefined> {
+export async function realPaths($: any, v: View, me: Sid, paths: string[]): Promise<string[] | undefined> {
   const h = await home($)
   const folder = (await $.session.root().catch(() => undefined)) as string | undefined
   const out: string[] = []
@@ -57,7 +57,7 @@ function setRow($: any, v: View, me: Sid, folder: string, f: (r: Row) => Row): P
   return updateTable($, (t) => ({ ...t, [me]: f({ name: nameOf(v, me), folder, ...t[me] }) }))
 }
 
-async function perform($: any, cmd: Cmd, me: Sid, v: View, now: number, savedOk: () => void): Promise<string> {
+export async function perform($: any, cmd: Cmd, me: Sid, v: View, now: number, savedOk: () => void): Promise<string> {
   const fail = (detail: string) => say(refusal('refuse', 'bad-input', { tool: 'callboard', target: cmd.op, detail }))
   const saved = (ok: boolean, text: string) => (ok ? (savedOk(), text) : say(refusal('refuse', 'unknown-liveness', { tool: 'callboard', target: cmd.op })))
   const folder = v.rows === 'unknown' ? undefined : v.rows.get(me)?.folder

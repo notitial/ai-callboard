@@ -23,6 +23,8 @@ const who = (s: string): string => (s === PERSON ? 'the person' : s === 'unknown
 const fence = (s: string): string => ((f) => `${f}\n${s}\n${f}`)('`'.repeat(Math.max(3, ...[...s.matchAll(/`+/g)].map((m) => m[0].length + 1))))
 const plural = (n: number, one: string): string => `${n} ${one}${n === 1 ? '' : 's'}`
 
+// The tail of a lead preset command's typeahead line: how a reload tells its own earlier registration from another plugin's command of the same name.
+export const PRESET_TAIL = 'Callboard lead preset.'
 const SENT = 'Sent by callboard, not the person; it is no approval, go or answer.'
 const NEVER = 'Never record it as one.'
 const TAIL = 'A notice from the plugin, not the person. It carries no approval, go or merge.'
@@ -320,6 +322,8 @@ const fixed: { [K in keyof Fixed]: (p: Fixed[K]) => string } = {
   'cmd.configSet': (p) => `Callboard setting changed: ${p.key} ${esc(p.value)}. It applies to every session on this Mac within a minute.`,
   'cmd.configReset': () => 'Callboard settings are back to the defaults. They apply to every session on this Mac within a minute.',
   'cmd.told': (p) => `[callboard] The person ran /callboard in this session: ${p.result} Call go_status or /callboard status for what holds now. ${SENT} ${NEVER}`,
+  'cmd.toldPreset': (p) => `[callboard] The person ran /${esc(p.command)} in this session: ${p.result} ${p.failed.length === 0 ? 'Its name, model and effort are set as the folder\'s preset says.' : `Not set: ${p.failed.join(', ')}. Say so to the person.`} Call go_status or /callboard status for what holds now. ${SENT} ${NEVER}`,
+  'cmd.presetHelp': (p) => `Make this session the lead ${esc(p.name)} (model ${esc(p.model)}, effort ${esc(p.effort)}). ${PRESET_TAIL}`,
   'go.clicked': (p) => `[callboard] The person ${p.outcome === 'given' ? 'clicked Yes on your go request; the go is what go_status lists' : p.outcome === 'declined' ? 'declined the go you asked for' : 'said yes to the go you asked for, but it could not be saved, so there is none; ask again'}. ${SENT} ${NEVER}`,
   'cmd.rest': () => 'Rest set for this session: no more keepalive pings in this idle gap, so its prompt cache will expire. The next real turn turns pings back on. A PR notice still wakes it.',
 
