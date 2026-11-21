@@ -136,8 +136,8 @@ PIE_JS = (
 )
 JS330 = dict(sv="$Bt", pc="jBt", tf="_Bt", fb="jzn", st="_", mp="fAe")
 JSB = dict(sv="SFt", pc="kFt", tf="tFt", fb="dBn", st="U$", mp="Rr")
-# The pie component and the call that passes it as they were before 2.1.330: the threshold fixed at 50, not a prop.
-PIE_JS_329 = PIE_JS.replace(
+# A pie component whose threshold is fixed at 50 and not passed as a prop; the pie anchors must not match it.
+PIE_JS_FIXED = PIE_JS.replace(
     "threshold:n,onCompact:i,buttonClassName:o}}){{let r=t>0?Math.min(e/t*100,100):0;if(t===0||r<=n)return null;",
     "onCompact:i,buttonClassName:o}}){{let r=t>0?Math.min(e/t*100,100):0;if(t===0)return null;if(r>=50)return null;",
 ).replace(",threshold:t,onCompact:a", ",onCompact:a")
@@ -1116,9 +1116,9 @@ class Pie(Case):
             self.assertEqual((self.rc, sorted(os.listdir(ext))), (0, STOCK), label)
         self.assertEqual(len(mod.PIE_ANCHORS), 3)
 
-    def test_a_script_from_before_2_1_330_leaves_the_pie_out_and_names_the_anchor(self):
-        self.assertEqual((PIE_JS.count("threshold:"), PIE_JS_329.count("threshold:"), PIE_JS_329.count("r>=50")), (2, 0, 1))
-        ext = self.make(V327, name="before330", web=dict(WEB, **{"index.js": PIE_JS_329.format(**JS330)}))
+    def test_a_pie_with_a_fixed_threshold_leaves_the_pie_out_and_names_the_anchor(self):
+        self.assertEqual((PIE_JS.count("threshold:"), PIE_JS_FIXED.count("threshold:"), PIE_JS_FIXED.count("r>=50")), (2, 0, 1))
+        ext = self.make(V327, name="before330", web=dict(WEB, **{"index.js": PIE_JS_FIXED.format(**JS330)}))
         self.run_script(ext)
         self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "unpatched-patchable 2.1.328"))
         self.assertIn("warning: the context pie would be left out (pie anchor pie component (no match))", self.out)
