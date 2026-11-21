@@ -180,8 +180,10 @@ def pie_web(js):
 
 # The folder pill: the last part of the session's folder name, a small pill after the model name in the composer's footer, in webview/index.js. The anchor is the
 # model pill (shown unless the footer's fit stage is 2, the narrowest) followed by the model list; the session is read from that list's props. The pill takes the
-# model pill's own look through the page's CSS variables, inline, so it needs no stylesheet, is hidden at the same fit stage, and is plain text: the folder's name
-# is a text child (escaped by the page's renderer), there is no title and no path in the page.
+# model pill's own look through the page's CSS variables, inline, so it needs no stylesheet, and is plain text: the folder's name is a text child (escaped by the
+# page's renderer), there is no title and no path in the page. It is never gated on the fit stage: the footer resets its stage to 0 when a node that is not the
+# model pill is added or removed, so a pill that came and went with the stage would loop the footer's layout forever in a narrow panel. It shrinks with an
+# ellipsis instead.
 PILL_ANCHOR = (
     rb"(?<![\w$.])(?P<st>ID)!==2&&(?P<jsx>ID)\(ID,\{\.\.\.ID\}\),(?=(?P=jsx)\(ID,\{isOpen:ID\.isOpen,onClose:ID\.onClose,availableModels:(?P<s>ID)\.drawnClaudeConfig\.value\?\.models,)"
     .replace(b"ID", ID)
@@ -201,7 +203,7 @@ def pill_problem(_raw, web):
 
 
 def pill_web(js):
-    return re.sub(PILL_ANCHOR, lambda m: m.group(0) + m.group("st") + b"!==2&&typeof " + m.group("s") + b'.cwd?.value=="string"&&' + m.group("s") + b".cwd.value&&" + m.group("jsx") + b'("span",{style:' + PILL_STYLE
+    return re.sub(PILL_ANCHOR, lambda m: m.group(0) + b"typeof " + m.group("s") + b'.cwd?.value=="string"&&' + m.group("s") + b".cwd.value&&" + m.group("jsx") + b'("span",{style:' + PILL_STYLE
                   + b",children:" + m.group("s") + rb".cwd.value.split(/[\\/]/).filter(Boolean).pop()||" + m.group("s") + b".cwd.value}),", js)
 
 
