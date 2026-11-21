@@ -131,6 +131,26 @@ test('the keepalive: one ping per idle gap at 50 minutes, none to a rested, off,
   await gap(cold, {}, 59)
   assert.equal(cold.h.submitted.length, 0)
 })
+test('the keepalive reads the registry only for a gap it would act on: a session past 2 h of no real work runs no ps each tick', async () => {
+  const f = session()
+  await turnComplete(f.$, { reason: 'answer' }, next)
+  f.h.now += 2 * 60 * MIN + 51 * MIN
+  const v = await view(f)
+  const ps = () => f.h.runs.filter((r) => r.argv[0] === '/bin/ps').length
+  const before = ps()
+  await keepaliveTick(f.$, 'sid-me', v, mem.submits)
+  await keepaliveTick(f.$, 'sid-me', v, mem.submits)
+  assert.equal(ps(), before)
+  assert.equal(f.h.submitted.length, 0)
+  const live = session()
+  await turnComplete(live.$, { reason: 'answer' }, next)
+  live.h.now += 51 * MIN
+  const lv = await view(live)
+  const n = live.h.runs.length
+  await keepaliveTick(live.$, 'sid-me', lv, mem.submits)
+  assert.ok(live.h.runs.slice(n).some((r) => r.argv[0] === '/bin/ps'))
+  assert.deepEqual(live.h.submitted, [KEEP])
+})
 test('a ping or a nudge is not work: the stop clock is the last real turn, which the ping\'s own turn does not move', async () => {
   const f = session()
   await turnComplete(f.$, { reason: 'answer' }, next)

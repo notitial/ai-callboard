@@ -207,10 +207,13 @@ export async function keepaliveTick($: any, sid: Sid, v: View, submitsAtStart: n
   const gapStart = Math.max(up.turnEnd, mem.lastSubmit ?? 0)
   if (now - gapStart < cfg.pingAfterMin * 60_000 || (up.pingAt ?? 0) >= gapStart) return
   if (mem.pinged.realEnd !== up.realEnd) mem.pinged = { realEnd: up.realEnd, n: 0 }
-  const act = keepalive({
+  const x = {
     cfg, now, turnEnd: up.turnEnd, realEnd: up.realEnd, lastSubmit: mem.lastSubmit, pingAt: up.pingAt, woke: mem.woke, off: isOff(v, sid), rest: typeof up.restAt === 'number', signed: mem.signed.set.has(sid),
-    quiet: up.req === null && up.due === null && interactive(v, sid) && (await idle($, sid)), tokens: await tokensOf($), pinged: mem.pinged.n, counters: up.counters,
-  })
+    quiet: true, tokens: await tokensOf($), pinged: mem.pinged.n, counters: up.counters,
+  }
+  // The quiet check reads the registry and runs `ps`, so it runs only for a gap the core would act on: a session idle all night is answered `none` without it.
+  if (keepalive(x).act === 'none') return
+  const act = keepalive({ ...x, quiet: up.req === null && up.due === null && interactive(v, sid) && (await idle($, sid)) })
   if (act.act === 'none') return
   await patchUp($, (u) => ({ ...u, pingAt: now }))
   if (mem.submits !== submitsAtStart || (mem.lastSubmit ?? 0) > gapStart || (await draft($)) !== '') return log($, sid, 'keepalive-skipped', 'late')
