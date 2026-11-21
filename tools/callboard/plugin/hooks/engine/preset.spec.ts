@@ -157,3 +157,35 @@ test('a tick that already submitted a text leaves the steps for the next one: no
   assert.deepEqual(f.h.compactRuns, ['rename SENTINEL', 'model sonnet', 'effort high'])
   assert.match(f.h.submitted[1]!, /^\[callboard\] The person ran \/sentinel/)
 })
+
+const old = (extra: object = {}) => ({ name: 'SENTINEL', folder: '/w/me', lead: { repos: [] }, ...extra })
+test('a second session in the folder takes the name over from the preset\'s own ended lead, and that row goes with the save; other rows stay', async () => {
+  const f = await started()
+  f.table({ 'sid-old': old(), 'sid-other': { name: 'other', folder: '/w/other', lead: { repos: [] } } })
+  assert.match((await typed(f)).text, /This session is a lead from your next prompt/)
+  assert.deepEqual(Object.keys(table(f)).sort(), ['sid-me', 'sid-other'])
+  assert.equal(table(f)['sid-me'].name, 'SENTINEL')
+  await tick(f)
+  assert.deepEqual(f.h.compactRuns, ['rename SENTINEL', 'model sonnet', 'effort high'])
+  assert.match(f.h.submitted[0]!, /^\[callboard\] The person ran \/sentinel/)
+  assert.doesNotMatch(f.h.submitted[0]!, /Not set/)
+})
+
+test('a name held by a live session, a lane, a conductor, a minted lead or a lead of another folder still refuses and saves nothing', async () => {
+  const holders: [string, Record<string, object>, boolean][] = [
+    ['live lead', { 'sid-old': old() }, true],
+    ['lane', { 'sid-old': { name: 'SENTINEL', folder: '/w/me', under: 'sid-boss' } }, false],
+    ['conductor', { 'sid-old': old({ lead: { repos: [], conductor: true } }) }, false],
+    ['minted lead', { 'sid-old': old({ lead: { repos: [], minted: true } }) }, false],
+    ['lead of another folder', { 'sid-old': old({ folder: '/w/elsewhere' }) }, false],
+  ]
+  for (const [what, rows, live] of holders) {
+    const f = await started()
+    if (live) f.seed({ sid: 'sid-old', pid: 11, name: 'SENTINEL', cwd: '/w/me', kind: 'interactive' })
+    f.table(rows)
+    const before = f.h.files.get(`${V2}/sessions.json`)
+    assert.match((await typed(f)).text, /already has that name/, what)
+    assert.equal(f.h.files.get(`${V2}/sessions.json`), before, what)
+    assert.equal(mem.presetRun, undefined, what)
+  }
+})

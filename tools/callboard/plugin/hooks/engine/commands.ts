@@ -41,7 +41,7 @@ export async function laneRows($: any, v: View, me: Sid): Promise<LaneRow[]> {
 }
 
 // This session's real folder and the real paths of what it was given (`~` is the person's home); undefined when one does not resolve.
-async function realPaths($: any, v: View, me: Sid, paths: string[]): Promise<string[] | undefined> {
+export async function realPaths($: any, v: View, me: Sid, paths: string[]): Promise<string[] | undefined> {
   const h = await home($)
   const folder = (await $.session.root().catch(() => undefined)) as string | undefined
   const out: string[] = []
