@@ -5,7 +5,7 @@ import type { Cmd, Preset } from '../core/commands.ts'
 import { parsePreset, planCommand } from '../core/commands.ts'
 import type { Sid, View } from '../core/model.ts'
 import { isOff, nameRefusal, refusal } from '../core/model.ts'
-import { T } from '../texts.ts'
+import { PRESET_TAIL, T } from '../texts.ts'
 import { modelHeld, ran } from './cue.ts'
 import { originOf, perform } from './commands.ts'
 import { readText } from './io.ts'
@@ -14,7 +14,7 @@ import { getView } from './store.ts'
 import { say } from './tools-any.ts'
 
 // Read this folder's preset and register its command; nothing is registered for a missing or bad file, or when the command's name is already taken by anything but this
-// preset's own earlier registration (a reload), which is told by its description.
+// preset's own earlier registration (a reload, even after the file was edited), which is told by the tail of its description.
 export async function presetRegister($: any): Promise<void> {
   mem.preset = undefined
   const root = await $.session.root().catch(() => undefined)
@@ -22,7 +22,7 @@ export async function presetRegister($: any): Promise<void> {
   if (p === undefined) return
   const description = T['cmd.presetHelp'](p)
   const listed: { name: string; source: string; description?: string }[] = await $.command.list().catch(() => [{ name: p.command, source: 'builtin' }])
-  if (listed.some((c) => c.name === p.command && !(c.source === 'plugin' && c.description === description))) return
+  if (listed.some((c) => c.name === p.command && !(c.source === 'plugin' && c.description?.endsWith(PRESET_TAIL)))) return
   await $.command.register({ name: p.command, description })
   mem.preset = p
 }

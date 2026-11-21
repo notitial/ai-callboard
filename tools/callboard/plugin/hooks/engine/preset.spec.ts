@@ -37,9 +37,11 @@ test('the start registers the preset\'s command beside callboard\'s; a missing o
   f.h.listed = [{ name: 'sentinel', source: 'plugin', description: 'Another plugin\'s command.' }]
   await sessionStart(f.$, {}, async (e: unknown) => e)
   assert.equal(f.h.commands.includes('sentinel'), false, 'another plugin\'s command is not shadowed')
-  f.h.listed = [{ name: 'sentinel', source: 'plugin', description: T['cmd.presetHelp'](PRESET) }]
+  // The file was edited (name, model, effort) after the first registration: the reload still finds its own earlier line.
+  f.h.listed = [{ name: 'sentinel', source: 'plugin', description: T['cmd.presetHelp']({ name: 'OLD', model: 'opus', effort: 'low' }) }]
   await sessionStart(f.$, {}, async (e: unknown) => e)
-  assert.equal(f.h.commands.includes('sentinel'), true, 'a reload registers its own command again')
+  assert.equal(f.h.commands.includes('sentinel'), true, 'a reload after an edit registers its own command again')
+  assert.equal(mem.preset?.name, 'SENTINEL')
 })
 
 test('typed by the person it saves the lead row under the preset\'s name and gives the lead tools; run by a plugin, a session or anything else it is refused and saves nothing', async () => {
