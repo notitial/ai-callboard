@@ -97,7 +97,7 @@ test('a session whose tier changes is filed again in its new group', async () =>
   assert.deepEqual(w.store.done, { [S(1)]: 'Conductor' })
 })
 
-test('the session list an older version stored is no record: every session is filed once more, then remembered', async () => {
+test('a stored list is no record: every session is filed once more, then remembered', async () => {
   const w = world({ rows: [row(1, A), row(2, A)], lanes: [{ sid: S(1) }], table: { [S(2)]: { name: 'C', folder: A, lead: { repos: [], conductor: true } } }, done: [S(1), S(2)] })
   await w.groups.tick()
   assert.deepEqual(w.calls, [[S(1), 'Lanes'], [S(2), 'Conductor']])
@@ -161,7 +161,7 @@ test('a patched window with several folders serves a session in any of them', as
   assert.deepEqual(w.calls, [[S(1), 'Lanes']])
 })
 
-test('without the command (an unpatched Claude Code, or one patched before this command) nothing is read, called or stored', async () => {
+test('without the command (an unpatched Claude Code, or one with only `callboard assign group`) nothing is read, called or stored', async () => {
   const w = world({ commands: ['other', 'callboard assign group'], rows: [row(1, A)], lanes: [{ sid: S(1) }] })
   await w.groups.tick()
   assert.deepEqual([w.calls, w.listed, w.updates], [[], 0, 0])

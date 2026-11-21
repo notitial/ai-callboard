@@ -74,7 +74,7 @@ function createGroups({ vscode, registry, state, loadTable, managerName, workspa
       const rows = list.filter((r) => !Number.isInteger(r.pid) || alive(r.pid))
       const want = groupsFor(table, manager)
       const was = state.get(DONE_KEY, {})
-      // Anything but a plain object (the session list an older version kept) is no record: every session is filed once more.
+      // A stored value that is not a plain object (such as a list) is no record: every session is filed once more.
       const filed = was && typeof was === 'object' && !Array.isArray(was) ? { ...was } : {}
       for (const [sid, group] of want) {
         if (filed[sid] === group || !rows.some((r) => r.sessionId === sid && inWindow(r.cwd))) continue
