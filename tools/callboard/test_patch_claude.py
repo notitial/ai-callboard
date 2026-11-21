@@ -136,7 +136,7 @@ PIE_JS = (
 )
 JS330 = dict(sv="$Bt", pc="jBt", tf="_Bt", fb="jzn", st="_", mp="fAe")
 JSB = dict(sv="SFt", pc="kFt", tf="tFt", fb="dBn", st="U$", mp="Rr")
-# The shape of the pie before 2.1.330: the threshold fixed at 50 in the component and in the ring, not a prop.
+# The pie component and the call that passes it as they were before 2.1.330: the threshold fixed at 50, not a prop.
 PIE_JS_329 = PIE_JS.replace(
     "threshold:n,onCompact:i,buttonClassName:o}}){{let r=t>0?Math.min(e/t*100,100):0;if(t===0||r<=n)return null;",
     "onCompact:i,buttonClassName:o}}){{let r=t>0?Math.min(e/t*100,100):0;if(t===0)return null;if(r>=50)return null;",
@@ -1117,7 +1117,7 @@ class Pie(Case):
         self.assertEqual(len(mod.PIE_ANCHORS), 3)
 
     def test_a_script_from_before_2_1_330_leaves_the_pie_out_and_names_the_anchor(self):
-        self.assertNotEqual(PIE_JS_329, PIE_JS)
+        self.assertEqual((PIE_JS.count("threshold:"), PIE_JS_329.count("threshold:"), PIE_JS_329.count("r>=50")), (2, 0, 1))
         ext = self.make(V327, name="before330", web=dict(WEB, **{"index.js": PIE_JS_329.format(**JS330)}))
         self.run_script(ext)
         self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "unpatched-patchable 2.1.328"))
