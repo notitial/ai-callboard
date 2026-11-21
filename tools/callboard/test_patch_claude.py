@@ -1377,7 +1377,7 @@ const world = (reply) => {
   const ctx = vm.createContext({ m, k, BFt: 'BFt', fAe: 'M', Rr: 'M', $Ft: 'L' })
   vm.runInContext(fs.readFileSync(file, 'utf8') + ';globalThis.Foot = Foot', ctx)
   const session = (cwd, stage) => ({ stage, cwd: { value: cwd }, drawnClaudeConfig: { value: { models: [] } },
-    getConnection: () => reply === 'down' ? Promise.reject(new Error('down')) : Promise.resolve({ sendRequest: async (req) => { requests.push(req); return typeof reply === 'function' ? reply(req) : reply } }) })
+    getConnection: () => reply === 'throws' ? (() => { throw new Error('no connection') })() : reply === 'none' ? undefined : reply === 'down' ? Promise.reject(new Error('down')) : Promise.resolve({ sendRequest: async (req) => { requests.push(req); return typeof reply === 'function' ? reply(req) : reply } }) })
   const render = (cwd, stage = 0) => { const c = ctx.Foot(session(cwd, stage)).p.children; return { c, span: c.find((x) => x && x.t === 'span') } }
   return { requests, render }
 }
@@ -1408,9 +1408,9 @@ const shape = (c) => c.map((x) => x && (x.t === 'span' ? 'pill' : x.t))
     const same = e.w.log.length; name = ''; r.span.p.onClick(); await tick()
     out.click = { requests: w.requests, first: log, after: afterFirst, sameWrites: same - afterFirst.length, emptyWrites: e.w.log.length - same, text: e.firstChild.data,
       cached: (() => { const e3 = el(); w.render('/a/proj').span.p.ref(e3); return e3.w.log })() } }
-  // A failed request, a bad answer, a folder that is not a string: hidden, nothing thrown.
-  for (const reply of ['down', null, { name: 7, folders: 'x' }]) {
-    const w = world(reply), e = el(); w.render('/a/proj').span.p.ref(e); await tick()
+  // A failed request, a getConnection that throws or gives no connection, a bad answer, a folder that is not a string: hidden, nothing thrown, a click too.
+  for (const reply of ['down', 'throws', 'none', null, { name: 7, folders: 'x' }]) {
+    const w = world(reply), e = el(), r = w.render('/a/proj'); r.span.p.ref(e); r.span.p.onClick(); await tick()
     ;(out.bad ??= []).push({ log: e.w.log, display: e.style.display, n: w.requests.length })
   }
   { let calls = 0
@@ -1556,6 +1556,7 @@ class Pill(Case):
             for b in got["bad"]:
                 self.assertEqual(b["display"], "none", "a failed or bad answer leaves it hidden")
                 self.assertEqual(b["log"], [], "and writes no text")
+            self.assertEqual([b["n"] for b in got["bad"][1:3]], [0, 0], "a getConnection that throws or gives nothing sends no request and throws into no render or click")
             self.assertEqual(got["retry"], {"requests": 2, "log": ["append proj", "display="], "stuck": 3, "stuckLog": []},
                              "a failed ask is not kept: the next render asks again and the pill comes up; one that keeps failing stops after three, writing nothing")
             self.assertEqual(got["nocwd"], [True, True, True, True], "no folder, no pill; a root folder draws one")

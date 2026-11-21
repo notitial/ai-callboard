@@ -198,10 +198,11 @@ PILL_STYLE = (
 )
 # The page side, built once per page: M keeps one entry per folder (the reply, the span that last asked, whether a request is out), put writes a reply into a span
 # only where it differs, ask makes the request (null when it failed or came back with no name: the span stays hidden, and a render asks again, up to three times).
+# The request starts from a resolved promise, so a getConnection that throws or gives no connection is a failed request too, never a throw into the render.
 PILL_HELPER = (
     b'(globalThis.cbfPill??=(()=>{const M=new Map,'
     b'put=(E,R)=>{if(!E||!R)return;if(R.name&&E.firstChild?.data!==R.name){if(E.firstChild)E.firstChild.data=R.name;else E.append(R.name)}let D=R.folders>1?"":"none";if(E.style.display!==D)E.style.display=D},'
-    b'ask=(S,K,N)=>S.getConnection().then((C)=>C.sendRequest({type:"callboard_folder",cwd:K,rename:N})).then((R)=>typeof R?.name=="string"&&R.name?{name:R.name,folders:Number(R.folders)||0}:null,()=>null),'
+    b'ask=(S,K,N)=>Promise.resolve().then(()=>S.getConnection()).then((C)=>C.sendRequest({type:"callboard_folder",cwd:K,rename:N})).then((R)=>typeof R?.name=="string"&&R.name?{name:R.name,folders:Number(R.folders)||0}:null,()=>null),'
     b'slot=(K)=>{let X=M.get(K);if(!X)M.set(K,X={});return X};'
     b'return{ref(E,S){if(!E)return;let K=S.cwd.value,X=slot(K);X.el=E;if(X.r)put(E,X.r);else if(!X.p){X.p=1;ask(S,K).then((R)=>{if(R){X.r=R;put(X.el,R)}else X.p=(X.f=(X.f||0)+1)>2})}},'
     b'click(S){let K=S.cwd.value,X=slot(K);ask(S,K,!0).then((R)=>{if(R){X.r=R;put(X.el,R)}})}}})())'
