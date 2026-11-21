@@ -165,8 +165,20 @@ EXT_DIR="$(ls -d "$HOME"/.vscode/extensions/anthropic.claude-code-* | sort -V | 
   and any other group after them. A session moves into its tier's group from wherever it sits, and again whenever its
   tier changes; one you move by hand stays moved until then. An install with the older `callboard assign group` reads
   `outdated`, and grouping waits until `--update`.
-- The session command is the last piece, optional in the same way (the marker's `session` field): `callboard active session`
+- The session command is another piece, optional in the same way (the marker's `session` field): `callboard active session`
   returns the session id of the Claude panel in front, so the folder badge below finds an unnamed session too.
+- The archive command is another piece (the marker's `archive` field): `callboard archive sessions` archives the sessions it is
+  given that sit in the group it is given, as the sidebar's Archive item does. The panels extension names a lane in Lanes
+  only after it saw the lane running and then saw it with no table row and no process, on two clean ticks. So a lane the
+  extension never saw running, a parked lane while its row stays, a live lane, a lead and the manager are never archived.
+  The plugin drops a row on a retire, 24 hours after a lane died without one and 28 days after a park, so a lane in
+  either of the last two cases is archived once its row goes; so is the old conversation of a lane whose session id
+  changed (`/clear`). Unarchive in the sidebar brings any of them back.
+- The list piece (the marker's `list` field): the sidebar lists the saved conversations of every folder of the window, not
+  only the first, so a lead that runs in another repo stays listed after its tab is closed and a click reopens it there. The
+  history of the window's other folders is listed too, as the first folder's already is. Each refresh scans those folders
+  and reads the tail of each of their chats, so a window whose other folders hold thousands of old chats refreshes more
+  slowly. A window with one folder is unchanged.
 - An install that differs from what the current script builds shows `outdated` with a
   line saying what differs, or the old warning that a piece is not in. The check compares the installed file with what the current script
   builds from the backup original. `--update` (or `/patch-vs-claude`, which runs it) rebuilds the patch from the backup and

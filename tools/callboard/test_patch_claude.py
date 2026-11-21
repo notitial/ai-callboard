@@ -25,7 +25,8 @@ TEMPLATE = (
     'var q="é";function {nc}(e){{return e[0]}}class W{{async createPanel(e,t,n,r,o,s,i,a=!1){{if(e){{return 1}}let d=1,p=2,l=!1;'
     'if(this.setupPanel(d,e,t,p,s===!0,a),e)this.sessionPanels.set(e,d);return{{startedInNewColumn:l}}}}'
     'setupPanel(e,t,n,r,o,s=!1){{this.panelFullEditor.set(e,!!r);let i={vs}.workspace.workspaceFolders?.map((h)=>h.uri.fsPath)||[],'
-    'a={nc}(i);return a}}}}'
+    'a={nc}(i);return a}}'
+    'sessionListOptions(){{return{{dir:this.cwd,includeWorktrees:!1}}}}async listSdkSessions(e=this.sessionListOptions()){{let t={gd}();return t===void 0?await {la}(e):await {lb}(e,void 0,t)}}}}'
     'function Act(c){{{vs}.window.registerWebviewPanelSerializer("claudeVSCodePanel",{{deserializeWebviewPanel:(w,T)=>nL(()=>{{c.notePanelRevived();'
     'let C=T,A=c.restoredTabSetup(C??{{}},w.title),k=A.fullEditor,x=sw(A.openSession)?A.openSession:void 0;c.setupPanel(w,x,void 0,k);'
     'let R=typeof C?.sessionID==="string"?C.sessionID:x;if(sw(R)&&ice(R,C?.sessionUpdatedAt))c.registerPanelSession(R,w)}})}})}}'
@@ -82,8 +83,8 @@ const open = async (folders, pickResult, target, ...args) => {
   console.log(JSON.stringify(out))
 })()
 """
-V327 = dict(nc="nC", vs="$e", a="w", b="A", c="C", d="T", e="R", f="x", pv="G", rq="e")
-V328 = dict(nc="$v", vs="Pe", a="w", b="T", c="C", d="A", e="k", f="z", pv="Gq", rq="$n")
+V327 = dict(nc="nC", vs="$e", a="w", b="A", c="C", d="T", e="R", f="x", pv="G", rq="e", gd="gd", la="c$e", lb="RHe")
+V328 = dict(nc="$v", vs="Pe", a="w", b="T", c="C", d="A", e="k", f="z", pv="Gq", rq="$n", gd="Gd", la="d$e", lb="RHf")
 PKG = {"name": "claude-code", "publisher": "Anthropic", "version": "2.1.328"}
 
 
@@ -520,9 +521,9 @@ class Groups(Case):
             self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "patched 2.1.328"))
             self.assertEqual(self.out.count("warning"), 0)
             marker = json.loads(slurp(os.path.join(ext, "callboard-cwd-patch.json")))
-            self.assertEqual((marker["patch"], marker["width"], marker["pie"], marker["groups"], marker["session"]), (1, True, True, True, True))
+            self.assertEqual((marker["patch"], marker["width"], marker["pie"], marker["groups"], marker["session"], marker["archive"], marker["list"]), (1, True, True, True, True, True, True))
             new = self.js(ext)
-            self.assertEqual((new.count(b"callboard file session"), new.count(b"callboard active session")), (1, 1))
+            self.assertEqual((new.count(b"callboard file session"), new.count(b"callboard active session"), new.count(b"callboard archive sessions"), new.count(b"cbListOne(e){")), (1, 1, 1, 1))
             self.assertEqual(new.count(b"cbCwd"), 6)
 
     def test_the_command_goes_in_front_of_the_stock_one_inside_its_push_call(self):
@@ -530,9 +531,10 @@ class Groups(Case):
         new = self.js(ext).decode("utf-8")
         i, j = new.index("Pe.commands.registerCommand(\"callboard file session\""), new.index("Pe.commands.registerCommand(\"claude-vscode.addSessionTabToGroup\"")
         self.assertLess(i, j)
-        self.assertEqual(new[i:j].count("registerCommand"), 2, "the group command, then the session command")
+        self.assertEqual(new[i:j].count("registerCommand"), 3, "the group command, the session command, then the archive command")
         self.assertTrue(new[:i].endswith("x.push("))
-        self.assertTrue(new[i:j].endswith('Pe.commands.registerCommand("callboard active session",()=>Gq.activePanelSessionId()),'))
+        self.assertIn('Pe.commands.registerCommand("callboard active session",()=>Gq.activePanelSessionId()),Pe.commands.registerCommand("callboard archive sessions",async(', new[i:j])
+        self.assertTrue(new[i:j].endswith("return cbqD}),"))
 
     @unittest.skipUnless(shutil.which("node"), "needs node")
     def test_the_command_files_a_session_by_name_creates_a_missing_group_and_moves_a_grouped_session(self):
@@ -668,10 +670,169 @@ class Groups(Case):
                     self.assertIn(member, raw, "%s: the members the command uses" % d)
             if marker["session"]:
                 self.assertIn(b"activePanelSessionId(){", raw, "%s: the member the session command uses" % d)
+            if marker["archive"]:
+                for member in (b"archiveSessions(", b"broadcastSessionArchiveChanged(", b"getArchivedSessionIds()"):
+                    self.assertIn(member, raw, "%s: the members the archive command uses" % d)
+            if marker["list"]:
+                self.assertEqual(self.js(ext).count(b"async cbListOne("), 1, d)
             p = subprocess.run(["node", "--check", os.path.join(ext, "extension.js")], capture_output=True, text=True, timeout=120)
             self.assertEqual(p.returncode, 0, "%s: %s" % (d, p.stderr))
             self.run_script(ext, "--undo")
             self.assertEqual(self.js(ext), raw)
+
+
+# Runs the patched stand-in's list method against fake folder scans: `data` maps a folder to its sessions, `failing` names folders whose scan throws, `hook` makes
+# the stock body take its other branch. Each call is an options object or none (the method's own default); prints the session ids and the scans of each.
+LIST_RUNNER = r"""
+const vm = require('vm'), fs = require('fs')
+const code = fs.readFileSync(process.argv[1], 'utf8')
+const cfg = JSON.parse(process.argv[2])
+;(async () => {
+  let scans = []
+  const list = async (o) => { scans.push([o.dir, o.limit, o.offset, o.includeWorktrees]); if (cfg.failing.includes(o.dir)) throw new Error('boom'); return (cfg.data[o.dir] || []).map((s) => ({ ...s })) }
+  const hooked = async (o, _, h) => { scans.push(['hook', h]); return list(o) }
+  const fake = { workspace: { workspaceFolders: cfg.folders.map((f) => ({ uri: { fsPath: f } })) }, commands: { registerCommand: () => ({}) }, window: {} }
+  const ctx = vm.createContext({ x: [], Wp: () => {}, F: () => ({}), gd: () => (cfg.hook ? 'H' : undefined), Gd: () => (cfg.hook ? 'H' : undefined), 'c$e': list, 'd$e': list, RHe: hooked, RHf: hooked, G: {}, Gq: {}, $e: fake, Pe: fake, require: () => fake })
+  vm.runInContext(code + ';globalThis.W=W', ctx)
+  const out = []
+  for (const opts of cfg.calls) {
+    scans = []
+    const inst = Object.assign(Object.create(ctx.W.prototype), { cwd: cfg.cwd })
+    let ids, error
+    try { ids = (opts === null ? await inst.listSdkSessions() : await inst.listSdkSessions(opts)).map((s) => s.sessionId) } catch (e) { error = e.message }
+    out.push({ ids, error, scans })
+  }
+  console.log(JSON.stringify(out))
+})()
+"""
+# Runs the patched stand-in's archive command against a fake provider and prints the result and what the provider was asked to do.
+ARCHIVE_RUNNER = r"""
+const vm = require('vm'), fs = require('fs')
+const code = fs.readFileSync(process.argv[1], 'utf8')
+const start = JSON.parse(process.argv[2])
+;(async () => {
+  const H = {}, log = [], archived = [...(start.archived || [])]
+  const provider = { settings: { getSessionGroups: () => start.groups, getArchivedSessionIds: () => archived, archiveSessions: async (ids) => { log.push(['archive', ids]); archived.push(...ids) } },
+    broadcastSessionArchiveChanged: (comms, id, flag) => log.push(['tell', comms === undefined ? 'all' : 'some', id, flag]), persistGroupsFromHost: (g) => log.push(['save', g === start.groups]), addActiveSessionTabToGroup: async () => true, activePanelSessionId: () => 'sid' }
+  const fake = { workspace: {}, window: {}, commands: { registerCommand: (id, fn) => { H[id] = fn; return {} } } }
+  const ctx = vm.createContext({ x: [], Wp: () => {}, F: () => ({}), G: provider, Gq: provider, $e: fake, Pe: fake, require: () => fake })
+  vm.runInContext(code, ctx)
+  const out = []
+  for (const args of start.calls) { log.length = 0; out.push({ result: await H['callboard archive sessions'](...args), log: [...log] }) }
+  console.log(JSON.stringify(out))
+})()
+"""
+
+
+class ListAndArchive(Case):
+    """The session list and the archive command are optional pieces; each costs only itself when its anchor misses."""
+
+    def applied(self, raw=None, variant=V327, name="la"):
+        ext = self.make(variant, name=name, raw=raw)
+        self.run_script(ext, "--apply")
+        return ext, json.loads(slurp(os.path.join(ext, "callboard-cwd-patch.json")))
+
+    def node(self, runner, ext, cfg):
+        p = subprocess.run(["node", "-e", runner, os.path.join(ext, "extension.js"), json.dumps(cfg)], capture_output=True, text=True, timeout=60)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        return json.loads(p.stdout)
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_the_list_joins_every_folder_of_the_window_newest_first_each_session_once(self):
+        for variant in (V327, V328):
+            ext, marker = self.applied(variant=variant, name="list%s" % variant["pv"])
+            self.assertTrue(marker["list"])
+            s = lambda sid, t: {"sessionId": sid, "lastModified": t}
+            data = {"/a": [s("a1", 5), s("dup", 1)], "/b": [s("b1", 9), s("dup", 3)], "/c": [s("c1", 7)]}
+            r = self.node(LIST_RUNNER, ext, {"cwd": "/a", "folders": ["/a", "/b", "/c"], "data": data, "failing": [], "calls": [None]})[0]
+            self.assertEqual(r["ids"], ["b1", "c1", "a1", "dup"])
+            self.assertEqual(sorted(x[0] for x in r["scans"]), ["/a", "/b", "/c"])
+            self.assertTrue(all(x[3] is False for x in r["scans"]), "each scan keeps the provider's own options")
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_a_call_that_names_a_folder_or_a_limit_or_an_offset_and_a_one_folder_window_are_stock(self):
+        ext, _ = self.applied(name="stock")
+        base = {"dir": "/a", "includeWorktrees": False}
+        two = {"cwd": "/a", "folders": ["/a", "/b"], "data": {"/a": [{"sessionId": "a1", "lastModified": 1}], "/b": [{"sessionId": "b1", "lastModified": 2}]}, "failing": []}
+        r = self.node(LIST_RUNNER, ext, {**two, "calls": [{**base, "dir": "/b"}, {**base, "limit": 5}, {**base, "offset": 1}]})
+        self.assertEqual([(x["ids"], len(x["scans"])) for x in r], [(["b1"], 1), (["a1"], 1), (["a1"], 1)], "one scan each, of the folder asked")
+        r = self.node(LIST_RUNNER, ext, {**two, "folders": ["/a"], "calls": [None]})[0]
+        self.assertEqual((r["ids"], len(r["scans"])), (["a1"], 1))
+        r = self.node(LIST_RUNNER, ext, {**two, "folders": [], "calls": [None]})[0]
+        self.assertEqual((r["ids"], len(r["scans"])), (["a1"], 1))
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_a_folder_that_cannot_be_scanned_adds_nothing_but_the_first_folder_fails_as_before(self):
+        ext, _ = self.applied(name="fail")
+        data = {"/a": [{"sessionId": "a1", "lastModified": 1}], "/b": [{"sessionId": "b1", "lastModified": 2}]}
+        two = {"cwd": "/a", "folders": ["/a", "/b"], "data": data, "calls": [None]}
+        self.assertEqual(self.node(LIST_RUNNER, ext, {**two, "failing": ["/b"]})[0]["ids"], ["a1"])
+        r = self.node(LIST_RUNNER, ext, {**two, "failing": ["/a"]})[0]
+        self.assertEqual((r.get("ids"), r.get("error")), (None, "boom"))
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_the_stock_body_keeps_its_other_branch_for_each_folder(self):
+        ext, _ = self.applied(name="hook")
+        r = self.node(LIST_RUNNER, ext, {"cwd": "/a", "folders": ["/a", "/b"], "data": {"/b": [{"sessionId": "b1", "lastModified": 1}]}, "failing": [], "hook": True, "calls": [None]})[0]
+        self.assertEqual(r["ids"], ["b1"])
+        self.assertEqual(sorted(x[1] for x in r["scans"] if x[0] == "hook"), ["H", "H"])
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_the_archive_command_archives_only_the_listed_sessions_of_the_named_group(self):
+        for variant in (V327, V328):
+            ext, marker = self.applied(variant=variant, name="arch%s" % variant["pv"])
+            self.assertTrue(marker["archive"])
+            r = self.node(ARCHIVE_RUNNER, ext, {"groups": [{**G1, "sessionIds": ["s0", "s1"]}, G2], "calls": [
+                ["Lanes", ["s0", "s9", "zz", 5, "s0"]], ["lanes", ["s1"]], [5, ["s0"]], ["Lanes", "s0"], ["Nope", ["s0"]], ["Lanes", []], ["Lead", ["s0"]]]})
+            self.assertEqual(r[0]["result"], ["s0"], "s9 is in another group, zz in none, 5 is no id, a repeat counts once")
+            self.assertEqual(r[0]["log"], [["archive", ["s0"]], ["tell", "all", "s0", True], ["save", True]], "the provider archives, tells every sidebar, then saves the groups")
+            self.assertEqual(r[1]["result"], ["s1"], "a group name in any letter case")
+            self.assertEqual([(x["result"], x["log"]) for x in r[2:]], [([], [])] * 5, "a bad argument, a group of no such name, no ids, or an id of another group: nothing is called")
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_the_archive_command_skips_a_session_that_is_archived_already(self):
+        ext, _ = self.applied(name="again")
+        r = self.node(ARCHIVE_RUNNER, ext, {"groups": [{**G1, "sessionIds": ["s0", "s1"]}], "archived": ["s1"], "calls": [["Lanes", ["s1", "s0"]], ["Lanes", ["s0"]]]})
+        self.assertEqual((r[0]["result"], r[0]["log"][0]), (["s0"], ["archive", ["s0"]]))
+        self.assertEqual((r[1]["result"], r[1]["log"]), ([], []), "s0 is archived by now")
+
+    def test_a_missing_list_anchor_costs_only_the_list_and_a_missing_group_anchor_costs_only_the_two_commands_there(self):
+        for label, raw, left, kept in (
+            ("renamed method", build(V327).replace(b"async listSdkSessions", b"async listSessionsFromSdk"), ("list", "session list"), ("groups", "session", "archive")),
+            ("doubled method", build(V327).replace(b"function Act(", b"class Z{async listSdkSessions(e=this.sessionListOptions()){let t=gd();return t===void 0?await c$e(e):await RHe(e,void 0,t)}}function Act("), ("list", "session list"), ("groups", "session", "archive")),
+            ("no group registration", build(V327, grp=""), ("groups", "group command", "session", "archive"), ("list",)),
+        ):
+            ext = self.make(V327, name="miss%d" % len(os.listdir(self.t)), raw=raw)
+            self.run_script(ext, "--apply")
+            self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "patched 2.1.328"), label)
+            marker = json.loads(slurp(os.path.join(ext, "callboard-cwd-patch.json")))
+            self.assertEqual([marker[f] for f in left if f in marker], [False] * len([f for f in left if f in marker]), label)
+            self.assertEqual([marker[f] for f in kept], [True] * len(kept), label)
+            self.assertEqual((marker["width"], marker["pie"]), (True, True), label)
+            self.assertEqual(self.js(ext).count(b"cbCwd"), 6, label)
+            self.run_script(ext, "--undo")
+            self.assertEqual((self.rc, self.js(ext)), (0, raw), label)
+
+    def test_a_file_that_already_has_the_helper_or_the_command_is_left_alone(self):
+        ext, marker = self.applied(raw=build(V327) + b"var cbListOne=1;", name="havelist")
+        self.assertEqual(marker["list"], False)
+        ext, marker = self.applied(raw=build(V327, grp=GROUP + 'x.push(Wp("callboard archive sessions",()=>1));'), name="havearch")
+        self.assertEqual((marker["archive"], self.js(ext).count(b"callboard archive sessions")), (False, 1))
+
+    def test_an_install_from_before_the_list_reads_outdated_and_update_brings_it_in(self):
+        mod = load_module()
+        ext = self.make(V327, name="oldlist")
+        with contextlib.redirect_stdout(io.StringIO()):
+            old = load_module()
+            old.LIST_ANCHOR = rb"(NO)(MATCH)(HERE)"
+            old.apply(ext)
+        self.assertNotIn(b"cbListOne", self.js(ext))
+        self.assertUnchanged(ext)
+        self.assertEqual((self.rc, self.out.splitlines()[0]), (1, "outdated 2.1.328: the session list is not in"))
+        self.run_script(ext, "--update")
+        self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "updated 2.1.328"))
+        self.assertEqual(self.js(ext), mod.patched(slurp(os.path.join(ext, "extension.js.callboard-orig")), mod.webview(ext))[0])
+        self.assertEqual(json.loads(slurp(os.path.join(ext, "callboard-cwd-patch.json")))["list"], True)
 
 
 class Update(Case):
