@@ -19,7 +19,7 @@ fs.symlinkSync(other, path.join(proj, 'escape'))
 fs.mkdirSync(path.join(proj, 'sub'))
 test.after(() => fs.rmSync(tmp, { recursive: true, force: true }))
 
-// A fake VS Code and a fake spawn. `answers` are the modal's replies in order (undefined is Escape or Cancel; a promise is awaited); `script(child, sig)` plays what the
+// A fake VS Code and a fake spawn. `answers` are the modal's replies in order (a string is the button of that title, undefined is Escape or Cancel, a promise is awaited); `script(child, sig)` plays what the
 // process does: it gets the child when it starts, and each signal sent to its group.
 function world({ answers = ['Run'], script = (c) => c.close(0), folders = [proj], extra = {} } = {}) {
   const w = { modals: [], errors: [], spawns: [], kills: [], progress: [], cancel: undefined }
@@ -29,7 +29,10 @@ function world({ answers = ['Run'], script = (c) => c.close(0), folders = [proj]
     window: {
       showWarningMessage: async (...a) => {
         w.modals.push(a)
-        return answers.shift()
+        const pick = await answers.shift()
+        const items = a.slice(2)
+        if (typeof pick !== 'string') return pick
+        return items.find((i) => (i.title ?? i) === pick) ?? (typeof items[0] === 'object' ? { title: pick } : pick)
       },
       showErrorMessage: (m) => w.errors.push(m),
       withProgress: (opts, task) => {
@@ -63,7 +66,9 @@ test('every refusal runs nothing, asks nothing and shows why', async () => {
     [undefined, 'nothing to run'], [{}, 'nothing to run'], [{ text: 7, cwd: proj }, 'nothing to run'], [{ text: '  \n', cwd: proj }, 'nothing to run'],
     [{ text: 'x'.repeat(8001), cwd: proj }, 'longer than 8000'], [{ text: 'a\u0007b', cwd: proj }, 'control character'], [{ text: 'a\rb', cwd: proj }, 'control character'],
     [{ text: 'a\u0000b', cwd: proj }, 'control character'], [{ text: 'a\u007fb', cwd: proj }, 'control character'],
-    [{ text: 'ls' }, 'not an absolute path'], [{ text: 'ls', cwd: 'proj' }, 'not an absolute path'], [{ text: 'ls', cwd: 5 }, 'not an absolute path'],
+    [{ text: 'ls' }, 'folder is not known yet'], [{ text: 'ls', cwd: 5 }, 'folder is not known yet'], [{ text: 'ls', cwd: 'proj' }, 'not an absolute path'],
+    [{ text: 'a‮b', cwd: proj }, 'invisible or direction-changing'], [{ text: 'a​b', cwd: proj }, 'invisible or direction-changing'],
+    [{ text: 'a b', cwd: proj }, 'invisible or direction-changing'], [{ text: 'a\u0085b', cwd: proj }, 'invisible or direction-changing'],
     [{ text: 'ls', cwd: path.join(proj, 'missing') }, 'does not exist'], [{ text: 'ls', cwd: path.join(proj, 'a\u0000b') }, 'does not exist'],
     [{ text: 'ls', cwd: other }, "not one of this window's folders"], [{ text: 'ls', cwd: path.join(proj, 'escape') }, "not one of this window's folders"],
     [{ text: 'ls', cwd: path.join(proj, '..') }, "not one of this window's folders"], [{ text: 'ls', cwd: tmp }, "not one of this window's folders"],
@@ -80,8 +85,8 @@ test('every refusal runs nothing, asks nothing and shows why', async () => {
   assert.equal(w.spawns.length, 0, 'a window with no folder')
 })
 
-test('only the modal\'s own "Run" starts a process: Escape, Cancel and anything else run nothing', async () => {
-  for (const answer of [undefined, 'Cancel', 'run', 'Run ', true, null]) {
+test('only the modal\'s own "Run" starts a process: "Don\'t run", Escape, Cancel and anything else run nothing', async () => {
+  for (const answer of [undefined, "Don't run", 'Cancel', 'run', 'Run ', true, null]) {
     const w = world({ answers: [answer] })
     assert.deepEqual(await ask(w), {})
     assert.equal(w.spawns.length, 0, String(answer))
@@ -93,7 +98,11 @@ test('it asks with the folder name, the full folder and the whole command, then 
   const w = world({ script: (c) => { c.out('hi\n'); c.err('warn\n'); c.close(0) } })
   const r = await ask(w, 'echo hi\nls -la')
   const [title, opts, ...buttons] = w.modals[0]
-  assert.deepEqual([title, opts, buttons], ['Run this in proj?', { modal: true, detail: `Folder: ${proj}\n\necho hi\nls -la` }, ['Run']])
+  assert.deepEqual([title, opts, buttons], ['Run this 2-line command in proj?', { modal: true, detail: `Folder: ${proj}\n\necho hi\nls -la` }, [{ title: "Don't run" }, { title: 'Run' }]])
+  assert.notEqual(buttons[0].title, 'Run', 'the first button is the default, so it is the harmless one')
+  const one = world()
+  await ask(one, 'echo one')
+  assert.equal(one.modals[0][0], 'Run this in proj?', 'no line count for one line')
   assert.equal(w.progress[0].title, 'Running: echo hi')
   const [s] = w.spawns
   assert.deepEqual([s.shell, s.args], ['/bin/zsh', ['-lc', 'echo hi\nls -la']])
@@ -230,6 +239,51 @@ test('mask covers key blocks, the common token shapes and long secret values onl
   assert.equal(mask('Password: "correcthorsebattery"'), 'Password: "[masked]"')
   assert.equal(mask('SECRET_KEY = abcdefabcdef12'), 'SECRET_KEY = [masked]')
   for (const s of ['password=short', 'tokens are fine', 'secret', 'sk-ant', 'gh' + 'p_short', 'AKIA123', 'a token: x']) assert.equal(mask(s), s, s)
+})
+
+test('mask also covers Bearer and Basic credentials, URL passwords, API keys, PGP blocks and the other token shapes', () => {
+  const j = (...p) => p.join('')
+  assert.equal(mask('Authorization: Bearer abcdefghij0123456789'), 'Authorization: Bearer [masked]')
+  assert.equal(mask('curl -H "Authorization: Basic dXNlcjpwYXNzd29yZDEyMzQ="'), 'curl -H "Authorization: Basic [masked]"')
+  assert.equal(mask('git clone https://user:s3cretpassw0rd@host.example/r.git'), 'git clone https://user:[masked]@host.example/r.git')
+  assert.equal(mask('API_KEY=abcd1234efgh5678'), 'API_KEY=[masked]')
+  assert.equal(mask('"api-key": "abcd1234efgh5678"'), '"api-key": "[masked]"')
+  assert.equal(mask(['-----BEGIN PGP', 'PRIVATE KEY BLOCK-----\nabc\n-----END PGP', 'PRIVATE KEY BLOCK-----'].join(' ')), '[masked]')
+  for (const s of [j('sk-', 'a'.repeat(24)), j('sk_live_', 'a1'.repeat(10)), j('AIza', 'Ab1_'.repeat(9)), j('glpat-', 'x'.repeat(20)), j('npm_', 'a1'.repeat(16)), j('xapp-', '1-abc-12345'),
+    j('eyJ', 'hbGciOiJIUzI1', '.', 'eyJzdWIiOiIx', '.', 'c2lnbmF0dXJl')]) assert.equal(mask(`v=${s}!`), 'v=[masked]!', s)
+  for (const s of ['Bearer short', 'sk-short', 'https://user@host/x', 'https://host:8080/x', 'keyboard=abcdefghijklmnop', 'the token is long enough but has no sign']) assert.equal(mask(s), s, s)
+})
+
+test('a lone half of a surrogate pair becomes U+FFFD and a whole pair stays', () => {
+  assert.equal(clean('a\ud83dz\ude00b'), 'a�z�b')
+  assert.equal(clean('ok 😀 ok'), 'ok 😀 ok')
+})
+
+test('the shell exiting ends the run after a short grace even if a background process holds the pipes', async () => {
+  const w = world({ extra: { graceMs: 10, timeoutMs: 5000 }, script: (c) => { c.out('started\n'); c.emit('exit', 0, null) } })
+  const r = await ask(w)
+  assert.match(r.text, /\(exit 0, /)
+  assert.match(r.text, /Output:\n```\nstarted\n\n```/)
+  assert.deepEqual(w.kills, [], 'nothing is killed')
+  assert.doesNotThrow(() => w.child.close(0), 'a late close changes nothing')
+})
+
+test('a close right after exit wins and the pending grace does nothing', async () => {
+  const w = world({ extra: { graceMs: 10 }, script: (c) => { c.emit('exit', 2, null); c.close(2) } })
+  assert.match((await ask(w)).text, /\(exit 2, /)
+})
+
+test('dispose stops a live run with SIGTERM and says VS Code closed it; with no run it does nothing', async () => {
+  const idle = world()
+  assert.doesNotThrow(() => idle.run.dispose())
+  const w = world({ extra: { timeoutMs: 5000 }, script: (c, sig) => { if (sig) c.close(null, sig) } })
+  const p = ask(w)
+  while (!w.spawns.length) await new Promise((r) => setImmediate(r))
+  await new Promise((r) => setImmediate(r))
+  w.run.dispose()
+  const r = await p
+  assert.deepEqual(w.kills, [[-4242, 'SIGTERM']])
+  assert.match(r.text, /\(stopped: VS Code closed it, /)
 })
 
 test('one run at a time: a second ask is refused while the first is open, and the next works once it ended', async () => {

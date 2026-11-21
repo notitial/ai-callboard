@@ -963,7 +963,7 @@ class Restore(Case):
         mod = load_module()
         ext = self.make(V327, name="older")
         with contextlib.redirect_stdout(io.StringIO()):
-            mod.PIECES = mod.PIECES[:3]
+            mod.PIECES = mod.PIECES[:3] + mod.PIECES[-1:]
             mod.apply(ext)
         orig = self.js(ext)
         self.assertNotIn("restore", json.loads(slurp(os.path.join(ext, "callboard-cwd-patch.json"))))
@@ -1766,7 +1766,7 @@ const vm = require('vm'), fs = require('fs')
 const [file] = process.argv.slice(1)
 const host = async (opts = {}) => {
   const calls = [], toasts = [], opened = []
-  const fake = { workspace: { workspaceFolders: [] }, commands: { registerCommand: () => ({}), executeCommand: async (id, arg) => { calls.push([id, arg]); if (opts.missing) throw new Error('command not found'); return opts.reply } },
+  const fake = { workspace: { workspaceFolders: opts.folders ?? [] }, commands: { registerCommand: () => ({}), executeCommand: async (id, arg) => { calls.push([id, arg]); if (opts.missing) throw new Error('command not found'); return opts.reply } },
     window: { showErrorMessage: (m) => toasts.push(m) } }
   const ctx = vm.createContext({ x: [], Wp: () => {}, F: () => ({ target: 'panel', focusInput: 1 }), c: {}, kS: async () => {}, rl: async () => {}, $e: fake, Pe: fake, require: (m) => (m === 'vscode' ? fake : require(m)) })
   vm.runInContext(fs.readFileSync(file, 'utf8') + ';globalThis.P = P', ctx)
@@ -1779,6 +1779,9 @@ const host = async (opts = {}) => {
   out.channel = await host({ channelId: 'ch1', reply: { text: 'T' } })
   out.fallbacks = []
   for (const channelId of ['nope', undefined, 'ch2']) out.fallbacks.push((await host({ channelId, reply: { text: 'T' } })).calls[0][1].cwd)
+  out.multi = []
+  for (const folders of [[{}], [{}, {}], [{}, {}, {}]]) out.multi.push((await host({ channelId: 'nope', folders, reply: { text: 'T' } })).calls[0][1].cwd ?? null)
+  out.multiChannel = (await host({ channelId: 'ch1', folders: [{}, {}], reply: { text: 'T' } })).calls[0][1].cwd
   out.extra = (await host({ channelId: 'ch1', reply: { text: 'T', extra: 1, type: 'other' } })).res
   out.replies = []
   for (const reply of [undefined, null, {}, { text: 5 }, 'str', 7, ['a']]) out.replies.push((await host({ channelId: 'ch1', reply })).res)
@@ -1834,7 +1837,7 @@ class Run(Case):
         for bad in ("`", "\\", "${"):
             self.assertNotIn(bad, mod.RUN_CSS)
         self.assertTrue(mod.RUN_CSS.isascii())
-        for part in ("codeBlockWrapper_", ".cbRun", "right:34px", ":has(code[class*=", ":not(.language-sh,.language-bash,.language-zsh,.language-shell,.language-console)", "display:none!important"):
+        for part in ("codeBlockWrapper_", ".cbRun", "right:34px", ":has(code[class*=", ":not(.language-sh,.language-bash,.language-zsh,.language-shell,.language-console)", "display:none!important", " .cbRun:focus-visible{opacity:1}"):
             self.assertIn(part, mod.RUN_CSS)
         self.assertEqual(mod.RUN_CSS.count("{"), mod.RUN_CSS.count("}"))
         self.assertTrue(mod.RUN_HELPER.isascii() and mod.RUN_HANDLER.isascii())
@@ -1865,7 +1868,9 @@ class Run(Case):
             got = json.loads(p.stdout)
             self.assertEqual(got["channel"]["calls"], [["callboard run block", {"text": "ls", "cwd": "/w/a"}]])
             self.assertEqual(got["channel"]["res"], {"type": "callboard_run_response", "text": "T"})
-            self.assertEqual(got["fallbacks"], ["/w/first"] * 3, "an unknown channel, none, or one with no folder: the window's first folder")
+            self.assertEqual(got["fallbacks"], ["/w/first"] * 3, "an unknown channel, none, or one with no folder: the window's one folder")
+            self.assertEqual(got["multi"], ["/w/first", None, None], "in a window with several folders a session with no known folder gets none, and the command refuses")
+            self.assertEqual(got["multiChannel"], "/w/a", "a known channel folder is used in any window")
             self.assertEqual(got["extra"], {"type": "callboard_run_response", "text": "T"}, "nothing but text comes through")
             self.assertEqual(got["replies"], [{"type": "callboard_run_response"}] * 7)
             self.assertEqual((got["missing"]["res"], len(got["missing"]["toasts"]), "Callboard Panels" in got["missing"]["toasts"][0]), ({"type": "callboard_run_response"}, 1, True))

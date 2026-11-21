@@ -57,7 +57,7 @@ function activate(context) {
   try {
     // The Run button the Claude patch adds to shell code blocks calls this; it always asks in a modal first (run-block.js).
     const runBlock = createRunBlock({ vscode, spawn: require('node:child_process').spawn })
-    context.subscriptions.push(vscode.commands.registerCommand('callboard run block', (arg) => runBlock.run(arg)))
+    context.subscriptions.push(vscode.commands.registerCommand('callboard run block', (arg) => runBlock.run(arg)), runBlock)
   } catch {
     // no run command
   }

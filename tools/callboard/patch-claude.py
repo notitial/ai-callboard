@@ -253,7 +253,7 @@ def pill_web(js):
 
 # The run button: a small button before Copy on a chat's shell code blocks (a block with no language, or sh, bash, zsh, shell, console; the style block hides it on any other
 # language). A click (only a real one: isTrusted) hands the block's text to extension.js, which asks the panels extension's `callboard run block` command (extension/run-block.js:
-# validation, its own modal with Cancel as the default, the run, the output) with the session's folder, taken from the request's channel and never from the page. What comes back
+# validation, its own modal with "Don't run" as the default button, the run, the output) with the session's folder, which the host holds for the session (the request's channel; the window's one folder when the channel has none) and never takes from the page. What comes back
 # is sent into the same chat as the person's own message, through the page's own session.send. Three edits and a style block: the page's app handle (globalThis.cbRunApp, the session
 # manager, so a click finds the session on screen), the button in the code block component, and in extension.js a case in front of the one that opens an url. All three anchors
 # must match exactly once and the shipped webview must carry the tokens its style names; otherwise the piece is left out whole, with a warning, and the others still apply.
@@ -273,15 +273,16 @@ RUN_CSS = (
     '[class*="codeBlockWrapper_"] .cbRun{right:34px!important;box-sizing:border-box;min-width:26px;min-height:26px;padding:0;display:flex;justify-content:center;align-items:center;'
     'font-size:10px;line-height:1;color:var(--app-primary-foreground);background:var(--app-secondary-background);border:1px solid var(--app-input-border);border-radius:4px;cursor:pointer;'
     'opacity:0;transition:opacity .15s,background .15s}'
-    '[class*="codeBlockWrapper_"]:hover .cbRun{opacity:1}[class*="codeBlockWrapper_"] .cbRun:hover{background:var(--app-ghost-button-hover-background)}'
+    '[class*="codeBlockWrapper_"]:hover .cbRun,[class*="codeBlockWrapper_"] .cbRun:focus-visible{opacity:1}[class*="codeBlockWrapper_"] .cbRun:hover{background:var(--app-ghost-button-hover-background)}'
     '[class*="codeBlockWrapper_"]:has(code[class*="language-"]:not(.language-sh,.language-bash,.language-zsh,.language-shell,.language-console)) .cbRun{display:none!important}'
 )
-# The extension side: the folder is the one the request's channel runs in (else the window's first), and the answer is only ever {text} or {}. Validation, the modal and the run
+# The extension side: the folder is the one the host holds for the request's channel (a session that has not started has none: then the window's folder, when the window has only
+# one, else nothing and the command refuses), and the answer is only ever {text} or {}. Validation, the modal and the run
 # live in the panels extension, not here. Without it the command is missing: an error toast, nothing runs.
 RUN_HANDLER = (
     b'case"callboard_run":return{type:"callboard_run_response",...await(async(cbxQ,cbxC)=>{try{let cbxR=await require("vscode").commands.executeCommand("callboard run block",{text:cbxQ?.text,cwd:cbxC});'
     b'return typeof cbxR?.text=="string"?{text:cbxR.text}:{}}catch{require("vscode").window.showErrorMessage("Run needs the Callboard Panels extension, which is not running.");return{}}})'
-    b'(%s.request,this.channels?.get(%s.channelId)?.cwd??this.cwd)};'
+    b'(%s.request,this.channels?.get(%s.channelId)?.cwd??((require("vscode").workspace.workspaceFolders||[]).length<2?this.cwd:void 0))};'
 )
 
 
@@ -534,7 +535,7 @@ def patched(raw, web):
             raw = put_in(raw)
     js = pie_web(web[1]) if left["pie"] is None else web[1]
     js = pill_web(js) if left["pill"] is None else js
-    js = run_web(js) if left.get("run", "") is None else js  # (a stand-in for an older script may have no such piece)
+    js = run_web(js) if left["run"] is None else js
     return raw, left, None if js == web[1] else js
 
 
