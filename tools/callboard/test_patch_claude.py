@@ -105,9 +105,11 @@ def snap(root):
     return out
 
 
-def mod_pill(js):
-    """The stand-in webview script with only the pill put in, as the script builds it."""
-    return load_module().pill_web(js.encode())
+def mod_pill(js, run=False):
+    """The stand-in webview script with only the pill put in (and the run button too, with run=True; no pie), as the script builds it."""
+    mod = load_module()
+    out = mod.pill_web(js.encode())
+    return mod.run_web(out) if run else out
 
 
 def load_module():
@@ -133,16 +135,24 @@ PIE_JS = (
     'function Foot(e){{let Ft={{}},p={{isOpen:!1,onClose:0}},f=e.cwd.value,{st}=e.stage;return k("div",{{children:[m(BFt,{{session:e}}),{st}!==2&&m({mp},{{...Ft}}),'
     'm($Ft,{{isOpen:p.isOpen,onClose:p.onClose,availableModels:e.drawnClaudeConfig.value?.models,anchor:f}})]}})}}'
     'class Conn{{sendRequest(e,t){{return 1}}}}function Ask(e){{return e.getConnection().then((c)=>c.sendRequest(1))}}'
+    # The code block component (the wrapper with the copy button and the block's ref) and the app's wiring of the session manager `c`, for the run button
+    # (cb: the component, ly: the class names object, rj: the element function).
+    'function {cb}({{children:e}}){{let t=Ref(null);return k("div",{{className:{ly}.codeBlockWrapper,children:[{rj}(Q5,{{getText:()=>{{let n=t.current?.textContent??"";return n.trimEnd()}},className:{ly}.copyButton}}),'
+    'm("pre",{{ref:t,children:e}})]}})}}'
+    'function App(c,a){{return r.add(()=>{{x}}),a.activateSessionEvents.add(({{sessionId:D,initialPrompt:q}})=>{{fUn(c,D,q,x,y)}}),s.add(c.activeSession.value)}}'
+    'class Sess{{async send(e,t,n,i,o){{return 1}}getConnection(){{return 1}}}}var claudeChannelId'
 )
-JS330 = dict(sv="$Bt", pc="jBt", tf="_Bt", fb="jzn", st="_", mp="fAe")
-JSB = dict(sv="SFt", pc="kFt", tf="tFt", fb="dBn", st="U$", mp="Rr")
+JS330 = dict(sv="$Bt", pc="jBt", tf="_Bt", fb="jzn", st="_", mp="fAe", cb="F8n", ly="Ly", rj="m")
+JSB = dict(sv="SFt", pc="kFt", tf="tFt", fb="dBn", st="U$", mp="Rr", cb="Xk", ly="Zq", rj="mm")
 # A pie component whose threshold is fixed at 50 and not passed as a prop; the pie anchors must not match it.
 PIE_JS_FIXED = PIE_JS.replace(
     "threshold:n,onCompact:i,buttonClassName:o}}){{let r=t>0?Math.min(e/t*100,100):0;if(t===0||r<=n)return null;",
     "onCompact:i,buttonClassName:o}}){{let r=t>0?Math.min(e/t*100,100):0;if(t===0)return null;if(r>=50)return null;",
 ).replace(",threshold:t,onCompact:a", ",onCompact:a")
+# The class names the run button's style needs the shipped stylesheet to carry.
+RUN_CSS_TOKENS = ".codeBlockWrapper_d4{position:relative}.copyButton_e5{opacity:0}"
 # A stand-in for the shipped webview, carrying the tokens the width piece checks and the pie's code, and what a stock extension folder then holds.
-WEB = {"index.css": ".inputWrapper_a1,.permissionsContainer_b2,.inputContainer_c3{max-width:680px}", "index.js": PIE_JS.format(**JS330)}
+WEB = {"index.css": ".inputWrapper_a1,.permissionsContainer_b2,.inputContainer_c3{max-width:680px}" + RUN_CSS_TOKENS, "index.js": PIE_JS.format(**JS330)}
 STOCK = ["extension.js", "package.json", "webview"]
 
 
@@ -372,7 +382,7 @@ class Css(Case):
         new = self.js(ext).decode("utf-8")
         self.assertEqual((new.count('<style id="callboard-width">'), new.count('<style id="callboard-pie">')), (1, 1))
         self.assertIn('rel="stylesheet">\n        <style id="callboard-width">' + mod.WIDTH_CSS + '</style><style id="callboard-pie">' + mod.PIE_CSS
-                      + '</style><style id="claude-font-configuration">', new)
+                      + '</style><style id="callboard-run">' + mod.RUN_CSS + '</style><style id="claude-font-configuration">', new)
 
     def test_the_css_is_safe_inside_a_template_literal_and_the_remote_control_chip_is_left_alone(self):
         mod = load_module()
@@ -953,7 +963,7 @@ class Restore(Case):
         mod = load_module()
         ext = self.make(V327, name="older")
         with contextlib.redirect_stdout(io.StringIO()):
-            mod.PIECES = mod.PIECES[:3]
+            mod.PIECES = mod.PIECES[:3] + mod.PIECES[-1:]
             mod.apply(ext)
         orig = self.js(ext)
         self.assertNotIn("restore", json.loads(slurp(os.path.join(ext, "callboard-cwd-patch.json"))))
@@ -999,8 +1009,8 @@ console.log(JSON.stringify({ window: [props(1, 1000000).contextWindow, props(1, 
 CIRC = 2 * 3.141592653589793 * 7.25
 # What an older script that had no pie amounts to: anchors that match nothing, so the piece is left out.
 NO_PIE = (("pie component", rb"no such code", lambda m: b""),)
-# An older script that had neither the pie nor the pill, so the webview script is left as it was shipped.
-NO_WEB = dict(PIE_ANCHORS=NO_PIE, PILL_ANCHOR=rb"no such code")
+# An older script that had no webview piece (no pie, pill or run button), so the webview script is left as it was shipped.
+NO_WEB = dict(PIE_ANCHORS=NO_PIE, PILL_ANCHOR=rb"no such code", RUN_CODE_ANCHOR=rb"no such code")
 
 
 class Pie(Case):
@@ -1124,7 +1134,7 @@ class Pie(Case):
             self.run_script(ext, "--apply")
             self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "patched 2.1.328"), label)
             self.assertIn("warning: the context pie is not in (pie anchor ", self.out, label)
-            self.assertEqual(slurp(os.path.join(ext, self.WEBJS)), mod_pill(bad), "only the pill: " + label)
+            self.assertEqual(slurp(os.path.join(ext, self.WEBJS)), mod_pill(bad, run=True), "only the pill and the run button: " + label)
             self.assertEqual(slurp(os.path.join(ext, self.BAK)), bad.encode(), label)
             marker = self.marker(ext)
             self.assertEqual((marker["pie"], marker["pill"], marker["width"], marker["restore"]), (False, True, True, True), label)
@@ -1526,12 +1536,13 @@ class Pill(Case):
             self.assertEqual((self.rc, self.out.count("warning")), (0, 0), self.out)
             new = slurp(os.path.join(ext, self.WEBJS))
             self.assertEqual((self.marker(ext)["pill"], slurp(os.path.join(ext, self.BAK))), (True, orig))
-            self.assertEqual((new.count(b'"span"'), new.count(b"title:")), (1, 0), "one pill, no title")
+            self.assertEqual((new.count(b'"span"'), new.count(b"title:")), (1, 1), "one pill; the one title is the run button's")
             self.assertEqual((self.js(ext).count(b'case"callboard_folder":'), self.js(ext).index(b'case"callboard_folder":') < self.js(ext).index(b'case"open_url":')), (1, True), "the handler is a case of the request switch")
             self.assertEqual(new.index(b'"span"') > new.index(b"m(%s,{...Ft})" % names["mp"].encode()), True, "after the model pill")
             self.assertEqual(new.index(b'"span"') < new.index(b"m($Ft,"), True, "before the model list")
             start = new.index(b"m(%s,{...Ft})," % names["mp"].encode()) + len(b"m(%s,{...Ft})," % names["mp"].encode())
             expr = new[start:new.index(b"m($Ft,")]
+            self.assertNotIn(b"title:", expr, "no title on the pill")
             self.assertNotIn(b"!==2", expr, "not gated on the fit stage: a pill that comes and goes with it loops the footer's layout")
             self.assertIsNone(re.search(rb"(?<![\w$])" + re.escape(names["st"].encode()) + rb"(?![\w$])", expr), "nothing the pill draws depends on the fit stage variable")
             self.assertEqual(expr[:expr.index(b"(cbfP=>")].count(b"&&"), 2, "only its two checks (a string cwd, a non-empty one) lead to the span")
@@ -1706,6 +1717,231 @@ class Pill(Case):
         self.assertEqual((self.marker(ext)["pie"], self.marker(ext)["pill"]), (False, True))
         self.run_script(ext, "--undo")
         self.assertEqual((self.rc, sorted(os.listdir(ext))), (0, STOCK))
+
+
+# Runs the patched stand-in of the code block component and the app wiring under fakes: the button it draws, and what a click does (the request, the send, the guards).
+RUN_RUNNER = r"""
+const vm = require('vm'), fs = require('fs')
+const [file, comp, ly, jsx] = process.argv.slice(1)
+const tick = () => new Promise((r) => setTimeout(r, 5))
+const el = (t, p) => ({ t, p })
+const world = (opts = {}) => {
+  const log = { requests: [], sent: [] }
+  const session = { claudeChannelId: 'ch1',
+    getConnection: () => (opts.connection ? opts.connection() : Promise.resolve({ sendRequest: async (req, ch) => { log.requests.push([req, ch]); if (opts.hold) await opts.hold; if (opts.reject) throw new Error('host failed'); return opts.reply } })),
+    send: async (...a) => { log.sent.push(a); if (opts.sendFails) throw new Error('send failed') } }
+  const block = { textContent: opts.text ?? 'ls -la \n' }
+  const ctx = vm.createContext({ m: el, k: el, [jsx]: el, Q5: 'Q5', Ref: () => ({ current: block }), r: { add() {} }, s: { add() {} }, fUn() {}, x: 0, y: 0, [ly]: { codeBlockWrapper: 'wrap', copyButton: 'copy' } })
+  vm.runInContext(fs.readFileSync(file, 'utf8') + ';globalThis.Comp = ' + comp + ';globalThis.App = App', ctx)
+  if (!opts.noApp) ctx.App({ activeSession: { value: opts.noSession ? undefined : session } }, { activateSessionEvents: { add() {} } })
+  const wrapper = () => ctx.Comp({ children: 'code' })
+  return { log, wrapper, button: () => wrapper().p.children[0], ctx }
+}
+const click = async (w, ev = { isTrusted: true }) => { w.button().p.onClick(ev); await tick() }
+;(async () => {
+  const out = {}
+  { const w = world(), c = w.wrapper(), b = c.p.children[0]
+    out.button = { order: c.p.children.map((x) => x.t), className: b.p.className, title: b.p.title, text: b.p.children, wrap: c.p.className, keys: Object.keys(b.p).sort() } }
+  { const w = world({ reply: { text: 'Run result: x' } })
+    await click(w, { isTrusted: false }); await click(w, {}); out.untrusted = w.log.requests.length
+    await click(w); out.ok = w.log }
+  out.noText = []
+  for (const reply of [undefined, null, {}, { text: '' }, { text: 5 }, 'str']) { const w = world({ reply }); await click(w); out.noText.push([w.log.requests.length, w.log.sent.length]) }
+  out.fails = []
+  for (const opts of [{ reject: true }, { connection: () => Promise.reject(new Error('down')) }, { connection: () => { throw new Error('throws') } }, { connection: () => undefined }, { reply: { text: 't' }, sendFails: true }]) {
+    const w = world(opts); await click(w); await click(w); out.fails.push([w.log.requests.length, w.log.sent.length]) }
+  { let release; const hold = new Promise((r) => { release = r }), w = world({ hold, reply: { text: 't' } })
+    await click(w); await click(w); await click(w); const during = w.log.requests.length
+    release(); await tick(); await click(w); out.once = [during, w.log.requests.length, w.log.sent.length] }
+  out.none = []
+  for (const opts of [{ noApp: true }, { noSession: true }, { text: '   \n' }, { text: '' }]) { const w = world({ ...opts, reply: { text: 't' } }); await click(w); out.none.push(w.log.requests.length) }
+  console.log(JSON.stringify(out))
+})()
+"""
+
+
+# Runs the patched stand-in extension's request switch under a fake vscode: the host case of the run button.
+RUN_HOST_RUNNER = r"""
+const vm = require('vm'), fs = require('fs')
+const [file] = process.argv.slice(1)
+const host = async (opts = {}) => {
+  const calls = [], toasts = [], opened = []
+  const fake = { workspace: { workspaceFolders: opts.folders ?? [] }, commands: { registerCommand: () => ({}), executeCommand: async (id, arg) => { calls.push([id, arg]); if (opts.missing) throw new Error('command not found'); return opts.reply } },
+    window: { showErrorMessage: (m) => toasts.push(m) } }
+  const ctx = vm.createContext({ x: [], Wp: () => {}, F: () => ({ target: 'panel', focusInput: 1 }), c: {}, kS: async () => {}, rl: async () => {}, $e: fake, Pe: fake, require: (m) => (m === 'vscode' ? fake : require(m)) })
+  vm.runInContext(fs.readFileSync(file, 'utf8') + ';globalThis.P = P', ctx)
+  const self = { channels: new Map([['ch1', { cwd: '/w/a' }], ['ch2', {}]]), cwd: '/w/first', openURL: async (u) => opened.push(u) }
+  const res = await ctx.P.prototype.processRequest.call(self, { request: opts.request ?? { type: 'callboard_run', text: 'ls' }, channelId: opts.channelId }, undefined)
+  return { res, calls, toasts, opened }
+}
+;(async () => {
+  const out = {}
+  out.channel = await host({ channelId: 'ch1', reply: { text: 'T' } })
+  out.fallbacks = []
+  for (const channelId of ['nope', undefined, 'ch2']) out.fallbacks.push((await host({ channelId, reply: { text: 'T' } })).calls[0][1].cwd)
+  out.multi = []
+  for (const folders of [[{}], [{}, {}], [{}, {}, {}]]) out.multi.push((await host({ channelId: 'nope', folders, reply: { text: 'T' } })).calls[0][1].cwd ?? null)
+  out.multiChannel = (await host({ channelId: 'ch1', folders: [{}, {}], reply: { text: 'T' } })).calls[0][1].cwd
+  out.extra = (await host({ channelId: 'ch1', reply: { text: 'T', extra: 1, type: 'other' } })).res
+  out.replies = []
+  for (const reply of [undefined, null, {}, { text: 5 }, 'str', 7, ['a']]) out.replies.push((await host({ channelId: 'ch1', reply })).res)
+  out.missing = await host({ channelId: 'ch1', missing: true })
+  out.passed = (await host({ channelId: 'ch1', request: { type: 'callboard_run', text: 7, cwd: '/etc' }, reply: {} })).calls[0]
+  out.stock = await host({ request: { type: 'open_url', url: 'u' } })
+  console.log(JSON.stringify(out))
+})()
+"""
+
+
+class Run(Case):
+    """The run button: one optional piece, in webview/index.js (the button and the app handle), in extension.js (the request case) and as a style block."""
+
+    WEBJS = os.path.join("webview", "index.js")
+    BAK = os.path.join("webview", "index.js.callboard-orig")
+    VARIANTS = ((V327, JS330), (V328, JSB))
+
+    def marker(self, ext):
+        return json.loads(slurp(os.path.join(ext, "callboard-cwd-patch.json")))
+
+    def applied(self, name, variant=V327, names=JS330, raw=None, web=None):
+        web = web if web is not None else dict(WEB, **{"index.js": PIE_JS.format(**names)})
+        ext = self.make(variant, name=name, raw=raw, web=web)
+        self.run_script(ext, "--apply")
+        return ext
+
+    def test_the_button_goes_in_before_copy_with_its_app_handle_case_and_style_and_undo_takes_them_out(self):
+        for variant, names in self.VARIANTS:
+            web = dict(WEB, **{"index.js": PIE_JS.format(**names)})
+            ext = self.make(variant, name="run" + names["cb"], web=web)
+            orig_js, orig_main = slurp(os.path.join(ext, self.WEBJS)), self.js(ext)
+            self.run_script(ext)
+            self.assertEqual((self.rc, self.out.splitlines()[0], self.out.count("warning")), (0, "unpatched-patchable 2.1.328", 0), self.out)
+            self.run_script(ext, "--apply")
+            self.assertEqual((self.rc, self.out.count("warning")), (0, 0), self.out)
+            new, main = slurp(os.path.join(ext, self.WEBJS)), self.js(ext)
+            self.assertEqual((self.marker(ext)["run"], slurp(os.path.join(ext, self.BAK))), (True, orig_js))
+            self.assertEqual((new.count(b'className:"cbRun "'), new.count(b"globalThis.cbRunApp=c,a.activateSessionEvents.add(")), (1, 1))
+            self.assertIn(b'children:[%s("button",{className:"cbRun "+%s.copyButton,' % (names["rj"].encode(), names["ly"].encode()), new)
+            self.assertLess(new.index(b'"cbRun "'), new.index(b"%s(Q5,{getText" % names["rj"].encode()), "before Copy")
+            self.assertIn(b"if(cbxE.isTrusted)", new, "only a real click")
+            self.assertEqual((main.count(b'case"callboard_run":'), main.index(b'case"callboard_run":') < main.index(b'case"open_url":')), (1, True), "a case of the request switch")
+            self.assertEqual(main.count(b'<style id="callboard-run">'), 1)
+            self.assertEqual((main.count(b'case"callboard_folder":'), main.count(b'case"open_url":')), (1, 1), "the pill's case and the stock one stay")
+            self.run_script(ext)
+            self.assertEqual((self.rc, self.out), (0, "patched 2.1.328\n"))
+            self.run_script(ext, "--undo")
+            self.assertEqual((self.rc, slurp(os.path.join(ext, self.WEBJS)), sorted(os.listdir(ext)), self.js(ext)), (0, orig_js, STOCK, orig_main))
+
+    def test_the_style_is_safe_in_a_template_literal_and_hides_the_button_on_other_languages(self):
+        mod = load_module()
+        for bad in ("`", "\\", "${"):
+            self.assertNotIn(bad, mod.RUN_CSS)
+        self.assertTrue(mod.RUN_CSS.isascii())
+        for part in ("codeBlockWrapper_", ".cbRun", "right:34px", ":has(code[class*=", ":not(.language-sh,.language-bash,.language-zsh,.language-shell,.language-console)", "display:none!important", " .cbRun:focus-visible{opacity:1}"):
+            self.assertIn(part, mod.RUN_CSS)
+        self.assertEqual(mod.RUN_CSS.count("{"), mod.RUN_CSS.count("}"))
+        self.assertTrue(mod.RUN_HELPER.isascii() and mod.RUN_HANDLER.isascii())
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_a_click_asks_the_host_for_the_text_with_the_channel_and_sends_the_answer_as_the_persons_message(self):
+        for variant, names in self.VARIANTS:
+            ext = self.applied("click" + names["cb"], variant, names)
+            p = subprocess.run(["node", "-e", RUN_RUNNER, os.path.join(ext, self.WEBJS), names["cb"], names["ly"], names["rj"]], capture_output=True, text=True, timeout=60)
+            self.assertEqual(p.returncode, 0, p.stderr)
+            got = json.loads(p.stdout)
+            self.assertEqual(got["button"], {"order": ["button", "Q5", "pre"], "className": "cbRun copy", "title": "Run in this session's folder", "text": "▶", "wrap": "wrap",
+                                             "keys": ["children", "className", "onClick", "title"]})
+            self.assertEqual(got["untrusted"], 0, "a click that is not the person's own (a script's, or none) asks nothing")
+            self.assertEqual(got["ok"]["requests"], [[{"type": "callboard_run", "text": "ls -la"}, "ch1"]], "the text trimmed like Copy, the session's channel, and no folder from the page")
+            self.assertEqual(got["ok"]["sent"], [["Run result: x", [], False, {"kind": "human"}, {"expandMentions": False}]], "through the session's own send, as a human message")
+            self.assertEqual(got["noText"], [[1, 0]] * 6, "a reply with no text (a cancel) sends nothing")
+            self.assertEqual(got["fails"], [[2, 0], [0, 0], [0, 0], [0, 0], [2, 2]], "a failure is swallowed and frees the next click")
+            self.assertEqual(got["once"], [1, 2, 2], "one run at a time per page, then the next one goes")
+            self.assertEqual(got["none"], [0, 0, 0, 0], "no app handle, no session, no text: nothing")
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_the_host_case_takes_the_folder_from_the_channel_passes_the_values_on_and_answers_only_text(self):
+        for variant, names in self.VARIANTS:
+            ext = self.applied("host" + names["cb"], variant, names)
+            p = subprocess.run(["node", "-e", RUN_HOST_RUNNER, os.path.join(ext, "extension.js")], capture_output=True, text=True, timeout=60)
+            self.assertEqual(p.returncode, 0, p.stderr)
+            got = json.loads(p.stdout)
+            self.assertEqual(got["channel"]["calls"], [["callboard run block", {"text": "ls", "cwd": "/w/a"}]])
+            self.assertEqual(got["channel"]["res"], {"type": "callboard_run_response", "text": "T"})
+            self.assertEqual(got["fallbacks"], ["/w/first"] * 3, "an unknown channel, none, or one with no folder: the window's one folder")
+            self.assertEqual(got["multi"], ["/w/first", None, None], "in a window with several folders a session with no known folder gets none, and the command refuses")
+            self.assertEqual(got["multiChannel"], "/w/a", "a known channel folder is used in any window")
+            self.assertEqual(got["extra"], {"type": "callboard_run_response", "text": "T"}, "nothing but text comes through")
+            self.assertEqual(got["replies"], [{"type": "callboard_run_response"}] * 7)
+            self.assertEqual((got["missing"]["res"], len(got["missing"]["toasts"]), "Callboard Panels" in got["missing"]["toasts"][0]), ({"type": "callboard_run_response"}, 1, True))
+            self.assertEqual(got["passed"], ["callboard run block", {"text": 7, "cwd": "/w/a"}], "validation lives in the command: the case passes the text as it came and the channel's folder, never the page's")
+            self.assertEqual((got["stock"]["res"], got["stock"]["opened"]), ({"type": "open_url_response"}, ["u"]), "the stock case still answers")
+
+    def test_a_missing_or_doubled_anchor_or_token_costs_only_the_run_button(self):
+        js = PIE_JS.format(**JS330)
+        raw = build(V327)
+        cases = {
+            "code block": (dict(WEB, **{"index.js": js.replace("codeBlockWrapper", "codeWrap")}), raw, "run code block anchor (no match)"),
+            "doubled code block": (dict(WEB, **{"index.js": js + js[js.index("function F8n"):js.index("function App")]}), raw, "run code block anchor (2 matches)"),
+            "app": (dict(WEB, **{"index.js": js.replace("activateSessionEvents", "activate2")}), raw, "run app anchor (no match)"),
+            "doubled app": (dict(WEB, **{"index.js": js + js[js.index("function App"):js.index("class Sess")]}), raw, "run app anchor (2 matches)"),
+            "no session value": (dict(WEB, **{"index.js": js.replace(".activeSession.value", ".activeSession2")}), raw, "no .activeSession.value"),
+            "tokens": (dict(WEB, **{"index.css": WEB["index.css"].replace(RUN_CSS_TOKENS, "")}), raw, "the webview lacks codeBlockWrapper_, copyButton_"),
+            "already there": (WEB, raw + b";var x='callboard_run'", "the file already contains callboard_run"),
+        }
+        for label, (web, main, why) in cases.items():
+            ext = self.make(V327, name="miss" + label.replace(" ", ""), raw=main, web=web)
+            before = snap(ext)
+            self.run_script(ext)
+            self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "unpatched-patchable 2.1.328"), label)
+            self.assertIn("warning: the run button would be left out (%s)" % why, self.out, label)
+            self.assertEqual(snap(ext), before, label)
+            self.run_script(ext, "--apply")
+            self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "patched 2.1.328"), label)
+            self.assertIn("warning: the run button is not in (%s)" % why, self.out, label)
+            marker = self.marker(ext)
+            self.assertEqual((marker["run"], marker["pie"], marker["pill"], marker["width"], marker["restore"]), (False, True, True, True, True), label)
+            self.assertNotIn(b"callboard-run", self.js(ext), label)
+            self.assertEqual(slurp(os.path.join(ext, self.WEBJS)).count(b"cbRun"), 0, label)
+            self.assertEqual(slurp(os.path.join(ext, self.WEBJS)).count(b"cbRunApp"), 0, label)
+            self.run_script(ext)
+            self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "patched 2.1.328"), label)
+            self.assertIn("warning: the run button is not in this patch.", self.out, label)
+
+    def test_a_missing_or_doubled_request_switch_anchor_costs_the_pill_and_the_run_button_only(self):
+        for label, raw, count in (("missing", build(V327).replace(b'case"open_url"', b'case"open_urx"'), 0), ("doubled", None, 2)):
+            main = raw if raw is not None else build(V327).replace(b'case"x":return 2', b'case"x":return 2;case"open_url":return await this.openURL(e.request.url)')
+            ext = self.make(V327, name="host" + label, raw=main)
+            self.run_script(ext, "--apply")
+            self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "patched 2.1.328"), label)
+            self.assertIn("warning: the run button is not in (run handler anchor (%s))" % ("no match" if count == 0 else "2 matches"), self.out, label)
+            marker = self.marker(ext)
+            self.assertEqual((marker["run"], marker["pill"], marker["pie"], marker["groups"]), (False, False, True, True), label)
+            self.assertNotIn(b"cbRun", slurp(os.path.join(ext, self.WEBJS)), label)
+
+    def test_an_install_from_before_the_run_button_reads_outdated_and_update_brings_it_in(self):
+        ext = self.make(V327, name="old")
+        orig_js = slurp(os.path.join(ext, self.WEBJS))
+        self.older(ext, RUN_CODE_ANCHOR=rb"no such code")
+        self.assertEqual(self.marker(ext)["run"], False)
+        self.assertNotIn(b"cbRun", slurp(os.path.join(ext, self.WEBJS)))
+        self.run_script(ext)
+        self.assertEqual((self.rc, self.out.splitlines()[0]), (1, "outdated 2.1.328: the run button is not in"))
+        self.run_script(ext, "--update")
+        self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "updated 2.1.328"))
+        self.assertEqual((self.marker(ext)["run"], slurp(os.path.join(ext, self.BAK))), (True, orig_js))
+        self.assertEqual(slurp(os.path.join(ext, self.WEBJS)).count(b'className:"cbRun "'), 1)
+        self.assertEqual(self.js(ext).count(b'case"callboard_run":'), 1)
+        self.run_script(ext)
+        self.assertEqual((self.rc, self.out), (0, "patched 2.1.328\n"))
+        self.run_script(ext, "--undo")
+        self.assertEqual((self.rc, slurp(os.path.join(ext, self.WEBJS)), sorted(os.listdir(ext))), (0, orig_js, STOCK))
+
+    def test_a_webview_without_the_other_pieces_still_takes_the_run_button(self):
+        js = PIE_JS.format(**JS330).replace("{...Ft}", "{...Ft,x:1}")
+        ext = self.applied("alone", web=dict(WEB, **{"index.js": js.replace("threshold:n,onCompact", "onCompact")}))
+        self.assertEqual(self.marker(ext)["run"], True)
+        self.assertEqual(slurp(os.path.join(ext, self.WEBJS)).count(b'className:"cbRun "'), 1)
 
 
 class Refusals(Case):

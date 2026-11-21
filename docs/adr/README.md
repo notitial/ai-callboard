@@ -44,3 +44,4 @@ repo's.
 | 0011 | Every lane prompt rises up the chain (`0011-all-prompts-rise.md`) | superseded by 0012 | 2026-11-16 |
 | 0012 | Callboard as a plugin: one session model, one ask chain (`0012-callboard-plugin.md`) | accepted, amended | 2026-11-19 |
 | 0013 | A conductor is a lead that makes leads (`0013-conductor.md`) | accepted | 2026-11-21 |
+| 0014 | A Run button runs a chat code block on the person's click (`0014-run-button.md`) | proposed | 2026-11-21 |

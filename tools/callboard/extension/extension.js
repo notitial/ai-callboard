@@ -9,6 +9,7 @@ const { createSpool } = require('./spool-v2.js')
 const { createRegistry } = require('./registry.js')
 const { claudePatched } = require('./claude-patch.js')
 const { createFolderBadge } = require('./folder-badge.js')
+const { createRunBlock } = require('./run-block.js')
 const { createGroups, readManagerName } = require('./groups.js')
 const { createLaneView, readTable } = require('./lane-view.js')
 
@@ -52,6 +53,13 @@ function activate(context) {
     context.subscriptions.push(createFolderBadge({ vscode, registry }))
   } catch {
     // no folder item
+  }
+  try {
+    // The Run button the Claude patch adds to shell code blocks calls this; it always asks in a modal first (run-block.js).
+    const runBlock = createRunBlock({ vscode, spawn: require('node:child_process').spawn })
+    context.subscriptions.push(vscode.commands.registerCommand('callboard run block', (arg) => runBlock.run(arg)), runBlock)
+  } catch {
+    // no run command
   }
   const tablePath = path.join(CLAUDE, 'callboard', 'v2', 'sessions.json')
   try {
