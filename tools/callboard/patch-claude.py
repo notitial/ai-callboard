@@ -26,8 +26,8 @@ are named. The optional pieces are separate: the width block goes in when the fo
 against the autocompact level of the settings, in webview/index.js, kept as webview/index.js.callboard-orig) goes in when the font tag and its three anchors there each match once, the folder pill (PILL_ANCHOR below: a name for the session's folder next to the model name in the composer, in webview/index.js, read from <folder>/.archive/.folder and renamed by a click, which asks the extension: PILL_HANDLER_ANCHOR, in extension.js) goes in when its one anchor in each
 matches once, the restore fix
 (RESTORE_ANCHORS below: a panel that VS Code restores or Claude reopens keeps the folder of its conversation, found from the session's transcript) goes in
-when its two anchors do, and the group command (GROUPS_ANCHOR below) registers `callboard assign group` (session id, group name), so callboard's panels
-extension can put a lead or lane session in the sidebar's Lead or Lanes group, when its one anchor matches exactly once, and the session command (at the same anchor) registers `callboard active session`, which
+when its two anchors do, and the group command (GROUPS_ANCHOR below) registers `callboard file session` (session id, group name, order), so callboard's panels
+extension can put the manager, a conductor, a lead or a lane in the sidebar's Manager, Conductor, Lead or Lanes group, with those groups first in that order, when its one anchor matches exactly once, and the session command (at the same anchor) registers `callboard active session`, which
 returns the session id of the Claude panel in front, for the panels extension's folder badge; when one does not, a warning line says so and the folder patch still applies. There is no half patch: a failure after the file was replaced puts the backup back. An update of the extension is a new
 folder, so it starts unpatched and this runs again. It never uses the network, runs nothing else, works only inside EXTENSION_DIR
 and changes no setting. Run it as your user: it refuses root. Tests: /usr/bin/python3 -I tools/callboard/test_patch_claude.py
@@ -198,10 +198,11 @@ PILL_STYLE = (
 )
 # The page side, built once per page: M keeps one entry per folder (the reply, the span that last asked, whether a request is out), put writes a reply into a span
 # only where it differs, ask makes the request (null when it failed or came back with no name: the span stays hidden, and a render asks again, up to three times).
+# The request starts from a resolved promise, so a getConnection that throws or gives no connection is a failed request too, never a throw into the render.
 PILL_HELPER = (
     b'(globalThis.cbfPill??=(()=>{const M=new Map,'
     b'put=(E,R)=>{if(!E||!R)return;if(R.name&&E.firstChild?.data!==R.name){if(E.firstChild)E.firstChild.data=R.name;else E.append(R.name)}let D=R.folders>1?"":"none";if(E.style.display!==D)E.style.display=D},'
-    b'ask=(S,K,N)=>S.getConnection().then((C)=>C.sendRequest({type:"callboard_folder",cwd:K,rename:N})).then((R)=>typeof R?.name=="string"&&R.name?{name:R.name,folders:Number(R.folders)||0}:null,()=>null),'
+    b'ask=(S,K,N)=>Promise.resolve().then(()=>S.getConnection()).then((C)=>C.sendRequest({type:"callboard_folder",cwd:K,rename:N})).then((R)=>typeof R?.name=="string"&&R.name?{name:R.name,folders:Number(R.folders)||0}:null,()=>null),'
     b'slot=(K)=>{let X=M.get(K);if(!X)M.set(K,X={});return X};'
     b'return{ref(E,S){if(!E)return;let K=S.cwd.value,X=slot(K);X.el=E;if(X.r)put(E,X.r);else if(!X.p){X.p=1;ask(S,K).then((R)=>{if(R){X.r=R;put(X.el,R)}else X.p=(X.f=(X.f||0)+1)>2})}},'
     b'click(S){let K=S.cwd.value,X=slot(K);ask(S,K,!0).then((R)=>{if(R){X.r=R;put(X.el,R)}})}}})())'
@@ -288,24 +289,29 @@ def restore_in(raw):
 # The group command's anchor: the registration of the stock command that adds the active tab to a group, which sits inside an `x.subscriptions.push(...)` call
 # of the extension's activation. Our registration goes in front of it as one more argument of that push.
 GROUPS_ANCHOR = rb'(?P<vs>ID)\.commands\.registerCommand\("claude-vscode\.addSessionTabToGroup",async\(\)=>\{if\(!await (?P<prov>ID)\.addActiveSessionTabToGroup\(\)\)'.replace(b"ID", ID)
-GROUPS_COMMAND = "callboard assign group"
+GROUPS_COMMAND = "callboard file session"
 
 
 def groups_command(m):
-    """`callboard assign group` (session id, group name): in the window's group list (the provider's own settings, which are keyed by the window's first folder)
-    find the group by name in any letter case, create it when there is none, add the session to it unless it already sits in some group, and save through the
-    provider, which also tells the open sidebars. Returns true when the session sits in a group afterwards, false when it was refused: a bad argument, an
-    archived session (the provider's save drops archived ids from every group, as the stock command refuses them), or the stock list limits (100 groups,
-    1000 sessions: the provider's save would drop the excess without saying). Uses only members the extension keeps unminified."""
+    """`callboard file session` (session id, group name, order): in the window's group list (the provider's own settings, which are keyed by the window's first
+    folder) find the group by name in any letter case, create it when there is none, move the session into it out of any other group, put the groups named in
+    the order list first, in its order (any letter case; the others keep theirs, after them), and save through the provider, which also tells the open
+    sidebars. A list that is already so (the session in the group, the groups in order) is not saved. A group the move empties stays. Returns true when the
+    session sits in the group afterwards, false when it was refused: a bad argument, an archived session (the provider's save drops archived ids from every
+    group, as the stock command refuses them), or the stock list limits (100 groups, 1000 sessions: the provider's save would drop the excess without saying).
+    Uses only members the extension keeps unminified."""
     p = m.group("prov")
-    return (m.group("vs") + b'.commands.registerCommand("' + GROUPS_COMMAND.encode() + b'",async(cbqS,cbqN)=>{'
+    return (m.group("vs") + b'.commands.registerCommand("' + GROUPS_COMMAND.encode() + b'",async(cbqS,cbqN,cbqO)=>{'
             b'if(typeof cbqS!="string"||typeof cbqN!="string"||!cbqN)return!1;let cbqG=' + p + b".settings.getSessionGroups();"
             b"if(" + p + b".settings.getArchivedSessionIds().includes(cbqS))return!1;"
-            b"if(cbqG.some((cbqE)=>cbqE.sessionIds.includes(cbqS)))return!0;"
-            b"let cbqL=cbqN.toLowerCase(),cbqT=cbqG.find((cbqE)=>cbqE.name.toLowerCase()===cbqL);"
-            b"if(!cbqT&&cbqG.length>=100||cbqG.reduce((cbqA,cbqE)=>cbqA+cbqE.sessionIds.length,0)>=1000)return!1;"
-            + p + b".persistGroupsFromHost(cbqT?cbqG.map((cbqE)=>cbqE===cbqT?{...cbqE,sessionIds:[...cbqE.sessionIds,cbqS]}:cbqE)"
-            b':[...cbqG,{id:require("crypto").randomUUID(),name:cbqN,collapsed:!1,sessionIds:[cbqS]}]);return!0}),' + m.group(0))
+            b"let cbqJ=(cbqA)=>JSON.stringify(cbqA.map((cbqE)=>[cbqE.id,cbqE.sessionIds])),cbqW=cbqJ(cbqG),cbqK=(cbqE)=>cbqE.name.toLowerCase(),cbqL=cbqN.toLowerCase(),"
+            b"cbqT=cbqG.find((cbqE)=>cbqK(cbqE)===cbqL),cbqH=!!cbqT&&cbqT.sessionIds.includes(cbqS);"
+            b"cbqG=cbqG.map((cbqE)=>cbqE!==cbqT&&cbqE.sessionIds.includes(cbqS)?{...cbqE,sessionIds:cbqE.sessionIds.filter((cbqI)=>cbqI!==cbqS)}:cbqE);"
+            b"if(!cbqH&&(!cbqT&&cbqG.length>=100||cbqG.reduce((cbqA,cbqE)=>cbqA+cbqE.sessionIds.length,0)>=1000))return!1;"
+            b"let cbqP=Array.isArray(cbqO)?cbqO.map((cbqE)=>String(cbqE).toLowerCase()):[],cbqR=(cbqE)=>{let cbqI=cbqP.indexOf(cbqK(cbqE));return cbqI<0?cbqP.length:cbqI};"
+            b"cbqG=(cbqH?cbqG:cbqT?cbqG.map((cbqE)=>cbqE===cbqT?{...cbqE,sessionIds:[...cbqE.sessionIds,cbqS]}:cbqE)"
+            b':[...cbqG,{id:require("crypto").randomUUID(),name:cbqN,collapsed:!1,sessionIds:[cbqS]}]).sort((cbqA,cbqB)=>cbqR(cbqA)-cbqR(cbqB));'
+            b"if(cbqJ(cbqG)!==cbqW)" + p + b".persistGroupsFromHost(cbqG);return!0})," + m.group(0))
 
 
 def command_problem(raw, command):

@@ -2,8 +2,8 @@
 // Panel control for callboard. All vscode and filesystem access is injected so the
 // registry-diff race can be tested with a fake registry.
 
-const { execFile } = require('node:child_process')
 const { reservedHit, SID_RE, NAME_RE, pidAlive } = require('./reserved.js')
+const { psStart, procStateWith } = require('./proc.js')
 
 const ADOPT_MAX = 64
 const PID_MAX = 2 ** 22
@@ -14,16 +14,6 @@ const SETTLE_MS = 2000
 // How long a dead tab is shown before the sweep closes it: time for the Claude extension to see it as the active tab.
 const SHOW_MS = 300
 const GROUP_FOCUS = ['First', 'Second', 'Third', 'Fourth', 'Fifth', 'Sixth', 'Seventh', 'Eighth'].map((n) => `workbench.action.focus${n}EditorGroup`)
-
-// Start time of a process as `ps` prints it in UTC, the way the session registry records procStart; undefined when it cannot be read.
-function psStart(pid) {
-  return new Promise((resolve) => {
-    execFile('/bin/ps', ['-o', 'lstart=', '-p', String(pid)], { timeout: 5000, env: { TZ: 'UTC', LC_ALL: 'C' } }, (err, out) =>
-      resolve(err ? undefined : String(out)),
-    )
-  })
-}
-const startKey = (s) => (typeof s === 'string' && s.trim() !== '' ? s.trim().replace(/\s+/g, ' ') : undefined)
 
 function createLanes({ vscode, registry, sleep, now, workspaceFolders = () => undefined, passCwd = false, timeoutMs = 15000, pollMs = 200, settleMs = SETTLE_MS, showMs = SHOW_MS, guardMs = 120000, adoptTtlMs = ADOPT_TTL_MS, alive = pidAlive, startOf = psStart }) {
   // registry.list() -> [{ sessionId, cwd, entrypoint, name }] (parsed ~/.claude/sessions/*.json)
@@ -249,24 +239,9 @@ function createLanes({ vscode, registry, sleep, now, workspaceFolders = () => un
     })
   }
 
-  // The state of a process the registry names (the registry keeps the rows of processes that died, and a pid can be reused):
-  //   'dead'  its pid is not a valid pid, does not answer, or `ps` gave a start time that differs from a recorded one;
-  //   'live'  its pid answers and `ps` gave the recorded start time;
-  //   'maybe' its pid answers but nothing proves it is the same process: no start time was recorded, or `ps` failed or timed out.
-  // reopen takes only 'live'; the sweep closes a tab only on 'dead', so a check that fails keeps the tab.
-  // starts: a sweep's own pid -> start time map (only a start that was read is kept, so a failed `ps` is asked again); a sweep drops it at its end.
-  const procState = async (pid, procStart, starts) => {
-    if (!Number.isInteger(pid) || pid < 2 || !alive(pid)) return 'dead'
-    const want = startKey(procStart)
-    if (want === undefined) return 'maybe'
-    let got = starts && starts.get(pid)
-    if (got === undefined) {
-      got = startKey(await startOf(pid))
-      if (got !== undefined && starts) starts.set(pid, got)
-    }
-    if (got === undefined) return 'maybe'
-    return got === want ? 'live' : 'dead'
-  }
+  // The state of a process the registry names ('dead', 'live' or 'maybe': proc.js). reopen takes only 'live'; the sweep closes a tab only on 'dead', so a
+  // check that fails keeps the tab. A sweep passes its own pid -> start time map and drops it at its end.
+  const procState = procStateWith({ alive, startOf })
   const rowLive = async (e) => (await procState(e.pid, e.procStart)) === 'live'
 
   // Reopens a saved conversation by its session id. Only a registry row whose process is alive counts (the registry keeps the rows of processes that died), and
