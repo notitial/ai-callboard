@@ -70,6 +70,7 @@ test('the status page and the go list', () => {
   const s = statusPage([{ field: 'role', value: 'lead' }, { field: 'parent', value: 'PERSON' }, { field: 'manager', value: null }, { field: 'off', value: false }, { field: 'keepalive', value: true }, { field: 'unattended', value: null }, { field: 'goes', value: 2 }])
   assert.equal(s.split('\n').filter((l) => l.startsWith('| ') && l !== '| | |').length, 7)
   assert.ok(s.includes('| Role | LEAD |') && s.includes('| Parent | PERSON |') && s.includes('| Manager | NONE |') && s.includes('| Callboard | ON |') && s.includes('| Keepalive | ON |') && s.includes('| Unattended | OFF |'))
+  assert.ok(statusPage([{ field: 'parent', value: 'unknown' }, { field: 'manager', value: 'unknown' }]).includes('| Parent | UNKNOWN |') && statusPage([{ field: 'manager', value: 'unknown' }]).includes('| Manager | UNKNOWN |') && statusPage([{ field: 'role', value: 'session' }]).includes('| Role | SESSION |'))
   const u = (value: number): string => statusPage([{ field: 'unattended', value }])
   assert.ok(u(192).includes('| Unattended | ON · 3h 12m left |') && u(42).includes('| Unattended | ON · 42m left |') && u(60).includes('ON · 1h 0m left'))
   assert.ok(statusPage([{ field: 'role', value: 'conductor' }]).includes('| Role | CONDUCTOR |') && statusPage([{ field: 'off', value: true }]).includes('| Callboard | OFF |'))

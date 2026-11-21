@@ -364,7 +364,7 @@ const fixed: { [K in keyof Fixed]: (p: Fixed[K]) => string } = {
 
   'ui.status.head': () => '**Callboard status**',
   'ui.status.row': (p) => {
-    const none = (v: string | null): string => (v === null ? 'NONE' : escCell(v))
+    const none = (v: string | null): string => (v === null ? 'NONE' : v === 'unknown' ? 'UNKNOWN' : escCell(v))
     const left = (m: number): string => (m < 60 ? `${m}m` : `${Math.floor(m / 60)}h ${m % 60}m`)
     const [label, value] =
       p.field === 'role' ? ['Role', p.value.toUpperCase()] : p.field === 'parent' ? ['Parent', none(p.value)] : p.field === 'manager' ? ['Manager', none(p.value)] : p.field === 'off' ? ['Callboard', onOff(!p.value)] :

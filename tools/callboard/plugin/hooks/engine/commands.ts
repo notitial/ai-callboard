@@ -27,7 +27,7 @@ const person = (v: View, s: Sid | 'unknown' | null): string | null => (s === nul
 const statusRole = (v: View, s: Sid): 'manager' | 'lead' | 'conductor' | 'lane' | 'session' => {
   const c = capability(v, s)
   const p = parent(v, s)
-  return c === 'manager' ? 'manager' : c === 'lead' ? (isConductor(v, s) ? 'conductor' : 'lead') : p !== PERSON && p !== 'unknown' ? 'lane' : 'session'
+  return c === 'manager' ? 'manager' : c === 'lead' ? (isConductor(v, s) ? 'conductor' : 'lead') : p !== PERSON && p !== 'unknown' && capability(v, p) === 'lead' ? 'lane' : 'session'
 }
 const helpRow = (k: string): string => (T as Record<string, (p: unknown) => string>)[k]!({})
 const help = (): string => [T['help.head']({}), ...Object.keys(T).filter((k) => k.startsWith('help.') && k !== 'help.head').map((k) => helpRow(k))].join('\n')
