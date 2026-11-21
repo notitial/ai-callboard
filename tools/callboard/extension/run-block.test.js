@@ -282,8 +282,22 @@ test('dispose stops a live run with SIGTERM and says VS Code closed it; with no 
   await new Promise((r) => setImmediate(r))
   w.run.dispose()
   const r = await p
-  assert.deepEqual(w.kills, [[-4242, 'SIGTERM']])
+  assert.deepEqual(w.kills, [[-4242, 'SIGTERM'], [-4242, 'SIGKILL']], 'SIGKILL at once: nothing outlives a disposal to send it later')
   assert.match(r.text, /\(stopped: VS Code closed it, /)
+})
+
+test('when the shell dies on the SIGTERM of a Cancel or a timeout, a survivor in the group still gets the SIGKILL', async () => {
+  for (const how of ['timeout', 'cancel']) {
+    const w = world({ extra: { graceMs: 10, timeoutMs: how === 'timeout' ? 40 : 5000 },
+      script: (c, sig) => {
+        if (!sig && how === 'cancel') setImmediate(() => w.cancel())
+        else if (sig === 'SIGTERM') c.emit('exit', null, 'SIGTERM')
+        else if (sig === 'SIGKILL') c.close(null, 'SIGKILL')
+      } })
+    const r = await ask(w)
+    assert.deepEqual(w.kills, [[-4242, 'SIGTERM'], [-4242, 'SIGKILL']], how)
+    assert.match(r.text, how === 'timeout' ? /\(timed out after /: /\(cancelled, /)
+  }
 })
 
 test('one run at a time: a second ask is refused while the first is open, and the next works once it ended', async () => {

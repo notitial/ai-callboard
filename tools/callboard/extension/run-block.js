@@ -158,13 +158,18 @@ function createRunBlock({ vscode, spawn, kill = (pid, sig) => process.kill(pid, 
           child.on('error', (e) => finish(`could not start: ${e.message}`))
           child.on('close', (code, sig) => finish(status(code, sig)))
           // A background process that keeps the pipes open (`server &`) holds 'close' back, so the shell's own exit ends the run after a short grace.
-          child.on('exit', (code, sig) => timers.push(setTimeout(() => finish(status(code, sig)), graceMs)))
+          // Once a stop has begun, its SIGKILL step ends the run instead: a survivor of the SIGTERM must still get the SIGKILL.
+          child.on('exit', (code, sig) => timers.push(setTimeout(() => { if (!stopped) finish(status(code, sig)) }, graceMs)))
         } catch (e) {
           return finish(`could not start: ${e instanceof Error ? e.message : e}`)
         }
         timers.push(setTimeout(() => stop(`timed out after ${timeoutMs / 1000} s`), timeoutMs))
         sub = token.onCancellationRequested(() => stop('cancelled'))
-        stopLive = () => stop('stopped: VS Code closed it')
+        // Nothing outlives a disposal to escalate later, so the group gets SIGKILL at once as well.
+        stopLive = () => {
+          stop('stopped: VS Code closed it')
+          signal('SIGKILL')
+        }
       }),
     )
 
@@ -205,4 +210,4 @@ function createRunBlock({ vscode, spawn, kill = (pid, sig) => process.kill(pid, 
   return { run, dispose: () => stopLive && stopLive() }
 }
 
-module.exports = { createRunBlock, mask, clean, fenced, keeper, MAX_TEXT, KEEP, KEEP_ERR }
+module.exports = { createRunBlock, mask, clean, fenced, keeper }
