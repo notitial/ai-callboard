@@ -110,7 +110,7 @@ def css_in(raw, field, css):
     return raw.replace(CSS_ANCHOR, css_tag(field) + css.encode("ascii") + b"</style>" + CSS_ANCHOR, 1)
 
 
-# The context pie. The composer's stock pie is hidden until half of the context is used, has three fixed shapes, and measures against the model's window, not the
+# The context pie. The composer's stock pie is hidden until the context used passes the setting claudeCode.contextUsageThreshold (50 percent by default), has three fixed shapes, and measures against the model's window, not the
 # autocompact level of the person's settings. This piece shows it always, as one ring, against that level. It edits webview/index.js (its own backup, WEB_BACKUP)
 # in three places, and puts the level into the page as the CSS variable --callboard-compact: the pie's style block, in extension.js, reads `autoCompactWindow` from
 # <CLAUDE_CONFIG_DIR or ~/.claude>/settings.json each time a panel's page is built (0 when it is not a number above 0; project settings are not read). Where the
@@ -118,10 +118,10 @@ def css_in(raw, field, css):
 # The three anchors are patterns on the minified code; the piece goes in only when each matches exactly once in the shipped index.js and the font tag matches once.
 # The ring is drawn 16px wide (its viewBox stays 20, so the stroke scales). The composer's footer stylesheet sizes the button and its svg to 26px, which wins over the
 # svg's width attribute, so the pie's style block also sets the svg to 16px and the button to fit it with 2px around (the attribute is the fallback when the class
-# names change). The hover text is `used/limit` in k (126k/200k) in place of Claude Code's "37% of
-# context remaining until auto-compact. Click to compact now.": the pie component hands the used tokens and its limit (its window, where the ring is full) to the
-# tooltip component. That is PIE_TIP_ANCHORS, two edits that go in together; when either does not match exactly once in the shipped script, the ring is still the
-# new one and the hover text stays Claude Code's.
+# names change). The hover text is a bold title, "Context", over the line `used / limit used · percent` in k (126k / 200k used · 63%) in place of Claude Code's "37% of
+# context remaining until auto-compact. Click to compact now.": the pie component hands the used tokens, its limit (its window, where the ring is full) and the
+# percent of it used to the tooltip component, whose text and hint lines take them. That is PIE_TIP_ANCHORS, two edits that go in together; when either does not
+# match exactly once in the shipped script, the ring is still the new one and the hover text stays Claude Code's.
 PIE_CSS = (
     ":root{--callboard-compact:${(()=>{try{let p=require(\"path\"),n=JSON.parse(require(\"fs\").readFileSync(p.join(process.env.CLAUDE_CONFIG_DIR||"
     "p.join(require(\"os\").homedir(),\".claude\"),\"settings.json\"),\"utf8\")).autoCompactWindow;return Number.isInteger(n)&&n>0?n:0}catch{return 0}})()}}"
@@ -133,19 +133,20 @@ PIE_CAP = (
 )
 PIE_ANCHORS = (
     ("pie component",
-     rb"(function ID\(\{usedTokens:ID,contextWindow:(ID),onCompact:ID,buttonClassName:ID\}\)\{let ID=\2>0\?Math\.min\(ID/\2\*100,100\):0,ID=100-ID;if\(\2===0\)return null;)if\(ID>=50\)return null;".replace(b"ID", ID),
-     lambda m: PIE_CAP + m.group(1)),
+     rb"(function ID\(\{usedTokens:ID,contextWindow:(ID),threshold:(ID),onCompact:ID,buttonClassName:ID\}\)\{let ID=\2>0\?Math\.min\(ID/\2\*100,100\):0;)if\(\2===0\|\|ID<=\3\)return null;".replace(b"ID", ID),
+     lambda m: PIE_CAP + m.group(1) + b"if(" + m.group(2) + b"===0)return null;"),
     ("pie drawing",
-     rb'(function ID\(\{percentage:(ID),className:(ID)\}\)\{)let ID=ID\(\2\),ID=ID\[ID\];return (ID)\("svg",\{(width:"20",height:"20",viewBox:"0 0 20 20",fill:"none",'
+     rb'(function ID\(\{percentage:(ID),className:(ID)\}\)\{)let ID=ID\(\2\),ID=\2/100,\[ID,ID\]=\2<50\?\[ID\(0,ID\),ID\(ID\+ID,1-ID\)\]:\[ID\[ID\],ID\[ID\]\];return (ID)\("svg",\{'
+     rb'(width:"20",height:"20",viewBox:"0 0 20 20",fill:"none",'
      rb'xmlns:"http://www.w3.org/2000/svg",className:\3,style:\{display:"block"\},children:)\[ID&&(ID)\("path",\{d:ID,stroke:"currentColor",strokeOpacity:"0.15",strokeWidth:"1.5",'
-     rb'strokeLinecap:"round"\}\),\6\("path",\{d:ID\[ID\],stroke:"var\(--app-claude-clay-button-orange\)",strokeWidth:"1.5",strokeLinecap:"round"\}\)\]\}\)\}'.replace(b"ID", ID),
+     rb'strokeLinecap:"round"\}\),\6\("path",\{d:ID,stroke:"var\(--app-claude-clay-button-orange\)",strokeWidth:"1.5",strokeLinecap:"round"\}\)\]\}\)\}'.replace(b"ID", ID),
      lambda m: (m.group(1) + b"let cbpR=Math.max(0,Math.min(100,+" + m.group(2) + b"||0))/100*2*Math.PI*7.25;return " + m.group(4) + b'("svg",{' + m.group(5).replace(b'width:"20",height:"20"', b'width:"16",height:"16"', 1)
                 + b'[' + m.group(6) + b'("circle",{cx:"10",cy:"10",r:"7.25",stroke:"currentColor",strokeOpacity:"0.15",strokeWidth:"1.5"}),cbpR>0&&' + m.group(6)
                 + b'("circle",{cx:"10",cy:"10",r:"7.25",stroke:"var(--app-claude-clay-button-orange)",strokeWidth:"1.5",strokeLinecap:"round",strokeDasharray:cbpR+" 100",'
                 b'transform:"rotate(-90 10 10)"})]})}')),
     ("pie window",
-     rb"contextWindow:(ID)\((ID)\.usageData\.value\.contextWindow,\2\.usageData\.value\.maxOutputTokens\),onCompact:".replace(b"ID", ID),
-     lambda m: b"contextWindow:" + m.group(1) + b"(cbpCap(" + m.group(2) + b".usageData.value.contextWindow)," + m.group(2) + b".usageData.value.maxOutputTokens),onCompact:"),
+     rb"contextWindow:(ID)\((ID)\.usageData\.value\.contextWindow,\2\.usageData\.value\.maxOutputTokens\),threshold:".replace(b"ID", ID),
+     lambda m: b"contextWindow:" + m.group(1) + b"(cbpCap(" + m.group(2) + b".usageData.value.contextWindow)," + m.group(2) + b".usageData.value.maxOutputTokens),threshold:"),
 )
 
 
@@ -160,12 +161,12 @@ def pie_problem(raw, web):
 
 PIE_TIP_ANCHORS = (
     ("pie tooltip amounts",
-     rb"(\{usedTokens:(ID),contextWindow:(ID),onCompact:ID,buttonClassName:ID\}\)\{[^{}]{0,200}?return ID\(ID,\{percentageUsed:ID,)".replace(b"ID", ID),
-     lambda m: m.group(1) + b'cbpTip:Math.round((' + m.group(2) + b'||0)/1e3)+"k/"+Math.round(' + m.group(3) + b'/1e3)+"k",'),
+     rb"(\{usedTokens:(ID),contextWindow:(ID),threshold:ID,onCompact:ID,buttonClassName:ID\}\)\{[^{}]{0,200}?return ID\(ID,\{percentageUsed:(ID),)".replace(b"ID", ID),
+     lambda m: (m.group(1) + b'cbpTip:Math.round((' + m.group(2) + b'||0)/1e3)+"k / "+Math.round(' + m.group(3) + b'/1e3)+"k used \xc2\xb7 "+Math.round(+' + m.group(4) + b'||0)+"%",')),
     ("pie tooltip text",
-     rb"(\{percentageUsed:ID,onCompact:ID,buttonClassName:ID)(\}\)\{let\[ID,ID\]=ID\(!1\),ID=100-ID;.{0,500}?ID&&ID\(ID,\{text:)"
+     rb"(\{percentageUsed:ID,onCompact:ID,buttonClassName:ID)(\}\)\{let\[ID,ID\]=ID\(!1\),ID=100-ID;.{0,500}?ID&&(ID)\(ID,\{)text:"
      rb'`\$\{Math\.round\(ID\)\}% of context remaining until auto-compact\.`,hint:"Click to compact now\."'.replace(b"ID", ID),
-     lambda m: m.group(1) + b",cbpTip" + m.group(2) + b"cbpTip"),
+     lambda m: m.group(1) + b",cbpTip" + m.group(2) + b'text:' + m.group(3) + b'("b",{style:{fontWeight:600},children:"Context"}),hint:cbpTip'),
 )
 
 

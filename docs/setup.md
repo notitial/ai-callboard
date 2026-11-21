@@ -118,11 +118,11 @@ EXT_DIR="$(ls -d "$HOME"/.vscode/extensions/anthropic.claude-code-* | sort -V | 
   it out with the rest. The Remote Control chip is left as Claude Code draws it: an install made by an older script that hid it
   reads `outdated`, and `--update` takes the hiding out.
 - The context pie (the marker's `pie` field) shows the composer's own context pie always, as one ring, in place of Claude
-  Code's, which appears only when half of the context is gone, in three fixed shapes, measured against the model's window.
+  Code's, which appears only when the context used passes its `claudeCode.contextUsageThreshold` setting (50 percent by default), in three fixed shapes, measured against the model's window.
   The ring is measured against the compaction point of your `autoCompactWindow` setting (`~/.claude/settings.json`, or
   `CLAUDE_CONFIG_DIR` of the VS Code process; project settings are not read; read each time a panel opens, so a reload picks up
   a changed value): full where Claude Code compacts. With no such setting it uses the model's window, as the stock pie does.
-  The ring is 16px with 2px around it (the footer's own stylesheet sizes it to 26px, so the piece's style block sets the size too), and its hover text is `used/limit` in k (`126k/200k`, the limit being where the ring is full); a click
+  The ring is 16px with 2px around it (the footer's own stylesheet sizes it to 26px, so the piece's style block sets the size too), and its hover text is a bold "Context" over `used / limit used · percent` in k (`126k / 200k used · 63%`, the limit being where the ring is full: your `autoCompactWindow` less about 33k); a click
   still compacts. It also edits `webview/index.js`, as the folder pill below does, in three places that must each match once (the check
   names the one that does not), and in two more for the hover text: when either of those does not match once, the hover text
   stays Claude Code's and the rest of the piece still goes in, without a warning. The shipped script is kept as
@@ -173,7 +173,8 @@ EXT_DIR="$(ls -d "$HOME"/.vscode/extensions/anthropic.claude-code-* | sort -V | 
 - It serves the lanes of every folder of the window. A tab that Claude Code itself restores or reopens
   resumes in its conversation's folder through the restore fix; where that fix is not in or finds no transcript, it starts in
   the window's first folder.
-- The patch is made for 2.1.327 and 2.1.328. A later version may rename or restructure the code it hooks into; then
+- The patch is made for 2.1.327, 2.1.328 and 2.1.330; the context pie's anchors fit the code of 2.1.330 (an older script gets every other piece and a
+  warning that the pie is left out). A later version may rename or restructure the code it hooks into; then
   `anchors-missing` is printed and nothing is touched, and the panels extension keeps its one-repo-per-window behavior.
 - Nothing depends on it. The marker lives in the Claude extension's own folder, so an update (a new folder) drops the
   patch and its marker together, and the panels extension counts the patch only when the marker's checksum matches the
