@@ -34,6 +34,7 @@ TEMPLATE = (
     'let{{startedInNewColumn:L,shownInSidebar:N}}=await c.createPanel({a},{b},{c},{d},{e},O.focusInput);if(L)await kS();'
     'if(O.updatePreferredLocationToPanel&&N!==!0)as(n.setPreferredLocation("panel"))}}));'
     'x.push(Wp("claude-vscode.editor.openLast",async()=>{{await rl("claude-vscode.editor.open")}}));'
+    'class P{{async processRequest({rq},t){{switch({rq}.request.type){{case"get_asset_uris":return 1;case"open_url":return await this.openURL({rq}.request.url),{{type:"open_url_response"}};case"x":return 2}}}}}}'
     '{grp}'
     '{html}'
 )
@@ -81,8 +82,8 @@ const open = async (folders, pickResult, target, ...args) => {
   console.log(JSON.stringify(out))
 })()
 """
-V327 = dict(nc="nC", vs="$e", a="w", b="A", c="C", d="T", e="R", f="x", pv="G")
-V328 = dict(nc="$v", vs="Pe", a="w", b="T", c="C", d="A", e="k", f="z", pv="Gq")
+V327 = dict(nc="nC", vs="$e", a="w", b="A", c="C", d="T", e="R", f="x", pv="G", rq="e")
+V328 = dict(nc="$v", vs="Pe", a="w", b="T", c="C", d="A", e="k", f="z", pv="Gq", rq="$n")
 PKG = {"name": "claude-code", "publisher": "Anthropic", "version": "2.1.328"}
 
 
@@ -131,6 +132,7 @@ PIE_JS = (
     'contextWindow:{tf}(e.usageData.value.contextWindow,e.usageData.value.maxOutputTokens),onCompact:a,buttonClassName:ia.usageButtonV2}}),m(BFt,{{session:e}})]}})}}'
     'function Foot(e){{let Ft={{}},p={{isOpen:!1,onClose:0}},f=e.cwd.value,{st}=e.stage;return k("div",{{children:[m(BFt,{{session:e}}),{st}!==2&&m({mp},{{...Ft}}),'
     'm($Ft,{{isOpen:p.isOpen,onClose:p.onClose,availableModels:e.drawnClaudeConfig.value?.models,anchor:f}})]}})}}'
+    'class Conn{{sendRequest(e,t){{return 1}}}}function Ask(e){{return e.getConnection().then((c)=>c.sendRequest(1))}}'
 )
 JS329 = dict(sv="tBt", pc="nBt", tf="NFt", fb="FBn", st="_", mp="fAe")
 JS328 = dict(sv="SFt", pc="kFt", tf="tFt", fb="dBn", st="U$", mp="Rr")
@@ -1004,7 +1006,7 @@ class Pie(Case):
             self.assertEqual((new.count(b"cbpCap("), new.count(b"cbpN;"), new.count(b"<circle"), new.count(b'"circle"')), (2, 1, 0, 2))
             self.assertNotIn(b"if(r>=50)return null", new)
             self.assertNotIn(b'"path"', new)
-            self.assertEqual((new.count(b'width:"12",height:"12"'), new.count(b'"20"'), new.count(b"cbpTip"), new.count(b"of context remaining")), (1, 0, 3, 0))
+            self.assertEqual((new.count(b'width:"16",height:"16"'), new.count(b'"20"'), new.count(b"cbpTip"), new.count(b"of context remaining")), (1, 0, 3, 0))
             self.assertEqual(sorted(os.listdir(ext)), sorted(STOCK + ["callboard-cwd-patch.json", "extension.js.callboard-orig"]))
             self.run_script(ext)
             self.assertEqual((self.rc, self.out), (0, "patched 2.1.328\n"))
@@ -1033,13 +1035,13 @@ class Pie(Case):
             self.assertEqual(self.shown(ext, " 5000000", names)["window"][0], 967000, "a level above the window changes nothing")
 
     @unittest.skipUnless(shutil.which("node"), "needs node")
-    def test_the_ring_is_12px_and_the_hover_is_used_over_limit_in_k(self):
+    def test_the_ring_is_16px_and_the_hover_is_used_over_limit_in_k(self):
         for names in (JS329, JS328):
             web = dict(WEB, **{"index.js": PIE_JS.format(**names)})
             ext = self.make(V327, name="hov" + names["pc"], web=web)
             self.run_script(ext, "--apply")
             got = self.shown(ext, "", names)
-            self.assertEqual(got["size"], ["12", "12", "0 0 20 20"], "the drawing keeps its 20 box, so the stroke scales")
+            self.assertEqual(got["size"], ["16", "16", "0 0 20 20"], "the drawing keeps its 20 box, so the stroke scales")
             self.assertEqual([h and h.get("text") for h in got["hover"]],
                              ["126k/200k", "0k/200k", "1k/200k", "0k/200k", "250k/200k", None, "0k/200k", "126k/967k"], "whole k; used past the limit shows as it is; no limit draws nothing")
             self.assertTrue(all(h is None or "hint" not in h for h in got["hover"]), "no hint line")
@@ -1057,7 +1059,7 @@ class Pie(Case):
             self.run_script(ext, "--apply")
             self.assertEqual((self.rc, self.out.count("warning")), (0, 0), self.out)
             new = slurp(os.path.join(ext, self.WEBJS))
-            self.assertEqual((self.marker(ext)["pie"], new.count(b'width:"12",height:"12"'), new.count(b"cbpTip"), new.count(b"cbpCap("), new.count(b"Click to compact now.")), (True, 1, 0, 2, 1 if label != "doubled" else 2), label)
+            self.assertEqual((self.marker(ext)["pie"], new.count(b'width:"16",height:"16"'), new.count(b"cbpTip"), new.count(b"cbpCap("), new.count(b"Click to compact now.")), (True, 1, 0, 2, 1 if label != "doubled" else 2), label)
             self.run_script(ext)
             self.assertEqual((self.rc, self.out), (0, "patched 2.1.328\n"), label)
 
@@ -1136,7 +1138,7 @@ class Pie(Case):
 
     def test_an_install_made_with_the_earlier_pie_reads_outdated_and_update_rebuilds_it(self):
         old = load_module()
-        size = lambda rep: lambda m: rep(m).replace(b'width:"12",height:"12"', b'width:"20",height:"20"')
+        size = lambda rep: lambda m: rep(m).replace(b'width:"16",height:"16"', b'width:"20",height:"20"')
         earlier = tuple((n, p, size(r) if n == "pie drawing" else r) for n, p, r in old.PIE_ANCHORS)
         ext = self.make(V327, name="earlier")
         orig_js = slurp(os.path.join(ext, self.WEBJS))
@@ -1148,7 +1150,7 @@ class Pie(Case):
         self.run_script(ext, "--update")
         self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "updated 2.1.328"))
         new = slurp(os.path.join(ext, self.WEBJS))
-        self.assertEqual((new.count(b'width:"12"'), new.count(b'"20"'), new.count(b"cbpTip"), slurp(os.path.join(ext, self.BAK))), (1, 0, 3, orig_js))
+        self.assertEqual((new.count(b'width:"16"'), new.count(b'"20"'), new.count(b"cbpTip"), slurp(os.path.join(ext, self.BAK))), (1, 0, 3, orig_js))
         self.run_script(ext)
         self.assertEqual((self.rc, self.out), (0, "patched 2.1.328\n"))
         self.run_script(ext, "--undo")
@@ -1338,25 +1340,141 @@ class Pie(Case):
         self.assertIn("index.js.callboard-orig does not match the marker's recorded original", self.err)
 
 
-# Runs the patched stand-in of the footer under fakes and returns what the folder pill draws for some folders of the session.
+# Runs the patched stand-in of the footer under fakes, as React would drive it: renders (each builds new props, so a new ref function), a commit that calls the
+# ref with the one element, and a request that answers from the connection. The element counts every write to it.
 PILL_RUNNER = r"""
 const vm = require('vm'), fs = require('fs')
 const [file] = process.argv.slice(1)
 const m = (t, p) => ({ t, p }), k = (t, p) => ({ t, p })
-const ctx = vm.createContext({ m, k, BFt: 'BFt', fAe: 'M', Rr: 'M', $Ft: 'L' })
-vm.runInContext(fs.readFileSync(file, 'utf8') + ';globalThis.Foot = Foot', ctx)
-const nocwd = () => ctx.Foot({ stage: 0, cwd: { value: 5 }, drawnClaudeConfig: { value: { models: [] } } }).p.children.some((x) => x && x.t === 'span')
-const pill = (cwd, stage = 0) => {
-  const c = ctx.Foot({ stage, cwd: { value: cwd }, drawnClaudeConfig: { value: { models: [] } } }).p.children
-  const p = c.find((x) => x && x.t === 'span')
-  return { n: c.length, pill: p ? { text: p.p.children, keys: Object.keys(p.p).sort() } : null, order: c.map((x) => x && (x.t === 'span' ? 'pill' : x.t)) }
+const tick = () => new Promise((r) => setTimeout(r, 5))
+const el = () => {
+  const w = { n: 0, log: [] }
+  const e = { w, style: { _d: 'none', get display() { return this._d }, set display(v) { w.n++; w.log.push('display=' + v); this._d = v } }, firstChild: null,
+    append(t) { w.n++; w.log.push('append ' + t); this.firstChild = { _d: t, get data() { return this._d }, set data(v) { w.n++; w.log.push('data=' + v); this._d = v } } } }
+  return e
 }
-console.log(JSON.stringify([pill('/Users/x/My Proj'), pill('/Users/x/proj/'), pill('C:\\Users\\x\\win'), pill('/Users/x/<b>&"x"'), pill('/'), pill(''), pill(undefined), pill('/Users/x/proj', 2)].concat([nocwd()])))
+const world = (reply) => {
+  const requests = []
+  const ctx = vm.createContext({ m, k, BFt: 'BFt', fAe: 'M', Rr: 'M', $Ft: 'L' })
+  vm.runInContext(fs.readFileSync(file, 'utf8') + ';globalThis.Foot = Foot', ctx)
+  const session = (cwd, stage) => ({ stage, cwd: { value: cwd }, drawnClaudeConfig: { value: { models: [] } },
+    getConnection: () => reply === 'down' ? Promise.reject(new Error('down')) : Promise.resolve({ sendRequest: async (req) => { requests.push(req); return typeof reply === 'function' ? reply(req) : reply } }) })
+  const render = (cwd, stage = 0) => { const c = ctx.Foot(session(cwd, stage)).p.children; return { c, span: c.find((x) => x && x.t === 'span') } }
+  return { requests, render }
+}
+const shape = (c) => c.map((x) => x && (x.t === 'span' ? 'pill' : x.t))
+;(async () => {
+  const out = {}
+  // The footer renders again on every reset of its fit stage: six renders of one folder at stages 0,1,2,0,1,2 ask once and write once.
+  { const w = world({ name: 'proj', folders: 2 }), e = el(), shapes = [], sizes = []
+    for (const [i, st] of [0, 1, 2, 0, 1, 2].entries()) {
+      const r = w.render('/a/proj', st); shapes.push(shape(r.c)); sizes.push(r.c.length)
+      r.span.p.ref(null); r.span.p.ref(e)
+      if (i === 1) await tick()
+    }
+    await tick()
+    out.loop = { requests: w.requests, writes: e.w.log, text: e.firstChild.data, display: e.style.display, keys: Object.keys(w.render('/a/proj').span.p).sort(), shapes, sizes }
+    const before = e.w.n; for (let i = 0; i < 5; i++) w.render('/a/proj', i % 3).span.p.ref(e); await tick()
+    out.loop.writesAfter = e.w.n - before; out.loop.requestsAfter = w.requests.length
+    out.loop.second = await (async () => { const e2 = el(); w.render('/a/proj').span.p.ref(e2); return { log: e2.w.log, requests: w.requests.length } })()
+  }
+  // A window with one folder keeps the span, hidden.
+  { const w = world({ name: 'proj', folders: 1 }), e = el(); w.render('/a/proj').span.p.ref(e); await tick()
+    out.single = { log: e.w.log, display: e.style.display, text: e.firstChild.data, n: w.render('/a/proj').c.length } }
+  // A click asks for a rename and shows the answer once; an answer with the same name writes nothing; an answer with no name changes nothing.
+  { let name = 'Mine'
+    const w = world((req) => ({ name: req.rename ? name : 'proj', folders: 2 })), e = el(); const r = w.render('/a/proj'); r.span.p.ref(e); await tick()
+    const log = [...e.w.log]; r.span.p.onClick(); await tick()
+    const afterFirst = [...e.w.log]; r.span.p.onClick(); await tick()
+    const same = e.w.log.length; name = ''; r.span.p.onClick(); await tick()
+    out.click = { requests: w.requests, first: log, after: afterFirst, sameWrites: same - afterFirst.length, emptyWrites: e.w.log.length - same, text: e.firstChild.data,
+      cached: (() => { const e3 = el(); w.render('/a/proj').span.p.ref(e3); return e3.w.log })() } }
+  // A failed request, a bad answer, a folder that is not a string: hidden, nothing thrown.
+  for (const reply of ['down', null, { name: 7, folders: 'x' }]) {
+    const w = world(reply), e = el(); w.render('/a/proj').span.p.ref(e); await tick()
+    ;(out.bad ??= []).push({ log: e.w.log, display: e.style.display, n: w.requests.length })
+  }
+  { let calls = 0
+    const w = world(() => (++calls <= 1 ? null : { name: 'proj', folders: 2 })), e = el()
+    for (let i = 0; i < 4; i++) { w.render('/a/proj').span.p.ref(e); await tick() }
+    const s = world(null), e2 = el()
+    for (let i = 0; i < 8; i++) { s.render('/a/proj').span.p.ref(e2); await tick() }
+    out.retry = { requests: w.requests.length, log: e.w.log, stuck: s.requests.length, stuckLog: e2.w.log } }
+  { const w = world({ name: 'x', folders: 2 })
+    out.nocwd = [w.render('').span === undefined, w.render(undefined).span === undefined, w.render(5).span === undefined, w.render('/').span !== undefined] }
+  console.log(JSON.stringify(out))
+})()
+"""
+
+
+# Runs the patched stand-in extension's request switch under a fake vscode and real files below a root: the handler of the folder pill.
+HANDLER_RUNNER = r"""
+const vm = require('vm'), fs = require('fs'), path = require('path')
+const [file, root] = process.argv.slice(1)
+const R = (...p) => path.join(root, ...p)
+const st = { folders: [R('a'), R('b')], input: undefined, boxes: [], warned: 0 }
+const fake = { workspace: { get workspaceFolders() { return st.folders.map((f) => ({ name: path.basename(f), uri: { fsPath: f } })) } }, commands: { registerCommand: () => ({}) },
+  window: { showInputBox: async (o) => { st.boxes.push(o); return st.input }, showWarningMessage: () => { st.warned++ } } }
+const ctx = vm.createContext({ x: [], Wp: () => {}, F: () => ({ target: 'panel', focusInput: 1 }), c: {}, kS: async () => {}, rl: async () => {}, $e: fake, Pe: fake, Buffer,
+  require: (m) => (m === 'vscode' ? fake : require(m)) })
+vm.runInContext(fs.readFileSync(file, 'utf8') + ';globalThis.P = P', ctx)
+const opened = []
+const call = (req) => ctx.P.prototype.processRequest.call({ openURL: async (u) => opened.push(u) }, { request: req }, undefined)
+const folder = (d) => R(d, '.archive', '.folder')
+const read = (d) => { try { return fs.readFileSync(folder(d), 'utf8') } catch { return null } }
+const put = (d, text) => { fs.mkdirSync(R(d, '.archive'), { recursive: true }); fs.writeFileSync(folder(d), text) }
+const name = async (cwd, rename, input) => { st.input = input; return (await call({ type: 'callboard_folder', cwd, rename })).name }
+;(async () => {
+  const out = {}
+  out.stock = { ...(await call({ type: 'open_url', url: 'u' })), opened }
+  out.get = await call({ type: 'callboard_folder', cwd: R('a') })
+  const archive = fs.existsSync(R('b', '.archive'))
+  const n = await name(R('b'), true, 'New')
+  out.renamed = { name: n, file: read('b'), archive: !archive && fs.existsSync(R('b', '.archive')) }
+  out.cleared = { name: await name(R('b'), true, ''), file: read('b') }
+  await name(R('b'), true, 'New')
+  out.same = { name: await name(R('b'), true, 'b'), file: read('b') }
+  out.fallback = []
+  out.fallback.push(await name(R('b')))
+  for (const text of ['', '\n\n', '\u0001\u0002\n']) { put('b', text); out.fallback.push(await name(R('b'))) }
+  put('b', 'x'.repeat(60)); out.long = await name(R('b'))
+  put('b', 'a\u0007b\n'); out.controls = await name(R('b'))
+  put('b', '<b>x</b>'); out.markup = await name(R('b'))
+  fs.rmSync(folder('b'))
+  await name(R('a'), true, undefined)
+  const box = st.boxes[st.boxes.length - 1]
+  out.box = { value: box.value, validate: [box.validateInput('a\nb'), box.validateInput('x'.repeat(41)), box.validateInput('ok')] }
+  const mine = read('a')
+  out.esc = { name: await name(R('a'), true, undefined), file: read('a') }
+  fs.writeFileSync(folder('a'), mine)
+  out.inside = { name: await name(R('a', 'sub'), true, 'Deep'), file: read(path.join('a', 'sub')) }
+  st.boxes = []
+  out.scope = { relative: await name('a', true, 'X'), outside: await name(R('outside'), true, 'Hack'), dotdot: await name(root + '/a/../outside', true, 'Hack'), number: await name(5, true, 'X'), boxes: st.boxes.length, leak: read('outside') }
+  st.folders = [R('a'), R('c')]
+  out.blocked = { name: await name(R('c'), true, 'Z'), warned: st.warned }
+  out.blocked.cleared = await name(R('c'), true, ''); out.blocked.warnedAfterClear = st.warned
+  st.folders = [R('a')]
+  const dir = (...p) => fs.mkdirSync(R(...p), { recursive: true })
+  fs.writeFileSync(R('outside', 'victim'), 'V')
+  dir('a', 'link', '.archive'); fs.symlinkSync(R('outside', 'victim'), folder(path.join('a', 'link')))
+  dir('a', 'fifo', '.archive'); require('child_process').execFileSync('mkfifo', [folder(path.join('a', 'fifo'))])
+  dir('a', 'dirlink'); fs.symlinkSync(R('outside', '.archive'), R('a', 'dirlink', '.archive'))
+  const w0 = st.warned
+  out.links = { link: await name(R('a', 'link'), false), linkRename: await name(R('a', 'link'), true, 'Hack'), fifo: await name(R('a', 'fifo'), false), fifoRename: await name(R('a', 'fifo'), true, 'Hack'),
+    dirlink: await name(R('a', 'dirlink'), false), dirlinkRename: await name(R('a', 'dirlink'), true, 'Hack'), victim: fs.readFileSync(R('outside', 'victim'), 'utf8'), leak: read('outside'), warned: st.warned - w0 }
+  dir('a', '..x')
+  out.dots = { name: await name(R('a', '..x'), true, 'Dots'), file: read(path.join('a', '..x')) }
+  const long = 'y'.repeat(50); dir('a', long)
+  await name(R('a', long), true, undefined)
+  const lbox = st.boxes[st.boxes.length - 1]
+  out.longFolder = { value: lbox.value === long, validate: lbox.validateInput(long), same: await name(R('a', long), true, long), file: read(path.join('a', long)) }
+  console.log(JSON.stringify(out))
+})()
 """
 
 
 class Pill(Case):
-    """The folder pill: one optional piece, in webview/index.js with the pie, after the model pill of the composer's footer."""
+    """The folder pill: one optional piece, in webview/index.js with the pie (the page side) and in extension.js (the file, the folder count, the rename box)."""
 
     WEBJS = os.path.join("webview", "index.js")
     BAK = os.path.join("webview", "index.js.callboard-orig")
@@ -1365,27 +1483,34 @@ class Pill(Case):
         return json.loads(slurp(os.path.join(ext, "callboard-cwd-patch.json")))
 
     def test_the_pill_goes_in_once_after_the_model_pill_and_undo_takes_it_out(self):
+        mod = load_module()
         for names in (JS329, JS328):
             web = dict(WEB, **{"index.js": PIE_JS.format(**names)})
             ext = self.make(V327, name="pill" + names["mp"], web=web)
             orig = slurp(os.path.join(ext, self.WEBJS))
+            orig_main = self.js(ext)
             self.run_script(ext, "--apply")
             self.assertEqual((self.rc, self.out.count("warning")), (0, 0), self.out)
             new = slurp(os.path.join(ext, self.WEBJS))
             self.assertEqual((self.marker(ext)["pill"], slurp(os.path.join(ext, self.BAK))), (True, orig))
-            self.assertEqual((new.count(b'"span"'), new.count(b".cwd.value.split("), new.count(b"title:")), (1, 1, 0), "one pill, no path in the page")
+            self.assertEqual((new.count(b'"span"'), new.count(b"title:")), (1, 0), "one pill, no title")
+            self.assertEqual((self.js(ext).count(b'case"callboard_folder":'), self.js(ext).index(b'case"callboard_folder":') < self.js(ext).index(b'case"open_url":')), (1, True), "the handler is a case of the request switch")
             self.assertEqual(new.index(b'"span"') > new.index(b"m(%s,{...Ft})" % names["mp"].encode()), True, "after the model pill")
             self.assertEqual(new.index(b'"span"') < new.index(b"m($Ft,"), True, "before the model list")
-            between = new[new.index(b"m(%s,{...Ft})" % names["mp"].encode()):new.index(b'"span"')]
-            self.assertNotIn(b"!==", between, "not gated on the fit stage: a pill that comes and goes with it loops the footer's layout")
-            self.assertEqual(between.count(b"&&"), 2, "only its two checks (a string cwd, a non-empty one) lead to the span")
+            start = new.index(b"m(%s,{...Ft})," % names["mp"].encode()) + len(b"m(%s,{...Ft})," % names["mp"].encode())
+            expr = new[start:new.index(b"m($Ft,")]
+            self.assertNotIn(b"!==2", expr, "not gated on the fit stage: a pill that comes and goes with it loops the footer's layout")
+            self.assertIsNone(re.search(rb"(?<![\w$])" + re.escape(names["st"].encode()) + rb"(?![\w$])", expr), "nothing the pill draws depends on the fit stage variable")
+            self.assertEqual(expr[:expr.index(b"(cbfP=>")].count(b"&&"), 2, "only its two checks (a string cwd, a non-empty one) lead to the span")
+            self.assertEqual(expr.count(b"children"), 0, "no children of its own for the page's renderer to fight the text with")
+            self.assertEqual((expr.count(b"createElement"), expr.count(b"innerHTML"), expr.count(b"textContent")), (0, 0, 0), "text only")
             self.run_script(ext)
             self.assertEqual((self.rc, self.out), (0, "patched 2.1.328\n"))
             self.run_script(ext, "--undo")
-            self.assertEqual((self.rc, slurp(os.path.join(ext, self.WEBJS)), sorted(os.listdir(ext))), (0, orig, STOCK))
+            self.assertEqual((self.rc, slurp(os.path.join(ext, self.WEBJS)), sorted(os.listdir(ext)), self.js(ext)), (0, orig, STOCK, orig_main))
 
     @unittest.skipUnless(shutil.which("node"), "needs node")
-    def test_the_pill_shows_the_folder_name_as_plain_text_at_every_fit_stage(self):
+    def test_the_pill_asks_once_writes_only_what_differs_and_survives_every_render(self):
         for names in (JS329, JS328):
             web = dict(WEB, **{"index.js": PIE_JS.format(**names)})
             ext = self.make(V327, name="run" + names["mp"], web=web)
@@ -1393,13 +1518,92 @@ class Pill(Case):
             p = subprocess.run(["node", "-e", PILL_RUNNER, os.path.join(ext, self.WEBJS)], capture_output=True, text=True, timeout=60)
             self.assertEqual(p.returncode, 0, p.stderr)
             got = json.loads(p.stdout)
-            self.assertIs(got.pop(), False, "a cwd that is not a string draws no pill and does not throw")
-            self.assertEqual([g["pill"] and g["pill"].get("text") for g in got], ["My Proj", "proj", "win", '<b>&"x"', "/", None, None, "proj"], "the last part, a text child as it is; a root folder shows itself")
-            self.assertEqual([g["pill"] is None for g in got], [False] * 5 + [True] * 2 + [False], "no folder, no pill; the narrowest stage does not hide it")
-            self.assertEqual(got[0]["order"], ["BFt", "M", "pill", "L"], "between the model pill and its list")
-            self.assertEqual(got[0]["pill"]["keys"], ["children", "style"], "a text child and a style: no title, no path")
-            self.assertEqual(got[7]["order"], ["BFt", False, "pill", "L"], "the narrowest fit stage hides the model pill, not this one")
-            self.assertEqual(got[0]["n"], got[7]["n"], "the same children at every stage, so the footer's observer sees no node added or removed")
+            loop = got["loop"]
+            self.assertEqual(loop["requests"], [{"type": "callboard_folder", "cwd": "/a/proj"}], "six renders, one request, and it is a get")
+            self.assertEqual(loop["writes"], ["append proj", "display="], "one write of the text, one of the display, both on the first answer")
+            self.assertEqual((loop["text"], loop["display"]), ("proj", ""))
+            self.assertEqual((loop["writesAfter"], loop["requestsAfter"]), (0, 1), "later renders write nothing and ask nothing: the footer's child list and text stay as they are")
+            self.assertEqual(loop["second"], {"log": ["append proj", "display="], "requests": 1}, "an element that mounts again for a folder already answered is filled from the kept answer, without a request")
+            self.assertEqual(loop["keys"], ["onClick", "ref", "style"], "no children, no title: the text is the only thing in the span, put there by the ref")
+            self.assertEqual((len(set(loop["sizes"])), all("pill" in s for s in loop["shapes"])), (1, True), "the same number of children and the pill among them at every fit stage, so the footer's observer sees no node added or removed")
+            self.assertEqual(loop["shapes"][0], ["BFt", "M", "pill", "L"], "between the model pill and its list")
+            self.assertEqual(loop["shapes"][2], ["BFt", False, "pill", "L"], "the narrowest fit stage hides the model pill, not this one")
+            self.assertEqual(got["single"], {"log": ["append proj"], "display": "none", "text": "proj", "n": 4}, "one folder: the span stays, hidden, and the display is not written")
+            click = got["click"]
+            self.assertEqual(click["requests"], [{"type": "callboard_folder", "cwd": "/a/proj"}, {"type": "callboard_folder", "cwd": "/a/proj", "rename": True}] + [{"type": "callboard_folder", "cwd": "/a/proj", "rename": True}] * 2)
+            self.assertEqual((click["first"], click["after"]), (["append proj", "display="], ["append proj", "display=", "data=Mine"]), "a rename sets the text node's data")
+            self.assertEqual((click["sameWrites"], click["emptyWrites"], click["text"]), (0, 0, "Mine"), "the same answer and an answer with no name write nothing")
+            self.assertEqual(click["cached"], ["append Mine", "display="], "a later mount shows the renamed name")
+            for b in got["bad"]:
+                self.assertEqual(b["display"], "none", "a failed or bad answer leaves it hidden")
+                self.assertEqual(b["log"], [], "and writes no text")
+            self.assertEqual(got["retry"], {"requests": 2, "log": ["append proj", "display="], "stuck": 3, "stuckLog": []},
+                             "a failed ask is not kept: the next render asks again and the pill comes up; one that keeps failing stops after three, writing nothing")
+            self.assertEqual(got["nocwd"], [True, True, True, True], "no folder, no pill; a root folder draws one")
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_the_handler_reads_and_writes_only_the_one_file_of_a_window_folder(self):
+        for variant in (V327, V328):
+            ext = self.make(variant, name="h" + variant["nc"].strip("$"))
+            self.run_script(ext, "--apply")
+            self.assertEqual(self.marker(ext)["pill"], True)
+            root = os.path.join(self.t, "w" + variant["nc"].strip("$"))
+            for d in ("a", "b", "outside", os.path.join("a", "sub"), "c"):
+                os.makedirs(os.path.join(root, d))
+            os.makedirs(os.path.join(root, "outside", ".archive"))
+            with open(os.path.join(root, "outside", ".archive", ".folder"), "w") as f:
+                f.write("Leak\n")
+            os.makedirs(os.path.join(root, "a", ".archive"))
+            with open(os.path.join(root, "a", ".archive", ".folder"), "w") as f:
+                f.write("  Mine  \nsecond line\n")
+            with open(os.path.join(root, "c", "file"), "w") as f:
+                f.write("x")
+            with open(os.path.join(root, "c", ".archive"), "w") as f:
+                f.write("not a folder")
+            p = subprocess.run(["node", "-e", HANDLER_RUNNER, os.path.join(ext, "extension.js"), root], capture_output=True, text=True, timeout=60)
+            self.assertEqual(p.returncode, 0, p.stderr)
+            got = json.loads(p.stdout)
+            self.assertEqual(got["stock"], {"type": "open_url_response", "opened": ["u"]}, "the stock case still answers")
+            self.assertEqual(got["get"], {"type": "callboard_folder_response", "name": "Mine", "folders": 2}, "the first line, trimmed")
+            self.assertEqual(got["fallback"], ["b", "b", "b", "b"], "no file, an empty one, blank lines, only control characters: the folder's last part")
+            self.assertEqual(got["long"], "x" * 40, "capped at 40")
+            self.assertEqual(got["controls"], "ab", "control characters are dropped")
+            self.assertEqual(got["markup"], "<b>x</b>", "a string as it is: the page puts it in as text")
+            self.assertEqual(got["box"]["value"], "Mine", "the box is prefilled with the current name")
+            self.assertEqual(got["box"]["validate"], ["One line only", "At most 40 characters", None])
+            self.assertEqual(got["renamed"], {"name": "New", "file": "New\n", "archive": True}, "Enter writes the file, creating .archive")
+            self.assertEqual(got["cleared"], {"name": "b", "file": None}, "an empty name deletes the file")
+            self.assertEqual(got["same"], {"name": "b", "file": None}, "the folder's own name needs no file")
+            self.assertEqual(got["esc"], {"name": "Mine", "file": "  Mine  \nsecond line\n"}, "Esc changes nothing")
+            self.assertEqual(got["inside"], {"name": "Deep", "file": "Deep\n"}, "a folder inside a window folder is allowed")
+            self.assertEqual(got["scope"], {"relative": "a", "outside": "outside", "dotdot": "outside", "number": "", "boxes": 0, "leak": "Leak\n"},
+                             "a relative path, a folder outside the window and a path that climbs out answer the folder's own name, never read the file and open no box")
+            self.assertEqual(got["blocked"], {"name": "c", "warned": 1, "cleared": "c", "warnedAfterClear": 2}, "a write or a clear that fails warns and changes nothing")
+            self.assertEqual(got["links"], {"link": "link", "linkRename": "link", "fifo": "fifo", "fifoRename": "fifo", "dirlink": "dirlink", "dirlinkRename": "dirlink", "victim": "V", "leak": "Leak\n", "warned": 3},
+                             "a .folder that is a link or a fifo, and an .archive that is a link, are never read and never written through: the name stays the folder's and the target stays as it was")
+            self.assertEqual(got["dots"], {"name": "Dots", "file": "Dots\n"}, "a folder whose name starts with two dots is inside the window folder")
+            self.assertEqual(got["longFolder"], {"value": True, "validate": None, "same": "y" * 50, "file": None}, "a folder name over 40 characters: the box takes its own prefill, and typing it back clears the file")
+
+    def test_a_missing_handler_anchor_leaves_the_pill_out_and_a_missing_page_anchor_leaves_the_handler_out(self):
+        raw = build(V327).decode("utf-8")
+        cases = {
+            "no switch": ("extension.js", raw.replace('case"open_url":return await this.openURL(', 'case"open_urls":return await this.openURL(', 1), "pill handler anchor (no match)"),
+            "doubled": ("extension.js", raw + 'class P2{async processRequest(e,t){switch(e.request.type){case"open_url":return await this.openURL(e.request.url)}}}', "pill handler anchor (2 matches)"),
+            "named": ("extension.js", raw + 'var x="callboard_folder";', "the file already contains callboard_folder"),
+            "no connection": ("webview", WEB["index.js"].replace("getConnection()", "getConn()"), "no .getConnection()"),
+            "no sendRequest": ("webview", WEB["index.js"].replace("sendRequest(", "send("), "no .sendRequest("),
+        }
+        for label, (where, bad, why) in cases.items():
+            ext = self.make(V327, name="h" + label.replace(" ", ""), raw=bad.encode("utf-8") if where == "extension.js" else None, web=dict(WEB, **{"index.js": bad}) if where == "webview" else WEB)
+            self.run_script(ext, "--apply")
+            self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "patched 2.1.328"), label)
+            self.assertIn("warning: the folder pill is not in (" + why, self.out, label)
+            marker = self.marker(ext)
+            self.assertEqual((marker["pill"], marker["pie"], marker["width"], marker["restore"]), (False, True, True, True), label)
+            self.assertNotIn(b'"span"', slurp(os.path.join(ext, self.WEBJS)), label)
+            self.assertEqual(self.js(ext).count(b'case"callboard_folder":'), 0, label)
+            self.run_script(ext, "--undo")
+            self.assertEqual((self.rc, sorted(os.listdir(ext))), (0, STOCK), label)
 
     def test_the_pill_costs_only_itself_when_its_anchor_misses_or_doubles(self):
         mod = load_module()
@@ -1416,20 +1620,21 @@ class Pill(Case):
             before = snap(ext)
             self.run_script(ext)
             self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "unpatched-patchable 2.1.328"), label)
-            self.assertIn("warning: the folder pill would be left out (" + ("no cwd read" if label == "no cwd read" else "pill anchor "), self.out, label)
+            self.assertIn("warning: the folder pill would be left out (" + ("no .cwd.value" if label == "no cwd read" else "pill anchor "), self.out, label)
             self.assertEqual(snap(ext), before, label)
             self.run_script(ext, "--apply")
             self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "patched 2.1.328"), label)
-            self.assertIn("warning: the folder pill is not in (" + ("no cwd read" if label == "no cwd read" else "pill anchor "), self.out, label)
+            self.assertIn("warning: the folder pill is not in (" + ("no .cwd.value" if label == "no cwd read" else "pill anchor "), self.out, label)
             marker = self.marker(ext)
             self.assertEqual((marker["pill"], marker["pie"], marker["width"], marker["restore"]), (False, True, True, True), label)
             self.assertNotIn(b'"span"', slurp(os.path.join(ext, self.WEBJS)), label)
+            self.assertNotIn(b"callboard_folder", self.js(ext), label)
             self.assertIn(b"cbpCap(", slurp(os.path.join(ext, self.WEBJS)), label)
             self.run_script(ext)
             self.assertIn("warning: the folder pill is not in this patch.", self.out, label)
             self.run_script(ext, "--undo")
             self.assertEqual((self.rc, sorted(os.listdir(ext))), (0, STOCK), label)
-        self.assertIn('[class*="usageButtonV2_"] svg{width:12px!important;height:12px!important}', mod.PIE_CSS)
+        self.assertIn('[class*="usageButtonV2_"] svg{width:16px!important;height:16px!important}', mod.PIE_CSS)
 
     def test_an_install_from_before_the_pill_reads_outdated_and_update_brings_it_in(self):
         ext = self.make(V327, name="old")

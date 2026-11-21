@@ -23,7 +23,7 @@ opens nothing; a bare call (the palette, Open, an @-mention), a resume and a one
 width. Each anchor is a pattern that tolerates renamed minified
 identifiers, and the file is written only when every anchor matches exactly once: otherwise nothing changes and the missing ones
 are named. The optional pieces are separate: the width block goes in when the font tag matches exactly once and the shipped webview has its tokens, the context pie (PIE_ANCHORS below: the composer's stock pie shown always, as one ring,
-against the autocompact level of the settings, in webview/index.js, kept as webview/index.js.callboard-orig) goes in when the font tag and its three anchors there each match once, the folder pill (PILL_ANCHOR below: the session's folder name next to the model name in the composer, also in webview/index.js) goes in when its one anchor there
+against the autocompact level of the settings, in webview/index.js, kept as webview/index.js.callboard-orig) goes in when the font tag and its three anchors there each match once, the folder pill (PILL_ANCHOR below: a name for the session's folder next to the model name in the composer, in webview/index.js, read from <folder>/.archive/.folder and renamed by a click, which asks the extension: PILL_HANDLER_ANCHOR, in extension.js) goes in when its one anchor in each
 matches once, the restore fix
 (RESTORE_ANCHORS below: a panel that VS Code restores or Claude reopens keeps the folder of its conversation, found from the session's transcript) goes in
 when its two anchors do, and the group command (GROUPS_ANCHOR below) registers `callboard assign group` (session id, group name), so callboard's panels
@@ -116,8 +116,8 @@ def css_in(raw, field, css):
 # <CLAUDE_CONFIG_DIR or ~/.claude>/settings.json each time a panel's page is built (0 when it is not a number above 0; project settings are not read). Where the
 # level is below the model's window, the stock threshold (window - the smaller of the output limit and 20000 - 13000) is taken from the level instead of the window.
 # The three anchors are patterns on the minified code; the piece goes in only when each matches exactly once in the shipped index.js and the font tag matches once.
-# The ring is drawn 12px wide (its viewBox stays 20, so the stroke scales). The composer's footer stylesheet sizes the button and its svg to 26px, which wins over the
-# svg's width attribute, so the pie's style block also sets the svg to 12px and the button to fit it with 2px around (the attribute is the fallback when the class
+# The ring is drawn 16px wide (its viewBox stays 20, so the stroke scales). The composer's footer stylesheet sizes the button and its svg to 26px, which wins over the
+# svg's width attribute, so the pie's style block also sets the svg to 16px and the button to fit it with 2px around (the attribute is the fallback when the class
 # names change). The hover text is `used/limit` in k (126k/200k) in place of Claude Code's "37% of
 # context remaining until auto-compact. Click to compact now.": the pie component hands the used tokens and its limit (its window, where the ring is full) to the
 # tooltip component. That is PIE_TIP_ANCHORS, two edits that go in together; when either does not match exactly once in the shipped script, the ring is still the
@@ -125,7 +125,7 @@ def css_in(raw, field, css):
 PIE_CSS = (
     ":root{--callboard-compact:${(()=>{try{let p=require(\"path\"),n=JSON.parse(require(\"fs\").readFileSync(p.join(process.env.CLAUDE_CONFIG_DIR||"
     "p.join(require(\"os\").homedir(),\".claude\"),\"settings.json\"),\"utf8\")).autoCompactWindow;return Number.isInteger(n)&&n>0?n:0}catch{return 0}})()}}"
-    '[class*="usageButtonV2_"]{width:auto!important;height:auto!important;padding:2px!important}[class*="usageButtonV2_"] svg{width:12px!important;height:12px!important}'
+    '[class*="usageButtonV2_"]{width:auto!important;height:auto!important;padding:2px!important}[class*="usageButtonV2_"] svg{width:16px!important;height:16px!important}'
 )
 PIE_CAP = (
     b'var cbpN;function cbpCap(cbpW){cbpN??=parseInt(getComputedStyle(document.documentElement).getPropertyValue("--callboard-compact"))||0;'
@@ -139,7 +139,7 @@ PIE_ANCHORS = (
      rb'(function ID\(\{percentage:(ID),className:(ID)\}\)\{)let ID=ID\(\2\),ID=ID\[ID\];return (ID)\("svg",\{(width:"20",height:"20",viewBox:"0 0 20 20",fill:"none",'
      rb'xmlns:"http://www.w3.org/2000/svg",className:\3,style:\{display:"block"\},children:)\[ID&&(ID)\("path",\{d:ID,stroke:"currentColor",strokeOpacity:"0.15",strokeWidth:"1.5",'
      rb'strokeLinecap:"round"\}\),\6\("path",\{d:ID\[ID\],stroke:"var\(--app-claude-clay-button-orange\)",strokeWidth:"1.5",strokeLinecap:"round"\}\)\]\}\)\}'.replace(b"ID", ID),
-     lambda m: (m.group(1) + b"let cbpR=Math.max(0,Math.min(100,+" + m.group(2) + b"||0))/100*2*Math.PI*7.25;return " + m.group(4) + b'("svg",{' + m.group(5).replace(b'width:"20",height:"20"', b'width:"12",height:"12"', 1)
+     lambda m: (m.group(1) + b"let cbpR=Math.max(0,Math.min(100,+" + m.group(2) + b"||0))/100*2*Math.PI*7.25;return " + m.group(4) + b'("svg",{' + m.group(5).replace(b'width:"20",height:"20"', b'width:"16",height:"16"', 1)
                 + b'[' + m.group(6) + b'("circle",{cx:"10",cy:"10",r:"7.25",stroke:"currentColor",strokeOpacity:"0.15",strokeWidth:"1.5"}),cbpR>0&&' + m.group(6)
                 + b'("circle",{cx:"10",cy:"10",r:"7.25",stroke:"var(--app-claude-clay-button-orange)",strokeWidth:"1.5",strokeLinecap:"round",strokeDasharray:cbpR+" 100",'
                 b'transform:"rotate(-90 10 10)"})]})}')),
@@ -178,33 +178,74 @@ def pie_web(js):
     return js
 
 
-# The folder pill: the last part of the session's folder name, a small pill after the model name in the composer's footer, in webview/index.js. The anchor is the
-# model pill (shown unless the footer's fit stage is 2, the narrowest) followed by the model list; the session is read from that list's props. The pill takes the
-# model pill's own look through the page's CSS variables, inline, so it needs no stylesheet, and is plain text: the folder's name is a text child (escaped by the
-# page's renderer), there is no title and no path in the page. It is never gated on the fit stage: the footer resets its stage to 0 when a node that is not the
-# model pill is added or removed, so a pill that came and went with the stage would loop the footer's layout forever in a narrow panel. It shrinks with an
-# ellipsis instead.
+# The folder pill: a small pill after the model name in the composer's footer, in webview/index.js, that names the session's folder: the first line of
+# <cwd>/.archive/.folder when that holds a name, else the folder's last part. Shown only in a window with more than one folder; a click renames it. The anchor is the
+# model pill (shown unless the footer's fit stage is 2, the narrowest) followed by the model list; the session is read from that list's props. The file, the folder
+# count and the rename box live in extension.js (PILL_HANDLER_ANCHOR): the webview asks through the connection the session already has (the way it asks to open an
+# url) and gets {name, folders} back, so the pill goes in only when both anchors match. The pill takes the model pill's own look through the page's CSS variables,
+# inline, so it needs no stylesheet. The name is text put into the span after the reply, never HTML, and the span has no title and no path.
+# The footer resets its fit stage (and lays the footer out again) when a node that is not the model pill is added or removed, and on any text change, and renders again
+# on every reset. So the span is always there (never gated on the stage or the folder count; display:none hides it), a reply is asked for once per folder and
+# kept (a render that finds it asks for nothing), and the span's text is written only when it differs, into the text node it already has: a render then writes nothing.
+# A rename is the only later write, once per rename.
 PILL_ANCHOR = (
     rb"(?<![\w$.])(?P<st>ID)!==2&&(?P<jsx>ID)\(ID,\{\.\.\.ID\}\),(?=(?P=jsx)\(ID,\{isOpen:ID\.isOpen,onClose:ID\.onClose,availableModels:(?P<s>ID)\.drawnClaudeConfig\.value\?\.models,)"
     .replace(b"ID", ID)
 )
 PILL_STYLE = (
-    b'{flexShrink:1,minWidth:0,maxWidth:"11em",boxSizing:"border-box",padding:"0 8px",borderRadius:9999,fontSize:".85em",lineHeight:"var(--app-pill-min-height)",'
+    b'{display:"none",cursor:"pointer",flexShrink:1,minWidth:0,maxWidth:"11em",boxSizing:"border-box",padding:"0 8px",borderRadius:9999,fontSize:".85em",lineHeight:"var(--app-pill-min-height)",'
     b'background:"var(--app-pill-background)",color:"var(--app-pill-foreground)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}'
+)
+# The page side, built once per page: M keeps one entry per folder (the reply, the span that last asked, whether a request is out), put writes a reply into a span
+# only where it differs, ask makes the request (null when it failed or came back with no name: the span stays hidden, and a render asks again, up to three times).
+PILL_HELPER = (
+    b'(globalThis.cbfPill??=(()=>{const M=new Map,'
+    b'put=(E,R)=>{if(!E||!R)return;if(R.name&&E.firstChild?.data!==R.name){if(E.firstChild)E.firstChild.data=R.name;else E.append(R.name)}let D=R.folders>1?"":"none";if(E.style.display!==D)E.style.display=D},'
+    b'ask=(S,K,N)=>S.getConnection().then((C)=>C.sendRequest({type:"callboard_folder",cwd:K,rename:N})).then((R)=>typeof R?.name=="string"&&R.name?{name:R.name,folders:Number(R.folders)||0}:null,()=>null),'
+    b'slot=(K)=>{let X=M.get(K);if(!X)M.set(K,X={});return X};'
+    b'return{ref(E,S){if(!E)return;let K=S.cwd.value,X=slot(K);X.el=E;if(X.r)put(E,X.r);else if(!X.p){X.p=1;ask(S,K).then((R)=>{if(R){X.r=R;put(X.el,R)}else X.p=(X.f=(X.f||0)+1)>2})}},'
+    b'click(S){let K=S.cwd.value,X=slot(K);ask(S,K,!0).then((R)=>{if(R){X.r=R;put(X.el,R)}})}}})())'
+)
+# The extension side: a case in front of the one that opens an url, in the switch that answers the webview's requests. It acts only for a cwd that is absolute and is a
+# window folder or sits inside one (else it answers the folder's own name and renames nothing), and reads and writes only <cwd>/.archive/.folder.
+PILL_HANDLER_ANCHOR = rb'case"open_url":return await this\.openURL\((?P<r>ID)\.request\.url\)'.replace(b"ID", ID)
+PILL_HANDLER = (
+    b'case"callboard_folder":return{type:"callboard_folder_response",...await(async(cbfQ)=>{let cbfV=require("vscode"),cbfP=require("path"),cbfS=require("fs"),'
+    b'cbfW=(cbfV.workspace.workspaceFolders||[]).map((cbfE)=>cbfE.uri.fsPath),cbfC=typeof cbfQ?.cwd=="string"?cbfQ.cwd:"",cbfB=cbfP.basename(cbfC)||cbfC,'
+    b'cbfK=cbfP.isAbsolute(cbfC)&&!cbfC.includes("\\0")&&cbfW.some((cbfE)=>{let cbfR=cbfP.relative(cbfE,cbfC);return cbfR!==".."&&!cbfR.startsWith(".."+cbfP.sep)&&!cbfP.isAbsolute(cbfR)}),'
+    b'cbfF=cbfP.join(cbfC,".archive",".folder"),cbfN=(cbfT)=>String(cbfT).split(/\\r?\\n/)[0].replace(/[\\u0000-\\u001f\\u007f]/g,"").trim().slice(0,40),'
+    b'cbfO=cbfS.constants,cbfM=()=>cbfS.lstatSync(cbfP.dirname(cbfF),{throwIfNoEntry:!1}),cbfG=()=>{if(!cbfK)return cbfB;try{if(!cbfM()?.isDirectory())return cbfB;let cbfD=cbfS.openSync(cbfF,cbfO.O_RDONLY|cbfO.O_NOFOLLOW|cbfO.O_NONBLOCK);try{if(!cbfS.fstatSync(cbfD).isFile())return cbfB;'
+    b'let cbfU=Buffer.alloc(256);return cbfN(cbfU.toString("utf8",0,cbfS.readSync(cbfD,cbfU,0,256,0)))||cbfB}finally{cbfS.closeSync(cbfD)}}catch{return cbfB}};'
+    b'if(cbfQ?.rename===!0&&cbfK){let cbfA=await cbfV.window.showInputBox({prompt:"Name for this folder\'s pill (empty: the folder\'s own name)",value:cbfG(),'
+    b'validateInput:(cbfT)=>cbfT===cbfB?null:/[\\r\\n]/.test(cbfT)?"One line only":cbfT.length>40?"At most 40 characters":null});'
+    b'if(cbfA!==void 0){cbfA=cbfA===cbfB?"":cbfN(cbfA);try{let cbfL=cbfM();if(cbfL&&!cbfL.isDirectory())throw 0;'
+    b'if(!cbfA){if(cbfL)cbfS.rmSync(cbfF,{force:!0})}else{if(!cbfL)cbfS.mkdirSync(cbfP.dirname(cbfF));let cbfD=cbfS.openSync(cbfF,cbfO.O_WRONLY|cbfO.O_CREAT|cbfO.O_TRUNC|cbfO.O_NOFOLLOW|cbfO.O_NONBLOCK,420);'
+    b'try{cbfS.writeSync(cbfD,cbfA+"\\n")}finally{cbfS.closeSync(cbfD)}}}'
+    b'catch{cbfV.window.showWarningMessage("Could not save the folder name.")}}}'
+    b'return{name:cbfG(),folders:cbfW.length}})(%s.request)};'
 )
 
 
-def pill_problem(_raw, web):
-    """Why the pill cannot go in (None when it can): its anchor does not match exactly once in the shipped index.js, or the shipped script never reads a session's cwd value."""
-    n = len(re.findall(PILL_ANCHOR, web[1]))
-    if n != 1:
-        return "pill anchor (%s)" % ("no match" if n == 0 else "%d matches" % n)
-    return None if b".cwd.value" in web[1] else "no cwd read"
+def pill_problem(raw, web):
+    """Why the pill cannot go in (None when it can): an anchor does not match exactly once (the model pill in index.js, the request switch in extension.js), the
+    shipped script never reads a session's cwd value or has no connection to ask through, or extension.js already has the handler."""
+    for what, pat, text in (("pill anchor", PILL_ANCHOR, web[1]), ("pill handler anchor", PILL_HANDLER_ANCHOR, raw)):
+        n = len(re.findall(pat, text))
+        if n != 1:
+            return "%s (%s)" % (what, "no match" if n == 0 else "%d matches" % n)
+    if b"callboard_folder" in raw:
+        return "the file already contains callboard_folder"
+    miss = [t for t in (b".cwd.value", b".getConnection()", b".sendRequest(") if t not in web[1]]
+    return "no " + ", ".join(t.decode() for t in miss) if miss else None
+
+
+def pill_in(raw):
+    return re.sub(PILL_HANDLER_ANCHOR, lambda m: PILL_HANDLER % m.group("r") + m.group(0), raw)
 
 
 def pill_web(js):
-    return re.sub(PILL_ANCHOR, lambda m: m.group(0) + b"typeof " + m.group("s") + b'.cwd?.value=="string"&&' + m.group("s") + b".cwd.value&&" + m.group("jsx") + b'("span",{style:' + PILL_STYLE
-                  + b",children:" + m.group("s") + rb".cwd.value.split(/[\\/]/).filter(Boolean).pop()||" + m.group("s") + b".cwd.value}),", js)
+    return re.sub(PILL_ANCHOR, lambda m: m.group(0) + b"typeof " + m.group("s") + b'.cwd?.value=="string"&&' + m.group("s") + b".cwd.value&&(cbfP=>" + m.group("jsx") + b'("span",{style:' + PILL_STYLE
+                  + b",ref:(cbfE)=>cbfP.ref(cbfE," + m.group("s") + b"),onClick:()=>cbfP.click(" + m.group("s") + b")}))(" + PILL_HELPER + b"),", js)
 
 
 # The restore fix: a Claude panel that VS Code restores (or Claude reopens) for a session starts in the window's first folder, where that session is not in the
@@ -292,7 +333,7 @@ def session_in(raw):
 PIECES = (
     *((f, n, lambda raw, web, f=f, t=t: css_problem(raw, web, f, t), lambda raw, f=f, c=c: css_in(raw, f, globals()[c])) for f, n, c, t in CSS_PIECES),
     ("pie", "context pie", pie_problem, lambda raw: css_in(raw, "pie", PIE_CSS)),
-    ("pill", "folder pill", pill_problem, lambda raw: raw),  # webview-only: nothing goes into extension.js
+    ("pill", "folder pill", pill_problem, pill_in),  # its page side is in webview/index.js (pill_web)
     ("restore", "restore fix", restore_problem, restore_in),
     ("groups", "group command", lambda raw, _: command_problem(raw, GROUPS_COMMAND), groups_in),
     ("session", "session command", lambda raw, _: command_problem(raw, SESSION_COMMAND), session_in),
