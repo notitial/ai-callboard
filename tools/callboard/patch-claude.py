@@ -9,7 +9,7 @@
         unpatched-patchable      every anchor was found exactly once: --apply would patch it
         anchors-missing <names>  an update moved the code the patch hooks into (a name is missing or matches twice): --apply refuses
       --apply: patch extension.js, keep the original beside it as extension.js.callboard-orig and write callboard-cwd-patch.json
-      (the marker callboard's panels extension reads; its "width", "pie", "pill", "restore", "groups" and "session" fields say whether the panel width, the context pie, the folder pill, the restore fix, the group command and the session command below went in). Patched already: says so and stops; outdated: refuses and names --update. A window reload (Developer: Reload
+      (the marker callboard's panels extension reads; its "width", "pie", "pill", "restore", "groups", "session", "archive" and "list" fields say whether the panel width, the context pie, the folder pill, the restore fix, the group command, the session command, the archive command and the session list below went in). Patched already: says so and stops; outdated: refuses and names --update. A window reload (Developer: Reload
       Window) loads it.
       --update: for an `outdated` install, build the patch again from the backup original and swap it in: extension.js and the marker are
       replaced (and webview/index.js, when the context pie or the folder pill is or goes in or out), the backups are not touched. The new bytes are built before anything is written (a refusal changes nothing), and a failed write puts the
@@ -28,7 +28,7 @@ matches once, the restore fix
 (RESTORE_ANCHORS below: a panel that VS Code restores or Claude reopens keeps the folder of its conversation, found from the session's transcript) goes in
 when its two anchors do, and the group command (GROUPS_ANCHOR below) registers `callboard file session` (session id, group name, order), so callboard's panels
 extension can put the manager, a conductor, a lead or a lane in the sidebar's Manager, Conductor, Lead or Lanes group, with those groups first in that order, when its one anchor matches exactly once, and the session command (at the same anchor) registers `callboard active session`, which
-returns the session id of the Claude panel in front, for the panels extension's folder badge; when one does not, a warning line says so and the folder patch still applies. There is no half patch: a failure after the file was replaced puts the backup back. An update of the extension is a new
+returns the session id of the Claude panel in front, for the panels extension's folder badge, and the archive command (at the same anchor) registers `callboard archive sessions` (group name, session ids), which archives the listed sessions of that group and no other, and the session list (LIST_ANCHOR below: the sidebar lists the saved conversations of every folder of the window, not only the first, so a closed lead of another folder stays listed and a click reopens it) goes in when its one anchor matches exactly once; when one does not, a warning line says so and the folder patch still applies. There is no half patch: a failure after the file was replaced puts the backup back. An update of the extension is a new
 folder, so it starts unpatched and this runs again. It never uses the network, runs nothing else, works only inside EXTENSION_DIR
 and changes no setting. Run it as your user: it refuses root. Tests: /usr/bin/python3 -I tools/callboard/test_patch_claude.py
 Exit codes: 0 done or nothing to do (patched, patchable), 1 refused, outdated or anchors missing, 2 usage.
@@ -336,6 +336,56 @@ def session_in(raw):
     return re.sub(GROUPS_ANCHOR, lambda m: m.group("vs") + b'.commands.registerCommand("' + SESSION_COMMAND.encode() + b'",()=>' + m.group("prov") + b".activePanelSessionId())," + m.group(0), raw)
 
 
+# The list piece: the sidebar lists the saved conversations of one folder, the window's first (the provider's `sessionListOptions` names it as `dir`), so a conversation
+# of another folder is there only while its panel is open. This one makes the provider's list method scan every folder of the window and join the results, newest first,
+# each session once. The stock body stays as `cbListOne`. A call that names another folder (the stock lookup of one session), a limit or an offset, and a window with
+# one folder, are the stock list. The first folder's scan fails as it did (the caller handles that); another folder whose scan fails adds nothing. One anchor, the method as shipped.
+LIST_ANCHOR = (
+    rb"async listSdkSessions\((?P<e>ID)=this\.sessionListOptions\(\)\)\{(?P<body>let (?P<t>ID)=ID\(\);return (?P=t)===void 0\?await ID\((?P=e)\):await ID\((?P=e),void 0,(?P=t)\))\}"
+    .replace(b"ID", ID)
+)
+LIST_METHOD = "cbListOne"
+
+
+def list_in(raw):
+    def rep(m):
+        e = m.group("e")
+        return (b'async listSdkSessions(' + e + b'=this.sessionListOptions()){let cblF=(require("vscode").workspace.workspaceFolders||[]).map((cblE)=>cblE.uri.fsPath);'
+                b"if(" + e + b".dir!==this.cwd||" + e + b".limit||" + e + b".offset||cblF.length<2)return this.cbListOne(" + e + b");"
+                b"let cblS=new Set;return(await Promise.all([this.cbListOne(" + e + b"),...cblF.filter((cblE)=>cblE!==this.cwd).map((cblE)=>this.cbListOne({..." + e + b",dir:cblE}).catch(()=>[]))]))"
+                b".flat().filter((cblE)=>!cblS.has(cblE.sessionId)&&cblS.add(cblE.sessionId)).sort((cblA,cblB)=>(cblB.lastModified||0)-(cblA.lastModified||0))}"
+                b"async cbListOne(" + e + b"){" + m.group("body") + b"}")
+    return re.sub(LIST_ANCHOR, rep, raw)
+
+
+def list_problem(raw, _web):
+    """Why the list piece cannot go in (None when it can): the method does not match exactly once, or the file already has the helper."""
+    n = len(re.findall(LIST_ANCHOR, raw))
+    if n != 1:
+        return "list anchor (%s)" % ("no match" if n == 0 else "%d matches" % n)
+    return "the file already contains %s" % LIST_METHOD if LIST_METHOD.encode() in raw else None
+
+
+# The archive command, at the groups anchor: `callboard archive sessions` (group name, session ids) archives the listed sessions that sit in the group of that name (any
+# letter case), as the sidebar's Archive item does: the provider's settings archive them, the other sidebars are told, and the groups are saved without them. It takes
+# only the ids it is given and never chooses a session itself. Returns the ids it archived: none for a bad argument, a group of no such name, or a session that is
+# not in it or is archived already. Uses only members the extension keeps unminified.
+ARCHIVE_COMMAND = "callboard archive sessions"
+
+
+def archive_in(raw):
+    def rep(m):
+        p = m.group("prov")
+        return (m.group("vs") + b'.commands.registerCommand("' + ARCHIVE_COMMAND.encode() + b'",async(cbqN,cbqI)=>{'
+                b'if(typeof cbqN!="string"||!Array.isArray(cbqI))return[];let cbqL=cbqN.toLowerCase(),cbqT=' + p + b".settings.getSessionGroups().find((cbqE)=>cbqE.name.toLowerCase()===cbqL),"
+                b"cbqA=new Set(" + p + b".settings.getArchivedSessionIds()),"
+                b'cbqD=cbqT?[...new Set(cbqI)].filter((cbqE)=>typeof cbqE=="string"&&cbqT.sessionIds.includes(cbqE)&&!cbqA.has(cbqE)):[];'
+                b"if(!cbqD.length)return[];await " + p + b".settings.archiveSessions(cbqD);for(let cbqE of cbqD)" + p + b".broadcastSessionArchiveChanged(void 0,cbqE,!0);"
+                + p + b".persistGroupsFromHost(" + p + b".settings.getSessionGroups());return cbqD}),"
+                + m.group(0))
+    return re.sub(GROUPS_ANCHOR, rep, raw)
+
+
 # The optional pieces, in the order they go in: (marker field, name in messages, why it cannot go in, how it goes in). A piece that cannot go in is left out
 # with a warning, and the folder patch still applies.
 PIECES = (
@@ -345,6 +395,8 @@ PIECES = (
     ("restore", "restore fix", restore_problem, restore_in),
     ("groups", "group command", lambda raw, _: command_problem(raw, GROUPS_COMMAND), groups_in),
     ("session", "session command", lambda raw, _: command_problem(raw, SESSION_COMMAND), session_in),
+    ("archive", "archive command", lambda raw, _: command_problem(raw, ARCHIVE_COMMAND), archive_in),
+    ("list", "session list", list_problem, list_in),
 )
 
 
