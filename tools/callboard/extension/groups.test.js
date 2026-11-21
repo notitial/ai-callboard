@@ -13,7 +13,7 @@ const row = (n, cwd, extra = {}) => ({ sessionId: S(n), cwd, entrypoint: 'claude
 
 // A fake VS Code and state: `commands` are the ids that exist, `calls` records every call's session and group (the order argument is checked on each),
 // `failing` makes the command throw. `leads` and `lanes` are sessions with a table row of that role (a lead with `lead`, a lane `under` S(99)); `table` adds
-// rows as they are. `done` is the stored record; `manager` the manager-name file's line; `incomplete` marks the registry read as one with doubt in it.
+// rows as they are. `done` is the stored record; `manager` the manager-name file's line (an Error: a file that cannot be read); `incomplete` marks the registry read as one with doubt in it.
 function world({ commands = [COMMAND], rows = [], lanes = [], leads = [], table: extra = {}, folders = [A], done = {}, manager = null, incomplete = false, failing = false, failOn = 0, failSid, refuse = [], loadError = false, alive = () => true } = {}) {
   const table = { ...Object.fromEntries(lanes.map((l) => [l.sid, { name: 'L', folder: A, under: S(99) }])), ...Object.fromEntries(leads.map((l) => [l.sid, { name: 'D', folder: A, lead: { repos: [] } }])), ...extra }
   const w = { calls: [], store: { done }, updates: 0, listed: 0, looked: 0 }
@@ -31,7 +31,7 @@ function world({ commands = [COMMAND], rows = [], lanes = [], leads = [], table:
   }
   const state = { get: (k, d) => (k === 'callboard.groups.done' ? w.store.done : d), update: async (k, v) => { assert.equal(k, 'callboard.groups.done'); w.store.done = v; w.updates++ } }
   const registry = { list: async () => { w.listed++; return Object.defineProperty([...rows], 'complete', { value: !incomplete }) } }
-  w.groups = createGroups({ vscode, registry, state, loadTable: async () => { if (loadError) throw new Error('bad table'); return table }, managerName: async () => manager, workspaceFolders: () => folders, alive })
+  w.groups = createGroups({ vscode, registry, state, loadTable: async () => { if (loadError) throw new Error('bad table'); return table }, managerName: async () => { if (manager instanceof Error) throw manager; return manager }, workspaceFolders: () => folders, alive })
   return w
 }
 
@@ -53,7 +53,7 @@ test('managerOf: the oldest live row with the name, not one whose row is off; no
   assert.equal(managerOf([row(4, A, { name: 'BOSS' }), row(1, A, { name: 'BOSS', procStart: '2026-11-21T10:00:00Z' })], {}, 'BOSS'), S(1), 'a row with no start time is the youngest')
 })
 
-test('readManagerName: the first line trimmed; null for a missing or empty file', async () => {
+test('readManagerName: the first line trimmed; null for a missing or empty file; a file that cannot be read throws', async () => {
   const d = fs.mkdtempSync(path.join(os.tmpdir(), 'groups-'))
   try {
     fs.writeFileSync(path.join(d, 'n'), '  BOSS  \nsecond\n')
@@ -61,7 +61,7 @@ test('readManagerName: the first line trimmed; null for a missing or empty file'
     assert.equal(await readManagerName(path.join(d, 'n')), 'BOSS')
     assert.equal(await readManagerName(path.join(d, 'e')), null)
     assert.equal(await readManagerName(path.join(d, 'missing')), null)
-    assert.equal(await readManagerName(d), null, 'a folder is not a name')
+    await assert.rejects(readManagerName(d), 'a folder is no read: the tick waits')
   } finally {
     fs.rmSync(d, { recursive: true, force: true })
   }
@@ -115,10 +115,13 @@ test('a dead process carrying the manager name is not the manager', async () => 
   assert.deepEqual(w.calls, [[S(2), 'Manager']])
 })
 
-test('a registry read with doubt in it files nothing', async () => {
+test('a registry read with doubt in it, or a manager-name file that cannot be read, files nothing', async () => {
   const w = world({ rows: [row(1, A)], lanes: [{ sid: S(1) }], incomplete: true })
   await w.groups.tick()
   assert.deepEqual([w.calls, w.updates], [[], 0])
+  const m = world({ rows: [row(1, A)], lanes: [{ sid: S(1) }], manager: new Error('EACCES') })
+  await assert.doesNotReject(m.groups.tick())
+  assert.deepEqual([m.calls, m.updates], [[], 0])
 })
 
 test('a patched window with several folders serves a session in any of them', async () => {

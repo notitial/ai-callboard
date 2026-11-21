@@ -546,7 +546,9 @@ class Groups(Case):
         self.assertEqual(r[0]["saved"], [[manager, G2, G1, mine, other]], "a new group takes its tier's place; a Lanes-above-Lead list is sorted too")
         self.assertEqual(r[1]["saved"], [[{**G2, "sessionIds": ["s9", "s0"]}, {**G1, "sessionIds": []}, mine, other]], "a move sorts as it saves")
         self.assertEqual(r[2]["saved"], [[G2, G1, {**mine, "sessionIds": ["m1", "s1"]}, other]], "a group outside the order takes a session and stays after")
-        self.assertEqual((r[3]["result"], r[3]["saved"]), (True, []), "nothing to move: nothing is saved, not even a sort")
+        self.assertEqual((r[3]["result"], r[3]["saved"]), (True, [[G2, G1, mine, other]]), "nothing to move: the list is still sorted")
+        r = self.drive(ext, [G2, G1, mine], ["s9", "lead", order], ["s0", "Lanes", order])
+        self.assertEqual([(x["result"], x["saved"]) for x in r], [(True, []), (True, [])], "a list already so is not saved")
 
     @unittest.skipUnless(shutil.which("node"), "needs node")
     def test_the_command_refuses_an_archived_session_and_the_stock_list_limits(self):

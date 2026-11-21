@@ -16,12 +16,14 @@ const DONE_KEY = 'callboard.groups.done'
 const TICK_MS = 10000
 const ORDER = ['Manager', 'Conductor', 'Lead', 'Lanes']
 
-// The manager-name file's first line, or null for a missing, empty or unreadable file.
+// The manager-name file's first line, or null for a missing or empty file. A file that is there but cannot be read throws, so the tick waits for a clean read
+// instead of filing the manager as nobody, as the plugin's `unknown` does.
 async function readManagerName(file) {
   try {
     return (await fs.promises.readFile(file, 'utf8')).split('\n', 1)[0].trim() || null
-  } catch {
-    return null
+  } catch (err) {
+    if (err && err.code === 'ENOENT') return null
+    throw err
   }
 }
 

@@ -254,20 +254,22 @@ def groups_command(m):
     """`callboard file session` (session id, group name, order): in the window's group list (the provider's own settings, which are keyed by the window's first
     folder) find the group by name in any letter case, create it when there is none, move the session into it out of any other group, put the groups named in
     the order list first, in its order (any letter case; the others keep theirs, after them), and save through the provider, which also tells the open
-    sidebars. A session already in the group changes nothing. A group the move empties stays. Returns true when the session sits in the group afterwards, false
-    when it was refused: a bad argument, an archived session (the provider's save drops archived ids from every group, as the stock command refuses them), or
-    the stock list limits (100 groups, 1000 sessions: the provider's save would drop the excess without saying). Uses only members the extension keeps unminified."""
+    sidebars. A list that is already so (the session in the group, the groups in order) is not saved. A group the move empties stays. Returns true when the
+    session sits in the group afterwards, false when it was refused: a bad argument, an archived session (the provider's save drops archived ids from every
+    group, as the stock command refuses them), or the stock list limits (100 groups, 1000 sessions: the provider's save would drop the excess without saying).
+    Uses only members the extension keeps unminified."""
     p = m.group("prov")
     return (m.group("vs") + b'.commands.registerCommand("' + GROUPS_COMMAND.encode() + b'",async(cbqS,cbqN,cbqO)=>{'
             b'if(typeof cbqS!="string"||typeof cbqN!="string"||!cbqN)return!1;let cbqG=' + p + b".settings.getSessionGroups();"
             b"if(" + p + b".settings.getArchivedSessionIds().includes(cbqS))return!1;"
-            b"let cbqK=(cbqE)=>cbqE.name.toLowerCase(),cbqL=cbqN.toLowerCase(),cbqT=cbqG.find((cbqE)=>cbqK(cbqE)===cbqL);"
-            b"if(cbqT&&cbqT.sessionIds.includes(cbqS))return!0;"
-            b"cbqG=cbqG.map((cbqE)=>cbqE.sessionIds.includes(cbqS)?{...cbqE,sessionIds:cbqE.sessionIds.filter((cbqI)=>cbqI!==cbqS)}:cbqE);"
-            b"if(!cbqT&&cbqG.length>=100||cbqG.reduce((cbqA,cbqE)=>cbqA+cbqE.sessionIds.length,0)>=1000)return!1;"
+            b"let cbqJ=(cbqA)=>JSON.stringify(cbqA.map((cbqE)=>[cbqE.id,cbqE.sessionIds])),cbqW=cbqJ(cbqG),cbqK=(cbqE)=>cbqE.name.toLowerCase(),cbqL=cbqN.toLowerCase(),"
+            b"cbqT=cbqG.find((cbqE)=>cbqK(cbqE)===cbqL),cbqH=!!cbqT&&cbqT.sessionIds.includes(cbqS);"
+            b"cbqG=cbqG.map((cbqE)=>cbqE!==cbqT&&cbqE.sessionIds.includes(cbqS)?{...cbqE,sessionIds:cbqE.sessionIds.filter((cbqI)=>cbqI!==cbqS)}:cbqE);"
+            b"if(!cbqH&&(!cbqT&&cbqG.length>=100||cbqG.reduce((cbqA,cbqE)=>cbqA+cbqE.sessionIds.length,0)>=1000))return!1;"
             b"let cbqP=Array.isArray(cbqO)?cbqO.map((cbqE)=>String(cbqE).toLowerCase()):[],cbqR=(cbqE)=>{let cbqI=cbqP.indexOf(cbqK(cbqE));return cbqI<0?cbqP.length:cbqI};"
-            + p + b".persistGroupsFromHost((cbqT?cbqG.map((cbqE)=>cbqE.id===cbqT.id?{...cbqE,sessionIds:[...cbqE.sessionIds,cbqS]}:cbqE)"
-            b':[...cbqG,{id:require("crypto").randomUUID(),name:cbqN,collapsed:!1,sessionIds:[cbqS]}]).sort((cbqA,cbqB)=>cbqR(cbqA)-cbqR(cbqB)));return!0}),' + m.group(0))
+            b"cbqG=(cbqH?cbqG:cbqT?cbqG.map((cbqE)=>cbqE===cbqT?{...cbqE,sessionIds:[...cbqE.sessionIds,cbqS]}:cbqE)"
+            b':[...cbqG,{id:require("crypto").randomUUID(),name:cbqN,collapsed:!1,sessionIds:[cbqS]}]).sort((cbqA,cbqB)=>cbqR(cbqA)-cbqR(cbqB));'
+            b"if(cbqJ(cbqG)!==cbqW)" + p + b".persistGroupsFromHost(cbqG);return!0})," + m.group(0))
 
 
 def command_problem(raw, command):
