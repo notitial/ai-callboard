@@ -975,7 +975,7 @@ const hover = (u, w) => { const r = ctx.F.pc(props(u, w)); return r && r.t(r.p).
 const sized = ctx.F.sv({ percentage: 50, className: 'c' }).p
 console.log(JSON.stringify({ window: [props(1, 1000000).contextWindow, props(1, 400000).contextWindow, props(1, 1000000, 8000).contextWindow], used: [used(1000, 1000000), used(233500, 1000000), used(900000, 1000000)],
   ring: [ring(0), ring(50), ring(150), ring(NaN), ring(undefined)], size: [sized.width, sized.height, sized.viewBox],
-  hover: [hover(126430, 233000), hover(0, 233000), hover(500, 233000), hover(499, 233000), hover(250000, 233000), hover(1, 33000), hover(undefined, 233000), hover(126430, 1000000)] }))
+  hover: [hover(126430, 233000), hover(0, 233000), hover(500, 233000), hover(499, 233000), hover(250000, 233000), hover(1, 33000), hover(undefined, 233000), hover(126430, 1000000), hover(0, 0)] }))
 """
 CIRC = 2 * 3.141592653589793 * 7.25
 # What an older script that had no pie amounts to: anchors that match nothing, so the piece is left out.
@@ -1049,7 +1049,8 @@ class Pie(Case):
             self.assertEqual(got["size"], ["16", "16", "0 0 20 20"], "the drawing keeps its 20 box, so the stroke scales")
             self.assertEqual([h and h.get("hint") for h in got["hover"]],
                              ["126k / 200k used · 63%", "0k / 200k used · 0%", "1k / 200k used · 0%", "0k / 200k used · 0%", "250k / 200k used · 100%", None, "0k / 200k used · 0%",
-                              "126k / 967k used · 13%"], "whole k, the percent of the limit rounded and never past 100; used past the limit shows as it is; no limit draws nothing")
+                              "126k / 967k used · 13%", None], "whole k, the percent of the limit rounded and never past 100; used past the limit shows as it is; no limit draws nothing")
+            self.assertEqual(got["hover"][8].keys(), {"text"}, "before the first usage data (a limit below 0) the bold title stands alone, with no hint line")
             self.assertTrue(all(h is None or h["text"] == {"t": "b", "p": {"style": {"fontWeight": 600}, "children": "Context"}} for h in got["hover"]), "a bold title line")
             self.assertEqual(self.shown(ext, " 100000", names)["hover"][0]["hint"], "126k / 67k used · 100%", "the limit is the compaction point of the level, where the ring is full")
 
