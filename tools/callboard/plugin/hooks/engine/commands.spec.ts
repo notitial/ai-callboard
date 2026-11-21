@@ -93,7 +93,7 @@ test('status and lanes read the machine: the role, the parent, the goes that cov
   f.h.files.set(`${V2}/usage/sid-kid.json`, JSON.stringify({ at: T0 - 5 * MIN, tokens: 200_000, cost: 3, fiveHour: 20 }))
   await run(f, 'go the work', 'composer')
   const status = (await run(f, 'status')).text
-  assert.match(status, /lead/)
+  assert.match(status, /\| Role \| LEAD \|/)
   assert.match(status, /Goes \| 1/)
   const lanes = (await run(f, 'lanes')).text
   assert.match(lanes, /kid/)

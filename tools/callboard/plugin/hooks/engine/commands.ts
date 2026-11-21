@@ -24,6 +24,11 @@ const CHANGES: string[] = ['lead', 'lead-off', 'conductor', 'on', 'go', 'go-off'
 // A command is typed when the engine stamped its origin as one of his own typed turns; any other origin, or none, is not.
 export const originOf = (e: any): Origin => (TYPED_ORIGINS.includes(e?.origin?.kind) ? 'typed' : 'other')
 const person = (v: View, s: Sid | 'unknown' | null): string | null => (s === null ? null : s === 'unknown' ? 'unknown' : s === PERSON ? PERSON : nameOf(v, s))
+const statusRole = (v: View, s: Sid): 'manager' | 'lead' | 'conductor' | 'lane' | 'session' => {
+  const c = capability(v, s)
+  const p = parent(v, s)
+  return c === 'manager' ? 'manager' : c === 'lead' ? (isConductor(v, s) ? 'conductor' : 'lead') : p !== PERSON && p !== 'unknown' ? 'lane' : 'session'
+}
 const helpRow = (k: string): string => (T as Record<string, (p: unknown) => string>)[k]!({})
 const help = (): string => [T['help.head']({}), ...Object.keys(T).filter((k) => k.startsWith('help.') && k !== 'help.head').map((k) => helpRow(k))].join('\n')
 
@@ -65,7 +70,7 @@ export async function perform($: any, cmd: Cmd, me: Sid, v: View, now: number, s
   switch (cmd.op) {
     case 'status': {
       const goes = (await listGoes($)).filter((g) => covers(g, me, v, now)).length
-      const rows: StatusRow[] = [{ field: 'role', value: capability(v, me) }, { field: 'parent', value: person(v, parent(v, me)) }, { field: 'manager', value: person(v, v.manager) }, { field: 'off', value: isOff(v, me) }, { field: 'keepalive', value: (await cfgNow($)).keepalive }, { field: 'unattended', value: w.state === 'on' ? stamp(w.window.end) : null }, { field: 'goes', value: goes }]
+      const rows: StatusRow[] = [{ field: 'role', value: statusRole(v, me) }, { field: 'parent', value: person(v, parent(v, me)) }, { field: 'manager', value: person(v, v.manager) }, { field: 'off', value: isOff(v, me) }, { field: 'keepalive', value: (await cfgNow($)).keepalive }, { field: 'unattended', value: w.state === 'on' ? Math.max(1, Math.ceil((w.window.end - now) / 60_000)) : null }, { field: 'goes', value: goes }]
       return statusPage(rows)
     }
     case 'lanes': return lanesTable(await laneRows($, v, me))

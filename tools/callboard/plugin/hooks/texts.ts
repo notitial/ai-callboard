@@ -364,10 +364,11 @@ const fixed: { [K in keyof Fixed]: (p: Fixed[K]) => string } = {
 
   'ui.status.head': () => '**Callboard status**',
   'ui.status.row': (p) => {
-    const none = (v: string | null, empty: string): string => (v === null ? empty : v === PERSON ? 'the person' : escCell(v))
+    const none = (v: string | null): string => (v === null ? 'NONE' : escCell(v))
+    const left = (m: number): string => (m < 60 ? `${m}m` : `${Math.floor(m / 60)}h ${m % 60}m`)
     const [label, value] =
-      p.field === 'role' ? ['Role', ROLE[p.value]] : p.field === 'parent' ? ['Parent', none(p.value, 'none')] : p.field === 'manager' ? ['Manager', none(p.value, 'none')] : p.field === 'off' ? ['Callboard', p.value ? 'OFF for this session' : 'on'] :
-      p.field === 'keepalive' ? ['Keepalive', onOff(p.value)] : p.field === 'unattended' ? ['Unattended', none(p.value === null ? null : `until ${p.value}`, 'off')] : ['Goes', String(p.value)]
+      p.field === 'role' ? ['Role', p.value.toUpperCase()] : p.field === 'parent' ? ['Parent', none(p.value)] : p.field === 'manager' ? ['Manager', none(p.value)] : p.field === 'off' ? ['Callboard', onOff(!p.value)] :
+      p.field === 'keepalive' ? ['Keepalive', onOff(p.value)] : p.field === 'unattended' ? ['Unattended', p.value === null ? 'OFF' : `ON · ${left(p.value)} left`] : ['Goes', String(p.value)]
     return `| ${label} | ${value} |`
   },
   'ui.lanes.head': () => '**Sessions under you**',
