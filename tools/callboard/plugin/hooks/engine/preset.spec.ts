@@ -175,12 +175,28 @@ test('a second session in the folder takes the name over from the preset\'s own 
   assert.doesNotMatch(f.h.submitted[0]!, /Not set/)
 })
 
-test('a name held by a live session, a lane, a conductor, a minted lead or a lead of another folder still refuses and saves nothing', async () => {
+test('a session that is no longer a lead when the tick comes (lead off after the typed run) is left alone: no steps, no notice, and the ended lead\'s row stays', async () => {
+  const f = await started()
+  f.table({ 'sid-old': old() })
+  await typed(f)
+  assert.ok(mem.presetRun)
+  const t = table(f)
+  delete t['sid-me'].lead
+  f.table(t)
+  mem.view = undefined
+  await tick(f)
+  assert.deepEqual([f.h.compactRuns, f.h.submitted, mem.owed, mem.presetRun], [[], [], [], undefined])
+  assert.deepEqual(Object.keys(table(f)).sort(), ['sid-me', 'sid-old'])
+  assert.equal(table(f)['sid-me'].name, 'me')
+})
+
+test('a name held by a live session, a lane, a conductor, a minted lead, a lead he turned off or a lead of another folder still refuses and saves nothing', async () => {
   const holders: [string, Record<string, object>, boolean][] = [
     ['live lead', { 'sid-old': old() }, true],
     ['lane', { 'sid-old': { name: 'SENTINEL', folder: '/w/me', under: 'sid-boss' } }, false],
     ['conductor', { 'sid-old': old({ lead: { repos: [], conductor: true } }) }, false],
     ['minted lead', { 'sid-old': old({ lead: { repos: [], minted: true } }) }, false],
+    ['lead he turned off', { 'sid-old': old({ off: true }) }, false],
     ['lead of another folder', { 'sid-old': old({ folder: '/w/elsewhere' }) }, false],
   ]
   for (const [what, rows, live] of holders) {

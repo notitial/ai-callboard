@@ -4,7 +4,7 @@
 import type { Cmd, Preset } from '../core/commands.ts'
 import { parsePreset, planCommand } from '../core/commands.ts'
 import type { Sid, View } from '../core/model.ts'
-import { isOff, nameRefusal, refusal } from '../core/model.ts'
+import { isLead, nameRefusal, refusal } from '../core/model.ts'
 import { PRESET_TAIL, T } from '../texts.ts'
 import { modelHeld, ran } from './cue.ts'
 import { originOf, perform, realPaths } from './commands.ts'
@@ -38,11 +38,11 @@ export async function presetRun($: any, e: any, next: any) {
   }
 }
 // The rows of this preset's own ended leads: another typed lead in this session's folder that holds the preset's name and has no live session. Its name is free to take, and its row goes
-// when the new name is set (a typed lead's row is never expired). A live holder, a lane, a conductor, a minted lead and a row of another folder are not in it.
+// when the new name is set (a typed lead's row is never expired). A live holder, a lane, a conductor, a minted lead, a row he turned off and a row of another folder are not in it.
 async function ended($: any, v: View, me: Sid, p: Preset): Promise<Sid[]> {
   const own = v.rows === 'unknown' ? undefined : (await realPaths($, v, me, []))?.[0]
   if (v.rows === 'unknown' || own === undefined) return []
-  return Object.entries(v.table).filter(([k, r]) => k !== me && r.name === p.name && r.folder === own && r.lead && !r.lead.minted && !r.lead.conductor && !v.rows.has(k)).map(([k]) => k)
+  return Object.entries(v.table).filter(([k, r]) => k !== me && r.name === p.name && r.folder === own && r.lead && !r.lead.minted && !r.lead.conductor && !r.off && !v.rows.has(k)).map(([k]) => k)
 }
 // The name check with the preset's own ended leads left out.
 const nameFree = (v: View, p: Preset, me: Sid, gone: Sid[]) => nameRefusal({ ...v, table: Object.fromEntries(Object.entries(v.table).filter(([k]) => !gone.includes(k))) }, p.name, me)
@@ -67,12 +67,13 @@ export async function presetTick($: any, me: Sid, v: View): Promise<void> {
   const r = mem.presetRun
   if (r === undefined) return
   mem.presetRun = undefined
-  if (isOff(v, me)) return
-  const { command, name, model, effort } = r.preset
-  const failed: string[] = []
   // The typed run saved the lead row under the session's own name. The preset's name was checked then and may have been taken since: it is checked again on a fresh view, and a rename
   // that would double a name is not run. The row takes the name only once the rename has landed, with the preset's own ended leads dropped in the same write; a name that was not set leaves nothing to undo.
+  // A session that is no longer a lead (lead off, or off) since the typed run is left alone.
   const now = await getView($, true)
+  if (!isLead(now, me)) return
+  const { command, name, model, effort } = r.preset
+  const failed: string[] = []
   const gone = await ended($, now, me, r.preset)
   const had = (now.rows === 'unknown' ? undefined : now.rows.get(me))?.name === name
   if (!had && (nameFree(now, r.preset, me, gone) !== undefined || !(await ran($, 'rename', name, 10_000)))) failed.push('name')
