@@ -10,6 +10,7 @@ import importlib.util
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -1375,13 +1376,16 @@ class Pill(Case):
             self.assertEqual((new.count(b'"span"'), new.count(b".cwd.value.split("), new.count(b"title:")), (1, 1, 0), "one pill, no path in the page")
             self.assertEqual(new.index(b'"span"') > new.index(b"m(%s,{...Ft})" % names["mp"].encode()), True, "after the model pill")
             self.assertEqual(new.index(b'"span"') < new.index(b"m($Ft,"), True, "before the model list")
+            between = new[new.index(b"m(%s,{...Ft})" % names["mp"].encode()):new.index(b'"span"')]
+            self.assertNotIn(b"!==", between, "not gated on the fit stage: a pill that comes and goes with it loops the footer's layout")
+            self.assertEqual(between.count(b"&&"), 2, "only its two checks (a string cwd, a non-empty one) lead to the span")
             self.run_script(ext)
             self.assertEqual((self.rc, self.out), (0, "patched 2.1.328\n"))
             self.run_script(ext, "--undo")
             self.assertEqual((self.rc, slurp(os.path.join(ext, self.WEBJS)), sorted(os.listdir(ext))), (0, orig, STOCK))
 
     @unittest.skipUnless(shutil.which("node"), "needs node")
-    def test_the_pill_shows_the_folder_name_as_plain_text_and_hides_with_the_model_pill(self):
+    def test_the_pill_shows_the_folder_name_as_plain_text_at_every_fit_stage(self):
         for names in (JS329, JS328):
             web = dict(WEB, **{"index.js": PIE_JS.format(**names)})
             ext = self.make(V327, name="run" + names["mp"], web=web)
@@ -1390,11 +1394,12 @@ class Pill(Case):
             self.assertEqual(p.returncode, 0, p.stderr)
             got = json.loads(p.stdout)
             self.assertIs(got.pop(), False, "a cwd that is not a string draws no pill and does not throw")
-            self.assertEqual([g["pill"] and g["pill"].get("text") for g in got], ["My Proj", "proj", "win", '<b>&"x"', "/", None, None, None], "the last part, a text child as it is; a root folder shows itself")
-            self.assertEqual([g["pill"] is None for g in got], [False] * 5 + [True] * 3, "no folder, no pill; the narrowest stage hides it")
+            self.assertEqual([g["pill"] and g["pill"].get("text") for g in got], ["My Proj", "proj", "win", '<b>&"x"', "/", None, None, "proj"], "the last part, a text child as it is; a root folder shows itself")
+            self.assertEqual([g["pill"] is None for g in got], [False] * 5 + [True] * 2 + [False], "no folder, no pill; the narrowest stage does not hide it")
             self.assertEqual(got[0]["order"], ["BFt", "M", "pill", "L"], "between the model pill and its list")
             self.assertEqual(got[0]["pill"]["keys"], ["children", "style"], "a text child and a style: no title, no path")
-            self.assertEqual(got[7]["order"], ["BFt", False, False, "L"], "the narrowest fit stage hides it with the model pill")
+            self.assertEqual(got[7]["order"], ["BFt", False, "pill", "L"], "the narrowest fit stage hides the model pill, not this one")
+            self.assertEqual(got[0]["n"], got[7]["n"], "the same children at every stage, so the footer's observer sees no node added or removed")
 
     def test_the_pill_costs_only_itself_when_its_anchor_misses_or_doubles(self):
         mod = load_module()
@@ -1436,6 +1441,22 @@ class Pill(Case):
         self.run_script(ext, "--update")
         self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "updated 2.1.328"))
         self.assertEqual((self.marker(ext)["pill"], slurp(os.path.join(ext, self.BAK)), slurp(os.path.join(ext, self.WEBJS)).count(b'"span"')), (True, orig_js, 1))
+        self.run_script(ext)
+        self.assertEqual((self.rc, self.out), (0, "patched 2.1.328\n"))
+
+    def test_an_install_with_the_stage_gated_pill_reads_outdated_and_update_replaces_it(self):
+        ext = self.make(V327, name="gated")
+        mod = load_module()
+        def gated(js):
+            m = re.search(mod.PILL_ANCHOR, js)
+            return mod.pill_web(js).replace(m.group(0), m.group(0) + m.group("st") + b"!==2&&", 1)
+        self.older(ext, pill_web=gated)
+        self.assertIn(b"!==2&&typeof ", slurp(os.path.join(ext, self.WEBJS)))
+        self.run_script(ext)
+        self.assertEqual((self.rc, self.out.splitlines()[0]), (1, "outdated 2.1.328: the patch code differs from this script's"))
+        self.run_script(ext, "--update")
+        self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "updated 2.1.328"))
+        self.assertNotIn(b"!==2&&typeof ", slurp(os.path.join(ext, self.WEBJS)))
         self.run_script(ext)
         self.assertEqual((self.rc, self.out), (0, "patched 2.1.328\n"))
 

@@ -130,8 +130,8 @@ EXT_DIR="$(ls -d "$HOME"/.vscode/extensions/anthropic.claude-code-* | sort -V | 
   a Claude Code update the new folder starts unpatched; if the pie's code moved, the check and `--apply` warn that the pie is
   left out, and the other pieces still apply.
 - The folder pill (the marker's `pill` field) puts the name of the session's folder (its last part only, as plain text,
-  no path and no tooltip) in a small pill next to the model name in the composer, hidden at the narrowest width like the
-  model pill. It is on whenever its one anchor in `webview/index.js` matches exactly once; when it does not, the check and
+  no path and no tooltip) in a small pill next to the model name in the composer; it shrinks with an ellipsis in a narrow
+  panel and is never hidden. It is on whenever its one anchor in `webview/index.js` matches exactly once; when it does not, the check and
   `--apply` warn that the pill is left out and the other pieces still apply. An install made before it reads `outdated`,
   and `--update` brings it in.
 - The patch also carries a restore fix, optional in the same way (the marker's `restore` field, a warning when an anchor is not
