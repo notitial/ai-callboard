@@ -121,23 +121,28 @@ def load_module():
 # footer's model pill and list); the names are minified and differ by version (sv: the ring, pc: the pie component, tf: the threshold function, st: the fit stage,
 # mp: the model pill).
 PIE_JS = (
-    'var MBn={{50:"M7"}};function {sv}({{percentage:e,className:t}}){{let n=PBn(e),i=MBn[n];return k("svg",{{width:"20",height:"20",viewBox:"0 0 20 20",fill:"none",'
-    'xmlns:"http://www.w3.org/2000/svg",className:t,style:{{display:"block"}},children:[i&&m("path",{{d:i,stroke:"currentColor",strokeOpacity:"0.15",strokeWidth:"1.5",'
-    'strokeLinecap:"round"}}),m("path",{{d:DBn[n],stroke:"var(--app-claude-clay-button-orange)",strokeWidth:"1.5",strokeLinecap:"round"}})]}})}}'
-    'function {pc}({{usedTokens:e,contextWindow:t,onCompact:n,buttonClassName:i}}){{let o=t>0?Math.min(e/t*100,100):0,r=100-o;if(t===0)return null;if(r>=50)return null;'
-    'return m({fb},{{percentageUsed:o,onCompact:n,buttonClassName:i}})}}'
+    'function {sv}({{percentage:e,className:t}}){{let n=PBn(e),i=e/100,[o,r]=e<50?[Gap(0,i),Gap(i+Gt,1-Gt)]:[Arc[n],Cap[n]];return k("svg",{{width:"20",height:"20",viewBox:"0 0 20 20",fill:"none",'
+    'xmlns:"http://www.w3.org/2000/svg",className:t,style:{{display:"block"}},children:[r&&m("path",{{d:r,stroke:"currentColor",strokeOpacity:"0.15",strokeWidth:"1.5",'
+    'strokeLinecap:"round"}}),m("path",{{d:o,stroke:"var(--app-claude-clay-button-orange)",strokeWidth:"1.5",strokeLinecap:"round"}})]}})}}'
+    'function {pc}({{usedTokens:e,contextWindow:t,threshold:n,onCompact:i,buttonClassName:o}}){{let r=t>0?Math.min(e/t*100,100):0;if(t===0||r<=n)return null;'
+    'return m({fb},{{percentageUsed:r,onCompact:i,buttonClassName:o}})}}'
     'function {fb}({{percentageUsed:e,onCompact:t,buttonClassName:n}}){{let[i,o]=B(!1),r=100-e;return k("div",{{className:lv.host,children:[m("button",{{type:"button",className:`${{TAe.usage}} ${{n??""}}`,"aria-label":`${{Math.round(e)}}% context used — click to compact`,'
     'onClick:t,onMouseEnter:()=>o(!0),onMouseLeave:()=>o(!1),children:m({sv},{{percentage:e,className:TAe.pie}})}}),i&&m(VA,{{text:`${{Math.round(r)}}% of context remaining until auto-compact.`,hint:"Click to compact now."}})]}})}}'
-    'function Bar(e){{return k("div",{{children:[m("button",{{}}),m({pc},{{usedTokens:e.usageData.value.totalTokens,'
-    'contextWindow:{tf}(e.usageData.value.contextWindow,e.usageData.value.maxOutputTokens),onCompact:a,buttonClassName:ia.usageButtonV2}}),m(BFt,{{session:e}})]}})}}'
+    'function Bar(e,t){{return k("div",{{children:[m("button",{{}}),m({pc},{{usedTokens:e.usageData.value.totalTokens,'
+    'contextWindow:{tf}(e.usageData.value.contextWindow,e.usageData.value.maxOutputTokens),threshold:t,onCompact:a,buttonClassName:ia.usageButtonV2}}),m(BFt,{{session:e}})]}})}}'
     'function Foot(e){{let Ft={{}},p={{isOpen:!1,onClose:0}},f=e.cwd.value,{st}=e.stage;return k("div",{{children:[m(BFt,{{session:e}}),{st}!==2&&m({mp},{{...Ft}}),'
     'm($Ft,{{isOpen:p.isOpen,onClose:p.onClose,availableModels:e.drawnClaudeConfig.value?.models,anchor:f}})]}})}}'
     'class Conn{{sendRequest(e,t){{return 1}}}}function Ask(e){{return e.getConnection().then((c)=>c.sendRequest(1))}}'
 )
-JS329 = dict(sv="tBt", pc="nBt", tf="NFt", fb="FBn", st="_", mp="fAe")
-JS328 = dict(sv="SFt", pc="kFt", tf="tFt", fb="dBn", st="U$", mp="Rr")
+JS330 = dict(sv="$Bt", pc="jBt", tf="_Bt", fb="jzn", st="_", mp="fAe")
+JSB = dict(sv="SFt", pc="kFt", tf="tFt", fb="dBn", st="U$", mp="Rr")
+# A pie component whose threshold is fixed at 50 and not passed as a prop; the pie anchors must not match it.
+PIE_JS_FIXED = PIE_JS.replace(
+    "threshold:n,onCompact:i,buttonClassName:o}}){{let r=t>0?Math.min(e/t*100,100):0;if(t===0||r<=n)return null;",
+    "onCompact:i,buttonClassName:o}}){{let r=t>0?Math.min(e/t*100,100):0;if(t===0)return null;if(r>=50)return null;",
+).replace(",threshold:t,onCompact:a", ",onCompact:a")
 # A stand-in for the shipped webview, carrying the tokens the width piece checks and the pie's code, and what a stock extension folder then holds.
-WEB = {"index.css": ".inputWrapper_a1,.permissionsContainer_b2,.inputContainer_c3{max-width:680px}", "index.js": PIE_JS.format(**JS329)}
+WEB = {"index.css": ".inputWrapper_a1,.permissionsContainer_b2,.inputContainer_c3{max-width:680px}", "index.js": PIE_JS.format(**JS330)}
 STOCK = ["extension.js", "package.json", "webview"]
 
 
@@ -979,17 +984,17 @@ const vm = require('vm'), fs = require('fs')
 const [file, level, sv, pc] = process.argv.slice(1)
 const m = (t, p) => ({ t, p }), k = (t, p) => ({ t, p })
 const stock = (w, o) => w - Math.min(o, 20000) - 13000
-const ctx = vm.createContext({ m, k, B: () => [true, () => {}], VA: 'VA', lv: { host: 'h' }, TAe: {}, BFt: 'BFt', ia: { usageButtonV2: 'u' }, a: 'compact', PBn: () => 50, DBn: { 50: 'd' }, NFt: stock, tFt: stock,
+const ctx = vm.createContext({ m, k, B: () => [true, () => {}], VA: 'VA', lv: { host: 'h' }, TAe: {}, BFt: 'BFt', ia: { usageButtonV2: 'u' }, a: 'compact', PBn: () => 50, DBn: { 50: 'd' }, NFt: stock, tFt: stock, _Bt: stock,
   getComputedStyle: () => ({ getPropertyValue: (n) => (n === '--callboard-compact' ? level : '') }), document: { documentElement: {} } })
 vm.runInContext(fs.readFileSync(file, 'utf8') + ';globalThis.F = { sv: ' + sv + ', pc: ' + pc + ', Bar }', ctx)
-const props = (used, w, o = 20000) => ctx.F.Bar({ usageData: { value: { totalTokens: used, contextWindow: w, maxOutputTokens: o } } }).p.children[1].p
+const props = (used, w, o = 20000) => ctx.F.Bar({ usageData: { value: { totalTokens: used, contextWindow: w, maxOutputTokens: o } } }, 50).p.children[1].p
 const used = (u, w) => { const r = ctx.F.pc(props(u, w)); return r && r.p.percentageUsed }
 const ring = (x) => ctx.F.sv({ percentage: x, className: 'c' }).p.children.map((c) => c && { r: c.p.r, d: c.p.strokeDasharray, s: c.p.stroke })
 const hover = (u, w) => { const r = ctx.F.pc(props(u, w)); return r && r.t(r.p).p.children[1].p }
 const sized = ctx.F.sv({ percentage: 50, className: 'c' }).p
 console.log(JSON.stringify({ window: [props(1, 1000000).contextWindow, props(1, 400000).contextWindow, props(1, 1000000, 8000).contextWindow], used: [used(1000, 1000000), used(233500, 1000000), used(900000, 1000000)],
   ring: [ring(0), ring(50), ring(150), ring(NaN), ring(undefined)], size: [sized.width, sized.height, sized.viewBox],
-  hover: [hover(126430, 233000), hover(0, 233000), hover(500, 233000), hover(499, 233000), hover(250000, 233000), hover(1, 33000), hover(undefined, 233000), hover(126430, 1000000)] }))
+  hover: [hover(126430, 233000), hover(0, 233000), hover(500, 233000), hover(499, 233000), hover(250000, 233000), hover(1, 33000), hover(undefined, 233000), hover(126430, 1000000), hover(0, 0)] }))
 """
 CIRC = 2 * 3.141592653589793 * 7.25
 # What an older script that had no pie amounts to: anchors that match nothing, so the piece is left out.
@@ -1007,13 +1012,13 @@ class Pie(Case):
     def marker(self, ext):
         return json.loads(slurp(os.path.join(ext, "callboard-cwd-patch.json")))
 
-    def shown(self, ext, level, names=JS329):
+    def shown(self, ext, level, names=JS330):
         p = subprocess.run(["node", "-e", WEB_RUNNER, os.path.join(ext, self.WEBJS), level, names["sv"], names["pc"]], capture_output=True, text=True, timeout=60)
         self.assertEqual(p.returncode, 0, p.stderr)
         return json.loads(p.stdout)
 
     def test_the_patch_edits_the_three_places_once_keeps_the_shipped_script_and_undo_puts_it_back(self):
-        for names in (JS329, JS328):
+        for names in (JS330, JSB):
             web = dict(WEB, **{"index.js": PIE_JS.format(**names)})
             ext = self.make(V327, name="pie" + names["pc"], web=web)
             orig = slurp(os.path.join(ext, self.WEBJS))
@@ -1023,7 +1028,7 @@ class Pie(Case):
             self.assertEqual(slurp(os.path.join(ext, self.BAK)), orig)
             self.assertEqual((marker["pie"], marker["web_original_sha256"], marker["web_patched_sha256"]), (True, hashlib.sha256(orig).hexdigest(), hashlib.sha256(new).hexdigest()))
             self.assertEqual((new.count(b"cbpCap("), new.count(b"cbpN;"), new.count(b"<circle"), new.count(b'"circle"')), (2, 1, 0, 2))
-            self.assertNotIn(b"if(r>=50)return null", new)
+            self.assertNotIn(b"r<=n", new)
             self.assertNotIn(b'"path"', new)
             self.assertEqual((new.count(b'width:"16",height:"16"'), new.count(b'"20"'), new.count(b"cbpTip"), new.count(b"of context remaining")), (1, 0, 3, 0))
             self.assertEqual(sorted(os.listdir(ext)), sorted(STOCK + ["callboard-cwd-patch.json", "extension.js.callboard-orig"]))
@@ -1035,7 +1040,7 @@ class Pie(Case):
 
     @unittest.skipUnless(shutil.which("node"), "needs node")
     def test_the_pie_always_shows_against_the_level_and_the_ring_is_continuous(self):
-        for names in (JS329, JS328):
+        for names in (JS330, JSB):
             web = dict(WEB, **{"index.js": PIE_JS.format(**names)})
             ext = self.make(V327, name="run" + names["pc"], web=web)
             self.run_script(ext, "--apply")
@@ -1054,24 +1059,26 @@ class Pie(Case):
             self.assertEqual(self.shown(ext, " 5000000", names)["window"][0], 967000, "a level above the window changes nothing")
 
     @unittest.skipUnless(shutil.which("node"), "needs node")
-    def test_the_ring_is_16px_and_the_hover_is_used_over_limit_in_k(self):
-        for names in (JS329, JS328):
+    def test_the_ring_is_16px_and_the_hover_has_a_title_and_used_over_limit_in_k_with_the_percent(self):
+        for names in (JS330, JSB):
             web = dict(WEB, **{"index.js": PIE_JS.format(**names)})
             ext = self.make(V327, name="hov" + names["pc"], web=web)
             self.run_script(ext, "--apply")
             got = self.shown(ext, "", names)
             self.assertEqual(got["size"], ["16", "16", "0 0 20 20"], "the drawing keeps its 20 box, so the stroke scales")
-            self.assertEqual([h and h.get("text") for h in got["hover"]],
-                             ["126k/200k", "0k/200k", "1k/200k", "0k/200k", "250k/200k", None, "0k/200k", "126k/967k"], "whole k; used past the limit shows as it is; no limit draws nothing")
-            self.assertTrue(all(h is None or "hint" not in h for h in got["hover"]), "no hint line")
-            self.assertEqual(self.shown(ext, " 100000", names)["hover"][0]["text"], "126k/67k", "the limit is the compaction point of the level, where the ring is full")
+            self.assertEqual([h and h.get("hint") for h in got["hover"]],
+                             ["126k / 200k used · 63%", "0k / 200k used · 0%", "1k / 200k used · 0%", "0k / 200k used · 0%", "250k / 200k used · 100%", None, "0k / 200k used · 0%",
+                              "126k / 967k used · 13%", None], "whole k, the percent of the limit rounded and never past 100; used past the limit shows as it is; no limit draws nothing")
+            self.assertEqual(got["hover"][8].keys(), {"text"}, "before the first usage data (a limit below 0) the bold title stands alone, with no hint line")
+            self.assertTrue(all(h is None or h["text"] == {"t": "b", "p": {"style": {"fontWeight": 600}, "children": "Context"}} for h in got["hover"]), "a bold title line")
+            self.assertEqual(self.shown(ext, " 100000", names)["hover"][0]["hint"], "126k / 67k used · 100%", "the limit is the compaction point of the level, where the ring is full")
 
     def test_a_missing_tooltip_anchor_leaves_the_stock_hover_and_keeps_the_ring(self):
         js = WEB["index.js"]
         cases = {
-            "amounts": js.replace("percentageUsed:o,onCompact:n", "percentage:o,onCompact:n", 1),
+            "amounts": js.replace("percentageUsed:r,onCompact:i", "percentage:r,onCompact:i", 1),
             "text": js.replace("of context remaining", "of context left", 1),
-            "doubled": js + js[js.index("function FBn"):js.index("function Bar")],
+            "doubled": js + js[js.index("function jzn"):js.index("function Bar")],
         }
         for label, bad in cases.items():
             ext = self.make(V327, name="tip" + label, web=dict(WEB, **{"index.js": bad}))
@@ -1103,9 +1110,9 @@ class Pie(Case):
         js = WEB["index.js"]
         cases = {
             "threshold": js.replace("e.usageData.value.contextWindow,e.usageData", "e.usageData.value.window,e.usageData", 1),
-            "pie component": js.replace("if(r>=50)return null;", "", 1),
+            "pie component": js.replace("||r<=n)return null;", ")return null;", 1),
             "drawing": js.replace('strokeOpacity:"0.15"', 'strokeOpacity:"0.2"', 1),
-            "doubled": js + js[js.index("function nBt"):js.index("function Bar")],
+            "doubled": js + js[js.index("function jBt"):js.index("function Bar")],
         }
         for label, bad in cases.items():
             ext = self.make(V327, name="miss" + label.replace(" ", ""), web=dict(WEB, **{"index.js": bad}))
@@ -1128,6 +1135,13 @@ class Pie(Case):
             self.run_script(ext, "--undo")
             self.assertEqual((self.rc, sorted(os.listdir(ext))), (0, STOCK), label)
         self.assertEqual(len(mod.PIE_ANCHORS), 3)
+
+    def test_a_pie_with_a_fixed_threshold_leaves_the_pie_out_and_names_the_anchor(self):
+        self.assertEqual((PIE_JS.count("threshold:"), PIE_JS_FIXED.count("threshold:"), PIE_JS_FIXED.count("r>=50")), (2, 0, 1))
+        ext = self.make(V327, name="before330", web=dict(WEB, **{"index.js": PIE_JS_FIXED.format(**JS330)}))
+        self.run_script(ext)
+        self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "unpatched-patchable 2.1.328"))
+        self.assertIn("warning: the context pie would be left out (pie anchor pie component (no match))", self.out)
 
     def test_the_pie_is_left_out_whole_when_the_page_builder_cannot_take_its_block(self):
         raw = build(V327, "")
@@ -1503,7 +1517,7 @@ class Pill(Case):
 
     def test_the_pill_goes_in_once_after_the_model_pill_and_undo_takes_it_out(self):
         mod = load_module()
-        for names in (JS329, JS328):
+        for names in (JS330, JSB):
             web = dict(WEB, **{"index.js": PIE_JS.format(**names)})
             ext = self.make(V327, name="pill" + names["mp"], web=web)
             orig = slurp(os.path.join(ext, self.WEBJS))
@@ -1530,7 +1544,7 @@ class Pill(Case):
 
     @unittest.skipUnless(shutil.which("node"), "needs node")
     def test_the_pill_asks_once_writes_only_what_differs_and_survives_every_render(self):
-        for names in (JS329, JS328):
+        for names in (JS330, JSB):
             web = dict(WEB, **{"index.js": PIE_JS.format(**names)})
             ext = self.make(V327, name="run" + names["mp"], web=web)
             self.run_script(ext, "--apply")
