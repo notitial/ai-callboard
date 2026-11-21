@@ -122,18 +122,25 @@ EXT_DIR="$(ls -d "$HOME"/.vscode/extensions/anthropic.claude-code-* | sort -V | 
   The ring is measured against the compaction point of your `autoCompactWindow` setting (`~/.claude/settings.json`, or
   `CLAUDE_CONFIG_DIR` of the VS Code process; project settings are not read; read each time a panel opens, so a reload picks up
   a changed value): full where Claude Code compacts. With no such setting it uses the model's window, as the stock pie does.
-  The ring is 12px with 2px around it (the footer's own stylesheet sizes it to 26px, so the piece's style block sets the size too), and its hover text is `used/limit` in k (`126k/200k`, the limit being where the ring is full); a click
+  The ring is 16px with 2px around it (the footer's own stylesheet sizes it to 26px, so the piece's style block sets the size too), and its hover text is `used/limit` in k (`126k/200k`, the limit being where the ring is full); a click
   still compacts. It also edits `webview/index.js`, as the folder pill below does, in three places that must each match once (the check
   names the one that does not), and in two more for the hover text: when either of those does not match once, the hover text
   stays Claude Code's and the rest of the piece still goes in, without a warning. The shipped script is kept as
   `webview/index.js.callboard-orig`, and `--update` and `--undo` handle both files. After
   a Claude Code update the new folder starts unpatched; if the pie's code moved, the check and `--apply` warn that the pie is
   left out, and the other pieces still apply.
-- The folder pill (the marker's `pill` field) puts the name of the session's folder (its last part only, as plain text,
-  no path and no tooltip) in a small pill next to the model name in the composer; it shrinks with an ellipsis in a narrow
-  panel and is never hidden. It is on whenever its one anchor in `webview/index.js` matches exactly once; when it does not, the check and
-  `--apply` warn that the pill is left out and the other pieces still apply. An install made before it reads `outdated`,
-  and `--update` brings it in.
+- The folder pill (the marker's `pill` field) puts a name for the session's folder, as plain text with no path and no tooltip,
+  in a small pill next to the model name in the composer; it shrinks with an ellipsis in a narrow panel. The name is the
+  first line of `<folder>/.archive/.folder` (trimmed, at most 40 characters) when that file holds one, else the folder's last
+  part. The pill shows only in a window with more than one folder. Clicking it opens an input box with the current name:
+  Enter writes `.archive/.folder` (creating `.archive`), an empty name deletes the file and returns to the folder's own name,
+  Esc changes nothing, and the pill updates without a reload. It reads and writes only that one file, and only for a folder
+  that is one of the window's folders or inside one (a worktree or other folder shows its own name, and a click does
+  nothing), and never through a link: a `.folder` or `.archive` that is a link or a fifo is ignored. A name put in the file
+  by hand, or a rename made in another panel on the same folder, shows when the panel is next opened. The
+  piece needs two anchors that must each match once, one in `webview/index.js` and one in `extension.js` (the webview asks the
+  extension through the connection it already has); when one does not, the check and `--apply` warn that the pill is left out
+  and the other pieces still apply. An install made before it reads `outdated`, and `--update` brings it in.
 - The patch also carries a restore fix, optional in the same way (the marker's `restore` field, a warning when an anchor is not
   found, one `--undo`): a Claude panel that VS Code restores at a window reload, or that Claude Code reopens (Reopen Closed
   Session), starts in the folder that holds its conversation instead of the window's first folder, so it resumes that
