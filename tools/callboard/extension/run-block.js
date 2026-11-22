@@ -1,6 +1,6 @@
 'use strict'
 // The `callboard run block` command: the host side of the Run button that the Claude patch (tools/callboard/patch-claude.py, the "run" piece) puts on a chat's shell
-// code blocks. The page sends {text, cwd}; this validates, asks the person in a native modal ("Don't run" is its default button), runs the text in the session's folder and hands back
+// code blocks. The page sends {text, cwd}; this validates, asks the person in a native modal ("Run", its default button, or Cancel), runs the text in the session's folder and hands back
 // the message for the chat: the command, its output and its exit status. It always asks, whoever calls the command, and nothing but the modal's own "Run" starts a process.
 // VS Code access, spawn, kill and the filesystem are injected, so it can be tested with fakes.
 const nodeFs = require('node:fs')
@@ -145,6 +145,8 @@ function createRunBlock({ vscode, spawn, kill = (pid, sig) => process.kill(pid, 
           stopLive = undefined
           timers.forEach(clearTimeout)
           if (sub) sub.dispose()
+          // What a background process writes after the run ended is read and dropped.
+          for (const stream of child ? [child.stdout, child.stderr] : []) stream.removeAllListeners('data').resume()
           resolve({ status, ms: now() - started, out: out.text(), err: err.text() })
         }
         const stop = (why) => {
@@ -185,10 +187,10 @@ function createRunBlock({ vscode, spawn, kill = (pid, sig) => process.kill(pid, 
       const v = check(arg)
       if (v.why) return fail(v.why)
       const folder = oneLine(path.basename(v.cwd) || v.cwd)
-      // VS Code makes the first button the default and adds its own Cancel, so a harmless one comes first and only the item titled exactly "Run" starts anything.
+      // VS Code makes the one button the default (Enter) and adds its own Cancel (Escape); only a reply of exactly "Run" starts anything.
       const n = v.text.split('\n').length
-      const ok = await vscode.window.showWarningMessage(`Run this ${n > 1 ? `${n}-line command ` : ''}in ${folder}?`, { modal: true, detail: `Folder: ${v.cwd}\n\n${v.text}` }, { title: "Don't run" }, { title: 'Run' })
-      if (!ok || ok.title !== 'Run') return {}
+      const ok = await vscode.window.showWarningMessage(`Run this ${n > 1 ? `${n}-line command ` : ''}in ${folder}?`, { modal: true, detail: v.text }, 'Run')
+      if (ok !== 'Run') return {}
       const r = await exec(v.text, v.cwd)
       let { text } = v
       let out = clean(r.out)

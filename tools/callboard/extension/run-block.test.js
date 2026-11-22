@@ -5,6 +5,7 @@ const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
 const { EventEmitter } = require('node:events')
+const childProcess = require('node:child_process')
 const { createRunBlock, mask, clean, fenced, keeper } = require('./run-block.js')
 
 const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'run-block-')))
@@ -32,7 +33,7 @@ function world({ answers = ['Run'], script = (c) => c.close(0), folders = [proj]
         const pick = await answers.shift()
         const items = a.slice(2)
         if (typeof pick !== 'string') return pick
-        return items.find((i) => (i.title ?? i) === pick) ?? (typeof items[0] === 'object' ? { title: pick } : pick)
+        return items.find((i) => (i.title ?? i) === pick) ?? pick
       },
       showErrorMessage: (m) => w.errors.push(m),
       withProgress: (opts, task) => {
@@ -42,7 +43,8 @@ function world({ answers = ['Run'], script = (c) => c.close(0), folders = [proj]
     },
   }
   const spawn = (shell, args, opts) => {
-    const child = Object.assign(new EventEmitter(), { stdout: new EventEmitter(), stderr: new EventEmitter(), pid: 4242, kill() {} })
+    const pipe = () => Object.assign(new EventEmitter(), { resumed: 0, resume() { this.resumed++ } })
+    const child = Object.assign(new EventEmitter(), { stdout: pipe(), stderr: pipe(), pid: 4242, kill() {} })
     child.out = (s) => child.stdout.emit('data', Buffer.from(s))
     child.err = (s) => child.stderr.emit('data', Buffer.from(s))
     child.close = (code, sig = null) => child.emit('close', code, sig)
@@ -85,8 +87,8 @@ test('every refusal runs nothing, asks nothing and shows why', async () => {
   assert.equal(w.spawns.length, 0, 'a window with no folder')
 })
 
-test('only the modal\'s own "Run" starts a process: "Don\'t run", Escape, Cancel and anything else run nothing', async () => {
-  for (const answer of [undefined, "Don't run", 'Cancel', 'run', 'Run ', true, null]) {
+test('only the modal\'s own "Run" starts a process: Escape, Cancel and anything else run nothing', async () => {
+  for (const answer of [undefined, "Don't run", 'Cancel', 'run', 'Run ', true, null, { title: 'Run' }]) {
     const w = world({ answers: [answer] })
     assert.deepEqual(await ask(w), {})
     assert.equal(w.spawns.length, 0, String(answer))
@@ -94,12 +96,11 @@ test('only the modal\'s own "Run" starts a process: "Don\'t run", Escape, Cancel
   }
 })
 
-test('it asks with the folder name, the full folder and the whole command, then runs it in that folder with a quiet environment', async () => {
+test('it asks with the folder name and the whole command, "Run" as the one button, then runs it in that folder with a quiet environment', async () => {
   const w = world({ script: (c) => { c.out('hi\n'); c.err('warn\n'); c.close(0) } })
   const r = await ask(w, 'echo hi\nls -la')
   const [title, opts, ...buttons] = w.modals[0]
-  assert.deepEqual([title, opts, buttons], ['Run this 2-line command in proj?', { modal: true, detail: `Folder: ${proj}\n\necho hi\nls -la` }, [{ title: "Don't run" }, { title: 'Run' }]])
-  assert.notEqual(buttons[0].title, 'Run', 'the first button is the default, so it is the harmless one')
+  assert.deepEqual([title, opts, buttons], ['Run this 2-line command in proj?', { modal: true, detail: 'echo hi\nls -la' }, ['Run']], 'the one button is the default, so Enter runs; VS Code adds Cancel')
   const one = world()
   await ask(one, 'echo one')
   assert.equal(one.modals[0][0], 'Run this in proj?', 'no line count for one line')
@@ -266,6 +267,26 @@ test('the shell exiting ends the run after a short grace even if a background pr
   assert.match(r.text, /Output:\n```\nstarted\n\n```/)
   assert.deepEqual(w.kills, [], 'nothing is killed')
   assert.doesNotThrow(() => w.child.close(0), 'a late close changes nothing')
+})
+
+test('after the run ends, later output is dropped: nothing listens for it and both pipes are drained', async () => {
+  const w = world({ extra: { graceMs: 10, timeoutMs: 5000 }, script: (c) => { c.out('started\n'); c.emit('exit', 0, null) } })
+  await ask(w)
+  const { stdout, stderr } = w.child
+  assert.deepEqual([stdout.listenerCount('data'), stderr.listenerCount('data'), stdout.resumed, stderr.resumed], [0, 0, 1, 1])
+  const failed = world({ extra: { spawn: () => { throw new Error('no shell') } } })
+  assert.match((await ask(failed)).text, /could not start: no shell/, 'a spawn that threw has no pipes to drain')
+})
+
+test('a real background writer keeps its pipe, and what it writes after the run is read and dropped', async () => {
+  let child
+  const spawn = (...a) => (child = childProcess.spawn(...a))
+  const w = world({ extra: { spawn, kill: (pid, sig) => process.kill(pid, sig), graceMs: 100, timeoutMs: 5000, env: { PATH: '/usr/bin:/bin', SHELL: '/bin/sh' } } })
+  const r = await ask(w, '(sleep 0.3; echo late) & echo first')
+  assert.match(r.text, /Output:\n```\nfirst\n\n```$/, 'the late line is not in the result')
+  assert.equal(child.stdout.listenerCount('data'), 0)
+  await new Promise((resolve) => child.stdout.once('end', resolve)) // it ends only if the late line was read
+  assert.equal(child.stdout.readableLength, 0)
 })
 
 test('a close right after exit wins and the pending grace does nothing', async () => {
