@@ -13,8 +13,9 @@
 // extension saw it, a parked lane (its row stays), a live one (its process stays) and the manager are never archived. The lane must be gone on two clean
 // ticks in a row, and a tick whose reads are in doubt names no one. The plugin drops a row on a retire, 24 hours after a lane died without one, and 28 days after
 // a park, so a lane in the last two cases is archived once its row is dropped: it is no longer parked or reachable by then.
-// A lead a conductor made is archived the same way when it is retired, and only then: one that is closed or parked stays listed, so the person can reopen it, also
-// after the plugin drops its row. A lead the person typed and a conductor are never archived. A retired session is filed in its tier's group before it is archived,
+// A lead a conductor made is archived the same way when it is retired: one whose row shows it closed or parked on any tick of this window is forgotten, so it
+// stays listed for the person to reopen, also after the plugin drops its row. The window has to tick at least once while the row shows that: a lead closed while
+// no window on its folder ran until its row was dropped (24 hours, or 28 days parked) reads as retired. A lead the person typed and a conductor are never archived. A retired session is filed in its tier's group before it is archived,
 // since the archive command takes only a session that sits there.
 const fs = require('node:fs')
 const { pidAlive } = require('./reserved.js')

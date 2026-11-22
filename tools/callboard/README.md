@@ -32,7 +32,8 @@ parent and a capability: none, lead or manager.
   one per repo, in the repos you choose (`lane_create` with role `lead`). With nothing saved for the folder, the VS Code
   window shows a tick list: its other folders, ticked, and the git repos beside the conductor's folder, unticked. Tick
   and press Enter; Escape changes nothing, and the list closes itself after 80 seconds. It shows at most 100 rows and
-  takes at most 32 ticks, and needs the panels extension in the window that holds the folder. Or type the paths (at
+  takes at most 32 ticks, and needs the panels extension in the window that holds the folder (as its first folder,
+  unless Claude Code carries the patch); with no such window the command says so after 30 seconds. Or type the paths (at
   most 16). Either way callboard saves the list for that folder (`v2/conductors.json`), a later `/callboard conductor`
   there asks nothing, and `/callboard conductor pick` shows the list again with the saved repos ticked. A lead opens
   only in a folder the window lists, so a saved repo outside the window waits until the window lists it. A lead it makes acts only in its own

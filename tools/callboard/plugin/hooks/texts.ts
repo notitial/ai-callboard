@@ -75,7 +75,7 @@ const BAD_INPUT: Record<string, (p: Params['refuse.bad-input']) => string> = {
   effort: () => `${BAD}: effort must be one of ${LANE_EFFORTS.join(', ')}.`,
   role: () => `${BAD}: role must be lane or lead.`,
   'own-folder': () => 'the only path typed is this session\'s own folder: list the repos to open leads in.',
-  'pick-no-window': () => `no window showed the list of repos in ${PICK_WAIT_S} seconds. It needs the callboard panels extension in the VS Code window that holds this folder. Or type the paths: /callboard conductor PATH….`,
+  'pick-no-window': () => `no window took the request for the list of repos in ${SPOOL_WAIT_S} seconds, or it never answered. The list needs the callboard panels extension in the VS Code window that holds this folder, as the window's first folder unless Claude Code carries callboard's patch. Or type the paths: /callboard conductor PATH….`,
   'pick-cancelled': () => 'nothing was ticked, so nothing changed.',
   'pick-timeout': () => `the list closed itself after ${PICK_WAIT_S - 10} seconds with no answer, so nothing changed. /callboard conductor pick shows it again.`,
   'pick-no-folders': () => 'there is nothing to offer: the window has no other folder and no git repo sits beside this one. Type the paths: /callboard conductor PATH….',

@@ -89,13 +89,14 @@ test('a tick list that picks nothing changes nothing, and says why: cancelled, t
     [{ ok: false, code: 'too-many' }, /at most 32 repos/],
     [{ ok: false, code: 'busy' }, /already shows a list/],
     [{ ok: false, code: 'stale' }, /could not show the list of repos/],
-    [undefined, /no window showed the list of repos in 90 seconds.*\/callboard conductor PATH…/],
-    // An answer that is not a list of at most 32 plain absolute paths is no answer.
-    [{ ok: true, folders: ['relative'] }, /no window showed the list/],
-    [{ ok: true, folders: ['/w/repo\u0007'] }, /no window showed the list/],
-    [{ ok: true, folders: Array.from({ length: 33 }, () => '/w/repo') }, /no window showed the list/],
-    [{ ok: true, folders: '/w/repo' }, /no window showed the list/],
-    [{ ok: true, folders: ['/w/repo'], sid: 'sid-x' }, /no window showed the list/],
+    [undefined, /no window took the request for the list of repos in 30 seconds.*\/callboard conductor PATH…/],
+    // An answer that is not a list of at most 32 plain absolute paths is a bad answer, said at once.
+    [{ ok: true, folders: ['relative'] }, /its answer could not be used/],
+    [{ ok: true, folders: ['/w/repo\u0007'] }, /its answer could not be used/],
+    [{ ok: true, folders: Array.from({ length: 33 }, () => '/w/repo') }, /its answer could not be used/],
+    [{ ok: true, folders: '/w/repo' }, /its answer could not be used/],
+    [{ ok: true, folders: ['/w/repo'], sid: 'sid-x' }, /its answer could not be used/],
+    [{ nonsense: 1 }, /its answer could not be used/],
     // An answer with nothing usable in it: no folders, only the conductor's own, or one that does not exist.
     [{ ok: true }, /could not show the list of repos/],
     [{ ok: true, folders: [] }, /could not show the list of repos/],
@@ -117,6 +118,49 @@ test('a tick list that picks nothing changes nothing, and says why: cancelled, t
     assert.deepEqual(await conductorRepos(g.$, '/w/me'), ['/w/repo'])
     assert.deepEqual(rows(g).lead, { repos: ['/w/repo'], conductor: true })
   }
+})
+
+// A window that takes the request (its file goes) at the `claimAt`-th second and answers at the `answerAt`-th; `n` counts the seconds waited.
+function slowWindow(f: F, claimAt: number | undefined, answerAt: number | undefined) {
+  const w = { n: 0 }
+  let req: string | undefined
+  const orig = f.$.process.run
+  f.$.process.run = async (argv: string[], o?: unknown) => {
+    if (argv[0] === '/bin/sleep') {
+      w.n++
+      req ??= spooled(f).find((p) => p.endsWith('.req'))
+      if (w.n === claimAt && req !== undefined) f.h.files.delete(req)
+      if (w.n === answerAt && req !== undefined) f.h.files.set(req.replace(/\.req$/, '.result'), JSON.stringify({ ok: true, folders: ['/w/repo'] }))
+    }
+    return orig(argv, o)
+  }
+  return w
+}
+
+test('the wait for the tick list: 30 s for a window to take the request, then 90 s from when one took it; a bad answer ends it at once', async () => {
+  // No window takes it.
+  const none = world()
+  const a = slowWindow(none, undefined, undefined)
+  assert.match((await run(none, 'conductor', 'composer')).text, /no window took the request/)
+  assert.equal(a.n, 30)
+  // Taken at 20 s, answered 85 s later: inside the 90 s that run from the taking.
+  const late = world()
+  const b = slowWindow(late, 20, 105)
+  await run(late, 'conductor', 'composer')
+  assert.deepEqual([await conductorRepos(late.$, '/w/me'), b.n], [['/w/repo'], 105])
+  // Taken and never answered: 90 s after the taking.
+  const mute = world()
+  const c = slowWindow(mute, 20, undefined)
+  assert.match((await run(mute, 'conductor', 'composer')).text, /or it never answered/)
+  assert.deepEqual([c.n, mute.file('conductors.json')], [20 + 90, undefined])
+  // An answer after the wait ended is not read: its file is taken away with the request.
+  assert.deepEqual(spooled(mute), [])
+  // A bad answer is not waited on.
+  const bad = world()
+  let n = 0
+  picking(bad, () => (n++, { ok: true, folders: ['relative'] }))
+  await run(bad, 'conductor', 'composer')
+  assert.equal(n, 1)
 })
 
 test('the tick list is asked for only from his typed turn, and takes up to 32 repos where typed paths take 16', async () => {

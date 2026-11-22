@@ -3,7 +3,7 @@
 // registry read does nothing; the brief a `start` points at is the child's own row's, never the cue's; every file name is built from an id this file checks first.
 // The spool: `open/<id>.req` is written as a dot-file and renamed, with a fresh random id, and the folder is named exactly as the lane's row holds it; the window that serves it answers
 // `open/<id>.result` within its own 20 s, so the writer waits one budget (SPOOL_WAIT_S) and, with no answer, takes its own request back so a window that wakes later opens nothing.
-// A `pick` is the one request that waits for the person: the window shows its tick list for up to 80 s, and the answer's folders are checked here (absolute, plain, at most 32) before the caller resolves them.
+// A `pick` is the one request that waits for the person: once a window has taken it, the window shows its tick list for up to 80 s and the writer waits PICK_WAIT_S; the answer's folders are checked here (absolute, plain, at most 32) before the caller resolves them.
 // Bounds that hold for the same user (ADR 0002): the window opens only a folder of its own workspace, drops a request older than 60 s, reads plain files up to 40 000 bytes and takes one
 // request at a time (a tick list is shown beside that); the plugin checks capability, allowlist, name and the cap of live children before it writes. No rate limit and no lane store are checked beyond that.
 import type { Cue, CueResult, CueVerb, Sid, SpoolReply, SpoolRequest, View } from '../core/model.ts'
@@ -104,14 +104,19 @@ export async function spoolSend($: any, req: SpoolRequest): Promise<string | und
   await rm($, [tmp])
   return undefined
 }
-// A request and its answer. undefined: nothing came in `waitS` seconds (a pick waits for the person's click, so its caller gives a longer one), and the request is taken back.
-export async function spool($: any, req: SpoolRequest, who: Sid, waitS: number = SPOOL_WAIT_S): Promise<SpoolReply | undefined> {
+// A request and its answer. undefined: nothing came in SPOOL_WAIT_S seconds, and the request is taken back. An answer that is there and is not one is `bad-answer`
+// at once. A pick waits for the person's click, so its caller gives `afterClaimS`: once a window has taken the request (its file is gone), the wait runs that many
+// seconds from then; a request no window takes still ends at SPOOL_WAIT_S.
+export async function spool($: any, req: SpoolRequest, who: Sid, afterClaimS?: number): Promise<SpoolReply | undefined> {
   const id = await spoolSend($, req)
   const dir = await path($, 'open')
   if (id === undefined || dir === undefined) return undefined
   let a: SpoolReply | undefined
-  for (let i = 0; i < waitS && a === undefined; i++) {
-    a = parseReply(json(await readText($, `${dir}/${id}.result`, 40_000)))
+  let claimed: number | undefined
+  for (let i = 0; a === undefined && i < (claimed === undefined || afterClaimS === undefined ? SPOOL_WAIT_S : claimed + afterClaimS); i++) {
+    const t = await readText($, `${dir}/${id}.result`, 40_000)
+    if (t !== undefined) a = parseReply(json(t)) ?? { ok: false, code: 'bad-answer' }
+    if (a === undefined && afterClaimS !== undefined && claimed === undefined && !(await $.fs.exists(`${dir}/${id}.req`).catch(() => true))) claimed = i
     if (a === undefined && !(await pause($, 1000))) break
   }
   await rm($, [`${dir}/${id}.req`, `${dir}/${id}.result`])

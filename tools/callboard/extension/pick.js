@@ -51,17 +51,23 @@ async function rowsFor(folder, windowFolders, ticked) {
 // Shows the list and resolves the folders ticked. Rejects with one of CODES as its message when nothing was picked.
 function createPick({ vscode, windowFolders, ms = PICK_MS }) {
   return async function pick(folder, ticked) {
-    const rows = await rowsFor(folder, windowFolders(), ticked)
-    if (rows.length === 0) throw new Error('no-folders')
-    const items = rows.map((r) => ({ label: path.basename(r.folder), description: r.inWindow ? `${r.folder} (in this window)` : r.folder, picked: r.picked, folder: r.folder }))
+    // The time limit runs from here, so it covers the reading of the folders too: a folder that never answers (a stuck mount) ends as `timeout`.
     const cts = new vscode.CancellationTokenSource()
     let late = false
-    const timer = setTimeout(() => {
-      late = true
-      cts.cancel()
-    }, ms)
+    let timer
+    const limit = new Promise((resolve) => {
+      timer = setTimeout(() => {
+        late = true
+        cts.cancel()
+        resolve(undefined)
+      }, ms)
+    })
     let got
     try {
+      const rows = await Promise.race([rowsFor(folder, windowFolders(), ticked), limit])
+      if (rows === undefined) throw new Error('timeout')
+      if (rows.length === 0) throw new Error('no-folders')
+      const items = rows.map((r) => ({ label: path.basename(r.folder), description: r.inWindow ? `${r.folder} (in this window)` : r.folder, picked: r.picked, folder: r.folder }))
       got = await vscode.window.showQuickPick(items, { canPickMany: true, ignoreFocusOut: true, title: `Callboard: repos for the conductor in ${path.basename(folder)}`, placeHolder: `Tick the repos to open leads in (at most ${PICK_MAX}), then press Enter. Escape changes nothing.` }, cts.token)
     } finally {
       clearTimeout(timer)
