@@ -136,7 +136,7 @@ Nothing else moves:
   inside the lane's own branch and repo or is easily undone, that cannot return personal data or secrets, that
   touches nothing on the risk list, and that it has seen whole. Otherwise it passes the request up.
 - **Risk-list calls still go to the person.** No tier allows one. The top live tier relays it, and the person's
-  click decides. When the manager escalates with a note, the pop-up shows the note first, labelled as the manager's own and
+  click decides. When the manager escalates with a note, the dialog shows the note first, labelled as the manager's own and
   not checked by the plugin, and offers Allow, Show the command and Deny: the person may allow on the note, with the
   command one click away. A command too large to print, or a cut ask, is never allowed from the note.
 - **`GO_NEVER`, the strictest-tier rules, the 30-second head start, the windows, the comment cap and the truncation

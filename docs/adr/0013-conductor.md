@@ -79,7 +79,7 @@ for answers, and that it cannot make leads.
   for the machine. The person's own list of repos and the lane view are the control. *Amended 2026-11-22: the
   Callboard Lanes view is removed; the sessions show in `/callboard lanes` and, with the Claude patch, in the groups of
   Claude Code's Session Manager list.*
-- The person's pop-ups still open in the manager's session, not the conductor's or a lead's. The conductor answers
+- The person's dialogs still open in the manager's session, not the conductor's or a lead's. The conductor answers
   what is below it; what reaches the person reaches them in the manager's session as before.
 - A lead's flags live in the session table, so a reader that loses one demotes the session on its next write. The
   parser keeps exactly one of the two flags and the specs read the table back after each write.

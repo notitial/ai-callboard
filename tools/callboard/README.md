@@ -13,7 +13,7 @@ exact texts are in the code, and `/callboard help` lists every command. Nothing 
 | `plugin/` | The Claude Code plugin. A pure core in `plugin/hooks/core/` (no I/O, no text), adapters in `plugin/hooks/engine/` that feed it and act on what it returns, the texts table `plugin/hooks/texts.ts` and the one UI module `plugin/hooks/ui.ts` |
 | `extension/` | The VS Code extension that opens, reopens and closes lane panels. Its one command, `callboard run block`, is the host side of the Run button. What it does: [`extension/README.md`](extension/README.md) |
 | `link-extension.py` | Links that extension into VS Code from this checkout, once per machine (Install) |
-| `patch-claude.py` | Optional: patches the installed Claude Code extension so a lane of any folder of a multi-folder window opens there, widens the composer, shows the composer's context pie always against your autocompact level, puts the session's folder name next to the model name, adds a Run button on shell code blocks that runs the block on your click (after a modal) and sends the output into the chat, makes a restored or reopened panel resume in its conversation's folder, adds a command (`callboard active session`) that names the panel in front, and adds a command that files callboard sessions in the sidebar's Manager, Conductor, Lead and Lanes groups, in that order (docs/setup.md; `/patch-vs-claude`). Header comment: usage and exit codes |
+| `patch-claude.py` | Patches the installed Claude Code extension so a lane of any folder of a multi-folder window opens there, widens the composer, shows the composer's context pie always against your autocompact level, puts the session's folder name next to the model name, adds a Run button on shell code blocks that runs the block on your click (after a modal) and sends the output into the chat, makes a restored or reopened panel resume in its conversation's folder, adds a command (`callboard active session`) that names the panel in front, adds a command that files callboard sessions in the sidebar's Manager, Conductor, Lead and Lanes groups, in that order, adds a command that archives a retired lane there, and lists the saved conversations of every folder of the window in the sidebar (docs/setup.md; `/patch-vs-claude`). Header comment: usage and exit codes |
 | `test.sh` | The test entry point (Tests) |
 
 ## The sessions
@@ -165,7 +165,7 @@ Developer: Reload Window). Output > Callboard Panels shows the build it loaded. 
 `extension/package.json` needs a version bump: quit VS Code, pull, run the script again, reopen VS Code.
 
 A window answers a lane open only when the lane's folder is its first workspace folder, so open further windows from
-inside VS Code (File, New Window). With the optional patch of the Claude Code extension (`patch-claude.py`,
+inside VS Code (File, New Window). With the patch of the Claude Code extension (`patch-claude.py`,
 docs/setup.md) one multi-folder window answers for every one of its folders.
 
 ### Manager setup: keep agents off the store (by hand)

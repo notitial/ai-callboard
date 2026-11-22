@@ -15,14 +15,15 @@ from it, so that update is callboard's install. Agents never edit it: they work 
 
 The usage watcher's installer fetches `main` from the fixed URL `https://github.com/notitial/ai-manager.git` over
 HTTPS, without credentials, into a fresh temporary repository, and installs from the commit there, never from your
-working tree or the checkout's git store. So it installs only once the repo is public: while it is private the fetch
-fails and nothing is installed. Callboard (step 1) and the rule link (step 3) work either way.
+working tree or the checkout's git store. Callboard (step 1) and the rule link (step 3) fetch nothing.
 
 ## Prerequisites
 
 - macOS.
-- The repo is public on GitHub, for the usage watcher's installer (see above), and the Mac has network access: its
-  dry run fetches too.
+- Network access, for the usage watcher's installer (see above): its dry run fetches too.
+- VS Code 1.90 or later with the Claude Code extension (`anthropic.claude-code`) installed: the panels extension
+  depends on it. The patch of that extension is made for the versions named under
+  [The Claude Code extension patch](#the-claude-code-extension-patch); its check says whether yours fits.
 - [ai-toolkit](https://github.com/notitial/ai-toolkit) installed as the base (`/setup-claude`). Its status line
   writes the meter the usage watcher reads.
 - node 22.18 or later, the `claude` CLI, `/usr/bin/python3` 3.9 or later (from the Command Line Tools) and `jq`.
@@ -42,13 +43,16 @@ to `<checkout>/tools/callboard/extension`. Nothing needs sudo, and nothing is fe
 
 ### Link the panels extension (VS Code)
 
-Quit VS Code first (Cmd+Q) and run these in a plain Terminal, not in VS Code's own terminal. VS Code deletes, at each
-start, any extension folder its `extensions.json` doesn't list, so the script also registers the link there, and it
-refuses to change anything while VS Code runs. Dry run, then apply:
+VS Code deletes, at each start, any extension folder its `extensions.json` doesn't list, so the script also registers
+the link there, and it refuses to change anything while VS Code runs. The dry run changes nothing and is safe with VS
+Code open:
 
 ```
 /usr/bin/python3 -I <checkout>/tools/callboard/link-extension.py
 ```
+
+For the apply, quit VS Code first (Cmd+Q) and run it in a plain Terminal, not in VS Code's own terminal. A Claude
+session in a VS Code panel ends with VS Code, so start a new one afterwards:
 
 ```
 /usr/bin/python3 -I <checkout>/tools/callboard/link-extension.py --apply
@@ -70,16 +74,37 @@ refuses to change anything while VS Code runs. Dry run, then apply:
   default profile gets the entry; a window on another profile has no panels.
 - `--remove --apply` takes the links, the entries inside the extensions folder and the `.obsolete` keys off again (VS
   Code quit, as above).
-- Start VS Code afterwards. If you use Settings Sync, consider adding `"notitial.callboard-panels"` to
+- The script does not look for the extension's earlier id, `local.callboard-panels-*`. Such a copy answers every lane
+  open too, so every lane opens twice. Check for one, and remove what it prints with VS Code quit:
+
+```
+ls ~/.vscode/extensions | grep -i local.callboard-panels
+```
+
+- Start VS Code afterwards, and check that it loaded the extension: in the Output panel (View, Output) pick "Callboard
+  Panels". Its first line reads `callboard panels <version>, build <commit>`, and a `claude cwd patch:` line says
+  whether the patch below is in. If the list has no such entry, the extension did not load: check the link, and that
+  the Claude Code extension is installed and enabled.
+- If you use Settings Sync, consider adding `"notitial.callboard-panels"` to
   `settingsSync.ignoredExtensions` by hand, so a removal of an old version isn't synced to another Mac; the script
   changes no setting.
 
-### Optional: one multi-folder window for several repos
+### The Claude Code extension patch
 
 Claude Code opens a new panel in a window's first folder, so a lane of another folder needs a window of its own, and
 each window costs about 900 MB plus a webview. `patch-claude.py` patches the installed Claude Code extension so the
-callboard panels extension can ask for a folder, and one multi-folder window then serves all its folders. It is opt-in:
-without it nothing changes. It edits only the Claude Code extension's own folder, and nothing else: no setting and no
+callboard panels extension can ask for a folder, and one multi-folder window then serves all its folders.
+
+Without the patch callboard works with one VS Code window per repo: asks, goes, lanes of the window's first folder and
+the manager all work. These need it:
+
+- lanes and leads in the other folders of one window, and so a conductor whose repos share one window;
+- the Run button on shell code blocks;
+- the tier groups in the Session Manager list, and the archiving of a retired lane there;
+- the session list of every folder of the window;
+- the folder pill, the context ring, the wider composer and the restore fix.
+
+It edits only the Claude Code extension's own folder, and nothing else: no setting and no
 network. Run it as your user, in any terminal, then reload each VS Code window (Command Palette, Developer: Reload
 Window). Check first, then apply:
 
@@ -104,7 +129,8 @@ EXT_DIR="$(ls -d "$HOME"/.vscode/extensions/anthropic.claude-code-* | sort -V | 
 /usr/bin/python3 -I "$CHECKOUT/tools/callboard/patch-claude.py" "$EXT_DIR" --undo
 ```
 
-- The check prints `patched`, `outdated`, `unpatched-patchable` or `anchors-missing` and the extension's version, and changes
+- The check prints `patched`, `outdated`, `unpatched-patchable`, `anchors-missing` or `leftovers` (a backup or marker
+  from an earlier run that does not match the file: run `--undo`) and the extension's version, and changes
   nothing. `--apply` changes `extension.js` only when every one of its four anchors matches exactly once; otherwise it
   changes nothing and names the anchor that is missing. It keeps the original as `extension.js.callboard-orig` and writes
   `callboard-cwd-patch.json` (the marker the panels extension reads), both in the extension's folder. A second run says
@@ -204,7 +230,7 @@ EXT_DIR="$(ls -d "$HOME"/.vscode/extensions/anthropic.claude-code-* | sort -V | 
 - The patch is made for 2.1.327, 2.1.328 and 2.1.330; the context pie's anchors fit the code of 2.1.330 (an older script gets every other piece and a
   warning that the pie is left out). A later version may rename or restructure the code it hooks into; then
   `anchors-missing` is printed and nothing is touched, and the panels extension keeps its one-repo-per-window behavior.
-- Nothing depends on it. The marker lives in the Claude extension's own folder, so an update (a new folder) drops the
+- The marker lives in the Claude extension's own folder, so an update (a new folder) drops the
   patch and its marker together, and the panels extension counts the patch only when the marker's checksum matches the
   file beside it. Without the patch, open one VS Code window per repo and use callboard as before. If a patched open
   does not bring up its panel, it fails as the usual open timeout, once.
@@ -229,28 +255,13 @@ Add this line to the `env` block of `~/.claude/settings.json`, with `<checkout>`
 
 The first test below is the install check: it shows that your own typing changes settings and a model's does not.
 
-### Switch to the plugin
+### The manager's name and rules
 
-The plugin (`<checkout>/tools/callboard/plugin`, [ADR 0012](adr/0012-callboard-plugin.md)) is the only callboard build: one
-session model, one chain of asks, no tiers above the leads (a conductor is a lead with one more power,
-[ADR 0013](adr/0013-conductor.md)), no per-tier switches. A Mac whose `CLAUDE_CODE_PLUGIN_DIRS` still
-names the earlier build, `<checkout>/tools/callboard/mod`, which no longer exists, switches once by changing that one
-entry to `<checkout>/tools/callboard/plugin`. A fresh Mac uses the line above and skips the switch command. Both builds
-were named `callboard`, so never list two callboard folders: the second one in the list does not load. Every command
-here is yours to run; an agent never edits settings.
-
-**Before you switch.**
-
-- The checkout holds this commit: fast-forward it as in [Updating](#updating), then reload each VS Code
-  window (Command Palette, Developer: Reload Window).
-- The protected-paths hook is wired and `~/.claude/callboard/.protected-checkout` exists
-  ([Escalation is on by default once the protected-paths hook is in place](#escalation-is-on-by-default-once-the-protected-paths-hook-is-in-place)).
-  Without them the plugin refuses every answer from a tier, and asks stay with you.
-- Write the two per-machine files. The first holds the manager's session name, one line; it is what lets the plugin find
-  the manager, and `MANAGER` stays reserved beside it. On a second Mac use another name, because Remote Control lists every
-  machine's sessions. The second is optional: your standing rules for the manager in plain prose, up to 8 KB, shown at the
-  top of its `prompt_list` and in its briefing (a merge right for the sentinel goes here, as a line, and nowhere else).
-  The folder is one agents cannot write, so you do it:
+Write the two per-machine files. The first holds the manager's session name, one line; it is what lets the plugin find
+the manager, and `MANAGER` stays reserved beside it. On a second Mac use another name, because Remote Control lists every
+machine's sessions. The second is optional: your standing rules for the manager in plain prose, up to 8 KB, shown at the
+top of its `prompt_list` and in its briefing (a merge right for the sentinel goes here, as a line, and nowhere else).
+The folder is one agents cannot write, so you do it:
 
 ```
 MANAGER_NAME='MANAGER'
@@ -259,119 +270,16 @@ printf '%s\n' "$MANAGER_NAME" > ~/.claude/callboard/manager-name
 touch ~/.claude/callboard/manager-rules.md
 ```
 
-- Pick a quiet moment: no lane mid-task and no unattended window. Open lanes, goes and the window do not cross the
-  switch, because the plugin keeps its own state under `~/.claude/callboard/v2` and reads nothing of the mod's.
-  Every session is loose until a lead adopts it again (see below).
+### A Mac set up before the plugin
 
-**The switch (only from the mod's entry).** One command, the entry replaced where it sits in the list, every other byte of the file kept, a backup
-named with the time, and the one-line change shown. It refuses and changes nothing unless the file holds exactly one
-such entry, and it writes through the real path, so a `settings.json` that is a symlink stays one. Set `CHECKOUT` on
-the first line to your checkout's absolute path, the only value to change. `diff` exits 1 when it shows the change,
-which is expected:
-
-```
-CHECKOUT='<checkout>'
-BAK=~/.claude/settings.json.bak-callboard-$(date +%Y%m%d-%H%M%S)
-cp ~/.claude/settings.json "$BAK" && /usr/bin/python3 -I -c "import os,re,sys;p=os.path.realpath(os.path.expanduser('~/.claude/settings.json'));t=open(p,encoding='utf-8').read();o=sys.argv[1]+sys.argv[2];n=sys.argv[1]+sys.argv[3];u,k=re.subn(re.escape(o)+r'(?=[\":,;])',lambda m:n,t);k==1 or sys.exit('expected one callboard entry, found %d'%k);f=p+'.tmp';open(f,'w',encoding='utf-8').write(u);os.chmod(f,os.stat(p).st_mode&0o777);os.replace(f,p)" "$CHECKOUT" /tools/callboard/mod /tools/callboard/plugin && diff "$BAK" ~/.claude/settings.json
-```
-
-Then restart every session, VS Code windows included (a reload is not enough: the plugin list is read when a session
-starts). A conversation kept open across the switch, or resumed into it, can keep the mod's tool definitions: a call
-with the mod's arguments (`lane_create` with name, task and model, say) is then refused as input not valid. A new
-session has the plugin's. Start the manager session and name it with the manager's name from the file (`/rename`). Each lead then takes
-its lanes back by name with `lane_adopt`, and you give goes again as needed (`/callboard go TEXT`, or a lead's
-`go_request`).
-
-**The first test.** One round, once the sessions are restarted. Each step names what you should see; stop at the
-first one that differs and tell the manager session, or me, which.
-
-1. In any new session type this and read the status page, a table of Role, Parent, Manager, Callboard, Keepalive,
-   Unattended and Goes. A plain session reads Role `session` and Callboard `on`; its Parent and Manager name
-   the manager session if one runs, else Parent reads `the person` and Manager `none`.
-
-```
-/callboard status
-```
-
-2. In the same session, check that your own typing changes settings. Type the first line and see "Callboard setting
-   changed", then the second to put the default back (the plugin starts with its own settings, so 50 is the default).
-   A model cannot run a `/callboard` command at all (the engine refuses it), and the plugin also refuses a form that
-   changes what a session may do unless it came from your own typed turn.
-
-```
-/callboard config ping 45
-```
-
-```
-/callboard config ping 50
-```
-
-3. In the manager session, type the status command and check that Role reads `manager` and Parent reads `the person`:
-
-```
-/callboard status
-```
-
-   Then, in a second session that is not the manager and runs in manual permission mode, send this prompt and leave the
-   permission card unanswered for a minute:
-
-```
-Run this exact command with the Bash tool and nothing else: touch /tmp/callboard-first-test
-```
-
-   The manager session gets a `[callboard] Check-in:` turn naming the ask, and its `prompt_list` shows it. Click Deny on
-   the card yourself: your click always wins over a tier's answer.
-
-4. Unattended mode: type these three in the manager session, one at a time. The first says no callboard dialog will open at you;
-   the second shows the window; the third ends it.
-
-```
-/callboard unattended 30m
-```
-
-```
-/callboard unattended
-```
-
-```
-/callboard unattended off
-```
-
-5. A go: type this in the manager session, then send the prompt below and read the go back. End it at once.
-
-```
-/callboard go first test of the plugin: nothing to do
-```
-
-```
-Call go_status and read back every go it lists.
-```
-
-```
-/callboard go off
-```
-
-6. A lead and a lane: in a session in a scratch repo type the first line, then send the second as a prompt. The lead
-   creates, opens and starts the lane; the lane writes its report, signs it done and tells the lead, which retires it.
-
-```
-/callboard lead
-```
-
-```
-Create a lane named TESTLANE in this folder with the brief "Write hello as the first line of your report, sign it done and stop" using lane_create, then lane_open and lane_start it. When it reports, read its report and call lane_retire on it.
-```
-
-7. Off wins: in the scratch session of step 6 type the first line (no pings, nudges, asks or notices, and it is nobody's parent or
-   child), then the second to bring it back.
-
-```
-/callboard off
-```
-
-```
-/callboard on
-```
+The plugin (`<checkout>/tools/callboard/plugin`, [ADR 0012](adr/0012-callboard-plugin.md)) is the only callboard build.
+A Mac whose `CLAUDE_CODE_PLUGIN_DIRS` still names an earlier build (`/usr/local/libexec/callboard/mod` or
+`<checkout>/tools/callboard/mod`; the checkout holds no `mod` folder) loads no callboard: replace that one entry by hand
+with `<checkout>/tools/callboard/plugin`, and never list two callboard folders, because the second one does not load.
+Remove an earlier root-owned install too (`sudo rm -rf /usr/local/libexec/callboard`). Then restart every session, VS
+Code windows included: a reload is not enough, because the plugin list is read when a session starts, and a
+conversation kept open across the change can keep the earlier build's tool definitions. Nothing of the earlier build's
+state is read, so each lead takes its lanes back by name with `lane_adopt`, and you give goes again as needed.
 
 ### Optional: a conductor across repos
 
@@ -394,7 +302,7 @@ line: the list comes back with the saved repos ticked.
 ```
 
 The list needs the panels extension in the window that holds the conductor's folder, as the window's first folder
-unless the patch described under "one multi-folder window" above is applied. When no window takes the request, the
+unless [the patch](#the-claude-code-extension-patch) is applied. When no window takes the request, the
 command says so after 30 seconds. Without the extension, type the real path of
 each repo instead (at most 16); typed paths replace the saved list.
 
@@ -406,8 +314,8 @@ Only the repos saved are open to the conductor, and only your typed turn, with y
 
 A repo can be saved before the window lists it, but a lead opens only in a folder the window lists.
 Each lead it makes needs a window that answers for its folder: open the conductor's windows as one multi-folder
-VS Code window that lists each repo folder exactly as the real path, with the patch described under "one multi-folder
-window" above applied.
+VS Code window that lists each repo folder exactly as the real path, with [the patch](#the-claude-code-extension-patch)
+applied.
 
 The conductor can write that window's workspace file for you. Ask it, with a name for the file, the repos, and the
 launcher you open VS Code with when it is not plain `code`. It writes `.archive/NAME.code-workspace` in its own folder
@@ -426,10 +334,25 @@ writes none and edits no setting.
 A window on a second Claude account works the same when it shares `~/.claude` (the same macOS login); callboard
 reads only that folder. Check live, once: the second window's session shows in `/callboard lanes` of the conductor
 after it opens, and a lead it makes there opens in its repo's folder within 30 seconds (else `lane_open` says the
-window did not answer).
+window did not answer). [A VS Code per Claude account](#a-vs-code-per-claude-account) says what such a window needs.
 
 To end it, tell the conductor "wrap up": it closes every lead and lane under it. `/callboard lead off` takes the
 role away, and the saved list stays for the next time.
+
+### A VS Code per Claude account
+
+VS Code can be started with its own user data folder (`--user-data-dir`), for example by a launcher that keeps one such
+folder per Claude account. Callboard does not make such launchers. What it needs from one:
+
+- **The extensions folder is `~/.vscode/extensions`.** `link-extension.py` links and registers the panels extension
+  only there, and the patch commands above look for the Claude Code extension there. Windows that share that folder
+  share the one link and the one patch; a launcher with another extensions folder gets neither from these steps.
+- **The same `~/.claude`.** The panels extension reads callboard's requests and its session table under the `.claude`
+  folder of your macOS home, whatever the window's account.
+- **The default profile.** Only the default profile's `extensions.json` gets the panels entry.
+- **Groups are kept per user data folder.** The record of which sessions the extension has filed in the tier groups
+  lives in VS Code's global state, under the window's first folder, so each account's VS Code files its sessions by
+  itself and one account's record never marks another's sessions as filed.
 
 ### Manager setup: keep agents off the store (by hand)
 
@@ -498,14 +421,106 @@ every tier's answers at once; remove the file to allow them again. Do the probe 
 touch ~/.claude/callboard/OFF
 ```
 
+### The first test
+
+One round, once every session is restarted and the manager session runs ([4. Start the manager](#4-start-the-manager)).
+Each step names what you should see; stop at the first one that differs and tell the manager session which.
+
+1. In any new session type this and read the status page, a table of Role, Parent, Manager, Callboard, Keepalive,
+   Unattended and Goes. A plain session reads Role `session` and Callboard `on`; its Parent and Manager name
+   the manager session if one runs, else Parent reads `the person` and Manager `none`.
+
+```
+/callboard status
+```
+
+2. In the same session, check that your own typing changes settings. Type the first line and see "Callboard setting
+   changed", then the second to put the default back (the plugin starts with its own settings, so 50 is the default).
+   A model cannot run a `/callboard` command at all (the engine refuses it), and the plugin also refuses a form that
+   changes what a session may do unless it came from your own typed turn.
+
+```
+/callboard config ping 45
+```
+
+```
+/callboard config ping 50
+```
+
+3. In the manager session, type the status command and check that Role reads `manager` and Parent reads `the person`:
+
+```
+/callboard status
+```
+
+   Then, in a second session that is not the manager and runs in manual permission mode, send this prompt and leave the
+   permission card unanswered for a minute:
+
+```
+Run this exact command with the Bash tool and nothing else: touch /tmp/callboard-first-test
+```
+
+   The manager session gets a `[callboard] Check-in:` turn naming the ask, and its `prompt_list` shows it. Click Deny on
+   the card yourself: your click always wins over a tier's answer.
+
+4. Unattended mode: type these three in the manager session, one at a time. The first says no callboard dialog will open at you;
+   the second shows the window; the third ends it.
+
+```
+/callboard unattended 30m
+```
+
+```
+/callboard unattended
+```
+
+```
+/callboard unattended off
+```
+
+5. A go: type this in the manager session, then send the prompt below and read the go back. End it at once.
+
+```
+/callboard go first test: nothing to do
+```
+
+```
+Call go_status and read back every go it lists.
+```
+
+```
+/callboard go off
+```
+
+6. A lead and a lane: in a session in a scratch repo type the first line, then send the second as a prompt. The lead
+   creates, opens and starts the lane; the lane writes its report, signs it done and tells the lead, which retires it.
+
+```
+/callboard lead
+```
+
+```
+Create a lane named TESTLANE in this folder with the brief "Write hello as the first line of your report, sign it done and stop" using lane_create, then lane_open and lane_start it. When it reports, read its report and call lane_retire on it.
+```
+
+7. Off wins: in the scratch session of step 6 type the first line (no pings, nudges, asks or notices, and it is nobody's parent or
+   child), then the second to bring it back.
+
+```
+/callboard off
+```
+
+```
+/callboard on
+```
+
 ## 2. The usage watcher
 
 Details: [tools/usage-watcher/README.md](../tools/usage-watcher/README.md), Install. What the manager does with its
 summary: [docs/manager/usage-watch.md](manager/usage-watch.md).
 
-- **Only once the repo is public.** The installer fetches `main` over plain HTTPS from a fixed URL, with no
-  credentials, so it fails while the repo is private. Until then the manager reports "usage summary never created;
-  install pending" and acts on nothing.
+- **It needs the network.** The installer fetches `main` over plain HTTPS from a fixed URL, with no credentials.
+  Until it is installed the manager reports "usage summary never created; install pending" and acts on nothing.
 - **The meter** comes from ai-toolkit's status line, which writes one file per account,
   `${USAGE_WATCHER_DIR:-~/.local/state/claude-statusline}/limits/readings-<fp>.json`, as a session renders. The
   watcher reads them as an optional input: without them the summary has no meter, and the per-session numbers still
@@ -519,7 +534,7 @@ summary: [docs/manager/usage-watch.md](manager/usage-watch.md).
 
 ### An older watcher first
 
-Only when you are about to install this one (the repo is public): if an older usage-watcher job is loaded under
+Only when you are about to install this one: if an older usage-watcher job is loaded under
 another label, unload it first: `launchctl bootout gui/$(id -u)/<old label>`.
 Then remove its plist from `~/Library/LaunchAgents/`, or it loads again at the next login. The data folder is shared
 and kept. This repo's job is `io.notitial.usage-watcher`.
@@ -565,7 +580,9 @@ nudges and notices, and that none of them carries an approval. Link it into your
 mkdir -p ~/.claude/rules && ln -s <checkout>/rules/callboard.md ~/.claude/rules/callboard.md
 ```
 
-If `~/.claude/rules/` holds an older keepalive rule from an earlier setup, unlink it: this rule replaces it.
+A session reads its rules when it starts, so make the link before you restart the sessions for the default load
+(step 1), or restart them once more after it. If `~/.claude/rules/` holds an older keepalive rule from an earlier
+setup, unlink it: this rule replaces it.
 
 ## ai-toolkit's setup and cleanup
 
@@ -588,7 +605,7 @@ ai-toolkit's `/setup-claude` and `/cleanup-claude` leave everything in this guid
 
 Follow [docs/manager/README.md](manager/README.md), Starting and resuming. In short: a plain session in this
 checkout, without `CLAUDE_CONFIG_DIR`, on Opus (`/model opus`), named with `/rename` to the name in
-`~/.claude/callboard/manager-name` ([Switch to the plugin](#switch-to-the-plugin)). The manager is the session that
+`~/.claude/callboard/manager-name` ([The manager's name and rules](#the-managers-name-and-rules)). The manager is the session that
 carries that name, found by its registry name while it is live; there is no manager command and no grant to restore.
 
 Callboard reserves `MANAGER` and the manager's own name. A manager on a second machine needs a different name, because Remote
@@ -601,8 +618,11 @@ Control lists every machine's sessions: write that name into `manager-name` on t
 | Live checkout | `git -C <checkout> --no-pager -c core.hooksPath=/dev/null -c core.fsmonitor=false status -sb` | `## main...origin/main` and nothing else |
 | Origin | `git -C <checkout> remote get-url origin` | `https://github.com/notitial/ai-manager.git` |
 | Old install gone | `ls /usr/local/libexec/callboard` | No such file or directory |
+| Old panels copy | `ls ~/.vscode/extensions \| grep -i local.callboard-panels` | it prints nothing |
 | Panels extension | `ls -l ~/.vscode/extensions \| grep callboard-panels` | one link, to `<checkout>/tools/callboard/extension` |
 | Panels entry | `/usr/bin/python3 -I <checkout>/tools/callboard/link-extension.py` | it prints `already linked` and no `DRY:` line |
+| Panels loaded | in VS Code, Output > Callboard Panels | a first line `callboard panels <version>, build <commit>` |
+| Claude Code patch | the check under [The Claude Code extension patch](#the-claude-code-extension-patch) | `patched` and no `warning:` line; `outdated` or `unpatched-patchable`: `/patch-vs-claude` |
 | Default load | type `! echo $CLAUDE_CODE_PLUGIN_DIRS` in a new session | `<checkout>/tools/callboard/plugin` |
 | Plugin loaded | type `/callboard status` in a session | it answers a table of Role, Parent, Manager, Callboard, Keepalive, Unattended and Goes |
 | Manager name | `cat ~/.claude/callboard/manager-name` | the manager session's name |
@@ -655,7 +675,10 @@ extension's version is fixed, so the link stays and the reload loads the new cod
 Panels shows the build it loaded (the checkout's commit). Only when `extension/package.json` itself changed
 (`activationEvents`, `engines`, `extensionDependencies`, `main`) is the version bumped, because VS Code caches the
 manifest: then quit VS Code (Cmd+Q), merge as above, run `link-extension.py --apply` in a plain Terminal, then reopen
-VS Code. After an update of the Claude Code extension itself, run the optional patch again if you use it (above). Restart every session. Before
+VS Code. The patch of the Claude Code extension is built by the script in the checkout, so after a fast-forward run
+its check ([The Claude Code extension patch](#the-claude-code-extension-patch)): on `outdated`, type `/patch-vs-claude`
+(or run the script with `--update`) and reload each window. After an update of the Claude Code extension itself the new
+folder starts unpatched: run the check and `--apply`, or `/patch-vs-claude`, again. Restart every session. Before
 you turn unattended mode on, restart every session started before the update: a lane and a tier both on older code
 can still relay a prompt to you. For the usage watcher, run its installer again with the new `--ref`.
 
@@ -663,5 +686,5 @@ can still relay a prompt to you. For the usage watcher, run its installer again 
 
 Type `/setup-manager` in a session in this checkout. The skill
 ([.claude/skills/setup-manager/SKILL.md](../.claude/skills/setup-manager/SKILL.md)) runs the read-only checks and
-the dry runs itself, shows you every `--apply`, settings edit, link and `launchctl bootout` as an exact command to
-run, and ends with the status table above.
+the dry runs itself, the patch's check among them, shows you every `--apply`, settings edit, link and `launchctl
+bootout` as an exact command to run, sends you to `/patch-vs-claude` for the patch, and ends with a status table.

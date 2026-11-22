@@ -132,7 +132,7 @@ macOS only. Needs the Command Line Tools and `/usr/bin/python3` 3.9 or later. No
 
 The installer fetches `main` from `https://github.com/notitial/ai-manager.git` over HTTPS, without credentials, into a temporary repository. It installs from that commit, never from your working tree, and never reads the checkout's objects or git config. That URL is fixed: no option, and no variable or git config the installer reads, changes it. The fetch ignores proxy environment variables.
 
-The fetch has no credentials, so it works only once the repository is public.
+The fetch has no credentials.
 
 Without `--apply` it changes nothing and prints what it would do. Pin a commit of `main` you have read with `--ref <full 40-hex commit>`, and run the installer from a checkout of that same commit: the pin covers what it installs, not the script you run. Without `--ref` it takes `main`'s tip and prints that commit.
 
