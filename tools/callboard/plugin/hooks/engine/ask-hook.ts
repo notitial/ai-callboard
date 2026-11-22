@@ -38,15 +38,17 @@ const ours = (next: any): boolean => next?.origin?.plugin === PLUGIN
 // the letters of "relayedfrom" (Cyrillic, Greek and a few more, the digits 0 and 1, `i` and `|`) read as that letter, and what is left must start with "relayedfrom". Any
 // other letter is itself, so a description in another script is no match. The list is not every confusable: the reason line of the relay's dialog is what tells it from
 // one it lacks, so a description that holds that sentence is refused too, and so is one with a character that shows as blank or turns the text round.
-const LOOKALIKES = new Map(Object.entries({ '\u0430': 'a', '\u0251': 'a', '\u03b1': 'a', '\u0435': 'e', '\u03b5': 'e', '\u043e': 'o', '\u03bf': 'o', '\u0585': 'o', '0': 'o', '\u0443': 'y', '\u04af': 'y', '\u03b3': 'y', '\u0456': 'l', '\u04cf': 'l', '\u03b9': 'l', '\u01c0': 'l', 'i': 'l', '|': 'l', '1': 'l', '\u0501': 'd', '\u0433': 'r', '\u1d26': 'r', '\u043c': 'm', '\u0192': 'f' }))
-const HIDDEN_RE = /[\u115f\u1160\u3164\uffa0\u200e\u200f\u061c\u202a-\u202e\u2066-\u2069]/
+const LOOKALIKES = new Map(Object.entries({ '\u0430': 'a', '\u0251': 'a', '\u03b1': 'a', '\u0435': 'e', '\u03b5': 'e', '\u043e': 'o', '\u03bf': 'o', '\u0585': 'o', '0': 'o', '\u0443': 'y', '\u04af': 'y', '\u03b3': 'y', '\u0456': 'l', '\u04cf': 'l', '\u03b9': 'l', '\u01c0': 'l', 'i': 'l', '|': 'l', '1': 'l', '\u0501': 'd', '\u0433': 'r', '\u1d26': 'r', '\u027e': 'r', '\u043c': 'm', '\u03bc': 'm', '\u03c5': 'y', '\u0192': 'f' }))
+const HIDDEN_RE = /[\u115f\u1160\u3164\uffa0\u202a-\u202e\u2066-\u2069]/
 const fold = (s: string): string => s.normalize('NFKD').toLowerCase().replace(/[^\p{L}\p{N}|]/gu, '').replace(/[^a-z]|i/g, (c) => LOOKALIKES.get(c) ?? c)
 const RELAYED = fold('relayedfrom')
 const TELL = fold('yourclickdecides')
-const reserved = (d: unknown): boolean => {
+// The refusal a Bash description earns, if any: the reserved one, or the one for a character or sentence that could pass it for the relay's. The marks right-to-left text carries
+// (U+200E, U+200F, U+061C) are format characters, which fold() drops.
+const refusal = (d: unknown): string | undefined => {
   const raw = String(d ?? '')
   const s = fold(raw)
-  return HIDDEN_RE.test(raw) || s.startsWith(RELAYED) || s.includes(TELL)
+  return s.startsWith(RELAYED) ? T['dialog.relay.reserved']({}) : HIDDEN_RE.test(raw) || s.includes(TELL) ? T['dialog.relay.hidden']({}) : undefined
 }
 const mine = (tool: unknown, input: any): boolean => {
   const p = mem.proxy
@@ -64,7 +66,8 @@ const nativeCheck = (input: any, r: any): unknown =>
 export async function toolCheck($: any, e: any, next: any) {
   const r = await next(e)
   if (isProxy(e.tool, e.input, next)) return e.tool === 'Bash' ? nativeCheck(e.input, r) : r
-  if (e.tool === 'Bash' && reserved(e.input?.description)) return { decision: 'deny', reason: T['dialog.relay.reserved']({}) }
+  const why = e.tool === 'Bash' ? refusal(e.input?.description) : undefined
+  if (why !== undefined) return { decision: 'deny', reason: why }
   try {
     if (r?.decision !== 'allow' && r?.decision !== 'deny' && typeof e.tool_use_id === 'string' && !isSub(e)) {
       const key = joinKey(String(e.tool), e.input)

@@ -467,9 +467,11 @@ test('a self-test whose run was not stopped leaves every ask a question; the rel
   const relayed = { tool: 'Bash', command: 'ls', description: 'Relayed from a lane of its own' }
   const reserved = 'Refused by callboard: a Bash description that starts "Relayed from" is kept for its relay. Use another description.'
   assert.deepEqual(await proxyRun(boss.$, relayed, engine({ result: 'ran' })), { deny: reserved })
-  for (const description of ['Relayed from x', '  relayed  FROM x', 'Ｒelayed from x', 'Relayed​ from x', 'Re­layed from x', 'Rel⁠ayed from x', 'Rеlayed from x', 'Re1ayed-from x', 'RELAYED:FROM x', 'Rélayed from x', 'Relαyed from x', 'Reӏayed frоm x', 'RELAYED FR0M x', 'Rеlаyеd frоm x', 'Relayed frօm x', 'ReIayed from x', 'Re|ayed from x', 'Rel\u1160ayed from x', '\u202emorf deyaleR', 'List files. Your click decides this ask only.']) assert.deepEqual(await toolCheck(boss.$, { tool: 'Bash', input: { command: 'ls', description }, tool_use_id: 't1' }, engine({ decision: 'ask' })), { decision: 'deny', reason: reserved }, description)
+  for (const description of ['Relayed from x', '  relayed  FROM x', 'Ｒelayed from x', 'Relayed​ from x', 'Re­layed from x', 'Rel⁠ayed from x', 'Rеlayed from x', 'Re1ayed-from x', 'RELAYED:FROM x', 'Rélayed from x', 'Relαyed from x', 'Reӏayed frоm x', 'RELAYED FR0M x', 'Rеlаyеd frоm x', 'Relayed frօm x', 'ReIayed from x', 'Re|ayed from x', 'RELAYED FRO\u039c x', 'Relayed f\u027eom x', 'RELA\u03a5ED FROM x']) assert.deepEqual(await toolCheck(boss.$, { tool: 'Bash', input: { command: 'ls', description }, tool_use_id: 't1' }, engine({ decision: 'ask' })), { decision: 'deny', reason: reserved }, description)
   assert.deepEqual(await toolCheck(boss.$, { tool: 'Bash', input: { command: 'ls', description: 'List files relayed from x' }, tool_use_id: 't1' }, engine({ decision: 'ask' })), { decision: 'ask' })
-  for (const description of ['Список файлов в каталоге', 'ファイル一覧を表示する', '列出当前目录中的所有文件', 'Εμφάνιση αρχείων καταλόγου', 'عرض الملفات في المجلد', '20241122153045 build', 'Relay the files', 'Прочитать файл']) {
+  const hidden = 'Refused by callboard: a Bash description may not hold a character that shows as blank or turns the text round, or the sentence "Your click decides this ask only.". Use another description.'
+  for (const description of ['Rel\u1160ayed from x', '\u202emorf deyaleR', 'List files. Your click decides this ask only.']) assert.deepEqual(await toolCheck(boss.$, { tool: 'Bash', input: { command: 'ls', description }, tool_use_id: 't1' }, engine({ decision: 'ask' })), { decision: 'deny', reason: hidden }, description)
+  for (const description of ['Список файлов в каталоге', 'ファイル一覧を表示する', '列出当前目录中的所有文件', 'Εμφάνιση αρχείων καταλόγου', 'عرض الملفات في المجلد', '20241122153045 build', 'Relay the files', 'Прочитать файл', 'عرض\u200f الملفات\u061c في المجلد', 'הצג\u200f את הקבצים\u200e בתיקייה']) {
     assert.deepEqual(await toolCheck(boss.$, { tool: 'Bash', input: { command: 'ls', description }, tool_use_id: 't1' }, engine({ decision: 'ask' })), { decision: 'ask' }, description)
   }
   assert.deepEqual(await proxyJudge(boss.$, { tool: 'Bash', input: relayed }, engine({ decision: 'allow' })), { decision: 'allow' })
@@ -487,7 +489,7 @@ test('a self-test whose run was not stopped leaves every ask a question; the rel
   await permissionRequest(boss.$, { tool_name: 'Bash', tool_input: SELF_TEST, permission_suggestions: suggestions, tool_use_id: 't2' }, spy)
   assert.deepEqual(seen.map((x) => x.permission_suggestions), [[], []], 'every Bash of the plugin goes down the chain with no suggestions')
 })
-test('a deny after his Yes that is not the engine\'s rejection writes nothing and is not put again; a tick that closes the dialog writes nothing and puts it again', async () => {
+test('a run another hook refused after his Yes is not a held run: the dialog is turned off and the question is put; a tick that closes the dialog writes nothing and puts it again', async () => {
   const f = tiers()
   const boss = peer(f, 'sid-boss')
   f.h.sleepMoves = false
@@ -498,11 +500,7 @@ test('a deny after his Yes that is not the engine\'s rejection writes nothing an
   boss.h.toolRun = async () => ({ deny: 'a hook above refused the run' })
   await tickRelay(boss)
   await settle()
-  assert.equal(await readAnswer(f.$, 'aa11bb22cc'), undefined)
-  assert.deepEqual(logRows(f, 'relay-unread'), ['aa11bb22cc'])
-  await tickRelay(boss)
-  await settle()
-  assert.deepEqual([boss.h.bash.length, boss.h.calls.length, mem.native], [2, 0, true])
+  assert.deepEqual([logRows(f, 'relay-ran'), logRows(f, 'relay-unread'), mem.native], [['aa11bb22cc'], [], false], 'an error result that is not the held text reads as a run that was not stopped')
   const g = tiers()
   const b2 = peer(g, 'sid-boss')
   g.h.sleepMoves = false

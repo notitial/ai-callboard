@@ -371,6 +371,7 @@ const fixed: { [K in keyof Fixed]: (p: Fixed[K]) => string } = {
   'dialog.relay.reason': (p) => `Your click decides this ask only.${p.note === undefined ? '' : ` ${summary(p.by, p.note)}`}`,
   'dialog.relay.held': () => 'Held by callboard: a relayed command never runs in this session.',
   'dialog.relay.reserved': () => 'Refused by callboard: a Bash description that starts "Relayed from" is kept for its relay. Use another description.',
+  'dialog.relay.hidden': () => 'Refused by callboard: a Bash description may not hold a character that shows as blank or turns the text round, or the sentence "Your click decides this ask only.". Use another description.',
   'dialog.relay.asks': (p) => `${esc(p.asker)} asks: ${escBlock(p.question)}`,
   'dialog.allow': () => 'Allow',
   'dialog.show': () => 'Show the command',

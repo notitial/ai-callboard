@@ -47,6 +47,8 @@ async function pick($: any, p: Relay, spec: DialogSpec): Promise<Chosen> {
 const answerOf = (r: Chosen): Answer | undefined =>
   r === undefined ? undefined : r === 'dismissed' ? { decision: 'deny' } : 'note' in r ? { decision: 'deny', note: r.note } : r.label === T['dialog.allow']({}) ? { decision: 'allow' } : r.label === T['dialog.deny']({}) ? { decision: 'deny' } : undefined
 
+// A call that did not run: a refusal is `{ deny }`, and a run proxyRun held comes back as the engine's error result carrying its fixed text. A command that ran and failed is an error result too, so only that text counts.
+const stopped = (r: any): boolean => r?.deny !== undefined || (r?.isError === true && typeof r.text === 'string' && r.text.startsWith(T['dialog.relay.held']({})))
 // The engine's own dialog for a relayed command: his Yes reaches the command's run, which proxyRun (ask-hook.ts) stops, and his No is the call's deny, with what he typed as
 // the note. A Yes on a command he changed first writes nothing and is not put again. A refusal before it went to him puts the question form in its place, and so does a run
 // that was not stopped, which also turns this dialog off until a restart.
@@ -54,7 +56,7 @@ async function native($: any, me: Sid, p: Relay, plan: NativePlan): Promise<Answ
   p.native = plan
   const r = await $.agent.call({ tool: 'Bash', input: plan.input }, { signal: p.ctrl.signal })
   if (p.ctrl.signal.aborted) return undefined
-  if (r?.deny === undefined) {
+  if (!stopped(r)) {
     mem.native = false
     await log($, me, 'relay-ran', p.id)
     toast($, T['toast.relayRan']({}))
@@ -64,7 +66,7 @@ async function native($: any, me: Sid, p: Relay, plan: NativePlan): Promise<Answ
   if (p.yes === false) return void toast($, T['toast.relayAmended']({}))
   if (p.yes === true) return { decision: 'allow' }
   // A deny that is not the engine's rejection came from a hook after his click: it is no answer of his.
-  const no = rejectionOf(r.deny)
+  const no = typeof r.deny === 'string' ? rejectionOf(r.deny) : undefined
   return no === undefined ? void (await log($, me, 'relay-unread', p.id)) : { decision: 'deny', ...no }
 }
 // Once a process, before its first relayed command: a command that does nothing goes the way a relayed one does, and the engine's own dialog is used only once its run
@@ -73,7 +75,7 @@ async function selfTest($: any, me: Sid): Promise<void> {
   mem.native = 'testing'
   mem.heard = false
   const r = await Promise.resolve().then(() => $.agent.call({ tool: 'Bash', input: SELF_TEST })).catch(() => undefined)
-  mem.native = mem.heard && r?.deny !== undefined
+  mem.native = mem.heard && stopped(r)
   if (!mem.native) await log($, me, 'relay-native-off')
 }
 

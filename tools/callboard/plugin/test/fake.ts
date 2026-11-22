@@ -151,7 +151,10 @@ export function fake(o: { sid?: string } = {}) {
         if (typeof got === 'string') return { deny: `${no} To tell you how to proceed, the user said:\n${got}` }
         if (typeof got === 'object') run = { ...c.input, ...got }
       }
-      return h.toolRun === undefined ? { result: { stdout: '' } } : h.toolRun({ tool: 'Bash', ...run }, nextOf({ result: { stdout: '' } }))
+      if (h.toolRun === undefined) return { result: { stdout: '' } }
+      // A deny of a tool.run hook reaches the caller as the engine's error result, as on the real engine.
+      const out: any = await h.toolRun({ tool: 'Bash', ...run }, nextOf({ result: { stdout: '' } }))
+      return out?.deny === undefined ? out : { result: `Error: ${out.deny}`, text: out.deny, isError: true }
     }
     if (c.tool === 'Bash') return Promise.race([bash(), aborted])
     const shown = async (): Promise<unknown> => {
