@@ -66,6 +66,7 @@ export async function handoverBegin($: any, me: Sid, r: Request, now: number): P
     return undo('the session could not be renamed')
   }
   mem.handedAt = now
+  mem.cleared = false
   toast($, say({ msg: 'handover.start', p: {} }))
   await ran($, 'clear', '', 10_000)
   staleView()
@@ -73,8 +74,15 @@ export async function handoverBegin($: any, me: Sid, r: Request, now: number): P
 }
 
 // ---- the ticks after it ----
+// A bound marker whose table move landed: the records are the new id's.
+const tableMoved = (m: Marker): m is Marker & { nw: Sid } => m.phase === 'bound' && m.nw !== undefined && !m.failed.includes('table')
 // Back to its own name, then the marker and the counter entry go. The marker stays (and this is tried again) until the registry shows the name.
 async function giveBack($: any, me: Sid, m: Marker, reason: string): Promise<void> {
+  // The new id is gone, so the records come back here first; the marker stays until the table is back.
+  if (tableMoved(m)) {
+    if (!(await updateTable($, (t) => ((r) => (r === 'clash' ? t : r))(handOver(t, m.nw, me, m.name))))) return
+    await Promise.all([moveGoes($, m.nw, me), moveMarks($, m.nw, me), moveTracker($, m.nw, me)])
+  }
   const base = baseOf(m)
   if ((await readOwnRow($, me))?.name !== base) await ran($, 'rename', base, 10_000)
   if ((await readOwnRow($, me))?.name !== base) return
@@ -84,7 +92,7 @@ async function giveBack($: any, me: Sid, m: Marker, reason: string): Promise<voi
 }
 // The takeover: the table, then the goes, marks and watches, then the name, then the note. Each step is idempotent and tried again at the next tick while the marker stands.
 async function takeover($: any, me: Sid, m: Marker, v: View, now: number): Promise<void> {
-  if (v.rows === 'unknown' || v.rows.has(m.old) || m.phase === 'undo' || (m.phase === 'bound' && m.nw !== me)) return
+  if (v.rows === 'unknown' || v.rows.has(m.old) || m.phase === 'undo' || (m.phase === 'bound' && m.nw !== me) || (m.phase === 'clearing' && !mem.cleared)) return
   if (mem.hand?.old !== m.old) mem.hand = { old: m.old, first: now, moves: 0, renames: 0, moved: false, noted: false }
   const h = mem.hand
   if (m.phase === 'clearing') {
@@ -142,7 +150,7 @@ export async function handoverTick($: any, me: Sid, now: number): Promise<void> 
       await rmMarker($, m.old)
     } else if (own?.pid !== m.pid || own.procStart !== m.procStart || mem.handedAt !== m.at) continue
     else if (m.old === me) {
-      if (m.phase !== 'clearing' || now - m.at >= CLEAR_WAIT_MS) await giveBack($, me, m, m.phase === 'clearing' ? 'the session could not be cleared' : 'the records could not be moved')
+      if (m.phase !== 'clearing' || now - m.at >= CLEAR_WAIT_MS) await giveBack($, me, m, m.phase === 'clearing' ? 'the session could not be cleared' : tableMoved(m) ? 'the old conversation was resumed' : 'the records could not be moved')
     } else await takeover($, me, m, v, now)
   }
 }

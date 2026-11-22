@@ -1,4 +1,4 @@
-// The /callboard command: its thirteen forms, the settings schema, and the origin rule. Pure. Trust rule held here: a form that is not read-only (it widens what a session
+// The /callboard command: its fourteen forms, the settings schema, and the origin rule. Pure. Trust rule held here: a form that is not read-only (it widens what a session
 // may do, or changes a setting or a go or the window) runs only when the caller says it came from the person's own typed turn. The origin is an input: the adapter decides
 // it, and originOk below is the one place it is judged. Anything but exactly `typed` counts as not typed.
 import type { Config, Decision, LaneEffort, LaneModel } from './model.ts'

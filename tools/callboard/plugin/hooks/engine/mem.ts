@@ -89,6 +89,8 @@ const fresh = () => ({
   hand: undefined as { old: string; first: number; moves: number; renames: number; moved: boolean; noted: boolean } | undefined,
   // When this process last handed a session over: the gap between two handovers is counted on it, since the session's own state does not cross a `/clear`.
   handedAt: undefined as number | undefined,
+  // Whether the last `/clear` or `/resume` of this process was a `/clear`: a handover's takeover waits for it, so a `/resume` of another conversation never inherits the old row.
+  cleared: false,
 })
 export const mem = fresh()
 // The reading of the machine is kept but read again at the next use; the last good table stays its fallback.

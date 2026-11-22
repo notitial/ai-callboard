@@ -198,11 +198,12 @@ export async function updateHandovers($: any, f: (h: Handovers) => Handovers): P
   })
   return done === true
 }
-// Every go file is read whole (a file that does not parse would not move with its giver).
+// Every go file is read whole (a file that does not parse would not move with its giver); listGoes runs first, so a go that ended long ago is gone before the files are counted.
 export async function goesIntact($: any): Promise<boolean> {
+  const live = await listGoes($)
   const d = await path($, 'go')
   const names = d === undefined ? [] : ((await $.fs.list(d).catch(() => [])) as { name: string }[]).filter((f) => /^[A-Za-z0-9]{4,32}\.json$/.test(f.name))
-  return names.length <= 64 && (await listGoes($)).length === names.length
+  return names.length <= 64 && live.length === names.length
 }
 // The goes the old id gave are the new id's, and so are its ask marks (an escalation or a told mark it made); a mark the new id already has is left. True when none failed.
 // Under the goes lock, as `go off` removes them: a go the person just ended is not written back.

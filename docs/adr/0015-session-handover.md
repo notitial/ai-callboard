@@ -56,13 +56,13 @@ entry the new id already has wins); then the session is renamed back to `NAME` (
 belongs to the process, so this is always needed; the manager is found only by name and retries on every quiet tick); then the
 session is owed one turn with the handover note and the continuation, naming any step that did not land, sent once it is quiet. A
 loose session has no row: it is renamed only. The new session takes nothing else from the file system: a marker is read only from a
-file named for its own old id, and only by the process that wrote it (its pid and start time, and the time its own handover began, which only that process's memory holds); once the table moved, only the session that moved it (named in the marker) finishes it.
+file named for its own old id, and only by the process that wrote it (its pid and start time, and the time its own handover began, which only that process's memory holds); once the table moved, only the session that moved it (named in the marker) finishes it. The takeover also waits for a `/clear` of this process with no `/resume` after it, so a `/resume` of an unrelated conversation in the gap never inherits the old row.
 
 **A takeover that cannot finish is undone, not left half done.** If the table write meets a row already keyed to the new id,
 or fails for 30 seconds, the new session marks the handover for undo and runs `/resume <old id>`: the old conversation comes back with the old id, which still
 owns every record (the table write is first), renames itself back to `NAME`, removes the marker and its counter entry and says
 "did not run: the records could not be moved". If the resume does not land either, the new session moves nothing else (the records stay with the old id) and goes on with a
-`table` failure in its note; should the resume land late, the old session finds a live id with a bound marker and undoes it the same way. If `/clear` never runs, the old session renames itself back after a minute. A marker whose process
+`table` failure in its note; should the resume land late, the old session finds a live id with a bound marker and undoes it the same way. The old id resumed after the table did move takes the row, the children, the goes and the marks back from the new id first, and says "did not run: the old conversation was resumed". If `/clear` never runs, the old session renames itself back after a minute. A marker whose process
 is gone for 30 seconds, or that is ten minutes old, is removed by any session.
 
 **Process memory.** The plugin's module memory outlives a `/clear`, so what belongs to the old id (owed turns, asks cache,

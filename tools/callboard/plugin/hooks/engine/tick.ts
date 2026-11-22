@@ -58,6 +58,7 @@ export async function sessionEnd($: any, e: any, next: any) {
   // The process goes on under a new session id after a `/clear` (a handover's or one typed) and after a `/resume`: what belonged to the id that ended does not carry over.
   if (e?.reason === 'clear' || e?.reason === 'resume') {
     resetSession()
+    mem.cleared = e.reason === 'clear'
     staleView()
   }
   return next(e)

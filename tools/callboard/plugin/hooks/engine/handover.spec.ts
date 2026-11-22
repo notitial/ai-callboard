@@ -294,3 +294,49 @@ test('once the table moved, the new id is handing too, so no tick copies NAME~N 
   assert.equal(JSON.parse(file(f, 'handover/sid-me.json')!).nw, 'sid-new')
   assert.deepEqual([...(await getView(f.$, true)).handing].sort(), ['sid-me', 'sid-new'])
 })
+
+test('a /resume of another conversation before the /clear lands does not inherit the old row', async () => {
+  const f = machine()
+  await begin(f)
+  f.h.files.set('/Users/x/.claude/sessions/10.json', JSON.stringify({ ...rowOf(f, 10), sessionId: 'sid-x' }))
+  f.h.sid = 'sid-x'
+  await sessionEnd(f.$, { reason: 'resume' }, next)
+  const before = file(f, 'sessions.json')
+  f.h.now += 1_000
+  await handoverTick(f.$, 'sid-x', f.h.now)
+  assert.equal(file(f, 'sessions.json'), before)
+  assert.equal(JSON.parse(file(f, 'handover/sid-me.json')!).phase, 'clearing')
+})
+
+test('the old id resumed after the table moved takes the row, the children, the goes and the marks back', async () => {
+  const f = machine()
+  f.h.files.set(`${V2}/go/gogo1234.json`, JSON.stringify({ id: 'gogo1234', giver: 'sid-me', text: 'build it', end: T0 + 3_600_000 }))
+  f.h.files.set(`${V2}/asks/zz11yy22xx.up.sid-me`, '{}')
+  await begin(f)
+  await cleared(f)
+  for (let i = 0; i < 2; i++) {
+    f.h.now += 1_000
+    await handoverTick(f.$, 'sid-new', f.h.now)
+  }
+  assert.equal(JSON.parse(file(f, 'handover/sid-me.json')!).phase, 'bound')
+  assert.equal(JSON.parse(file(f, 'go/gogo1234.json')!).giver, 'sid-new')
+  await f.$.command.run({ command: 'resume', args: 'sid-me' })
+  await sessionEnd(f.$, { reason: 'resume' }, next)
+  f.h.now += 1_000
+  await handoverTick(f.$, 'sid-me', f.h.now)
+  assert.equal(file(f, 'handover/sid-me.json'), undefined)
+  const t = JSON.parse(file(f, 'sessions.json')!)
+  assert.deepEqual(Object.keys(t).sort(), ['sid-lane', 'sid-me'])
+  assert.deepEqual([t['sid-me'].name, t['sid-me'].lead, t['sid-lane'].under], ['LEAD', { repos: [] }, 'sid-me'])
+  assert.equal(JSON.parse(file(f, 'go/gogo1234.json')!).giver, 'sid-me')
+  assert.equal(file(f, 'asks/zz11yy22xx.up.sid-me'), '{}')
+  assert.equal(rowOf(f, 10).name, 'LEAD')
+  assert.deepEqual(mem.owed, [T['handover.notRun']({ reason: 'the old conversation was resumed' })])
+})
+
+test('a go that ended long ago does not stop a handover', async () => {
+  const f = machine()
+  f.h.files.set(`${V2}/go/gogo1234.json`, JSON.stringify({ id: 'gogo1234', giver: 'sid-me', text: 'old', end: T0 - 2 * 3_600_000 }))
+  assert.equal(await begin(f), true)
+  assert.equal(file(f, 'go/gogo1234.json'), undefined)
+})
