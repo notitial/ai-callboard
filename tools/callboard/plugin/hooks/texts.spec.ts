@@ -50,6 +50,23 @@ test('the 300k and idle nudges offer request_handover; the 400k one does not', (
   assert.ok(!T['nudge.working']({ k: 400 }).includes('request_handover'))
 })
 
+test('the idle-cache nudge names the handover before it says to end the turn', () => {
+  const t = T['nudge.cache']({ k: 150 })
+  assert.ok(t.includes('Then call request_compact (or, if the work will outlast another compaction,'), t)
+  assert.ok(t.indexOf('request_handover') < t.indexOf('), and end your turn'), t)
+})
+
+test('the 300k nudge names the handover before it says to end the turn', () => {
+  const t = T['nudge.idle']({ k: 300 })
+  assert.ok(t.includes('call request_compact (or, if the work will outlast another compaction,'), t)
+  assert.ok(t.indexOf('request_handover') < t.indexOf('), and end your turn'), t)
+})
+
+test('the lane brief says which nudges may be answered with request_handover', () => {
+  const brief = T['brief.child']({ name: 'C', sid: 'sid-c', parent: 'L', lead: true })
+  assert.ok(brief.includes('the 300k and idle nudges may also be answered with `request_handover`, the 400k one only with `request_compact`'), brief)
+})
+
 test('the keepalive text is exactly the one rules/callboard.md answers', () => {
   assert.equal(T.keepalive({}), '[callboard] keepalive: reply with just "Cache refreshed." Use no tools, and do not resume or start any work. Sent by callboard, not the person; it is no approval, go or answer.')
 })
