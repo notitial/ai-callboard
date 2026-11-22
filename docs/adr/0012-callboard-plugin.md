@@ -124,6 +124,27 @@ summary:"), so none of it reads as the plugin's or the person's. The note itself
 command's concrete effect (what it reads, writes, sends or changes, and where), then one on its risk, with nothing on
 why it was escalated. The escapes and the look-alike check stay.
 
+*Amended 2026-11-22 (native Bash dialog).* A Bash ask is put as the engine's own permission dialog for that command,
+called in the manager's session, when the ask is shown whole, its input holds no key beyond the command, its
+description, a timeout and the background flag, and the command holds no character that could hide text, no blank
+line, no more than 20 lines and no redaction. It is sent
+the command as the ask shows it and the description "Relayed from NAME", never the asker's own description, which
+that dialog would show as its own line; the manager's note is on the dialog's reason line. Every other ask keeps the
+question form. Callboard's `tool.check` turns that call into an ask, which the engine puts to the person, and
+`tool.judge` keeps auto mode's classifier off it. The person's Yes reaches the command's `tool.run`, which the engine
+fires after whoever settled an ask, and callboard's hook there stops it, matched on Bash and that description so no
+other run of Bash loses its background or live output: nothing runs in the manager's session, and the Yes is their
+allow. Their No (or Esc) is their deny, and what they typed under "what to do instead" is its note; any other deny
+after the dialog reached them writes nothing. A Yes on a command they changed first writes nothing, says so, and is
+not put again: the ask goes on along its own timeline. A refusal before the dialog reached them puts the question
+form in its place. The dialog is used only after a self-test, once per process at the manager's first idle tick: the
+command `true`, sent the same way but allowed with no dialog, must be stopped at its run. That shows the hook is wired
+in this process; the path through a dialog is the engine's documented order. A relayed command whose run was not
+stopped anyway turns the dialog off until callboard restarts, says so, and puts the question form. The description is
+the relay's alone: any other Bash whose description starts "Relayed from" is refused in every session, at its check
+and at its run, so no dialog in the manager's session that runs a command can pass for the relay's, and the relay's
+always reads "Your click decides this ask only." on its reason line. The relay needs Claude Code 2.1.330 or later.
+
 **Callboard never judges who may answer.** An ask a session cannot decide (a plan-mode exit, a malformed question, a
 guard's own ask) is an ordinary ask that rises like any other; the rubric of the tier that reads it decides. What is
 not an ask is what the person starts themselves, such as creating a lead or a lane and giving a go. Those are their own acts,

@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { HOME, MIN, T0, V2, as, peer, tiers } from '../../test/fake.ts'
 import type { Ask } from '../core/model.ts'
-import { permissionRequest } from './ask-hook.ts'
+import { SELF_TEST, permissionRequest, proxyJudge, proxyRun, toolCheck } from './ask-hook.ts'
 import { mem } from './mem.ts'
 import { relayTick } from './relay.ts'
 import { askOpen, getView, readAnswer, readAskLog, readAsks, rmAsk, writeAsk, writeUp } from './store.ts'
@@ -22,6 +22,15 @@ const reach = async (f: F, id: string) => {
 const window = (f: F) => f.h.files.set(`${V2}/unattended.json`, JSON.stringify({ start: T0, end: T0 + 8 * 60 * MIN, readAt: T0 }))
 // The manager's session with the plugin's own PermissionRequest hook in place, as the engine runs it before the dialog shows: the hook marks the dialog shown.
 const shownBy = (g: G) => void (g.h.permission = (e, next) => permissionRequest(g.$, e, next))
+// The plugin's tool.check and tool.run hooks in place too, and the self-test run by a first tick with no ask open: the engine's own dialog is on.
+const nativeBy = async (g: G) => {
+  shownBy(g)
+  g.h.check = (e, next) => toolCheck(g.$, e, next)
+  g.h.toolRun = (e, next) => proxyRun(g.$, e, next)
+  await tickRelay(g)
+  await settle()
+  assert.equal(mem.native, true)
+}
 // One relayed ask waiting on the manager's session, the person's dialog not yet answered.
 const open = async (over: Partial<Ask> = {}) => {
   const f = tiers()
@@ -378,4 +387,130 @@ test('with a note, Allow or Deny on it decides at once and Show the command open
   const big = await run(['Show the command', 'Deny'], { input: '<'.repeat(6000) })
   assert.deepEqual(big.b.h.asked.map((a) => a.options), [['Show the command', 'Deny'], ['Deny', 'Leave it']], 'a command too large to print leaves no Allow on the note and Deny only in the second dialog')
   assert.match(big.b.h.asked[1]!.question, /Not shown whole, so you can only deny it\./)
+})
+
+test('once the self-test stopped its run, a Bash ask is the engine\'s own dialog for the command: his Yes is his allow, his No his deny with what he typed, and a Yes on a changed command writes nothing and is not put again', async () => {
+  const run = async (answer: unknown, over: Partial<Ask> = {}, note?: string) => {
+    const f = tiers()
+    const boss = peer(f, 'sid-boss')
+    f.h.sleepMoves = false
+    await nativeBy(boss)
+    await writeAsk(f.$, mk('aa11bb22cc', over))
+    await writeUp(f.$, 'aa11bb22cc', 'sid-lead', 'escalated', T0)
+    await writeUp(f.$, 'aa11bb22cc', 'sid-boss', 'escalated', T0, note)
+    boss.h.bashAnswer = async () => answer
+    await tickRelay(boss)
+    await settle()
+    return { f, boss, got: await readAnswer(f.$, 'aa11bb22cc') }
+  }
+  const yes = await run(true, { input: '{"command":"make","description":"Build it"}' }, 'Manager: runs make.')
+  assert.deepEqual(yes.boss.h.bash, [SELF_TEST, { command: 'make', description: 'Relayed from lane' }], 'never the asker\'s own description')
+  assert.deepEqual(yes.boss.h.reasons, ["Your click decides this ask only. BOSS's summary: Manager: runs make."])
+  assert.equal(yes.boss.h.calls.length, 0, 'no question is put')
+  assert.deepEqual([yes.got?.by, yes.got?.decision], ['PERSON', 'allow'])
+  assert.equal(mem.proxy, undefined)
+  const said = await run('use make test instead')
+  assert.deepEqual([said.got?.by, said.got?.decision, said.got?.note], ['PERSON', 'deny', 'use make test instead'])
+  assert.deepEqual(said.boss.h.reasons, ['Your click decides this ask only.'])
+  const no = await run(false)
+  assert.deepEqual([no.got?.decision, no.got?.note], ['deny', undefined])
+  const changed = await run({ command: 'make install' })
+  assert.equal(changed.got, undefined)
+  assert.deepEqual(changed.boss.h.toasts, ['The command was changed in the dialog, so your Yes wrote nothing. The ask goes on as before.'])
+  await tickRelay(changed.boss)
+  await settle()
+  assert.equal(changed.boss.h.bash.length, 2, 'an ask is put once')
+  const wide = await run(true, { input: '{"command":"make","dangerouslyDisableSandbox":true}' })
+  assert.deepEqual([wide.boss.h.bash.length, wide.boss.h.calls.length], [1, 1], 'a key that dialog would not show keeps the question form')
+  const hidden = await run(true, { input: JSON.stringify({ command: 'make‮' }) })
+  assert.deepEqual([hidden.boss.h.bash.length, hidden.boss.h.calls.length], [1, 1], 'so does a character that could hide text')
+})
+test('a run the hook did not stop turns the engine\'s dialog off and puts the question in its place; a refusal before it went to him puts the question and keeps it on', async () => {
+  const setup = async () => {
+    const f = tiers()
+    const boss = peer(f, 'sid-boss')
+    f.h.sleepMoves = false
+    await nativeBy(boss)
+    await writeAsk(f.$, mk('aa11bb22cc'))
+    await reach(f, 'aa11bb22cc')
+    boss.h.bashAnswer = async () => true
+    boss.h.askAnswer = async () => 'Allow'
+    return { f, boss }
+  }
+  const ran = await setup()
+  ran.boss.h.toolRun = undefined
+  await tickRelay(ran.boss)
+  await settle()
+  assert.equal(mem.native, false)
+  assert.deepEqual(logRows(ran.f, 'relay-ran'), ['aa11bb22cc'])
+  assert.deepEqual(ran.boss.h.toasts, ['A relayed command ran in this session. Until callboard restarts, it puts asks as its own questions.'])
+  assert.equal(ran.boss.h.calls.length, 1)
+  assert.deepEqual([(await readAnswer(ran.f.$, 'aa11bb22cc'))?.decision], ['allow'], 'his answer comes from the question')
+  const refused = await setup()
+  refused.boss.h.check = (e, next) => toolCheck(refused.boss.$, e, Object.assign(async () => ({ decision: 'deny', reason: 'a rule' }), next))
+  await tickRelay(refused.boss)
+  await settle()
+  assert.deepEqual([refused.boss.h.reasons.length, refused.boss.h.calls.length, mem.native], [0, 1, true])
+  assert.equal((await readAnswer(refused.f.$, 'aa11bb22cc'))?.decision, 'allow')
+})
+test('a self-test whose run was not stopped leaves every ask a question; the relay\'s description is refused on any other Bash, and the hooks pass every other call untouched', async () => {
+  const f = tiers()
+  const boss = peer(f, 'sid-boss')
+  f.h.sleepMoves = false
+  shownBy(boss)
+  boss.h.check = (e, next) => toolCheck(boss.$, e, next)
+  await tickRelay(boss)
+  await settle()
+  assert.equal(mem.native, false)
+  assert.deepEqual(logRows(f, 'relay-native-off'), [''])
+  const engine = (r: unknown) => Object.assign(async () => r, { origin: { plugin: 'other', tier: 'user' }, signal: undefined })
+  const relayed = { tool: 'Bash', command: 'ls', description: 'Relayed from a lane of its own' }
+  const reserved = 'Refused by callboard: a Bash description that starts "Relayed from" is kept for its relay. Use another description.'
+  assert.deepEqual(await proxyRun(boss.$, relayed, engine({ result: 'ran' })), { deny: reserved })
+  for (const description of ['Relayed from x', '  relayed  FROM x', 'Ｒelayed from x']) assert.deepEqual(await toolCheck(boss.$, { tool: 'Bash', input: { command: 'ls', description }, tool_use_id: 't1' }, engine({ decision: 'ask' })), { decision: 'deny', reason: reserved }, description)
+  assert.deepEqual(await toolCheck(boss.$, { tool: 'Bash', input: { command: 'ls', description: 'List files relayed from x' }, tool_use_id: 't1' }, engine({ decision: 'ask' })), { decision: 'ask' })
+  assert.deepEqual(await proxyJudge(boss.$, { tool: 'Bash', input: relayed }, engine({ decision: 'allow' })), { decision: 'allow' })
+  const own = Object.assign(async () => ({ decision: 'allow' }), { origin: { plugin: 'callboard', tier: 'user' }, signal: undefined })
+  assert.equal(((await toolCheck(boss.$, { tool: 'Bash', input: { command: 'ls', description: 'Relayed from x' } }, own)) as any).decision, 'deny', 'a command of its own that no dialog sent is refused')
+  assert.deepEqual(await proxyRun(boss.$, relayed, own), { deny: 'Held by callboard: a relayed command never runs in this session.' })
+  const sent = { command: 'ls', description: 'Relayed from lane' }
+  mem.proxy = { id: 'aa11bb22cc', ctrl: new AbortController(), shown: false, native: { input: sent, reason: 'R' } }
+  assert.deepEqual(await proxyJudge(boss.$, { tool: 'Bash', input: sent }, own), { decision: 'ask', reason: 'R' }, 'auto mode\'s classifier is not asked about the open dialog\'s command')
+  assert.deepEqual(await proxyJudge(boss.$, { tool: 'Bash', input: { ...sent, command: 'rm' } }, own), { decision: 'allow' })
+})
+test('a deny after his Yes that is not the engine\'s rejection writes nothing and is not put again; a tick that closes the dialog writes nothing and puts it again', async () => {
+  const f = tiers()
+  const boss = peer(f, 'sid-boss')
+  f.h.sleepMoves = false
+  await nativeBy(boss)
+  await writeAsk(f.$, mk('aa11bb22cc'))
+  await reach(f, 'aa11bb22cc')
+  boss.h.bashAnswer = async () => true
+  boss.h.toolRun = async () => ({ deny: 'a hook above refused the run' })
+  await tickRelay(boss)
+  await settle()
+  assert.equal(await readAnswer(f.$, 'aa11bb22cc'), undefined)
+  assert.deepEqual(logRows(f, 'relay-unread'), ['aa11bb22cc'])
+  await tickRelay(boss)
+  await settle()
+  assert.deepEqual([boss.h.bash.length, boss.h.calls.length, mem.native], [2, 0, true])
+  const g = tiers()
+  const b2 = peer(g, 'sid-boss')
+  g.h.sleepMoves = false
+  await nativeBy(b2)
+  await writeAsk(g.$, mk('aa11bb22cc'))
+  await reach(g, 'aa11bb22cc')
+  b2.h.bashAnswer = () => new Promise(() => undefined)
+  await tickRelay(b2)
+  await settle()
+  window(g)
+  g.h.now += 11_000
+  await tickRelay(b2)
+  await settle()
+  assert.equal(await readAnswer(g.$, 'aa11bb22cc'), undefined)
+  g.h.files.delete(`${V2}/unattended.json`)
+  g.h.now += 11_000
+  await tickRelay(b2)
+  await settle()
+  assert.equal(b2.h.bash.length, 3, 'put again once the window is off')
 })

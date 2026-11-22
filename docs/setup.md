@@ -27,6 +27,7 @@ working tree or the checkout's git store. Callboard (step 1) and the rule link (
 - [ai-toolkit](https://github.com/notitial/ai-toolkit) installed as the base (`/setup-claude`). Its status line
   writes the meter the usage watcher reads.
 - node 22.18 or later, the `claude` CLI, `/usr/bin/python3` 3.9 or later (from the Command Line Tools) and `jq`.
+- Claude Code 2.1.330 or later: the relay needs `$.agent.call` and its abort.
 - The checkout sits outside the ai-toolkit checkout (see [ai-toolkit's setup and cleanup](#ai-toolkits-setup-and-cleanup)).
 
 ```

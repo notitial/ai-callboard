@@ -1,16 +1,18 @@
 // The relay: by day, an ask that has reached the person is put to them in the manager's session as an AskUserQuestion that callboard calls there itself (`$.agent.call`), one at a
-// time, raised only while the manager is idle: the asker's own questions, or for a tool ask a question that names the call. The dialog is the engine's own, and its abort signal
+// time, raised only while the manager is idle: the asker's own questions, or for a tool ask a question that names the call, or for a plain Bash command the engine's own
+// permission dialog for that command, whose run the ask hook stops (proxyRun) and which is used only after a self-test. The dialog is the engine's own, and its abort signal
 // is the plugin's handle on it: each tick first closes the open one once its ask is closed elsewhere or a window is not off. Trust rules held here: the answer is the person's pick
 // in that dialog, written as theirs by answerAsk after the ask is read again (a pick on a closed ask writes nothing and says so); only a dialog the ask hook saw go to the person
 // is theirs, so a result or a refusal that came before it writes nothing, and a dismissal after it is their deny; a dialog that was cut or closed by itself writes nothing and is
-// put again; nothing is raised unless the window reads off; the dialogs and the OS notification name the asker by a plain name or its id, and the notification names the tool, never the command.
+// put again; a Yes on a command changed in the dialog writes nothing; nothing is raised unless the window reads off; the dialogs and the OS notification name the asker by a plain name or its id, and the notification names the tool, never the command.
 import type { Ask, Question, Sid, View } from '../core/model.ts'
 import { NAME_RE, PERSON, nameOf } from '../core/model.ts'
 import type { Picked } from '../core/asks.ts'
-import { QUESTION_TOOL, readAnswers } from '../core/asks.ts'
+import { QUESTION_TOOL, readAnswers, rejectionOf } from '../core/asks.ts'
 import { T } from '../texts.ts'
-import type { AskQuestion, DialogSpec } from '../ui.ts'
-import { askOf, mirrorOf, relayDialog, relayNote } from '../ui.ts'
+import type { AskQuestion, DialogSpec, NativePlan } from '../ui.ts'
+import { askOf, mirrorOf, nativeOf, relayDialog, relayNote } from '../ui.ts'
+import { SELF_TEST } from './ask-hook.ts'
 import { log, notify, toast, unnotify, windowNow } from './io.ts'
 import { mem } from './mem.ts'
 import { askOpen, askState, getView, guardOk, offFile } from './store.ts'
@@ -45,9 +47,42 @@ async function pick($: any, p: Relay, spec: DialogSpec): Promise<Chosen> {
 const answerOf = (r: Chosen): Answer | undefined =>
   r === undefined ? undefined : r === 'dismissed' ? { decision: 'deny' } : 'note' in r ? { decision: 'deny', note: r.note } : r.label === T['dialog.allow']({}) ? { decision: 'allow' } : r.label === T['dialog.deny']({}) ? { decision: 'deny' } : undefined
 
+// The engine's own dialog for a relayed command: his Yes reaches the command's run, which proxyRun (ask-hook.ts) stops, and his No is the call's deny, with what he typed as
+// the note. A Yes on a command he changed first writes nothing and is not put again. A refusal before it went to him puts the question form in its place, and so does a run
+// that was not stopped, which also turns this dialog off until a restart.
+async function native($: any, me: Sid, p: Relay, plan: NativePlan): Promise<Answer | undefined | 'fallback'> {
+  p.native = plan
+  const r = await $.agent.call({ tool: 'Bash', input: plan.input }, { signal: p.ctrl.signal })
+  if (p.ctrl.signal.aborted) return undefined
+  if (r?.deny === undefined) {
+    mem.native = false
+    await log($, me, 'relay-ran', p.id)
+    toast($, T['toast.relayRan']({}))
+    return 'fallback'
+  }
+  if (!p.shown) return 'fallback'
+  if (p.yes === false) return void toast($, T['toast.relayAmended']({}))
+  if (p.yes === true) return { decision: 'allow' }
+  // A deny that is not the engine's rejection came from a hook after his click: it is no answer of his.
+  const no = rejectionOf(r.deny)
+  return no === undefined ? void (await log($, me, 'relay-unread', p.id)) : { decision: 'deny', ...no }
+}
+// Once a process, before its first relayed command: a command that does nothing goes the way a relayed one does, and the engine's own dialog is used only once its run
+// was stopped. Until then, and when it was not, a command is put as a question.
+async function selfTest($: any, me: Sid): Promise<void> {
+  mem.native = 'testing'
+  mem.heard = false
+  const r = await Promise.resolve().then(() => $.agent.call({ tool: 'Bash', input: SELF_TEST })).catch(() => undefined)
+  mem.native = mem.heard && r?.deny !== undefined
+  if (!mem.native) await log($, me, 'relay-native-off')
+}
+
 // A tool ask the manager escalated with a note: the note first, where Allow or Deny decides and Show the command opens the command's own dialog; an ask closed between the two
-// ends it. Without a note, or for a cut ask, it is the command's dialog alone.
-async function relayCall($: any, p: Relay, ask: Ask, name: string, note: string | undefined, by: string | undefined): Promise<Answer | undefined> {
+// ends it. Without a note, or for a cut ask, it is the command's dialog alone. A Bash ask is the engine's own dialog where nativeOf allows it.
+async function relayCall($: any, me: Sid, p: Relay, ask: Ask, name: string, note: string | undefined, by: string | undefined): Promise<Answer | undefined> {
+  const plan = mem.native === true ? nativeOf(ask, name, note, by) : undefined
+  const a = plan === undefined ? 'fallback' : await native($, me, p, plan)
+  if (a !== 'fallback') return a
   if (note !== undefined && !ask.cut) {
     const r = await pick($, p, relayNote(name, ask.tool, note, ask.input, by))
     if (r === undefined || r === 'dismissed' || 'note' in r || r.label !== T['dialog.show']({})) return answerOf(r)
@@ -75,7 +110,7 @@ async function relayRun($: any, me: Sid, ask: Ask, v: View): Promise<void> {
     const qs = ask.questions ?? (ask.question === undefined ? undefined : [ask.question])
     // The note the person reads is the manager's own, never a lead's: an escalate of the manager's with no note shows the command.
     const note = qs === undefined ? (await askState($, ask.id)).ups.find((u) => u.kind === 'escalated' && u.by === v.manager)?.note : undefined
-    const a = await (qs === undefined ? relayCall($, p, ask, name, note, plain(nameOf(v, me))) : relayQuestions($, p, ask, name, qs))
+    const a = await (qs === undefined ? relayCall($, me, p, ask, name, note, plain(nameOf(v, me))) : relayQuestions($, p, ask, name, qs))
     if (a === undefined) {
       // Cut while still open (a window came on), or closed by itself while he was idle: offered again. Never shown to him: not offered again, and logged.
       if (p.ctrl.signal.aborted || p.idle) mem.relayed.delete(ask.id)
@@ -100,6 +135,7 @@ export async function relayTick($: any, me: Sid, v: View, now: number): Promise<
   const p = mem.proxy
   if (p !== undefined && !p.ctrl.signal.aborted && ((await windowNow($)).state !== 'off' || !(await askOpen($, p.id)))) p.ctrl.abort()
   if (mem.proxy !== undefined || v.manager !== me || (await offFile($)) || !(await guardOk($)) || !(await idle($, me))) return
+  if (mem.native === undefined) void selfTest($, me).catch(() => undefined)
   let hit: { ask: Ask } | undefined
   for (const o of (await openAsks($, me, v, now)).open) if (o.st.relay && o.ask.asker !== me && !mem.relayed.has(o.ask.id) && (o.ask.tool !== QUESTION_TOOL || o.ask.question !== undefined || o.ask.questions !== undefined) && (await askOpen($, o.ask.id))) {
       hit = o

@@ -94,7 +94,8 @@ test('the relay puts an ask to the person as a call of its own in the manager\'s
   await writeUp(f.$, id, 'sid-boss', 'escalated', T0)
   const clock = engine(on, boss)
   const calls: { e: any; signal?: AbortSignal }[] = []
-  on('agent.call', (_: any, e: any, next: any) => new Promise((done) => {
+  // The self-test's command is refused here, so the ask is put as a question.
+  on('agent.call', (_: any, e: any, next: any) => e.tool === 'Bash' ? { deny: 'refused' } : new Promise((done) => {
     calls.push({ e, signal: next.signal })
     next.signal?.addEventListener('abort', () => done({ deny: 'cut' }), { once: true })
   }))

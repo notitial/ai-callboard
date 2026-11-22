@@ -5,6 +5,7 @@ import type { Ask, AskEvent, Owner, Sid } from '../core/model.ts'
 import { capability, isOff, parent } from '../core/model.ts'
 import type { CheckFacts } from '../core/asks.ts'
 import { QUESTION_TOOL, awakeAdd, classify, decide, inputText, questionView, questionsView, stage } from '../core/asks.ts'
+import { T } from '../texts.ts'
 import { PRINT_CAP, printed } from '../ui.ts'
 import { log, newId, pause, toast, windowNow } from './io.ts'
 import { mem } from './mem.ts'
@@ -28,15 +29,28 @@ const sorted = (_k: string, v: unknown): unknown => {
 const joinKey = (tool: string, input: unknown): string => `${tool}\n${JSON.stringify(input, sorted)}`
 const decided = (x: any): boolean => x?.decision !== undefined || x?.hookSpecificOutput?.decision !== undefined
 
-// The relay's own dialog in the manager's session (engine/relay.ts): the AskUserQuestion this plugin called there itself, known by its first question. It is no ask: the person
-// alone answers it, so both hooks pass it through untouched.
+// The relay's own calls in the manager's session (engine/relay.ts): every Bash this plugin calls (the self-test, or a relayed command in the engine's own dialog) and the
+// AskUserQuestion known by its first question. None is an ask: the person alone answers them. `mine`: the call the open relay dialog made.
 const PLUGIN = 'callboard'
-const isProxy = (tool: unknown, input: any, next: any): boolean => tool === QUESTION_TOOL && next?.origin?.plugin === PLUGIN && mem.proxy?.first !== undefined && input?.questions?.[0]?.question === mem.proxy.first
+export const SELF_TEST = { command: 'true', description: 'Relayed from callboard: self-test' }
+const ours = (next: any): boolean => next?.origin?.plugin === PLUGIN
+const RESERVED_RE = /^\W*relayed\s+from\b/iu
+const mine = (tool: unknown, input: any): boolean => {
+  const p = mem.proxy
+  return p === undefined ? false : tool === 'Bash' ? p.native !== undefined && input?.command === p.native.input.command && input?.description === p.native.input.description : tool === QUESTION_TOOL && p.first !== undefined && input?.questions?.[0]?.question === p.first
+}
+const isProxy = (tool: unknown, input: any, next: any): boolean => ours(next) && (tool === 'Bash' || mine(tool, input))
+// A command of the relay's: one the engine refused stays refused; the self-test goes on to its run, where proxyRun stops it; the open dialog's command goes to the person, the
+// manager's note on its reason line; any other is refused.
+const nativeCheck = (input: any, r: any): unknown =>
+  r?.decision === 'deny' ? r : input?.command === SELF_TEST.command && input?.description === SELF_TEST.description ? { decision: 'allow' } : mine('Bash', input) ? { decision: 'ask', reason: mem.proxy!.native!.reason } : { decision: 'deny', reason: T['dialog.relay.held']({}) }
 
 // tool.check only observes: it keeps what it saw for a call that is neither allowed nor denied (a dialog may follow), 60 s, and returns the engine's verdict unchanged, every time.
 export async function toolCheck($: any, e: any, next: any) {
   const r = await next(e)
-  if (isProxy(e.tool, e.input, next)) return r
+  if (isProxy(e.tool, e.input, next)) return e.tool === 'Bash' ? nativeCheck(e.input, r) : r
+  // The relay's description is its own, in every session: no other Bash dialog may pass for the relay's, which runs nothing.
+  if (e.tool === 'Bash' && RESERVED_RE.test(String(e.input?.description ?? '').normalize('NFKC'))) return { decision: 'deny', reason: T['dialog.relay.reserved']({}) }
   try {
     if (r?.decision !== 'allow' && r?.decision !== 'deny' && typeof e.tool_use_id === 'string' && !isSub(e)) {
       const key = joinKey(String(e.tool), e.input)
@@ -49,6 +63,17 @@ export async function toolCheck($: any, e: any, next: any) {
   } catch {}
   return r
 }
+// The run of a Bash with the relay's description (register.ts matches only those): it never runs, whoever called it. For this plugin's own, the self-test is marked heard,
+// and the open dialog's command records whether it reached its run as sent, since a Yes on a command he changed first is none for the ask.
+export async function proxyRun(_$: any, e: any, next: any) {
+  if (!ours(next)) return { deny: T['dialog.relay.reserved']({}) }
+  if (e.command === SELF_TEST.command && e.description === SELF_TEST.description) mem.heard = true
+  if (mem.proxy?.native !== undefined) mem.proxy.yes = mine('Bash', e)
+  return { deny: T['dialog.relay.held']({}) }
+}
+// Auto mode's classifier is not asked about the open dialog's command: it goes to the person.
+export const proxyJudge = (_$: any, e: any, next: any) => (ours(next) && mine(e.tool, e.input) && e.tool === 'Bash' ? { decision: 'ask', reason: mem.proxy!.native!.reason } : next(e))
+
 // A call's end (a Yes click fires no signal) or a refusal: the asker's loop learns of a click by this id.
 export function markDone(e: any): void {
   const tid = typeof e?.tool_use_id === 'string' ? e.tool_use_id : undefined
@@ -71,7 +96,7 @@ function ownDialog(tool: unknown, input: any, e: any): boolean {
 export async function permissionRequest($: any, e: any, next: any) {
   // The relay's dialog goes to the person unless a hook beneath decides it; the relay writes his dismissal as a deny only when it went to him.
   if (isProxy(e.tool_name, e.tool_input, next)) {
-    const p = mem.proxy
+    const p = mine(e.tool_name, e.tool_input) ? mem.proxy : undefined
     const r = await next(e)
     if (!decided(r) && p !== undefined) p.shown = true
     return r
