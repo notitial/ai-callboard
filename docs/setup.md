@@ -364,11 +364,11 @@ Add this line to `permissions.deny` in your global `~/.claude/settings.json` (an
 too, so no `Write` line is needed; adding one only draws a warning):
 
 ```json
-"Edit(~/.claude/plugins/store/callboard_*.json)"
+"Edit(~/.claude/callboard/**)"
 ```
 
-It keeps an agent's Edit and Write tools off callboard's store file, which holds this machine's callboard settings;
-it does not stop a shell write.
+It keeps an agent's Edit and Write tools off callboard's state folder, which holds this machine's callboard settings
+(`v2/config.json`), its session table and the go records; it does not stop a shell write.
 
 ### Keep agents off the live checkout
 
@@ -393,11 +393,11 @@ left for an agent to answer. Until the hook is in place:
 
 1. ai-toolkit carries the hook and your toolkit checkout is up to date. Run `/setup-claude` yourself: it links the
    hook into `~/.claude/hooks/` and wires it in `~/.claude/settings.json`, as `/bin/bash -p "$HOME/.claude/hooks/protected-paths-guard.sh" || exit 2`.
-   Callboard counts that command as wired, with `$HOME`, `${HOME}` or the absolute path of the linked hook inside the quotes
-   (a `~` inside the quotes does not count). Nothing else counts: not the bare link path (it lets a call through when the
-   hook cannot start; an install from before the wrapper needs `/setup-claude` again), not another command (another
-   interpreter, no `|| exit 2`, extra commands), not an entry with `async`, `if`, `args` or another field beyond `type`,
-   `command`, `timeout`, `statusMessage` and `onFailure`, not a `timeout` under 10, and not a settings `env` that sets `HOME`. An agent never edits settings.
+   Callboard counts any `PreToolUse` entry of type `command` whose command contains `protected-paths-guard.sh` as the
+   guard, with hooks not disabled. It does not judge the rest of the command or the entry, so keep the wrapper the toolkit
+   writes: the bare link path lets a call through when the hook cannot start (an install from before the wrapper needs
+   `/setup-claude` again), and a `~` inside the quotes, an entry with `async`, `if` or `args`, a `timeout` under 10 or a
+   settings `env` that sets `HOME` weaken the hook without callboard noticing. An agent never edits settings.
 2. The hook protects a folder only when it holds a `.protected-checkout` file. The file is untracked, so only you
    make it. Run these once, with `<checkout>` your ai-manager checkout and `<toolkit>` your ai-toolkit checkout:
 
