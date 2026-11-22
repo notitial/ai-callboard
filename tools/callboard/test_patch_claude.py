@@ -1910,7 +1910,7 @@ const click = async (w, ev = { isTrusted: true }) => { w.button().p.onClick(ev);
 ;(async () => {
   const out = {}
   { const w = world(), c = w.wrapper(), b = c.p.children[0]
-    out.button = { order: c.p.children.map((x) => x.t), className: b.p.className, title: b.p.title, text: b.p.children, wrap: c.p.className, keys: Object.keys(b.p).sort() } }
+    out.button = { order: c.p.children.map((x) => x.t), className: b.p.className, title: b.p.title, icon: ((s) => [s.t, s.p.viewBox, s.p.width, s.p.height, s.p.fill, s.p.strokeLinejoin, s.p.children.t, s.p.children.p.points])(b.p.children), wrap: c.p.className, keys: Object.keys(b.p).sort() } }
   { const w = world({ reply: { text: 'Run result: x' } })
     await click(w, { isTrusted: false }); await click(w, {}); out.untrusted = w.log.requests.length
     await click(w); out.ok = w.log }
@@ -2006,7 +2006,7 @@ class Run(Case):
         for bad in ("`", "\\", "${"):
             self.assertNotIn(bad, mod.RUN_CSS)
         self.assertTrue(mod.RUN_CSS.isascii())
-        for part in ("codeBlockWrapper_", ".cbRun", "right:34px", ":has(code[class*=", ":not(.language-sh,.language-bash,.language-zsh,.language-shell,.language-console)", "display:none!important", " .cbRun:focus-visible{opacity:1}"):
+        for part in ("codeBlockWrapper_", ".cbRun", "right:32px", "padding:4px", "color:var(--app-secondary-foreground)", ":has(code[class*=", ":not(.language-sh,.language-bash,.language-zsh,.language-shell,.language-console)", "display:none!important", " .cbRun:focus-visible{opacity:1}"):
             self.assertIn(part, mod.RUN_CSS)
         self.assertEqual(mod.RUN_CSS.count("{"), mod.RUN_CSS.count("}"))
         self.assertTrue(mod.RUN_HELPER.isascii() and mod.RUN_HANDLER.isascii())
@@ -2018,8 +2018,8 @@ class Run(Case):
             p = subprocess.run(["node", "-e", RUN_RUNNER, os.path.join(ext, self.WEBJS), names["cb"], names["ly"], names["rj"]], capture_output=True, text=True, timeout=60)
             self.assertEqual(p.returncode, 0, p.stderr)
             got = json.loads(p.stdout)
-            self.assertEqual(got["button"], {"order": ["button", "Q5", "pre"], "className": "cbRun copy", "title": "Run in this session's folder", "text": "▶", "wrap": "wrap",
-                                             "keys": ["children", "className", "onClick", "title"]})
+            self.assertEqual(got["button"], {"order": ["button", "Q5", "pre"], "className": "cbRun copy", "title": "Run", "wrap": "wrap", "keys": ["children", "className", "onClick", "title"],
+                                             "icon": ["svg", "0 0 20 20", 14, 14, "currentColor", "round", "polygon", "6,4.5 15,10 6,15.5"]}, "Copy's box, and a play triangle the size of Copy's icon")
             self.assertEqual(got["untrusted"], 0, "a click that is not the person's own (a script's, or none) asks nothing")
             self.assertEqual(got["ok"]["requests"], [[{"type": "callboard_run", "text": "ls -la"}, "ch1"]], "the text trimmed like Copy, the session's channel, and no folder from the page")
             self.assertEqual(got["ok"]["sent"], [["Run result: x", [], False, {"kind": "human"}, {"expandMentions": False}]], "through the session's own send, as a human message")

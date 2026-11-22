@@ -255,9 +255,9 @@ def pill_web(js):
                   + b",ref:(cbfE)=>cbfP.ref(cbfE," + m.group("s") + b"),onClick:()=>cbfP.click(" + m.group("s") + b")}))(" + PILL_HELPER + b"),", js)
 
 
-# The run button: a small button before Copy on a chat's shell code blocks (a block with no language, or sh, bash, zsh, shell, console; the style block hides it on any other
+# The run button: a button before Copy, with Copy's box and a play triangle the size of Copy's icon, on a chat's shell code blocks (a block with no language, or sh, bash, zsh, shell, console; the style block hides it on any other
 # language). A click (only a real one: isTrusted) hands the block's text to extension.js, which asks the panels extension's `callboard run block` command (extension/run-block.js:
-# validation, its own modal with "Don't run" as the default button, the run, the output) with the session's folder, which the host holds for the session (the request's channel; the window's one folder when the channel has none) and never takes from the page. What comes back
+# validation, its own modal with "Run" and Cancel, the run, the output) with the session's folder, which the host holds for the session (the request's channel; the window's one folder when the channel has none) and never takes from the page. What comes back
 # is sent into the same chat as the person's own message, through the page's own session.send. Three edits and a style block: the page's app handle (globalThis.cbRunApp, the session
 # manager, so a click finds the session on screen), the button in the code block component, and in extension.js a case in front of the one that opens an url. All three anchors
 # must match exactly once and the shipped webview must carry the tokens its style names; otherwise the piece is left out whole, with a warning, and the others still apply.
@@ -274,8 +274,8 @@ RUN_HELPER = (
     b'.then((R)=>typeof R?.text=="string"&&R.text?S.send(R.text,[],!1,{kind:"human"},{expandMentions:!1}):void 0).catch(()=>{}).finally(()=>{B.b=0})})({}))'
 )
 RUN_CSS = (
-    '[class*="codeBlockWrapper_"] .cbRun{right:34px!important;box-sizing:border-box;min-width:26px;min-height:26px;padding:0;display:flex;justify-content:center;align-items:center;'
-    'font-size:10px;line-height:1;color:var(--app-primary-foreground);background:var(--app-secondary-background);border:1px solid var(--app-input-border);border-radius:4px;cursor:pointer;'
+    '[class*="codeBlockWrapper_"] .cbRun{right:32px!important;padding:4px;display:flex;justify-content:center;align-items:center;'
+    'color:var(--app-secondary-foreground);background:var(--app-secondary-background);border:1px solid var(--app-input-border);border-radius:4px;cursor:pointer;'
     'opacity:0;transition:opacity .15s,background .15s}'
     '[class*="codeBlockWrapper_"]:hover .cbRun,[class*="codeBlockWrapper_"] .cbRun:focus-visible{opacity:1}[class*="codeBlockWrapper_"] .cbRun:hover{background:var(--app-ghost-button-hover-background)}'
     '[class*="codeBlockWrapper_"]:has(code[class*="language-"]:not(.language-sh,.language-bash,.language-zsh,.language-shell,.language-console)) .cbRun{display:none!important}'
@@ -310,8 +310,9 @@ def run_in(raw):
 
 def run_web(js):
     js = re.sub(RUN_APP_ANCHOR, lambda m: b"globalThis.cbRunApp=" + m.group("c") + b"," + m.group(0), js)
-    return re.sub(RUN_CODE_ANCHOR, lambda m: m.group(0) + m.group("jsx") + b'("button",{className:"cbRun "+' + m.group("ly") + b'.copyButton,title:"Run in this session\'s folder",'
-                  b"onClick:(cbxE)=>{if(cbxE.isTrusted)" + RUN_HELPER + b"(" + m.group("ref") + b'.current)},children:"\\u25b6"}),', js)
+    return re.sub(RUN_CODE_ANCHOR, lambda m: m.group(0) + m.group("jsx") + b'("button",{className:"cbRun "+' + m.group("ly") + b'.copyButton,title:"Run",'
+                  b"onClick:(cbxE)=>{if(cbxE.isTrusted)" + RUN_HELPER + b"(" + m.group("ref") + b'.current)},children:' + m.group("jsx") +
+                  b'("svg",{viewBox:"0 0 20 20",width:14,height:14,fill:"currentColor",stroke:"currentColor",strokeWidth:2,strokeLinejoin:"round",children:' + m.group("jsx") + b'("polygon",{points:"6,4.5 15,10 6,15.5"})})}),', js)
 
 
 # The restore fix: a Claude panel that VS Code restores (or Claude reopens) for a session starts in the window's first folder, where that session is not in the

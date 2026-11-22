@@ -31,6 +31,10 @@ its own `showWarningMessage` modal with the folder and the whole command. VS Cod
 adds its own Cancel, so the first button is "Don't run" and Enter runs nothing. Only a reply of exactly "Run" starts a
 process, so it asks even when another extension calls the command.
 
+**Amended 2026-11-22**, on the person's ask after using it: the modal has "Run" and VS Code's Cancel only, and no folder
+line (its title names the folder). "Run" is the first button, so Enter runs the command; Escape and Cancel run nothing.
+The "Don't run" default above no longer holds.
+
 **It runs as a child process, not in a terminal.** `$SHELL -lc <text>` (the shell when it is absolute and listed in
 `/etc/shells`, else `/bin/zsh`) in its own process group, stdin closed, with a quiet environment (no colour, no pager, no
 git prompt). A progress notice has Cancel, and the run stops after 2 minutes: SIGTERM to the group, SIGKILL 2 seconds later.
@@ -65,13 +69,13 @@ default), send it as it is, or send nothing. The scan is best effort and not a g
 
 - The button deliberately runs what the agent hooks block, so the person's click on the modal is the only safety check.
   There is no auto-run and no "safe command" exception, and nothing wires the button to `bash_command` or to any path
-  that skips the modal. The remaining risk is approving a long command without reading it.
+  that skips the modal. The remaining risk is approving a long command without reading it, and since the amendment Enter approves it.
 - Output in the chat is saved on this computer and sent to the API. The masked copy is the default, and not complete.
 - The result arrives as a human turn, which is what makes Claude answer it, and a permission mode that judges by the
   author of a turn may give it more trust than its text deserves. Output can hold text written by someone else, so the
   rule above treats it as data; that is a rule for the model, not a technical barrier.
 - A background process that keeps the output pipes open ends the run a half second after the shell exits, and keeps its
-  pipe descriptors until it exits itself. The secret scan misses what it has no shape for (a key cut across the output's
+  pipe descriptors until it exits itself; what it writes after the run ended is read and dropped. The secret scan misses what it has no shape for (a key cut across the output's
   cut, an unusual format); it is a courtesy beside the person's own read, not a control.
 - A command that waits for input gets end-of-file. `-l` reads `.zprofile`, not `.zshrc`, so `PATH` can differ from a
   terminal's. A panel reloaded during a run loses the output (the run still ends at the timeout).
