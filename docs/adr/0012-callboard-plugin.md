@@ -91,7 +91,9 @@ the manager in words: either is the person's own act on that one ask.
 30-second head start and a 5-minute wait only delay a decision the tiers can make. The two steps shorten to 5 seconds
 (wall time) for the parent and 30 seconds of awake time for the manager. The 15-minute close, an escalation moving the
 ask on at once and the daytime times are unchanged. The engine reads the window and passes one flag to the timeline
-(`StageIn.away`); the timeline itself stays pure.
+(`StageIn.away`); the timeline itself stays pure. A window read that fails counts as not on, so the daytime times
+apply. The check-in turn that tells a parent of a new ask comes from a list kept 10 seconds, so it can arrive some
+seconds after the 5; `prompt_list` and `prompt_answer` read the ask fresh and are exact.
 
 *Amended 2026-11-20 (escalation round).* The relay offers a call of 2 to 4 questions too, with one combined answer;
 a session still answers only a single question. How the dialog is shown and closed is the 2026-11-21 amendment below. The person's pick reaches the asker with a plugin note that it is their settled choice
@@ -135,8 +137,8 @@ guard's own ask) is an ordinary ask that rises like any other; the rubric of the
 not an ask is what the person starts themselves, such as creating a lead or a lane and giving a go. Those are their own acts,
 not requests to a tier: a tier never answers them, and none of them works while they are away.
 
-**Unattended mode, final shape.** The behaviour is the one of a day with the person at their desk. Three reads of the one
-flag remain. The first is in the two places that open the person's dialog, the dialog helper and the relay: while it is
+**Unattended mode, final shape.** The behaviour is the one of a day with the person at their desk, apart from the shorter
+ask times of the amendment above. Three more reads of the one flag remain. The first is in the two places that open the person's dialog, the dialog helper and the relay: while it is
 on, none opens (the relay raises none and closes an open one, and `go_request` is refused at once, since its dialog would not run). The second is a subagent's dialog: it is not an
 ask, so nothing times it out, and left alone it would sit on the person's screen for as long as they are away. While the
 flag is on it is denied with "run it yourself", as it is when a lead is above the session, and the main session's own
