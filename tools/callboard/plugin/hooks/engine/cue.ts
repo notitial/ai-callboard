@@ -106,20 +106,26 @@ export async function spoolSend($: any, req: SpoolRequest): Promise<string | und
 }
 // A request and its answer. undefined: nothing came in SPOOL_WAIT_S seconds, and the request is taken back. An answer that is there and is not one is `bad-answer`
 // at once. A pick waits for the person's click, so its caller gives `afterClaimS`: once a window has taken the request (its file is gone), the wait runs that many
-// seconds from then; a request no window takes still ends at SPOOL_WAIT_S.
+// seconds from then; a request no window takes still ends at SPOOL_WAIT_S. Such a request is taken back at that end by a rename, the way a window takes it, so
+// one of the two wins: a window that took it in the last second is waited for like any other, and one that comes later finds no request.
 export async function spool($: any, req: SpoolRequest, who: Sid, afterClaimS?: number): Promise<SpoolReply | undefined> {
   const id = await spoolSend($, req)
   const dir = await path($, 'open')
   if (id === undefined || dir === undefined) return undefined
+  const file = `${dir}/${id}.req`
+  const back = `${dir}/.${id}.back`
   let a: SpoolReply | undefined
-  let claimed: number | undefined
-  for (let i = 0; a === undefined && i < (claimed === undefined || afterClaimS === undefined ? SPOOL_WAIT_S : claimed + afterClaimS); i++) {
+  let end = SPOOL_WAIT_S
+  let open = afterClaimS !== undefined
+  for (let i = 0; a === undefined && i < end; i++) {
     const t = await readText($, `${dir}/${id}.result`, 40_000)
     if (t !== undefined) a = parseReply(json(t)) ?? { ok: false, code: 'bad-answer' }
-    if (a === undefined && afterClaimS !== undefined && claimed === undefined && !(await $.fs.exists(`${dir}/${id}.req`).catch(() => true))) claimed = i
-    if (a === undefined && !(await pause($, 1000))) break
+    if (a !== undefined) break
+    if (open && !(await $.fs.exists(file).catch(() => true))) (open = false), (end = i + afterClaimS!)
+    if (!(await pause($, 1000))) break
+    if (open && i === end - 1 && (await run($, ['/bin/mv', '--', file, back])).exitCode !== 0) (open = false), (end = i + 1 + afterClaimS!)
   }
-  await rm($, [`${dir}/${id}.req`, `${dir}/${id}.result`])
+  await rm($, [file, back, `${dir}/${id}.result`])
   await log($, who, 'spool', a === undefined ? 'no-answer' : a.ok ? req.op : a.code)
   return a
 }
