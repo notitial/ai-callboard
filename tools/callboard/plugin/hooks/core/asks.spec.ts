@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { EXPIRE_MS, HEAD_START_MS, MANAGER_AT_MS, awakeAdd, classify, decide, inputText, noteOf, questionShape, questionView, questionsView, readAnswers, stage, sweep } from './asks.ts'
+import { AWAY_HEAD_START_MS, AWAY_MANAGER_AT_MS, EXPIRE_MS, HEAD_START_MS, MANAGER_AT_MS, awakeAdd, classify, decide, inputText, noteOf, questionShape, questionView, questionsView, readAnswers, stage, sweep } from './asks.ts'
 import type { CheckFacts, Open, StageIn } from './asks.ts'
 import { PERSON, ancestors, liveView } from './model.ts'
 import type { Answer, Ask, Sid, Table, UpMark, View } from './model.ts'
@@ -13,7 +13,7 @@ const LOOSE = 'sid-loose'
 const ask = (x: Partial<Ask> = {}): Ask => ({ id: 'ask-1', asker: L1, t0: NOW, awake: 0, tool: 'Bash', raisedBy: 'mode', input: '{}', cut: false, beat: NOW, ...x })
 const lanes: Table = { [A]: { name: 'A', folder: '/Users/x/repo', lead: { repos: [] } }, [L1]: { name: 'L1', folder: '/Users/x/repo', under: A } }
 const all = liveView([reg(M, MANAGER), reg(A, 'A'), reg(L1, 'L1'), reg(LOOSE, 'loose')], lanes, MANAGER)
-const at = (x: Partial<StageIn>): StageIn => ({ ask: ask(), now: NOW + HEAD_START_MS, ups: [], v: all, ...x })
+const at = (x: Partial<StageIn>): StageIn => ({ ask: ask(), now: NOW + HEAD_START_MS, ups: [], v: all, away: false, ...x })
 const open = (x: Partial<StageIn>): Open => {
   const s = stage(at(x))
   assert.ok(s.open, `closed with ${s.open ? '' : s.msg}`)
@@ -25,7 +25,7 @@ test('every ask has an owner or a close: eligible is a subset of the asker\'s an
   forAll(600, (r, w) => {
     const asker = pick(r, w.sids)
     const ups = Array.from({ length: Math.floor(r() * 3) }, () => up(pick(r, w.sids), r() < 0.5 ? 'escalated' : 'told'))
-    const x: StageIn = { ask: ask({ asker, awake: Math.floor(r() * 20 * 60_000) }), now: NOW + Math.floor(r() * 2 * HEAD_START_MS), ups, v: w.v }
+    const x: StageIn = { ask: ask({ asker, awake: Math.floor(r() * 20 * 60_000) }), now: NOW + Math.floor(r() * 2 * HEAD_START_MS), ups, v: w.v, away: r() < 0.5 }
     const s = stage(x)
     if (x.ask.awake >= EXPIRE_MS) return assert.ok(!s.open && s.msg === 'ask.expired')
     if (!s.open) return assert.fail('only the 15 minute close shuts an ask')
@@ -39,11 +39,26 @@ test('unknown never closes early and never moves an owner: with the registry unr
     const asker = pick(r, w.sids)
     if (w.table[asker]?.off) return // never staged: the hook returns before it
     const blind = liveView('unknown', w.table, MANAGER)
-    const x: StageIn = { ask: ask({ asker, awake: Math.floor(r() * (EXPIRE_MS - 1)) }), now: NOW + HEAD_START_MS, ups: [up(pick(r, w.sids))], v: blind }
+    const x: StageIn = { ask: ask({ asker, awake: Math.floor(r() * (EXPIRE_MS - 1)) }), now: NOW + HEAD_START_MS, ups: [up(pick(r, w.sids))], v: blind, away: r() < 0.5 }
     const s = stage(x)
     assert.ok(s.open, 'an unknown registry closed an ask early')
     for (const e of s.eligible) assert.equal(e, w.table[asker]?.under)
   })
+})
+
+test('the timeline while away (an unattended window is on): hidden 5 s, the manager at 30 s awake; the daytime steps and the 15 minute close are unchanged', () => {
+  const away = (x: Partial<StageIn>): Open => open({ away: true, ...x })
+  assert.deepEqual(away({ now: NOW + AWAY_HEAD_START_MS - 100 }).eligible, [])
+  assert.deepEqual(away({ now: NOW + AWAY_HEAD_START_MS }).eligible, [A])
+  assert.deepEqual(away({ now: NOW + AWAY_HEAD_START_MS, ask: ask({ awake: AWAY_MANAGER_AT_MS - 100 }) }).eligible, [A])
+  assert.deepEqual(away({ ask: ask({ awake: AWAY_MANAGER_AT_MS }) }).eligible, [A, M])
+  // The same ask by day: still hidden at 5 s, the manager not reached at 30 s.
+  assert.deepEqual(open({ now: NOW + AWAY_HEAD_START_MS }).eligible, [])
+  assert.deepEqual(open({ ask: ask({ awake: AWAY_MANAGER_AT_MS }) }).eligible, [A])
+  // An escalation still moves the ask on at once, and the ask still closes at 15 minutes.
+  assert.deepEqual(away({ ups: [up(A)] }).eligible, [M])
+  assert.equal(stage(at({ away: true, ask: ask({ awake: EXPIRE_MS - 1 }) })).open, true)
+  assert.equal(stage(at({ away: true, ask: ask({ awake: EXPIRE_MS }) })).open, false)
 })
 
 test('the timeline: hidden 30 s, then the parent, the manager at 5 min awake, each escalation one step at once', () => {
@@ -103,7 +118,7 @@ test('decide: the answer must name this ask and come from the person or an eligi
   assert.equal(decide(a({ decision: 'answer', option: 1 }), ask(), s, all, live).act, 'ignore')
   // Eligible sessions only, in every world: an answer by anyone else is ignored.
   forAll(200, (r, w) => {
-    const x: StageIn = { ask: ask({ asker: pick(r, w.sids) }), now: NOW + HEAD_START_MS, ups: [], v: w.v }
+    const x: StageIn = { ask: ask({ asker: pick(r, w.sids) }), now: NOW + HEAD_START_MS, ups: [], v: w.v, away: r() < 0.5 }
     const st = stage(x)
     const by = pick(r, w.sids)
     if (st.open && !st.eligible.includes(by)) assert.equal(decide(a({ by }), x.ask, st, w.v, {}).act, 'ignore')

@@ -6,7 +6,7 @@ import { capability, isOff, parent } from '../core/model.ts'
 import type { CheckFacts } from '../core/asks.ts'
 import { QUESTION_TOOL, awakeAdd, classify, decide, inputText, questionView, questionsView, stage } from '../core/asks.ts'
 import { PRINT_CAP, printed } from '../ui.ts'
-import { log, newId, pause, toast, windowNow } from './io.ts'
+import { awayNow, log, newId, pause, toast, windowNow } from './io.ts'
 import { mem } from './mem.ts'
 import { askState, getView, guardOk, logAsk, offFile, readAnswer, readOwnRow, rmAnswer, rmAsk, writeAsk } from './store.ts'
 import { isSub, say } from './tools-any.ts'
@@ -141,7 +141,7 @@ async function hold($: any, e: any, beneath: any, signal: AbortSignal | undefine
       if (v.manager === me && (await windowNow($)).state === 'on') return finish('closed', { ...beneath, decision: { behavior: 'deny', message: say({ msg: 'ask.away', p: {} }) } }, undefined, 'away')
       const ask: Ask = { ...base, awake }
       const { ups, answered } = await askState($, ask.id)
-      const st = stage({ ask, now, ups, v })
+      const st = stage({ ask, now, ups, v, away: await awayNow($) })
       if (!st.open) return finish('expired', { ...beneath, decision: { behavior: 'deny', message: say(st) } }, undefined, tool)
       if (now - beatAt >= BEAT_MS) {
         beatAt = now
