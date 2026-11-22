@@ -69,7 +69,11 @@ is the force stop and always asks you, and is refused while unattended mode is o
    parent sees the ask and must allow, deny, answer or escalate it by its rubric. With no choice it reaches the
    manager at 5 minutes of awake time (while unattended mode is on: 5 seconds and 30 seconds), and at 15 minutes an ask nobody answered is closed with a message that tells the
    session not to ask again. Your click always wins. By day an ask that reaches you is a dialog in the manager's
-   session, closed again once the ask is decided elsewhere, or you tell the manager in words (ADR 0012).
+   session, closed again once the ask is decided elsewhere, or you tell the manager in words (ADR 0012). A plain
+   Bash command is Claude Code's own Yes/No dialog for it, which runs nothing there; any other ask is a question.
+   That dialog's title reads "from the callboard plugin" and its description "Relayed from NAME", and it offers only Yes
+   and No; callboard refuses any other Bash whose description reads as "Relayed from" after normalising and folding
+   common look-alikes.
 4. A session that waits on a pull request registers it with `pr_watch` and is told when checks finish, reviews arrive
    or the PR is mergeable, merged or closed. A merge is still yours.
 5. A big session is asked to compact before it loses its notes, and compacts itself (`request_compact`). A lead that

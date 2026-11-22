@@ -141,7 +141,8 @@ Nothing else moves:
   command one click away. A command too large to print, or a cut ask, is never allowed from the note.
 - **`GO_NEVER`, the strictest-tier rules, the 30-second head start, the windows, the comment cap and the truncation
   rule are unchanged.**
-- **Callboard's `tool.check` still only observes.** A deny rule or a hook's deny stands; no prompt exists for it.
+- **Callboard's `tool.check` still only observes**, but for its two exceptions, which lift no deny ([ADR 0004](0004-prompt-answering.md)). A
+  deny rule or a hook's deny stands; no prompt exists for it.
 
 ### What cannot rise
 

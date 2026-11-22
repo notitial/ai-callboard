@@ -26,6 +26,14 @@ export function fake(o: { sid?: string } = {}) {
     asked: [] as { question: string; options: string[]; header: string }[],
     askAnswer: (() => Promise.resolve('Yes')) as (q: string) => Promise<unknown>,
     calls: [] as { tool: string; input: any; signal?: AbortSignal }[],
+    // The plugin's own Bash calls, kept apart from its dialogs; the person's answer in the engine's own dialog for one (true: Yes; undefined or false: No; a string: No with
+    // that typed; an object: Yes on the command he changed to it); the reason lines that dialog showed.
+    bash: [] as any[],
+    bashAnswer: (async () => undefined) as (input: any) => Promise<unknown>,
+    reasons: [] as unknown[],
+    // The plugin's own tool.check and tool.run hooks (set by a spec): the engine runs them on each Bash the plugin calls.
+    check: undefined as undefined | ((e: any, next: any) => Promise<unknown>),
+    toolRun: undefined as undefined | ((e: any, next: any) => Promise<unknown>),
     // The plugin's own PermissionRequest hook, run on each AskUserQuestion it calls (set by a spec): the engine consults it before the dialog shows.
     permission: undefined as undefined | ((e: any, next: any) => Promise<unknown>),
     sleepDone: false,
@@ -119,14 +127,36 @@ export function fake(o: { sid?: string } = {}) {
   }
   // The plugin's own tool call. An AskUserQuestion runs h.permission first (its result is ignored), then shows each question (h.asked) and resolves with h.askAnswer's answer
   // to each: a label is that question's pick, an object is the call's whole result, and undefined (a dismissal) resolves `{ deny }`. An abort resolves `{ deny }` at once, as the
-  // engine does. Any other tool is refused.
+  // engine does. A Bash runs h.check, then on an ask h.permission and the person's h.bashAnswer, then on an allow or a Yes h.toolRun, whose answer it resolves with (a run with
+  // no hook is a result). Any other tool is refused.
   const call = async (c: { tool: string; input: any }, o: { signal?: AbortSignal } = {}): Promise<unknown> => {
-    h.calls.push({ ...c, signal: o.signal })
-    if (c.tool !== 'AskUserQuestion') return { deny: 'no such tool' }
+    if (c.tool === 'Bash') h.bash.push(c.input)
+    else h.calls.push({ ...c, signal: o.signal })
+    if (c.tool !== 'AskUserQuestion' && c.tool !== 'Bash') return { deny: 'no such tool' }
     const signal = o.signal
     const cut = { deny: 'cancelled by the plugin' }
     if (signal?.aborted) return cut
     const aborted = new Promise<unknown>((res) => signal?.addEventListener('abort', () => res(cut), { once: true }))
+    const nextOf = (r: unknown) => Object.assign(async () => r, { origin: { plugin: 'callboard', tier: 'user' }, signal })
+    const bash = async (): Promise<unknown> => {
+      const v: any = h.check === undefined ? { decision: 'ask' } : await h.check({ tool: 'Bash', input: c.input }, nextOf({ decision: 'ask' }))
+      if (v?.decision === 'deny') return { deny: v.reason ?? 'refused' }
+      let run = c.input
+      if (v?.decision === 'ask') {
+        h.reasons.push(v.reason)
+        await h.permission?.({ tool_name: 'Bash', tool_input: c.input }, nextOf({}))
+        const got = await h.bashAnswer(c.input)
+        const no = "The user doesn't want to proceed with this tool use. The tool use was rejected (eg. if it was a file edit, the new_string was NOT written to the file)."
+        if (got === undefined || got === false) return { deny: no }
+        if (typeof got === 'string') return { deny: `${no} To tell you how to proceed, the user said:\n${got}` }
+        if (typeof got === 'object') run = { ...c.input, ...got }
+      }
+      if (h.toolRun === undefined) return { result: { stdout: '' } }
+      // A deny of a tool.run hook reaches the caller as the engine's error result, as on the real engine.
+      const out: any = await h.toolRun({ tool: 'Bash', ...run }, nextOf({ result: { stdout: '' } }))
+      return out?.deny === undefined ? out : { result: `Error: ${out.deny}`, text: out.deny, isError: true }
+    }
+    if (c.tool === 'Bash') return Promise.race([bash(), aborted])
     const shown = async (): Promise<unknown> => {
       const next = Object.assign(async () => ({}), { origin: { plugin: 'callboard', tier: 'user' }, signal })
       await h.permission?.({ tool_name: c.tool, tool_input: c.input }, next)

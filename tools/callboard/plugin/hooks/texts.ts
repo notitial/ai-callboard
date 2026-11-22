@@ -16,6 +16,8 @@ export const esc = (s: string): string => s.replace(/</g, '\\u003c').replace(INV
 export const escBlock = (s: string): string => s.replace(/\r\n/g, '\n').split('\n').map(esc).join('\n')
 // A table cell: a backslash or a pipe cannot end the cell or the escape before it.
 export const escCell = (s: string): string => esc(s.replace(/[\\|]/g, '\\$&'))
+// The manager's note on one line after its label (by: the manager's plain name).
+const summary = (by: string | undefined, note: string): string => `${by === undefined ? "The manager's" : `${esc(by)}'s`} summary: ${note.replace(/\s+/g, ' ').replace(/`/g, "'").trim()}`
 // A name or a tool in a sentence: escaped, in code quotes that it cannot close.
 const q = (s: string): string => `\`${esc(s).replace(/`/g, "'")}\``
 const who = (s: string): string => (s === PERSON ? 'the person' : s === 'unknown' ? 'your parent' : q(s))
@@ -364,7 +366,12 @@ const fixed: { [K in keyof Fixed]: (p: Fixed[K]) => string } = {
   'dialog.stop.question': (p) => `Force stop ${q(p.name)}? Its process gets SIGTERM whatever it is doing, and unsaved work is lost.`,
   'dialog.relay.header': () => 'Your call',
   'dialog.relay.question': (p) => `${esc(p.asker)} wants to run ${esc(p.tool)}:\n\n${p.input}${p.cut ? '\n\nNot shown whole, so you can only deny it.' : ''}\n\nYour click decides this ask only.`,
-  'dialog.relay.note': (p) => `${esc(p.asker)} wants to run ${esc(p.tool)}.\n\n${p.by === undefined ? "The manager's" : `${esc(p.by)}'s`} summary: ${p.note.replace(/\s+/g, ' ').replace(/`/g, "'").trim()}`,
+  'dialog.relay.note': (p) => `${esc(p.asker)} wants to run ${esc(p.tool)}.\n\n${summary(p.by, p.note)}`,
+  'dialog.relay.native': (p) => `Relayed from ${esc(p.asker)}`,
+  'dialog.relay.reason': (p) => `Your click decides this ask only.${p.note === undefined ? '' : ` ${summary(p.by, p.note)}`}`,
+  'dialog.relay.held': () => 'Held by callboard: a relayed command never runs in this session.',
+  'dialog.relay.reserved': () => 'Refused by callboard: a Bash description that starts "Relayed from" is kept for its relay. Use another description.',
+  'dialog.relay.hidden': () => 'Refused by callboard: a Bash description may not hold a character that shows as blank or turns the text round, or the sentence "Your click decides this ask only.". Use another description.',
   'dialog.relay.asks': (p) => `${esc(p.asker)} asks: ${escBlock(p.question)}`,
   'dialog.allow': () => 'Allow',
   'dialog.show': () => 'Show the command',
@@ -385,6 +392,8 @@ const fixed: { [K in keyof Fixed]: (p: Fixed[K]) => string } = {
   'go.noGuard': () => 'No go counts while the protected-paths guard is missing from the settings. Tell the person.',
 
   'toast.askClosed': () => 'That ask is closed; your click wrote nothing.',
+  'toast.relayAmended': () => 'The command was changed in the dialog, so your Yes wrote nothing. The ask goes on as before.',
+  'toast.relayRan': () => 'A relayed command ran in this session. Until callboard restarts, it puts asks as its own questions.',
   'notify.relay': (p) => `${esc(p.name)} waits on you: ${esc(p.tool)}`,
   'toast.askNoFile': (p) => `Ask ${esc(p.ask)} could not be written down. It still closes at 15 minutes.`,
   'toast.askStuck': (p) => `Ask ${esc(p.ask)} from ${esc(p.name)} has no process to answer it. It cannot be closed from here.`,
