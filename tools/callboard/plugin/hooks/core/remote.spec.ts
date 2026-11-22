@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { REMOTE_GAP_MS, REMOTE_TRIES, isLane, remoteAnswered, remoteDue, remoteMemo, remoteRefusal } from './remote.ts'
+import { REMOTE_GAP_MS, REMOTE_TRIES, isLane, remoteDue, remoteFailed, remoteMemo, remoteRefusal, remoteWish } from './remote.ts'
 import type { RemoteMemo } from './remote.ts'
 import { liveView } from './model.ts'
 import type { Table } from './model.ts'
@@ -23,28 +23,36 @@ test('only a lane carries the wish: not a lead, the manager, an off session, a r
   assert.equal(isLane(v, 'lead'), false)
 })
 
-test('a changed wish starts the counts again; an unchanged one keeps them', () => {
-  const m: RemoteMemo = { wish: false, tries: 3, at: NOW }
-  assert.equal(remoteMemo(m, false), m)
-  assert.deepEqual(remoteMemo(m, true), { wish: true, tries: 0, at: 0 })
-  assert.deepEqual(remoteMemo(undefined, false), { wish: false, tries: 0, at: 0 })
+test('a row with no wish wants off and is not met; a wish is its own value and its mark', () => {
+  const row = { name: 'x', folder: '/w' }
+  assert.deepEqual(remoteWish(row), { on: false, at: 0, met: false })
+  assert.deepEqual(remoteWish({ ...row, remote: { on: true, at: 7 } }), { on: true, at: 7, met: false })
+  assert.deepEqual(remoteWish({ ...row, remote: { on: true, met: true } }), { on: true, at: 0, met: true })
+  assert.deepEqual(remoteWish({ ...row, remote: { on: false, at: 7, met: true } }), { on: false, at: 7, met: true })
+})
+
+test('a changed wish, or one set again, starts the counts again; an unchanged one keeps them', () => {
+  const m: RemoteMemo = { wish: false, id: 4, tries: 3, at: NOW }
+  assert.equal(remoteMemo(m, false, 4), m)
+  assert.deepEqual(remoteMemo(m, true, 4), { wish: true, id: 4, tries: 0, at: 0 })
+  assert.deepEqual(remoteMemo(m, false, 5), { wish: false, id: 5, tries: 0, at: 0 })
+  assert.deepEqual(remoteMemo(undefined, false, 0), { wish: false, id: 0, tries: 0, at: 0 })
 })
 
 test('an ask is due once the pause is over, and never after the asking ended', () => {
-  const m: RemoteMemo = { wish: false, tries: 1, at: NOW }
+  const m: RemoteMemo = { wish: false, id: 0, tries: 1, at: NOW }
   assert.equal(remoteDue(m, NOW + REMOTE_GAP_MS - 1), false)
   assert.equal(remoteDue(m, NOW + REMOTE_GAP_MS), true)
   assert.equal(remoteDue({ ...m, stopped: 'busy' }, NOW + 10 * REMOTE_GAP_MS), false)
 })
 
-test('an answer: ok counts no failure, a window without the patch ends the asking, any other code ends it after REMOTE_TRIES', () => {
-  let m: RemoteMemo = { wish: true, tries: 2, at: 0 }
-  assert.deepEqual(remoteAnswered(m, 'ok', NOW), { wish: true, tries: 0, at: NOW })
-  assert.deepEqual(remoteAnswered(m, 'patch-missing', NOW), { wish: true, tries: 3, at: NOW, stopped: 'patch-missing' })
-  m = { wish: true, tries: 0, at: 0 }
+test('a failed ask: a window without the patch ends the asking, any other code ends it after REMOTE_TRIES', () => {
+  let m: RemoteMemo = { wish: true, id: 0, tries: 2, at: 0 }
+  assert.deepEqual(remoteFailed(m, 'patch-missing', NOW), { wish: true, id: 0, tries: 3, at: NOW, stopped: 'patch-missing' })
+  m = { wish: true, id: 0, tries: 0, at: 0 }
   for (let i = 1; i < REMOTE_TRIES; i++) {
-    m = remoteAnswered(m, 'no-channel', NOW)
+    m = remoteFailed(m, 'no-channel', NOW)
     assert.equal(m.stopped, undefined, `try ${i}`)
   }
-  assert.equal(remoteAnswered(m, 'no-channel', NOW).stopped, 'no-channel')
+  assert.equal(remoteFailed(m, 'no-channel', NOW).stopped, 'no-channel')
 })

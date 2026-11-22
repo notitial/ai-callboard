@@ -8,7 +8,7 @@ import { configNext, parsePreset, planCommand } from '../core/commands.ts'
 import { GO_HOURS, covers } from '../core/go.ts'
 import { CONDUCTOR_REPOS_MAX, PICK_WAIT_S, childState } from '../core/lifecycle.ts'
 import type { StatusRow } from '../core/msg.ts'
-import { isLane, remoteRefusal } from '../core/remote.ts'
+import { isLane, remoteRefusal, remoteWish } from '../core/remote.ts'
 import { T } from '../texts.ts'
 import type { LaneRow } from '../ui.ts'
 import { RULES_CAP, lanesTable, printed, stamp, statusPage } from '../ui.ts'
@@ -81,7 +81,7 @@ export async function perform($: any, cmd: Cmd, me: Sid, v: View, now: number, s
       const goes = (await listGoes($)).filter((g) => covers(g, me, v, now)).length
       const rows: StatusRow[] = [{ field: 'role', value: statusRole(v, me) }, { field: 'parent', value: person(v, parent(v, me)) }, { field: 'manager', value: person(v, v.manager) }, { field: 'off', value: isOff(v, me) }, { field: 'keepalive', value: (await cfgNow($)).keepalive }, { field: 'unattended', value: w.state === 'on' ? Math.max(1, Math.ceil((w.window.end - now) / 60_000)) : null }, { field: 'goes', value: goes }]
       // A lane that gave up on its Remote Control wish says so; a wish changed since is not the one it gave up on.
-      if (mem.remote?.stopped !== undefined && isLane(v, me) && mem.remote.wish === (v.table[me]!.remote === true)) rows.push({ field: 'remote', value: { on: mem.remote.wish, code: mem.remote.stopped } })
+      if (mem.remote?.stopped !== undefined && isLane(v, me) && mem.remote.wish === remoteWish(v.table[me]!).on) rows.push({ field: 'remote', value: { on: mem.remote.wish, code: mem.remote.stopped } })
       return statusPage(rows)
     }
     case 'lanes': return lanesTable(await laneRows($, v, me))

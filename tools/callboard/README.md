@@ -25,8 +25,8 @@ parent and a capability: none, lead or manager.
   or takes a loose session by name (`lane_adopt`). A lane does its work, writes its report, and signs it done: the
   last line of `<folder>/.archive/<LANE>/REPORT.md` is `status: done <its session id>`, appended, never overwritten.
   Only then can its parent retire it. A lane starts with Remote Control off (every ask of a connected session sends your
-  phone a push): its lead turns it on with `lane_remote`, or you type `/callboard remote NAME on`. A chip click in a lane's
-  panel is overruled within seconds. It needs the remote piece of the Claude Code patch (docs/setup.md).
+  phone a push): its lead turns it on with `lane_remote`, or you type `/callboard remote NAME on`. The lane applies a wish
+  once; a chip click you make afterwards stays. It needs the remote piece of the Claude Code patch (docs/setup.md).
 - **Lead.** `/callboard lead [PATH…]`, typed by you in the session that coordinates a repo's lanes. It may create and
   adopt lanes in its own folder and the folders you list, and holds the tools that open, prompt, park, retire and list
   its lanes and answer their asks. A lead can also request a go (below).
@@ -104,7 +104,7 @@ that signed done, is gone, has waited on a prompt for 5 minutes or has been idle
 - **Look:** `status`, `lanes`, `help`.
 - **Roles and switches:** `lead [PATH…]`, `conductor [pick | reset | PATH…]`, `lead off`, `off`, `on`. `/lead` and `/conductor` type
   the first two without the `/callboard` word; `conductor reset` forgets the repos saved for the folder.
-- **A lane's Remote Control:** `remote NAME on|off` sets the wish of the lane NAME (it starts off); the lane applies it within seconds.
+- **A lane's Remote Control:** `remote NAME on|off` sets the wish of the lane NAME (it starts off); the lane applies it once, within seconds.
 - **Settings:** `config [keepalive on|off | ping 30-55 | stop 1-8 | idle 150-800 | working 150-900 | reset]`,
   `rest` (or `/rest`), `go TEXT`, `go off [ID]`, `unattended Nm|Nh|HH:MM|off`.
 

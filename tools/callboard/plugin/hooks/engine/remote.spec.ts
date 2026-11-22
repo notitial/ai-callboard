@@ -2,6 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { HOME, V2, fake } from '../../test/fake.ts'
 import { REMOTE_GAP_MS, REMOTE_TRIES } from '../core/remote.ts'
+import type { Row } from '../core/model.ts'
 import { mem } from './mem.ts'
 import { setRemote } from './remote.ts'
 import { getView } from './store.ts'
@@ -20,13 +21,15 @@ const tick = async (f: F) => {
 }
 const table = (f: F) => JSON.parse(f.file('sessions.json') ?? '{}')
 const logged = (f: F): string[] => [...f.h.files].filter(([p]) => p.startsWith(`${V2}/log/`)).flatMap(([, t]) => t.split('\n').filter((l) => l.includes('"remote"')))
+const SEED = { sid: 'sid-me', pid: 10, name: 'me', cwd: '/w/me', kind: 'interactive' }
+const LEAD = { 'sid-lead': { name: 'lead', folder: '/w/lead', lead: { repos: [] } } }
 
 // A lane `sid-me` (the session under test) of the lead `sid-lead`, its panel with Remote Control on or off, and a window that answers each request with `reply`.
-function lane(o: { bridge?: boolean; remote?: true; reply?: (req: any) => object | undefined; row?: object } = {}) {
+function lane(o: { bridge?: boolean; remote?: Row['remote']; reply?: (req: any) => object | undefined; row?: object } = {}) {
   const f = fake()
-  f.seed({ sid: 'sid-me', pid: 10, name: 'me', cwd: '/w/me', kind: 'interactive', bridge: o.bridge ?? true })
+  f.seed({ ...SEED, bridge: o.bridge ?? true })
   f.seed({ sid: 'sid-lead', pid: 11, name: 'lead', cwd: '/w/lead', kind: 'interactive' })
-  f.table({ 'sid-me': { name: 'me', folder: '/w/me', under: 'sid-lead', ...(o.remote ? { remote: true } : {}), ...o.row }, 'sid-lead': { name: 'lead', folder: '/w/lead', lead: { repos: [] } } })
+  f.table({ 'sid-me': { name: 'me', folder: '/w/me', under: 'sid-lead', ...(o.remote ? { remote: o.remote } : {}), ...o.row }, ...LEAD })
   const seen: any[] = []
   const once = new Set<string>()
   const reply = o.reply ?? (() => ({ ok: true }))
@@ -43,40 +46,84 @@ function lane(o: { bridge?: boolean; remote?: true; reply?: (req: any) => object
   return { f, seen }
 }
 const later = (f: F, ms = REMOTE_GAP_MS) => void (f.h.now += ms)
+// The person switches the panel by hand: the registry row gains or loses its bridge session id.
+const chip = (f: F, on: boolean) => {
+  f.seed({ ...SEED, bridge: on })
+  mem.view = undefined
+}
 
-test('a lane whose panel has Remote Control on and no wish asks the window to turn it off, naming its own session and folder', async () => {
+test('a lane whose panel has Remote Control on and no wish asks the window to turn it off, naming its own session and folder, and marks the wish met', async () => {
   const { f, seen } = lane()
   await tick(f)
   assert.deepEqual(seen, [{ op: 'remote', sid: 'sid-me', on: false, folder: '/w/me' }])
-  assert.equal(mem.remote?.tries, 0, 'an ok answer counts no failure')
+  assert.deepEqual(table(f)['sid-me'].remote, { on: false, met: true })
+  assert.equal(mem.remote, undefined)
 })
-test('a wish for on asks for on when the panel has it off', async () => {
-  const { f, seen } = lane({ bridge: false, remote: true })
+test('a wish for on asks for on when the panel has it off, and marks it met', async () => {
+  const { f, seen } = lane({ bridge: false, remote: { on: true } })
   await tick(f)
   assert.deepEqual(seen, [{ op: 'remote', sid: 'sid-me', on: true, folder: '/w/me' }])
+  assert.deepEqual(table(f)['sid-me'].remote, { on: true, met: true })
 })
-test('a panel that already matches its wish is not asked; a registry reading ten seconds old is confirmed on the row itself', async () => {
+test('a panel that already matches its wish is not asked, and is marked met only once it has matched for a pause; a registry reading ten seconds old is confirmed on the row itself', async () => {
   const none = lane({ bridge: false })
   await tick(none.f)
   assert.deepEqual(none.seen, [])
-  assert.equal(mem.remote, undefined)
+  assert.equal(table(none.f)['sid-me'].remote, undefined, 'not yet')
+  later(none.f)
+  await tick(none.f)
+  assert.deepEqual(none.seen, [])
+  assert.deepEqual(table(none.f)['sid-me'].remote, { on: false, met: true })
   const { f, seen } = lane({ bridge: true })
   await getView(f.$, true)
-  f.seed({ sid: 'sid-me', pid: 10, name: 'me', cwd: '/w/me', kind: 'interactive', bridge: false })
+  f.seed({ ...SEED, bridge: false })
   await tick(f)
   assert.deepEqual(seen, [], 'the cached view says on, the row says off')
 })
-test('an ok answer is asked again only after the pause, while the panel still differs', async () => {
+test('a wish that was met is not enforced: a switch by hand afterwards stays, in either direction, over any number of ticks', async () => {
+  const on = lane({ bridge: false, remote: { on: true } })
+  await tick(on.f)
+  assert.equal(on.seen.length, 1)
+  chip(on.f, true)
+  chip(on.f, false)
+  for (let i = 0; i < 4; i++) {
+    later(on.f)
+    mem.view = undefined
+    await tick(on.f)
+  }
+  assert.equal(on.seen.length, 1, 'turned off by hand: not turned back on')
+  assert.deepEqual(table(on.f)['sid-me'].remote, { on: true, met: true })
+  const off = lane({ bridge: true })
+  await tick(off.f)
+  chip(off.f, false)
+  chip(off.f, true)
+  for (let i = 0; i < 4; i++) {
+    later(off.f)
+    mem.view = undefined
+    await tick(off.f)
+  }
+  assert.equal(off.seen.length, 1, 'turned on by hand: not turned back off')
+})
+test('a restart does not apply a wish that was met, and does apply one that was not', async () => {
+  const met = lane({ bridge: false, remote: { on: true, met: true } })
+  await tick(met.f)
+  assert.deepEqual(met.seen, [])
+  const unmet = lane({ bridge: false, remote: { on: true } })
+  await tick(unmet.f)
+  assert.equal(unmet.seen.length, 1)
+})
+test('the wish set again, even to the same value, is applied again', async () => {
   const { f, seen } = lane()
   await tick(f)
+  chip(f, false)
+  chip(f, true)
+  later(f)
+  assert.equal(await setRemote(f.$, 'sid-me', false), true)
+  assert.deepEqual(table(f)['sid-me'].remote, { on: false, at: f.h.now })
+  later(f)
   await tick(f)
-  assert.equal(seen.length, 1)
-  later(f, REMOTE_GAP_MS - 1)
-  await tick(f)
-  assert.equal(seen.length, 1)
-  later(f, 1)
-  await tick(f)
-  assert.equal(seen.length, 2)
+  assert.deepEqual(seen.map((r) => r.on), [false, false])
+  assert.deepEqual(table(f)['sid-me'].remote, { on: false, at: f.h.now - REMOTE_GAP_MS, met: true })
 })
 test('a window without the patch ends the asking at once: one log line, a status row, and no more asks until the wish changes', async () => {
   const { f, seen } = lane({ reply: () => ({ ok: false, code: 'patch-missing' }) })
@@ -89,13 +136,21 @@ test('a window without the patch ends the asking at once: one log line, a status
   assert.equal(logged(f).filter((l) => l.includes('gave up off: patch-missing')).length, 1)
   const status = (await commandRun(f.$, { args: 'status', origin: { kind: 'composer' } })).text
   assert.match(status, /\| Remote Control \| wanted OFF, not applied: the Claude Code extension has no callboard patch/)
+  // The same wish set again starts the counts again.
+  later(f)
+  assert.equal(await setRemote(f.$, 'sid-me', false), true)
+  later(f)
+  mem.view = undefined
+  await tick(f)
+  assert.equal(seen.length, 2)
   // The wish changes: the counts start again.
+  later(f)
   assert.equal(await setRemote(f.$, 'sid-me', true), true)
   later(f)
   mem.view = undefined
-  f.seed({ sid: 'sid-me', pid: 10, name: 'me', cwd: '/w/me', kind: 'interactive', bridge: false })
+  chip(f, false)
   await tick(f)
-  assert.deepEqual(seen.map((r) => r.on), [false, true])
+  assert.deepEqual(seen.map((r) => r.on), [false, false, true])
   assert.doesNotMatch((await commandRun(f.$, { args: 'status', origin: { kind: 'composer' } })).text, /wanted OFF/)
 })
 test('any other failure is asked REMOTE_TRIES times, a pause apart, and then given up', async () => {
@@ -108,6 +163,7 @@ test('any other failure is asked REMOTE_TRIES times, a pause apart, and then giv
     assert.equal(seen.length, REMOTE_TRIES)
     assert.equal(mem.remote?.stopped, code)
     assert.equal(logged(f).filter((l) => l.includes('gave up')).length, 1)
+    assert.equal(table(f)['sid-me'].remote, undefined, 'a wish not met is not marked')
   }
 })
 test('a lane that found no panel session asks again at its next turn; one the window cannot serve does not', async () => {
@@ -158,20 +214,37 @@ test('a read in doubt asks nothing and forgets nothing: a lane that gave up stay
 test('the wish is read again before an ask: a wish changed under a ten-second-old view is not acted on with the old one', async () => {
   const { f, seen } = lane({ bridge: true })
   await getView(f.$, true)
-  f.table({ 'sid-me': { name: 'me', folder: '/w/me', under: 'sid-lead', remote: true }, 'sid-lead': { name: 'lead', folder: '/w/lead', lead: { repos: [] } } })
+  f.table({ 'sid-me': { name: 'me', folder: '/w/me', under: 'sid-lead', remote: { on: true } }, ...LEAD })
   await tick(f)
   assert.deepEqual(seen, [], 'the panel is on and the row now wants it on')
 })
-test('/callboard remote NAME on|off, typed, sets the wish of that lane; it is refused from anywhere else and for what is no lane', async () => {
-  const { f } = lane({ bridge: false })
+test('/callboard remote NAME on|off, typed, sets the wish of that lane, not yet met; it is refused from anywhere else and for what is no lane', async () => {
+  const { f } = lane({ bridge: false, remote: { on: false, met: true } })
   const run = (args: string, origin = 'composer') => commandRun(f.$, { args, origin: { kind: origin } })
   assert.match((await run('remote me on')).text, /wanted ON for the lane `me`/)
-  assert.equal(table(f)['sid-me'].remote, true)
+  assert.deepEqual(table(f)['sid-me'].remote, { on: true, at: f.h.now })
   assert.match((await run('remote me off')).text, /wanted OFF/)
-  assert.equal(table(f)['sid-me'].remote, undefined)
+  assert.deepEqual(table(f)['sid-me'].remote, { on: false, at: f.h.now })
   assert.match((await run('remote me on', 'agent')).text, /refused/)
-  assert.equal(table(f)['sid-me'].remote, undefined)
+  assert.deepEqual(table(f)['sid-me'].remote, { on: false, at: f.h.now })
   assert.match((await run('remote lead on')).text, /is a lead/)
   assert.match((await run('remote nobody on')).text, /no lane of yours has that name/)
   assert.match((await run('remote me maybe')).text, /Use \/callboard/)
+})
+test('a wish marked met by another write under a ten-second-old view is not asked again', async () => {
+  const { f, seen } = lane({ bridge: false, remote: { on: true } })
+  await getView(f.$, true)
+  f.table({ 'sid-me': { name: 'me', folder: '/w/me', under: 'sid-lead', remote: { on: true, met: true } }, ...LEAD })
+  await tick(f)
+  assert.deepEqual(seen, [])
+})
+test('the mark is not written for a wish that was set again while its ask was out', async () => {
+  const { f } = lane({ bridge: false, remote: { on: true, at: 5 }, reply: () => undefined })
+  f.h.onSleep = () => {
+    for (const [p] of [...f.h.files]) if (p.startsWith(`${V2}/open/`) && p.endsWith('.req')) f.h.files.set(p.replace(/\.req$/, '.result'), JSON.stringify({ ok: true }))
+    f.table({ 'sid-me': { name: 'me', folder: '/w/me', under: 'sid-lead', remote: { on: true, at: 9 } }, ...LEAD })
+    f.h.onSleep = undefined
+  }
+  await tick(f)
+  assert.deepEqual(table(f)['sid-me'].remote, { on: true, at: 9 }, 'the newer wish is still to apply')
 })

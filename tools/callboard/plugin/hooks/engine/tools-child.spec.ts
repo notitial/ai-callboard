@@ -530,11 +530,11 @@ test('the self-rename touches only a lane\'s panel that still has its generated 
 
 test('lane_remote: a lead sets the wish of its own lane, on and off, and the row says so; the reply says the lane applies it', async () => {
   const f = world()
-  assert.match(text(await laneRemoteCall(f.$, { lane: 'kid', on: true }, next)), /Remote Control is wanted ON for `kid`. The lane applies it within seconds/)
-  assert.equal(table(f)['sid-kid'].remote, true)
+  assert.match(text(await laneRemoteCall(f.$, { lane: 'kid', on: true }, next)), /Remote Control is wanted ON for `kid`. The lane applies it once, within seconds/)
+  assert.deepEqual(table(f)['sid-kid'].remote, { on: true, at: f.h.now })
   assert.equal(table(f)['sid-kid'].under, 'sid-me', 'the rest of the row is kept')
   assert.match(text(await laneRemoteCall(f.$, { lane: 'kid', on: false }, next)), /wanted OFF/)
-  assert.equal(table(f)['sid-kid'].remote, undefined)
+  assert.deepEqual(table(f)['sid-kid'].remote, { on: false, at: f.h.now })
 })
 test('lane_remote: a lane of another lead, a lead, an off lane, an unknown name, a bad `on` and a subagent are refused and write nothing', async () => {
   const f = world()

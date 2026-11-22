@@ -80,7 +80,8 @@ function parseTable(text: string): Table | undefined {
     // A row is a conductor or a minted lead, never both: a row that claims both is a minted lead, so the flag a conductor's powers rest on cannot ride on a minted row.
     if (typeof lead === 'object' && lead !== null && Array.isArray(lead.repos)) row.lead = { repos: lead.repos.filter((x): x is string => typeof x === 'string'), ...(lead.minted === true ? { minted: true as const } : lead.conductor === true ? { conductor: true as const } : {}) }
     if (o.off === true) row.off = true
-    if (o.remote === true) row.remote = true
+    const remote = o.remote as { on?: unknown; at?: unknown; met?: unknown } | undefined
+    if (typeof remote === 'object' && remote !== null && typeof remote.on === 'boolean') row.remote = { on: remote.on, ...(num(remote.at) === undefined ? {} : { at: num(remote.at) }), ...(remote.met === true ? { met: true as const } : {}) }
     if ((LANE_MODELS as readonly unknown[]).includes(o.model)) row.model = o.model as LaneModel
     if ((LANE_EFFORTS as readonly unknown[]).includes(o.effort)) row.effort = o.effort as LaneEffort
     t[k] = row

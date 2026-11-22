@@ -126,17 +126,23 @@ id) and the tool, never the command, stands beside the open dialog and is taken 
 and the out-of-date toast.
 
 *Amended 2026-11-22 (lane Remote Control).* Remote Control sends the person's phone a push for every ask of every
-connected session, so a lane starts with it off. The wish is the lane's table row (`remote`, off when absent), set by a
+connected session, so a lane starts with it off. The wish is the lane's table row (`remote: {on, met?}`, off and not yet
+met when absent), set by a
 lead's `lane_remote` (its own lanes: the same `mayActOn` gate as the other lane verbs) or by the person's typed
 `/callboard remote NAME on|off`; a lead, the manager and a session with no lane row have no wish and stay as the person
 set them. The lane itself reconciles: its 2-second tick reads its own registry row (`bridgeSessionId` is Remote Control
 on) and, on a mismatch, asks the window that holds its panel through the spool's `remote` op, which runs the `callboard
 remote session` command of the Claude Code patch (`patch-claude.py`, the `remote` piece) and toggles the panel's own
-channel. The window's answer decides what follows: `patch-missing` ends the asking until the wish changes, the other
-failures (`no-channel`, `busy`, `failed`, no answer) are tried five times, 30 seconds apart, and a lane that found no
-channel asks again at its next turn (a panel has its session id only after its first message). One log line says it
-gave up, and the lane's `/callboard status` has a Remote Control row. A chip click on a lane is overruled at the next
-tick; the typed command is the person's way. Rejected: `command.run('remote-control')`, which opens a dialog in the
+channel. An `ok` answer (or a panel that already matches) marks the wish met in the row, and a met wish is never applied
+again: the person's own switch sticks (a chip click afterwards stays until a lead or the person sets the wish again,
+even to the same value, which carries a new `at`), and a restart does not redo a wish that was met; the cost is that a
+lane met off and later resumed with `remoteControlAtStartup` on comes back on until its wish is set again. A panel found
+already matching is marked met only after it matched for 30 seconds, since Remote Control connects after the panel
+starts. The window's other answers decide what
+follows: `patch-missing` ends the asking until the wish changes, the other failures (`no-channel`, `busy`, `failed`, no
+answer) are tried five times, 30 seconds apart, and a lane that found no channel asks again at its next turn (a panel has
+its session id only after its first message). One log line says it gave up, and the lane's `/callboard status` has a
+Remote Control row. A lane starts off by this rule, once. Rejected: `command.run('remote-control')`, which opens a dialog in the
 terminal client and is refused in a panel, and a settings edit (`remoteControlAtStartup` is global and read live, a
 per-repo file is a settings write, which callboard never does for the person). Turning it on exposes the lane to the
 person's own account only; the `remote` request carries a session id and a boolean and nothing else, and the same-uid
