@@ -194,6 +194,16 @@ test('/callboard conductor with a path that does not exist, or only its own fold
   assert.equal(f.file('conductors.json'), undefined)
 })
 
+test('/callboard conductor: a row that cannot be written says the typed list was saved; with the saved list reused it says only the row failed', async () => {
+  const f = world()
+  f.h.files.set(`${V2}/sessions.json`, '{"broken": ')
+  assert.match((await run(f, 'conductor /w/repo', 'composer')).text, /repo list was saved, but this session's row.*Run \/callboard conductor again/)
+  assert.deepEqual(await conductorRepos(f.$, '/w/me'), ['/w/repo'])
+  const text = (await run(f, 'conductor', 'composer')).text
+  assert.match(text, /this session's row in the lane table could not be written, so nothing changed/)
+  assert.doesNotMatch(text, /repo list was saved/)
+})
+
 test('/callboard conductor runs only from his typed turn: another origin, or none, changes neither the row nor the saved list', async () => {
   for (const kind of ['plugin', 'sdk', 'peer', 'task-notification', undefined]) {
     const f = world()

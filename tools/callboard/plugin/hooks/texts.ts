@@ -104,6 +104,7 @@ const NOT_SAVED: Record<string, string> = {
   window: 'the unattended window could not be written, so nothing changed.',
   config: 'the settings could not be written, so nothing changed.',
   rest: 'the rest flag could not be written, so nothing changed.',
+  'repos-row': "the conductor's repo list was saved, but this session's row in the lane table could not be written, so it is not a conductor yet. Run /callboard conductor again.",
 }
 // Why a compaction was refused, in the words of a reason after "did not run".
 const COMPACT_WHY: Record<string, (detail?: string) => string> = {
@@ -146,7 +147,7 @@ const RULE: Record<RefuseCode, (p: Params['refuse.bad-input']) => string> = {
   'compact-floor': (p) => `below ${p.detail ?? '100'}k tokens. Do not call request_compact again until the context is larger.`,
   'compact-busy': () => 'background work is running. Call it at the end of the turn in which that work finishes.',
   'go-bad-text': () => 'a go text is 1 to 3 plain lines, at most 300 bytes, with nothing hidden.',
-  'dialog-open': () => "another dialog is open in the person's session, so they were not asked. Request the go again once it is closed.",
+  'dialog-open': (p) => `another dialog is open in the person's session, so they were not asked. ${p.tool === 'go_request' ? 'Request the go again' : 'Call this again'} once it is closed.`,
   'stop-declined': () => 'the person did not confirm the force stop.',
   'signal-failed': () => 'the signal to the session did not go; it may already be gone. Check lane_list.',
   'not-saved': (p) => NOT_SAVED[p.detail ?? ''] ?? 'the change could not be saved, so nothing changed.',

@@ -109,7 +109,7 @@ export async function perform($: any, cmd: Cmd, me: Sid, v: View, now: number, s
       if (chosen.length > 0 && !(await saveConductorRepos($, own, chosen))) return saved(false, '', 'repos')
       const ok = await setRow($, v, me, own, (r) => ({ ...r, folder: own, lead: { repos, conductor: true } }))
       if (ok) await giveParentTools($, await getView($, true), me)
-      return saved(ok, T['cmd.conductor']({ repos }), 'lane')
+      return saved(ok, T['cmd.conductor']({ repos }), chosen.length > 0 ? 'repos-row' : 'lane')
     }
     case 'lead-off': return saved(await setRow($, v, me, folder ?? '', ({ lead: _, ...r }) => r), T['cmd.leadOff']({}), 'lane')
     case 'off': return saved(await setRow($, v, me, folder ?? '', (r) => ({ ...r, off: true })), T['cmd.off']({}), 'lane')

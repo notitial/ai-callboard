@@ -244,6 +244,12 @@ test('a force stop always opens the person\'s dialog and needs his Yes; it is re
   assert.equal(f.h.asked.length, 1)
   assert.match(f.h.asked[0]!.question, /kid/)
   assert.deepEqual(kills, [])
+  mem.dialogs.add('go')
+  const busy = text(await stopVerbCall(f.$, { lane: 'kid' }, next, 'terminate'))
+  assert.match(busy, /another dialog is open.*not asked/)
+  assert.doesNotMatch(busy, /did not confirm/)
+  assert.equal(f.h.asked.length, 1)
+  mem.dialogs.clear()
   f.h.askAnswer = async () => 'Yes'
   assert.match(text(await stopVerbCall(f.$, { lane: 'kid' }, next, 'terminate')), /force stopped and its row removed/)
   assert.equal(f.h.asked.length, 2)
