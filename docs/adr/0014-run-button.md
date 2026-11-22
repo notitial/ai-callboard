@@ -1,6 +1,6 @@
 # 14. A Run button runs a chat code block on the person's click
 
-**Status:** proposed
+**Status:** accepted
 **Date:** 2026-11-21
 
 Scope: how a command in a chat's code block gets run and its output gets back into the chat without the person copying

@@ -74,7 +74,7 @@ ancestor acts on any descendant.
    through the same chain as any ask.
 7. Notices follow current relationships: a child's event goes once to the parent computed when it is sent. The manager
    is woken only by asks and expired asks; a lead is told every event about its own lanes.
-8. When the plugin cannot decide, the result is the safe default and it is visible: logged and shown to the parent.
+8. When the plugin cannot decide, the result is the safe default and it is visible: logged and shown to the parent. *Amended 2026-11-22: the `report()` helper that was to queue a refusal for the parent was never called and is gone, with its notice kind. A fallback is logged, and a refusal says its reason to its caller.*
 9. No idle waste: pings and compaction nudges follow fixed bounds.
 
 **The ask timeline.** One timeline serves every kind of ask, a permission and a question alike. For the first 30

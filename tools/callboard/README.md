@@ -177,11 +177,11 @@ docs/setup.md) one multi-folder window answers for every one of its folders.
 ### Manager setup: keep agents off the store (by hand)
 
 One `permissions.deny` line in your global `~/.claude/settings.json` keeps an agent's Edit and Write tools off
-callboard's store file (`~/.claude/plugins/store/callboard_*.json`, which holds this machine's callboard settings).
-`docs/setup.md` has the line. It stops the file tools, not a shell write. The rest of `~/.claude/callboard/` (the
-manager's name and rules files, the plugin's state under `v2/`) is kept from agents by ai-toolkit's protected-paths
-hook and its marker file (`docs/setup.md`, Keep agents off the live checkout), which stops the file tools and a shell
-line that names the path.
+callboard's state folder (`~/.claude/callboard/`, which holds this machine's callboard settings in `v2/config.json`, the
+session table and the go records). `docs/setup.md` has the line. It stops the file tools, not a shell write. The same
+folder is also kept from agents by ai-toolkit's protected-paths hook and its marker file (`docs/setup.md`, Keep agents
+off the live checkout), which stops the file tools and a shell line that names the path; the line holds when the hook
+does not run.
 
 ### Install check
 
@@ -216,7 +216,7 @@ Under `~/.claude/callboard/` (nothing in a repo is trusted):
 | `v2/` | The plugin's state: its session table (`v2/sessions.json`), the repos saved for each conductor folder (`v2/conductors.json`), and the requests for the panels extension (`v2/open/`) |
 | `OFF` | When this file exists, no tier's answers count; remove it to allow them again |
 
-The plugin's settings are in `~/.claude/plugins/store/callboard_*.json`. Lane briefs and reports stay in the repo
+The plugin's settings are in `~/.claude/callboard/v2/config.json`. Lane briefs and reports stay in the repo
 under `.archive/<LANE>/`.
 
 ## When something is refused
