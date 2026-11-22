@@ -49,6 +49,7 @@ PREVIOUS = "extension.js.callboard-prev"
 MARKER = "callboard-cwd-patch.json"
 WEB = "webview/index.js"
 WEB_BACKUP = WEB + ".callboard-orig"
+WEB_FOREIGN = WEB_BACKUP + " does not match the marker's recorded original"
 PATCH = 1
 NAME = b"cbCwd"
 ID = rb"[A-Za-z_$][\w$]*"
@@ -614,10 +615,6 @@ def web_foreign(ext, m, web):
     return os.path.lexists(os.path.join(ext, WEB_BACKUP)) and digest(web[1]) != m.get("web_original_sha256")
 
 
-def web_foreign_why():
-    return "%s does not match the marker's recorded original" % WEB_BACKUP
-
-
 def can_update(ext):
     """Whether --update can rebuild an outdated install: the backup still fits this script's anchors and the webview backup is the recorded original."""
     return not problems(read(os.path.join(ext, BACKUP))) and not web_foreign(ext, marker_of(ext), webview(ext))
@@ -633,7 +630,7 @@ def stale(ext, raw, m):
         return "this script no longer fits the backup: " + "; ".join(bad)
     web = webview(ext)
     if web_foreign(ext, m, web):
-        return web_foreign_why()
+        return WEB_FOREIGN
     new, left, new_js = patched(orig, web)
     if digest(new) == digest(raw) and (web[1] if new_js is None else new_js) == shipped(ext, WEB):
         return None
@@ -746,7 +743,7 @@ def update(ext):
         refuse("this script cannot build the patch from the backup (%s); nothing was changed" % "; ".join(bad))
     web = webview(ext)
     if web_foreign(ext, marker_of(ext), web):
-        refuse("%s; nothing was changed. Run --undo, or reinstall the extension" % web_foreign_why())
+        refuse("%s; nothing was changed. Run --undo, or reinstall the extension" % WEB_FOREIGN)
     new, left, new_js = patched(orig, web)
     # The previous patched file stays reachable under a second name (a hard link, no space) until the new one is in: a failed write puts it back.
     prev = os.path.join(ext, PREVIOUS)
