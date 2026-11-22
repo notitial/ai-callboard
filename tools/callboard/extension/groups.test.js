@@ -37,7 +37,7 @@ function world({ commands = [COMMAND], rows = [], lanes = [], leads = [], table:
     },
   }
   const keys = { 'callboard.groups.done': 'done', 'callboard.groups.seen': 'seen' }
-  // Both records are keyed by the window's first folder: any other key fails the test.
+  // Both records are keyed by the window's first folder. Another key throws inside the tick, which is silent, so that tick files and stores nothing; `keys` holds the keys used.
   const part = (k) => { const at = k.lastIndexOf(':'); assert.equal(k.slice(at + 1), folders[0] ?? ''); assert.ok(keys[k.slice(0, at)], k); w.keys.add(k); return keys[k.slice(0, at)] }
   const state = { get: (k) => w.store[part(k)], update: async (k, v) => { w.store[part(k)] = v; if (part(k) === 'done') w.updates++ } }
   const registry = { list: async () => { w.listed++; return Object.defineProperty([...rows], 'complete', { value: !incomplete }) } }
