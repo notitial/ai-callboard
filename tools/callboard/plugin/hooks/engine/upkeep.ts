@@ -6,6 +6,7 @@ import { signedBy } from '../core/lifecycle.ts'
 import { isOff, refusal } from '../core/model.ts'
 import type { NudgeAct, ReqEvent } from '../core/upkeep.ts'
 import { compactPlan, keepalive, pushRecent, reqExpired, reqStep, sizeNudge, validateRequest } from '../core/upkeep.ts'
+import { compactWhy } from '../texts.ts'
 import { countDown, log, ownTextOf, submitOwn, toast } from './io.ts'
 import type { Up } from './mem.ts'
 import { getUp, mem, patchUp, spendStarted } from './mem.ts'
@@ -149,7 +150,7 @@ export async function requestTick($: any, sid: Sid): Promise<void> {
   }
   if (r.phase !== 'armed') return
   const plan = compactPlan(up.counters, await tokensOf($), now, await busyAgents($))
-  if (plan.act === 'refuse') return drop('refused', plan.msg.slice(7))
+  if (plan.act === 'refuse') return drop('refused', compactWhy(plan.msg.slice(7), (plan.p as { detail?: string }).detail))
   if ((await draft($)) !== '') return drop('draft-in-box', 'there is a draft in the prompt box')
   if ((await patchUp($, (u) => ({ ...u, req: stepReq(u, 'begin', now) }))).req?.phase !== 'compacting') return
   toast($, say({ msg: 'compact.start', p: {} }))

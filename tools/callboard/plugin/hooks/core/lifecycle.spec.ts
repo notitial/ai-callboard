@@ -81,6 +81,8 @@ test('the cue: acted on only when its sender is above the child now and it is fr
   assert.equal(cueAnswer(view({}), L1, cue, true, NOW).outcome, 'held')
   assert.deepEqual(cueAnswer(view({}), L1, cue, false, NOW + CUE_MAX_AGE_MS + 1), { id: 'c', outcome: 'refused', code: 'cue-stale' })
   assert.deepEqual(cueAnswer(view({}), L1, { ...cue, from: 'sid-other' }, false, NOW), { id: 'c', outcome: 'refused', code: 'not-a-parent' })
+  const stale = cueReply(cueAnswer(view({}), L1, cue, false, NOW + CUE_MAX_AGE_MS + 1), 'start', 'L1')
+  assert.deepEqual([stale.msg, (stale.p as { detail?: string }).detail], ['refuse.cue-refused', 'cue-stale'])
   assert.equal(parseCue({ id: 'c', verb: 'terminate', from: A, at: NOW }), undefined)
   assert.equal(cueReply(undefined, 'start', 'L1').msg, 'refuse.cue-refused')
   assert.equal(cueReply({ id: 'c', outcome: 'held' }, 'start', 'L1').msg, 'refuse.cue-held')

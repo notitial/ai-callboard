@@ -84,7 +84,34 @@ const BAD_INPUT: Record<string, (p: Params['refuse.bad-input']) => string> = {
   link: (p) => `${BAD}: .archive or .archive/${esc(p.target ?? '')} in that folder is a link, which callboard does not follow. Pick another name or folder.`,
   unwritten: () => `${BAD}: the brief could not be written.`,
   'no-brief': () => `${BAD}: that lane has no brief to start on.`,
+  path: () => "a typed path, or this session's own folder, does not resolve to a real folder.",
+  'idle-over-working': () => 'the idle level cannot be above the working level.',
+  decision: () => 'decision is one of allow, deny, answer or escalate.',
+  subagent: () => 'a subagent may not call this; it belongs to the session itself.',
+  'not-interactive': () => 'only an interactive session can compact itself.',
+  'too-many': () => 'too many new pull requests were looked up this hour. Try again later.',
+  'no-answer': () => 'GitHub gave no answer for that pull request, so it is not watched. Try again later.',
+  input: () => 'a pull request is its owner, repo and number.',
+  full: () => 'the watch list is full or could not take this pull request, so it is not watched.',
+  write: () => 'the watch list could not be saved, so this pull request is not watched.',
 }
+// What a command or tool could not save, by detail; any other detail is the bare sentence.
+const NOT_SAVED: Record<string, string> = {
+  lane: "this session's row in the lane table could not be written, so nothing changed.",
+  repos: "the conductor's saved repo list could not be written, so nothing changed.",
+  go: 'the go could not be written, so none was given.',
+  'go-off': 'a go could not be removed, so it may still be live. /callboard status shows how many are.',
+  window: 'the unattended window could not be written, so nothing changed.',
+  config: 'the settings could not be written, so nothing changed.',
+  rest: 'the rest flag could not be written, so nothing changed.',
+}
+// Why a compaction was refused, in the words of a reason after "did not run".
+const COMPACT_WHY: Record<string, (detail?: string) => string> = {
+  'compact-busy': () => 'background work is still running',
+  'compact-rate': () => 'the last compaction was less than 30 minutes ago',
+  'compact-floor': (d) => `the context is below ${d ?? '100'}k tokens`,
+}
+export const compactWhy = (code: string, detail?: string): string => (COMPACT_WHY[code] ?? (() => code))(detail)
 const RULE: Record<RefuseCode, (p: Params['refuse.bad-input']) => string> = {
   'bad-input': (p) => (BAD_INPUT[p.detail ?? ''] ?? (() => `${BAD}.`))(p),
   'bad-origin': () => 'this changes what a session may do, so it runs only when the person types it themselves. Tell the person to type it.',
@@ -109,7 +136,7 @@ const RULE: Record<RefuseCode, (p: Params['refuse.bad-input']) => string> = {
   'unknown-liveness': () => 'callboard could not read which sessions are live. Try again in a minute; do not loop.',
   'not-idle': (p) => `the lane is not idle yet. Retry once its turn has ended${p.tool === 'lane_park' ? ` and it has been quiet for ${IDLE_MS / 1000} seconds` : ''}.`,
   'report-unsigned': () => 'its report is not signed done by its own session.',
-  unattended: () => 'the person is away (unattended mode), so a force stop is refused.',
+  unattended: (p) => (p.tool === 'go_request' ? 'the person is away (unattended mode), so no go can be requested.' : 'the person is away (unattended mode), so a force stop is refused.'),
   'no-such-ask': () => 'no such ask.',
   'not-eligible': () => 'that ask is not yours to decide now.',
   'ask-closed': () => 'that ask is closed.',
@@ -119,14 +146,14 @@ const RULE: Record<RefuseCode, (p: Params['refuse.bad-input']) => string> = {
   'compact-floor': (p) => `below ${p.detail ?? '100'}k tokens. Do not call request_compact again until the context is larger.`,
   'compact-busy': () => 'background work is running. Call it at the end of the turn in which that work finishes.',
   'go-bad-text': () => 'a go text is 1 to 3 plain lines, at most 300 bytes, with nothing hidden.',
-  'go-declined': () => 'the person declined.',
+  'dialog-open': () => "another dialog is open in the person's session, so they were not asked. Request the go again once it is closed.",
   'stop-declined': () => 'the person did not confirm the force stop.',
   'signal-failed': () => 'the signal to the session did not go; it may already be gone. Check lane_list.',
+  'not-saved': (p) => NOT_SAVED[p.detail ?? ''] ?? 'the change could not be saved, so nothing changed.',
   'table-unwritten': (p) => (p.detail === undefined ? 'the lane table could not be written, so the lane is not recorded as asked. Check lane_list, then call again.' : `the window opened session ${esc(p.detail)} but the lane table could not take it. Do not call lane_open again; lane_adopt that session once it has a name.`),
   'window-refused': (p) => `the window refused (${esc(p.detail ?? 'no code')}). If a panel is already open in that folder, lane_start it first; otherwise tell the person. Calling again does not change it.`,
   'cue-held': () => 'the lane is in a turn. Try once more in a moment.',
-  'cue-refused': (p) => (p.detail === 'no-answer' ? `the lane did not answer in ${CUE_WAIT_S} seconds. It may still act on the cue: do not repeat the call; check lane_list.` : `the lane refused${p.detail === undefined ? '' : ` (${esc(p.detail)})`}.`),
-  'cue-stale': () => 'the cue was too old. Send it again.',
+  'cue-refused': (p) => (p.detail === 'no-answer' ? `the lane did not answer in ${CUE_WAIT_S} seconds. It may still act on the cue: do not repeat the call; check lane_list.` : p.detail === 'cue-stale' ? 'the cue was too old. Send it again.' : `the lane refused${p.detail === undefined ? '' : ` (${esc(p.detail)})`}.`),
 }
 const refuse = (code: RefuseCode): ((p: Params['refuse.bad-input']) => string) => (p) =>
   `[callboard] ${esc(p.tool)} refused${p.target === undefined ? '' : ` (${q(p.target)})`}: ${RULE[code](p)} Retry only if this says so; otherwise tell the person the reason and do not repeat the call.`

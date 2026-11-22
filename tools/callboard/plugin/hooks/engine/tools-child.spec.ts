@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { MIN, T0, V2, fake } from '../../test/fake.ts'
-import { parent, PERSON } from '../core/model.ts'
+import { parent } from '../core/model.ts'
 import { notices } from '../core/notices.ts'
 import { cueTick } from './cue.ts'
 import { mem } from './mem.ts'
@@ -76,7 +76,7 @@ const reqs = (f: F) => [...f.h.files].filter(([p]) => p.startsWith(`${V2}/open/`
 test('every body re-checks at call time: a session with no capability, a subagent, a lead that turned lead off, an unreadable registry', async () => {
   const f = world()
   assert.match(text(await laneListCall(f.$, {}, next)), /\| kid \|/)
-  assert.match(text(await laneListCall(f.$, { agentId: 'a1' }, next)), /input is not valid/)
+  assert.match(text(await laneListCall(f.$, { agentId: 'a1' }, next)), /a subagent may not call this/)
   f.table({ 'sid-me': { name: 'lead', folder: '/w/me' } })
   for (const r of [await laneListCall(f.$, {}, next), await laneCreateCall(f.$, { name: 'x', folder: '/w/repo/new', brief: 'b' }, next), await laneAdoptCall(f.$, { name: 'kid' }, next), await laneOpenCall(f.$, { lane: 'kid' }, next), await cueVerbCall(f.$, { lane: 'kid' }, next, 'resume')]) assert.match(text(r), /only a lead or the manager/)
   f.table({ 'sid-me': { name: 'lead', folder: '/w/me', lead: { repos: [] } } })
@@ -284,7 +284,6 @@ test('a lane of a gone lead is loose; another lead adopts it; the old lead, back
   mem.view = undefined
   const dead = await getView(f.$, true)
   assert.equal(parent(dead, 'sid-l1'), 'sid-b')
-  assert.notEqual(parent(dead, 'sid-l1'), PERSON)
 })
 
 test('a renamed lane keeps its lead: the lead still lists it, now by the new name, and is told when it signs its report at the path its row holds, and can retire it', async () => {

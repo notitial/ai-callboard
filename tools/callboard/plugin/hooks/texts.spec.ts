@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { T, esc, escBlock, escCell } from './texts.ts'
+import { T, compactWhy, esc, escBlock, escCell } from './texts.ts'
 import { PERSON, TOOLS } from './core/model.ts'
 
 const HIDDEN = [0x0, 0x7, 0xa, 0x7f, 0x85, 0xa0, 0xad, 0x200b, 0x200e, 0x2028, 0x202e, 0x2066, 0x2800, 0x3000, 0xfeff, 0xe000, 0xe0041, 0xfe0f, 0xfff0]
@@ -60,6 +60,33 @@ test('every refusal, tool, help, column, state and role id renders', () => {
     assert.ok(out.startsWith('[callboard] lane_start refused (`x`): '), `${id}: ${out.slice(0, 60)}`)
   }
   assert.deepEqual(ids.filter((i) => i.startsWith('tool.')).sort(), TOOLS.map((t) => `tool.${t}`).sort())
+})
+
+const refusal = (id: string, p: { tool?: string; target?: string; detail?: string }): string => (T as unknown as Record<string, (p: unknown) => string>)[id]!({ tool: 'x_tool', ...p })
+
+test('a refusal says what failed: a save names what could not be written, a bare detail reads as a sentence, a stale cue, a busy dialog and an away person each have their own text', () => {
+  const bare = refusal('refuse.bad-input', { detail: 'not-a-detail' })
+  assert.match(bare, /refused: the input is not valid\. Retry/)
+  const details = ['path', 'idle-over-working', 'decision', 'subagent', 'not-interactive', 'too-many', 'no-answer', 'input', 'full', 'write']
+  const texts = details.map((d) => refusal('refuse.bad-input', { detail: d }))
+  assert.ok(!texts.includes(bare))
+  assert.equal(new Set(texts).size, details.length)
+  const saves = ['lane', 'repos', 'go', 'go-off', 'window', 'config', 'rest'].map((d) => refusal('refuse.not-saved', { detail: d }))
+  assert.equal(new Set(saves).size, saves.length)
+  assert.match(refusal('refuse.not-saved', { detail: 'other' }), /could not be saved, so nothing changed/)
+  assert.match(refusal('refuse.cue-refused', { detail: 'cue-stale' }), /the cue was too old\. Send it again\./)
+  assert.match(refusal('refuse.cue-refused', { detail: 'no-answer' }), /did not answer/)
+  assert.match(refusal('refuse.cue-refused', { detail: 'not-a-parent' }), /the lane refused/)
+  assert.match(refusal('refuse.dialog-open', {}), /another dialog is open.*not asked/)
+  assert.match(refusal('refuse.unattended', { tool: 'go_request' }), /no go can be requested/)
+  assert.match(refusal('refuse.unattended', { tool: 'lane_stop' }), /a force stop is refused/)
+})
+
+test('a refused compaction reads as the reason, not the code', () => {
+  assert.equal(compactWhy('compact-busy'), 'background work is still running')
+  assert.match(compactWhy('compact-rate'), /30 minutes/)
+  assert.equal(compactWhy('compact-floor', '100'), 'the context is below 100k tokens')
+  assert.equal(compactWhy('something-else'), 'something-else')
 })
 
 test('text a session wrote reaches a text escaped and in quotes it cannot close', () => {

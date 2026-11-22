@@ -101,7 +101,7 @@ test('a tick list that picks nothing changes nothing, and says why: cancelled, t
     [{ ok: true }, /could not show the list of repos/],
     [{ ok: true, folders: [] }, /could not show the list of repos/],
     [{ ok: true, folders: ['/w/me'] }, /could not show the list of repos/],
-    [{ ok: true, folders: ['/no/such/dir'] }, /input is not valid/],
+    [{ ok: true, folders: ['/no/such/dir'] }, /does not resolve to a real folder/],
   ]
   for (const [reply, want] of cases) {
     const f = world()
@@ -188,7 +188,7 @@ test('the tick list is asked for only from his typed turn, and takes up to 32 re
 
 test('/callboard conductor with a path that does not exist, or only its own folder, changes nothing', async () => {
   const f = world()
-  assert.match((await run(f, 'conductor /no/such/dir', 'composer')).text, /input is not valid/)
+  assert.match((await run(f, 'conductor /no/such/dir', 'composer')).text, /does not resolve to a real folder/)
   assert.match((await run(f, 'conductor /w/me', 'composer')).text, /only path typed is this session's own folder/)
   assert.equal(f.file('sessions.json'), undefined)
   assert.equal(f.file('conductors.json'), undefined)

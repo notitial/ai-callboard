@@ -29,7 +29,7 @@ export type RefuseCode =
   | 'unknown-liveness' // a doubtful read: try again
   | 'not-idle'
   | 'report-unsigned'
-  | 'unattended' // a force stop while a window is on
+  | 'unattended' // a force stop or go_request while a window is on
   | 'no-such-ask'
   | 'not-eligible'
   | 'ask-closed'
@@ -39,14 +39,14 @@ export type RefuseCode =
   | 'compact-floor'
   | 'compact-busy'
   | 'go-bad-text'
-  | 'go-declined'
+  | 'dialog-open' // go_request while another dialog is open: the person was not asked
   | 'stop-declined' // a force stop the person did not confirm
   | 'signal-failed' // the signal to the session's process did not go
   | 'table-unwritten' // the lane table could not be written
+  | 'not-saved' // a command or tool could not save what it changes; the detail says what
   | 'window-refused' // the window answered a spool request with a refusal code
   | 'cue-held'
   | 'cue-refused'
-  | 'cue-stale'
 
 // The command forms. One help row each: `help.<name>`.
 export type CommandName = 'status' | 'lanes' | 'help' | 'lead' | 'lead-off' | 'conductor' | 'off' | 'on' | 'go' | 'go-off' | 'unattended' | 'config' | 'rest'

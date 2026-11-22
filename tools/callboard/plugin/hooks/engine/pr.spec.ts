@@ -42,18 +42,19 @@ test('pr_watch: the first look records the start in this session\'s own tracker,
 })
 test('pr_watch refuses a subagent, a name outside the grammar, an off session, a missing CLI and an answer it cannot trust; nothing is tracked', async () => {
   const f = session()
-  for (const e of [{ ...REF, agentId: 'a1' }, { ...REF, owner: 'a/b' }, { ...REF, repo: '..' }, { ...REF, number: 0 }, { ...REF, number: '5; rm' }]) assert.match((await watch(f, e)).deny, /refused/)
+  assert.match((await watch(f, { ...REF, agentId: 'a1' })).deny, /a subagent may not call this/)
+  for (const e of [{ ...REF, owner: 'a/b' }, { ...REF, repo: '..' }, { ...REF, number: 0 }, { ...REF, number: '5; rm' }]) assert.match((await watch(f, e)).deny, /a pull request is its owner, repo and number/)
   assert.equal(GHRUNS(f).length, 0)
   const off = session()
   off.table({ 'sid-me': { name: 'me', folder: '/w/me', off: true } })
-  assert.match((await watch(off)).deny, /refused/)
+  assert.match((await watch(off)).deny, /callboard is off for that session/)
   const nocli = session()
   nocli.h.ghBin = undefined
-  assert.match((await watch(nocli)).deny, /refused/)
+  assert.match((await watch(nocli)).deny, /GitHub gave no answer/)
   for (const out of [{ exitCode: 1, stdout: '' }, { exitCode: 0, stdout: 'not json' }, { exitCode: 0, stdout: '{}', isStdoutTruncated: true }, { exitCode: 0, stdout: ' '.repeat(300_000) }]) {
     const x = session()
     x.h.ghOut = out
-    assert.match((await watch(x)).deny, /refused/)
+    assert.match((await watch(x)).deny, /GitHub gave no answer/)
     assert.equal(tracker(x), null)
   }
 })
@@ -68,11 +69,11 @@ test('pr_watch: a PR already merged is answered with the end and not tracked; at
     assert.match((await watch(g, { ...REF, number: n })).result, /Watching/)
   }
   g.h.ghOut = answer({ 9: node() })
-  assert.match((await watch(g, { ...REF, number: 9 })).deny, /refused/)
+  assert.match((await watch(g, { ...REF, number: 9 })).deny, /the watch list is full/)
   assert.equal(tracker(g).prs.length, 8)
   const h = session()
   mem.prLooks = Array(30).fill(T0)
-  assert.match((await watch(h)).deny, /refused/)
+  assert.match((await watch(h)).deny, /too many new pull requests/)
   assert.equal(GHRUNS(h).length, 0)
 })
 test('the poll: every 2 min, a finished green check is one note, then nothing; the note is one PR turn, claimed once and put back if it was not sent', async () => {

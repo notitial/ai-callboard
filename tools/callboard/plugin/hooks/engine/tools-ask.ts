@@ -120,10 +120,10 @@ async function goDialogRun($: any, me: Sid, name: string, text: string): Promise
 export async function goRequestCall($: any, e: any, _next: any) {
   const c = await caller($, e, 'go_request')
   if (!isCaller(c)) return deny(c)
-  const no = (code: RefuseCode, detail?: string) => deny(refusal('refuse', code, { tool: 'go_request', ...(detail === undefined ? {} : { detail }) }))
+  const no = (code: RefuseCode) => deny(refusal('refuse', code, { tool: 'go_request' }))
   if (!goTextOk(e.text)) return no('go-bad-text')
   if ((await windowNow($, true)).state !== 'off') return no('unattended')
-  if (mem.dialogs.size > 0) return no('go-declined', 'busy')
+  if (mem.dialogs.size > 0) return no('dialog-open')
   const text: string = e.text
   void goDialogRun($, c.me, nameOf(c.v, c.me), text)
   return { result: say({ msg: 'go.requested', p: { text, end: stamp((await $.clock.now()) + GO_DIALOG_MS) } }) }
