@@ -113,6 +113,7 @@ async function goDialogRun($: any, me: Sid, name: string, text: string): Promise
   try {
     const end = (await $.clock.now()) + GO_HOURS * 3_600_000
     const r = await personDialog($, goDialog(name, text, stamp(end)), GO_DIALOG_MS)
+    if (!('label' in r) && r.no !== 'error' && r.no !== 'timeout') return
     const outcome = !('label' in r) ? 'closed' : r.label !== T['dialog.yes']({}) ? 'declined' : (await writeGo($, { id: newId(), giver: me, text, end })) ? 'given' : 'unsaved'
     mem.owed.push(T['go.clicked']({ outcome }))
   } catch {}

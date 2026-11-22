@@ -165,7 +165,7 @@ test('his click on the go dialog owes the session that asked one notice: given (
   await call(lead, goRequestCall, { text: 'Build the ask tools' })
   await settle()
   assert.equal(mem.owed.length, 3)
-  assert.match(mem.owed[2]!, /^\[callboard\] The go dialog you opened closed with no answer from the person, so there is no go; ask again only if the work still needs one\. Sent by callboard/)
+  assert.match(mem.owed[2]!, /^\[callboard\] The go dialog you opened ended with no answer from the person, so there is no go, and a click on it now records none; ask again only if the work still needs one\. Sent by callboard/)
 })
 
 test('prompt_answer escalate: the manager\'s note is stored on its own mark, cut at 300 characters, kept out of the log; a lead\'s is not stored; no note, a blank or a non-string one stores nothing', async () => {

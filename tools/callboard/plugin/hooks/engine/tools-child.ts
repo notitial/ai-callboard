@@ -183,7 +183,7 @@ export async function laneCreateCall($: any, e: any, _next: any) {
   const brief = `${dir}/BRIEF.md`
   let taken = false
   const row: Row = { name, folder, report: reportPath(folder, name), under: me, brief, model, ...(effort === undefined ? {} : { effort }), ...(role === 'lead' ? { lead: { repos: [], minted: true as const } } : {}) }
-  const written = await updateTable($, (t) => ((taken = Object.values(t).some((r) => r.name === name)) ? t : { ...t, [key]: row }))
+  const written = await updateTable($, (t) => ((taken = Object.values(t).some((r) => r.name === name || r.brief === brief || r.report === row.report)) ? t : { ...t, [key]: row }))
   if (taken || !written) return deny(refusal('refuse', taken ? 'name-taken' : 'table-unwritten', { tool, target: name }))
   const linked = !(await plainPath($, `${folder}/.archive`)) || !(await plainPath($, dir))
   const why = linked ? 'link' : !(await writeFile($, brief, T['lane.brief']({ name, lead: nameOf(v, me), text }))) ? 'unwritten' : undefined

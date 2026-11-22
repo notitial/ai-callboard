@@ -44,7 +44,7 @@ if (!T['event.turn']({ lines: [] }).startsWith(CHECKIN_OPENER) || !quoted(CHECKI
 
 // The own-step notice: the rule quotes how the turn opens after the person's command and after each outcome of their go click.
 const ownStep = [T['cmd.told']({ result: 'x' }), T['cmd.toldPreset']({ command: 'NAME', result: 'x', failed: [] }), T['go.clicked']({ outcome: 'given' }), T['go.clicked']({ outcome: 'declined' }), T['go.clicked']({ outcome: 'unsaved' }), T['go.clicked']({ outcome: 'closed' })]
-for (const opener of ['[callboard] The person ran /callboard in this session:', '[callboard] The person ran /NAME in this session:', '[callboard] The person clicked Yes on your go request', '[callboard] The person declined the go you asked for', '[callboard] The person said yes to the go you asked for, but it could not be saved', '[callboard] The go dialog you opened closed with no answer from the person']) {
+for (const opener of ['[callboard] The person ran /callboard in this session:', '[callboard] The person ran /NAME in this session:', '[callboard] The person clicked Yes on your go request', '[callboard] The person declined the go you asked for', '[callboard] The person said yes to the go you asked for, but it could not be saved', '[callboard] The go dialog you opened ended with no answer from the person']) {
   if (!ownStep.some((t) => t.startsWith(opener)) || !quoted(opener)) problems.push(`rules/callboard.md does not quote the own-step opener exactly: ${opener}`)
 }
 
