@@ -3,9 +3,9 @@ import assert from 'node:assert/strict'
 import { HOME, MIN, T0, V2, as, peer, tiers } from '../../test/fake.ts'
 import type { Ask } from '../core/model.ts'
 import { mem } from './mem.ts'
-import { readAnswer, readAsks, writeAsk, writeGo } from './store.ts'
+import { getView, readAnswer, readAsks, writeAsk, writeGo } from './store.ts'
 import { postToolHook } from './tick.ts'
-import { goRequestCall, goStatusCall, promptAnswerCall, promptListCall } from './tools-ask.ts'
+import { answerAsk, goRequestCall, goStatusCall, promptAnswerCall, promptListCall } from './tools-ask.ts'
 
 type F = ReturnType<typeof tiers>
 type R = { result?: string; deny?: string }
@@ -92,6 +92,13 @@ test('prompt_answer: a question is answered by an option of the live question; a
   assert.equal(await readAnswer(f.$, ID), undefined)
   assert.match((await call(lead, promptAnswerCall, { id: ID, decision: 'answer', option: 2 })).result!, /answered/)
   assert.equal((await readAnswer(f.$, ID))!.option, 2)
+})
+test('typed words are the person\'s alone: a lead cannot carry them, through prompt_answer or straight to answerAsk', async () => {
+  const { f, lead, put } = world({ tool: 'AskUserQuestion', input: '{}', question: QUESTION })
+  await put()
+  assert.ok((await call(lead, promptAnswerCall, { id: ID, decision: 'answer', picks: ['use staging'] })).deny)
+  assert.equal((await answerAsk(f.$, await getView(f.$, true), ID, { decision: 'answer', picks: ['use staging'] }, 'sid-lead')).act, 'ignore')
+  assert.equal(await readAnswer(f.$, ID), undefined)
 })
 test('an ask already answered is not told again', async () => {
   const { f, lead, boss, put } = world()

@@ -98,7 +98,7 @@ export type Answer = {
   decision: 'allow' | 'deny' | 'answer'
   note?: string
   option?: number
-  picks?: number[] // the person's pick (1-based) for each of an ask's questions
+  picks?: (number | string)[] // the person's answer to each of an ask's questions: an option (1-based), or the words they typed
   at: number
 }
 

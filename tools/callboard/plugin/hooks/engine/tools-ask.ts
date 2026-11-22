@@ -16,6 +16,7 @@ import { deny, isSub, say } from './tools-any.ts'
 
 const ASKS_MS = 10_000
 const NOTE_MAX = 300
+const TYPED_MAX = 2000
 const GO_DIALOG_MS = 15 * 60_000
 
 // The open asks as this process reads them, kept 10 s unless `fresh`: each with its stage now. A session eligible for an ask with no mark of its own writes a `told` mark once, so it
@@ -45,7 +46,7 @@ const liveOf = (a: Ask): unknown => {
 }
 
 // One answer, from a session or the person: the ask is read and staged again, the answer is checked with decide, and it is written exclusively.
-export async function answerAsk($: any, v: View, id: string, a: { decision: 'allow' | 'deny' | 'answer'; note?: string; option?: number; picks?: number[] }, by: Owner): Promise<Decision> {
+export async function answerAsk($: any, v: View, id: string, a: { decision: 'allow' | 'deny' | 'answer'; note?: string; option?: number; picks?: (number | string)[] }, by: Owner): Promise<Decision> {
   const no = (code: RefuseCode, detail?: string): Decision => refusal('refuse', code, { tool: 'prompt_answer', target: id, ...(detail === undefined ? {} : { detail }) })
   const ask = await readAsk($, id)
   if (ask === undefined) return no('no-such-ask')
@@ -53,7 +54,7 @@ export async function answerAsk($: any, v: View, id: string, a: { decision: 'all
   const now = await $.clock.now()
   const st = answered ? undefined : stage({ ask, now, ups, v, away: await awayNow($) })
   if (st?.open !== true) return no('ask-closed')
-  const answer = { ask: id, by, decision: a.decision, at: now, ...(a.note === undefined ? {} : { note: capBytes(a.note, NOTE_MAX).text }), ...(a.option === undefined ? {} : { option: a.option }), ...(a.picks === undefined ? {} : { picks: a.picks }) }
+  const answer = { ask: id, by, decision: a.decision, at: now, ...(a.note === undefined ? {} : { note: capBytes(a.note, NOTE_MAX).text }), ...(a.option === undefined ? {} : { option: a.option }), ...(a.picks === undefined ? {} : { picks: a.picks.map((p) => (typeof p === 'string' ? capBytes(p, TYPED_MAX).text : p)) }) }
   const d = decide(answer, ask, st, v, liveOf(ask))
   if (d.act === 'ignore') return d
   if (!(await guardOk($))) return no('no-guard')

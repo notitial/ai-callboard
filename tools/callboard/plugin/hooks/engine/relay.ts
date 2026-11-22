@@ -1,7 +1,7 @@
 // The relay: by day, an ask that has reached the person is put to them in the manager's session as an AskUserQuestion that callboard calls there itself (`$.agent.call`), one at a
 // time, raised only while the manager is idle: the asker's own questions, or for a tool ask a question that names the call, or for a plain Bash command the engine's own
 // permission dialog for that command, whose run the ask hook stops (proxyRun) and which is used only after a self-test. The dialog is the engine's own, and its abort signal
-// is the plugin's handle on it: each tick first closes the open one once its ask is closed elsewhere or a window is not off. Trust rules held here: the answer is the person's pick
+// is the plugin's handle on it: each tick first closes the open one once its ask is closed elsewhere or a window is not off. Trust rules held here: the answer is the person's pick or typed words
 // in that dialog, written as theirs by answerAsk after the ask is read again (a pick on a closed ask writes nothing and says so); only a dialog the ask hook saw go to the person
 // is theirs, so a result or a refusal that came before it writes nothing, and a dismissal after it is their deny; a dialog that was cut or closed by itself writes nothing and is
 // put again; a Yes on a command changed in the dialog writes nothing; nothing is raised unless the window reads off; the dialogs and the OS notification name the asker by a plain name or its id, and the notification names the tool, never the command.
@@ -21,10 +21,10 @@ import { say } from './tools-any.ts'
 import { idle } from './upkeep.ts'
 
 type Relay = NonNullable<typeof mem.proxy>
-type Answer = { decision: 'allow' | 'deny' | 'answer'; note?: string; option?: number; picks?: number[] }
+type Answer = { decision: 'allow' | 'deny' | 'answer'; note?: string; picks?: (number | string)[] }
 // What came of one dialog: his picks or his note, his dismissal, or nothing (cut, never shown to him, closed by itself, or empty).
 type Out = Picked | 'dismissed'
-type Chosen = { label: string } | Exclude<Out, { picks: number[] }>
+type Chosen = { label: string } | Exclude<Out, { picks: (number | string)[] }>
 
 // One dialog in the manager's session. The call resolves with the tool's result, or `{ deny }` once he dismissed it, a check refused it, or the tick cut it. Only a dialog the
 // ask hook saw go to him is his: a result a hook gave in his place is nothing. One that closed by itself while he was idle is put again (`idle`).
@@ -41,7 +41,9 @@ async function put($: any, p: Relay, questions: AskQuestion[]): Promise<Out> {
 async function pick($: any, p: Relay, spec: DialogSpec): Promise<Chosen> {
   const qs = askOf(spec)
   const r = await put($, p, qs)
-  return r !== undefined && r !== 'dismissed' && 'picks' in r ? { label: qs[0]!.options[r.picks[0]! - 1]!.label } : r
+  if (r === undefined || r === 'dismissed' || !('picks' in r)) return r
+  const k = r.picks[0]!
+  return typeof k === 'string' ? { note: k } : { label: qs[0]!.options[k - 1]!.label }
 }
 // Allow and Deny decide; a dismissal is a deny, and his note a deny that carries it; Leave it, or nothing, writes nothing.
 const answerOf = (r: Chosen): Answer | undefined =>
@@ -93,12 +95,12 @@ async function relayCall($: any, me: Sid, p: Relay, ask: Ask, name: string, note
   }
   return answerOf(await pick($, p, relayDialog(name, ask.tool, ask.input, ask.cut)))
 }
-// A question, or a call of several: the asker's own questions in one dialog, his pick for each sent together. A question not shown whole gets the command's dialog, Deny only.
+// A question, or a call of several: the asker's own questions in one dialog, his answer to each (a pick or his own words) sent together. A question not shown whole gets the command's dialog, Deny only.
 async function relayQuestions($: any, p: Relay, ask: Ask, name: string, qs: readonly Question[]): Promise<Answer | undefined> {
   const sent = mirrorOf(name, qs)
   if (sent === undefined || ask.cut) return answerOf(await pick($, p, relayDialog(name, ask.tool, ask.input, true)))
   const r = await put($, p, sent)
-  return r === undefined || r === 'dismissed' || 'note' in r ? answerOf(r) : qs.length === 1 ? { decision: 'answer', option: r.picks[0]! } : { decision: 'answer', picks: r.picks }
+  return r === undefined || r === 'dismissed' || 'note' in r ? answerOf(r) : { decision: 'answer', picks: r.picks }
 }
 
 // The dialog waits as long as the ask lives: its close is the tick's.

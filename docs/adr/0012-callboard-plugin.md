@@ -171,6 +171,15 @@ text, not as `{ deny }`, so a run counts as stopped only for a `{ deny }`, or fo
 (a command that ran and failed, or another hook's refusal) reads as a run that was not stopped. These two are the exceptions to ADR 0004's observing `tool.check`; neither lifts a deny. The
 relay needs Claude Code 2.1.330 or later.
 
+*Amended 2026-11-22 (typed answers).* In a question's relay dialog, what the person types in place of a pick is their
+answer to that question, no longer a deny with their words as the note: it reaches the asker as that question's answer
+with the same note that it is the person's settled choice, for one question or several, and each question of a call may
+be a pick or typed words. Typed words are the person's alone: a session's `prompt_answer` takes an option only, and the
+engine refuses typed words from any author but the person. They are cut to 2000 bytes when written. An answer that
+leaves a question out, or adds a response, is still the person's deny with what they typed as its note; a dialog that
+closed with no answer is still no answer. This supersedes the clause in the 2026-11-21 amendment above that a typed
+answer is the person's deny.
+
 **Callboard never judges who may answer.** An ask a session cannot decide (a plan-mode exit, a malformed question, a
 guard's own ask) is an ordinary ask that rises like any other; the rubric of the tier that reads it decides. What is
 not an ask is what the person starts themselves, such as creating a lead or a lane and giving a go. Those are their own acts,

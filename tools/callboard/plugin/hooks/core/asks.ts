@@ -49,7 +49,7 @@ export function stage(x: StageIn): Stage {
 }
 
 // One check for an answer: it names this ask, and its author is eligible now, or the person on an ask that has reached him (the relay dialog). Then it must fit
-// the ask: deny for either kind; allow for a permission ask and answer for a question, each only on an input that was not cut (the person may also allow from the manager's note, when the command prints whole). The label comes from the live input.
+// the ask: deny for either kind; allow for a permission ask and answer for a question, each only on an input that was not cut (the person may also allow from the manager's note, when the command prints whole). A pick's label comes from the live input; the person's typed words are their own.
 export type Verdict = Decision<'allow' | 'deny' | 'ignore'> | { act: 'answer'; by: string; picks: { question: string; label: string }[] }
 export function decide(a: Answer, ask: Ask, s: Open, v: View, liveInput: unknown): Verdict {
   const no = (code: RefuseCode, detail?: string): Verdict => refusal('ignore', code, { tool: 'prompt_answer', target: ask.id, ...(detail === undefined ? {} : { detail }) })
@@ -60,7 +60,7 @@ export function decide(a: Answer, ask: Ask, s: Open, v: View, liveInput: unknown
   if (ask.cut) return no('input-cut')
   const isQuestion = ask.tool === QUESTION_TOOL
   if (a.decision === 'allow') return isQuestion ? no('bad-input', 'question') : { act: 'allow', msg: 'ask.allowed', p: { ask: ask.id } }
-  // Several questions are answered by the person's relay dialog only, one pick for each; a session answers one question.
+  // The person's relay dialog answers every question of a call, a pick or typed words for each; a session answers one question, by an option.
   const picks = !isQuestion ? undefined : a.picks !== undefined ? (a.by === PERSON ? picksOf(liveInput, a.picks) : undefined) : a.option !== undefined ? [answerOf(liveInput, a.option)] : undefined
   return picks === undefined || picks.some((x) => x === undefined) ? no('bad-input', 'pick') : { act: 'answer', by, picks: picks as { question: string; label: string }[] }
 }
@@ -133,11 +133,17 @@ export function questionsView(input: unknown): Question[] | undefined {
   const qs = obj(input).questions
   return Array.isArray(qs) && qs.length >= 2 && qs.length <= 4 && qs.every((q) => oneShape(q, 'answers' in obj(input)).ok) && new Set(qs.map((q) => str(obj(q).question))).size === qs.length ? qs.map(viewOf) : undefined
 }
-// One pick (1-based) for each question of a call of 2 to 4, from the LIVE input: the same text as answerOf gives, for each question.
-export function picksOf(liveInput: unknown, picks: readonly number[]): ({ question: string; label: string } | undefined)[] | undefined {
+// The person's answer to each question of a call of 1 to 4, from the LIVE input: for a pick (1-based) the same text as answerOf gives, for typed words the words themselves.
+export function picksOf(liveInput: unknown, picks: readonly (number | string)[]): ({ question: string; label: string } | undefined)[] | undefined {
   const qs = obj(liveInput).questions
-  if (!Array.isArray(qs) || qs.length < 2 || qs.length > 4 || qs.length !== picks.length) return undefined
-  return qs.map((q, k) => (oneShape(q, 'answers' in obj(liveInput)).ok && Number.isInteger(picks[k]) ? ((l) => (typeof l === 'string' ? { question: str(obj(q).question), label: l.trim() } : undefined))(labelsOf(obj(q))[picks[k]! - 1]) : undefined))
+  if (!Array.isArray(qs) || qs.length < 1 || qs.length > 4 || qs.length !== picks.length) return undefined
+  return qs.map((q, k) => {
+    const p = picks[k]!
+    if (!oneShape(q, 'answers' in obj(liveInput)).ok) return undefined
+    if (typeof p === 'string') return p.trim() === '' ? undefined : { question: str(obj(q).question), label: p.trim() }
+    const l = Number.isInteger(p) ? labelsOf(obj(q))[p - 1] : undefined
+    return typeof l === 'string' ? { question: str(obj(q).question), label: l.trim() } : undefined
+  })
 }
 // The chosen option (1-based, as prompt_answer takes it) from the LIVE input, never from the answer file: the question's text and the label as the asker wrote it.
 export function answerOf(liveInput: unknown, option: number): { question: string; label: string } | undefined {
@@ -146,17 +152,16 @@ export function answerOf(liveInput: unknown, option: number): { question: string
   const l = labels(liveInput)[option - 1]
   return typeof l === 'string' ? { question: str(q.question), label: l.trim() } : undefined
 }
-// What the person picked in a dialog the relay put to them as an AskUserQuestion, read from that tool's result: one pick (1-based) for each question sent, when each answer is
-// exactly one of its question's labels; else what they typed or picked as a note (a free-text answer, several picks, a question left out). A dialog that closed by itself
-// (`afkTimeoutMs`) or holds no answer is none.
-export type Picked = { picks: number[] } | { note: string } | undefined
+// What the person answered in a dialog the relay put to them as an AskUserQuestion, read from that tool's result: for each question sent, the pick (1-based) when the answer is
+// exactly one of its labels, else the words they typed; or a note when a question was left out or they added a response. A dialog that closed by itself (`afkTimeoutMs`) or
+// holds no answer is none.
+export type Picked = { picks: (number | string)[] } | { note: string } | undefined
 export function readAnswers(sent: readonly { question: string; options: readonly { label: string }[] }[], result: unknown): Picked {
   const r = obj(result)
   if (r.afkTimeoutMs !== undefined) return undefined
   const got = sent.map((q) => str(obj(r.answers)[q.question]))
   const typed = str(r.response)
-  const picks = sent.map((q, k) => q.options.findIndex((o) => o.label === got[k]) + 1)
-  if (typed === '' && sent.length > 0 && picks.every((p) => p > 0)) return { picks }
+  if (typed === '' && sent.length > 0 && got.every((g) => g.trim() !== '')) return { picks: sent.map((q, k) => q.options.findIndex((o) => o.label === got[k]) + 1 || got[k]!) }
   const note = [...got, typed].filter((s) => s !== '').join('\n')
   return note === '' ? undefined : { note }
 }
