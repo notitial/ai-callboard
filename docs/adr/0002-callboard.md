@@ -1,6 +1,6 @@
 # 2. Callboard: one session runs others through cues
 
-**Status:** accepted
+**Status:** accepted, amended; partly superseded by [ADR 0012](0012-callboard-plugin.md)
 **Date:** 2026-10-24
 
 Scope: the callboard mod, its VS Code panels extension and its sender, as they stand at v15. The user-facing guide is `tools/callboard/README.md`; the code is `tools/callboard/mod/hooks/core.ts` (pure logic) and `register.ts` (engine calls). The manager role that uses callboard is ADR 0001.

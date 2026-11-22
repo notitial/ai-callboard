@@ -1,6 +1,6 @@
 # 4. Prompt answering: agents answer a lane's prompts up a ladder
 
-**Status:** accepted
+**Status:** accepted, amended
 **Date:** 2026-11-06
 **Accepted:** 2026-11-12
 

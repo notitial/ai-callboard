@@ -9,9 +9,9 @@ may answer a permission prompt and who may widen a session's powers, so it is on
 the person switched the one plugin entry over ([docs/setup.md](../setup.md), A Mac set up before the plugin) and the mod is
 deleted.
 
-It supersedes [ADR 0006](0006-conductor-opens-leads.md), [ADR 0007](0007-conductor-owns-leads.md) and
-[ADR 0011](0011-all-prompts-rise.md), and amends [ADR 0001](0001-manager-role.md), [ADR 0002](0002-callboard.md),
-[ADR 0004](0004-prompt-answering.md), [ADR 0005](0005-callboard-module-layout.md),
+It supersedes [ADR 0005](0005-callboard-module-layout.md), [ADR 0006](0006-conductor-opens-leads.md),
+[ADR 0007](0007-conductor-owns-leads.md) and [ADR 0011](0011-all-prompts-rise.md), and amends
+[ADR 0001](0001-manager-role.md), [ADR 0002](0002-callboard.md), [ADR 0004](0004-prompt-answering.md),
 [ADR 0008](0008-unattended-mode.md), [ADR 0009](0009-go-given-once.md) and [ADR 0010](0010-pr-notices.md).
 
 ## Context
