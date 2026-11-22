@@ -34,10 +34,20 @@ const decided = (x: any): boolean => x?.decision !== undefined || x?.hookSpecifi
 const PLUGIN = 'callboard'
 export const SELF_TEST = { command: 'true', description: 'Relayed from callboard: self-test' }
 const ours = (next: any): boolean => next?.origin?.plugin === PLUGIN
-// The relay's description, read as a person reads it: only its letters and digits count (so no invisible character, space or mark between them), and any letter or digit
-// outside ASCII may stand in for one of "relayedfrom" (a look-alike from another script).
-const RESERVED_RE = new RegExp(`^${[...'relayedfrom'].map((c) => `(?:${c}|[^\\x00-\\x7f]|\\d)`).join('')}`, 'iu')
-const reserved = (d: unknown): boolean => RESERVED_RE.test(String(d ?? '').normalize('NFKC').replace(/[^\p{L}\p{N}]/gu, ''))
+// The relay's description, read as a person reads it: only its letters and digits count (so no invisible character, space or mark between them), the common look-alikes of
+// the letters of "relayedfrom" (Cyrillic, Greek and a few more, the digits 0 and 1, `i` and `|`) read as that letter, and what is left must start with "relayedfrom". Any
+// other letter is itself, so a description in another script is no match. The list is not every confusable: the reason line of the relay's dialog is what tells it from
+// one it lacks, so a description that holds that sentence is refused too, and so is one with a character that shows as blank or turns the text round.
+const LOOKALIKES = new Map(Object.entries({ '\u0430': 'a', '\u0251': 'a', '\u03b1': 'a', '\u0435': 'e', '\u03b5': 'e', '\u043e': 'o', '\u03bf': 'o', '\u0585': 'o', '0': 'o', '\u0443': 'y', '\u04af': 'y', '\u03b3': 'y', '\u0456': 'l', '\u04cf': 'l', '\u03b9': 'l', '\u01c0': 'l', 'i': 'l', '|': 'l', '1': 'l', '\u0501': 'd', '\u0433': 'r', '\u1d26': 'r', '\u043c': 'm', '\u0192': 'f' }))
+const HIDDEN_RE = /[\u115f\u1160\u3164\uffa0\u200e\u200f\u061c\u202a-\u202e\u2066-\u2069]/
+const fold = (s: string): string => s.normalize('NFKD').toLowerCase().replace(/[^\p{L}\p{N}|]/gu, '').replace(/[^a-z]|i/g, (c) => LOOKALIKES.get(c) ?? c)
+const RELAYED = fold('relayedfrom')
+const TELL = fold('yourclickdecides')
+const reserved = (d: unknown): boolean => {
+  const raw = String(d ?? '')
+  const s = fold(raw)
+  return HIDDEN_RE.test(raw) || s.startsWith(RELAYED) || s.includes(TELL)
+}
 const mine = (tool: unknown, input: any): boolean => {
   const p = mem.proxy
   return p === undefined ? false : tool === 'Bash' ? p.native !== undefined && input?.command === p.native.input.command && input?.description === p.native.input.description : tool === QUESTION_TOOL && p.first !== undefined && input?.questions?.[0]?.question === p.first
@@ -101,7 +111,9 @@ export async function permissionRequest($: any, e: any, next: any) {
   // The relay's dialog goes to the person unless a hook beneath decides it; the relay writes his dismissal as a deny only when it went to him.
   if (isProxy(e.tool_name, e.tool_input, next)) {
     const p = mine(e.tool_name, e.tool_input) ? mem.proxy : undefined
-    const r = await next(e)
+    // The engine's own dialog may offer "don't ask again" from the call's suggestions: a Bash of this plugin's goes down the chain with none. The engine's types do not say it
+    // honours that, so the dialog's first live use checks that it shows no such option.
+    const r = await next(e.tool_name === 'Bash' ? { ...e, permission_suggestions: [] } : e)
     if (!decided(r) && p !== undefined) p.shown = true
     return r
   }

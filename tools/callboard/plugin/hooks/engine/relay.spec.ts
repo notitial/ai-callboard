@@ -467,8 +467,11 @@ test('a self-test whose run was not stopped leaves every ask a question; the rel
   const relayed = { tool: 'Bash', command: 'ls', description: 'Relayed from a lane of its own' }
   const reserved = 'Refused by callboard: a Bash description that starts "Relayed from" is kept for its relay. Use another description.'
   assert.deepEqual(await proxyRun(boss.$, relayed, engine({ result: 'ran' })), { deny: reserved })
-  for (const description of ['Relayed from x', '  relayed  FROM x', 'Ｒelayed from x', 'Relayed​ from x', 'Re­layed from x', 'Rel⁠ayed from x', 'Rеlayed from x', 'Re1ayed-from x', 'RELAYED:FROM x']) assert.deepEqual(await toolCheck(boss.$, { tool: 'Bash', input: { command: 'ls', description }, tool_use_id: 't1' }, engine({ decision: 'ask' })), { decision: 'deny', reason: reserved }, description)
+  for (const description of ['Relayed from x', '  relayed  FROM x', 'Ｒelayed from x', 'Relayed​ from x', 'Re­layed from x', 'Rel⁠ayed from x', 'Rеlayed from x', 'Re1ayed-from x', 'RELAYED:FROM x', 'Rélayed from x', 'Relαyed from x', 'Reӏayed frоm x', 'RELAYED FR0M x', 'Rеlаyеd frоm x', 'Relayed frօm x', 'ReIayed from x', 'Re|ayed from x', 'Rel\u1160ayed from x', '\u202emorf deyaleR', 'List files. Your click decides this ask only.']) assert.deepEqual(await toolCheck(boss.$, { tool: 'Bash', input: { command: 'ls', description }, tool_use_id: 't1' }, engine({ decision: 'ask' })), { decision: 'deny', reason: reserved }, description)
   assert.deepEqual(await toolCheck(boss.$, { tool: 'Bash', input: { command: 'ls', description: 'List files relayed from x' }, tool_use_id: 't1' }, engine({ decision: 'ask' })), { decision: 'ask' })
+  for (const description of ['Список файлов в каталоге', 'ファイル一覧を表示する', '列出当前目录中的所有文件', 'Εμφάνιση αρχείων καταλόγου', 'عرض الملفات في المجلد', '20241122153045 build', 'Relay the files', 'Прочитать файл']) {
+    assert.deepEqual(await toolCheck(boss.$, { tool: 'Bash', input: { command: 'ls', description }, tool_use_id: 't1' }, engine({ decision: 'ask' })), { decision: 'ask' }, description)
+  }
   assert.deepEqual(await proxyJudge(boss.$, { tool: 'Bash', input: relayed }, engine({ decision: 'allow' })), { decision: 'allow' })
   const own = Object.assign(async () => ({ decision: 'allow' }), { origin: { plugin: 'callboard', tier: 'user' }, signal: undefined })
   assert.equal(((await toolCheck(boss.$, { tool: 'Bash', input: { command: 'ls', description: 'Relayed from x' } }, own)) as any).decision, 'deny', 'a command of its own that no dialog sent is refused')
@@ -477,6 +480,12 @@ test('a self-test whose run was not stopped leaves every ask a question; the rel
   mem.proxy = { id: 'aa11bb22cc', ctrl: new AbortController(), shown: false, native: { input: sent, reason: 'R' } }
   assert.deepEqual(await proxyJudge(boss.$, { tool: 'Bash', input: sent }, own), { decision: 'ask', reason: 'R' }, 'auto mode\'s classifier is not asked about the open dialog\'s command')
   assert.deepEqual(await proxyJudge(boss.$, { tool: 'Bash', input: { ...sent, command: 'rm' } }, own), { decision: 'allow' })
+  const suggestions = [{ type: 'addRules', rules: [{ toolName: 'Bash', ruleContent: 'ls:*' }], behavior: 'allow', destination: 'localSettings' }]
+  const seen: any[] = []
+  const spy = Object.assign(async (x: any) => (seen.push(x), {}), { origin: { plugin: 'callboard', tier: 'user' }, signal: undefined })
+  await permissionRequest(boss.$, { tool_name: 'Bash', tool_input: sent, permission_suggestions: suggestions, tool_use_id: 't1' }, spy)
+  await permissionRequest(boss.$, { tool_name: 'Bash', tool_input: SELF_TEST, permission_suggestions: suggestions, tool_use_id: 't2' }, spy)
+  assert.deepEqual(seen.map((x) => x.permission_suggestions), [[], []], 'every Bash of the plugin goes down the chain with no suggestions')
 })
 test('a deny after his Yes that is not the engine\'s rejection writes nothing and is not put again; a tick that closes the dialog writes nothing and puts it again', async () => {
   const f = tiers()

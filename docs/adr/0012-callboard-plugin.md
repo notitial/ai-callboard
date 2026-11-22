@@ -152,9 +152,14 @@ in this process; the path through a dialog is the engine's documented order. A r
 stopped anyway turns the dialog off until callboard restarts, says so, and puts the question form. The description is
 the relay's alone: any other Bash whose description starts "Relayed from" is refused in every session, at its check
 and at its run, so no dialog in the manager's session that runs a command can pass for the relay's, and the relay's
-always reads "Your click decides this ask only." on its reason line. A description counts as the relay's by its
-letters and digits alone, with any letter outside ASCII standing in for one of its own, so no invisible character or
-look-alike gets past. These two are the exceptions to ADR 0004's observing `tool.check`; neither lifts a deny. The
+always reads "Your click decides this ask only." on its reason line, which is what tells it from a look-alike the
+check does not know. A description counts as the relay's when it reads as "Relayed from" after normalising, keeping
+letters and digits only and folding the common look-alikes (Cyrillic, Greek and a few more letters, the digits 0 and 1,
+`i` and `|`); a description in another script is no match. One that holds the reason line's sentence, or a character
+that shows as blank or turns the text round, is refused as well. A Bash of this plugin's goes down the permission chain
+with its permission suggestions emptied, which asks the engine to offer no "don't ask again"; the engine's types do not
+say it honours that, and say a narrower rule the person saves on a dialog a hook asked is theirs, so the first live use
+checks that the relay's dialog shows no such option. These two are the exceptions to ADR 0004's observing `tool.check`; neither lifts a deny. The
 relay needs Claude Code 2.1.330 or later.
 
 **Callboard never judges who may answer.** An ask a session cannot decide (a plan-mode exit, a malformed question, a
