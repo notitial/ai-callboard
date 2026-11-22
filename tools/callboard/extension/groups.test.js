@@ -15,10 +15,10 @@ const row = (n, cwd, extra = {}) => ({ sessionId: S(n), cwd, entrypoint: 'claude
 // `failing` makes the command throw. `leads` and `lanes` are sessions with a table row of that role (a lead with `lead`, a lane `under` S(99)); `table` adds
 // rows as they are. `done` is the stored record; `manager` the manager-name file's line (an Error: a file that cannot be read); `incomplete` marks the registry read as one with doubt in it.
 // `startOf` is `ps`: by default each pid starts when its row says, so a row whose pid answers is its own process.
-// `seen` is the stored record of lanes seen running; `archived` records every call of the archive command (group, ids), which `archiveFails` makes throw.
-function world({ commands = [COMMAND], rows = [], lanes = [], leads = [], table: extra = {}, folders = [A], done = {}, seen = [], manager = null, incomplete = false, failing = false, failOn = 0, failSid, refuse = [], loadError = false, missingTable = false, archiveFails = false, alive = () => true, startOf = async (pid) => rows.find((r) => r.pid === pid)?.procStart } = {}) {
+// `seen` is the stored record of lanes seen running, `seenLeads` that of conductor-made leads; `archived` records every call of the archive command (group, ids), which `archiveFails` makes throw; it answers the ids it was given, or what `archiveAnswers` says.
+function world({ commands = [COMMAND], rows = [], lanes = [], leads = [], table: extra = {}, folders = [A], done = {}, seen = [], seenLeads = [], manager = null, incomplete = false, failing = false, failOn = 0, failSid, refuse = [], loadError = false, missingTable = false, archiveFails = false, archiveAnswers, alive = () => true, startOf = async (pid) => rows.find((r) => r.pid === pid)?.procStart } = {}) {
   const table = { ...Object.fromEntries(lanes.map((l) => [l.sid, { name: 'L', folder: A, under: S(99) }])), ...Object.fromEntries(leads.map((l) => [l.sid, { name: 'D', folder: A, lead: { repos: [] } }])), ...extra }
-  const w = { calls: [], archived: [], store: { done, seen }, updates: 0, listed: 0, looked: 0, table }
+  const w = { calls: [], archived: [], store: { done, seen, seenLeads }, updates: 0, listed: 0, looked: 0, table }
   const vscode = {
     commands: {
       getCommands: async () => { w.looked++; return commands },
@@ -26,7 +26,7 @@ function world({ commands = [COMMAND], rows = [], lanes = [], leads = [], table:
         if (cmd === ARCHIVE) {
           if (archiveFails) throw new Error('boom')
           w.archived.push([sid, group])
-          return group
+          return archiveAnswers ? archiveAnswers(group) : group
         }
         assert.equal(cmd, COMMAND)
         assert.deepEqual(order, ['Manager', 'Conductor', 'Lead', 'Lanes'])
@@ -36,7 +36,7 @@ function world({ commands = [COMMAND], rows = [], lanes = [], leads = [], table:
       },
     },
   }
-  const keys = { 'callboard.groups.done': 'done', 'callboard.groups.seen': 'seen' }
+  const keys = { 'callboard.groups.done': 'done', 'callboard.groups.seen': 'seen', 'callboard.groups.seenLeads': 'seenLeads' }
   const state = { get: (k, d) => (keys[k] ? w.store[keys[k]] : d), update: async (k, v) => { assert.ok(keys[k]); w.store[keys[k]] = v; if (keys[k] === 'done') w.updates++ } }
   const registry = { list: async () => { w.listed++; return Object.defineProperty([...rows], 'complete', { value: !incomplete }) } }
   w.groups = createGroups({ vscode, registry, state, loadTable: async () => { if (loadError || w.doubt) throw new Error('bad table'); return missingTable ? null : table }, managerName: async () => { if (manager instanceof Error) throw manager; return manager }, workspaceFolders: () => folders, alive, startOf })
@@ -344,15 +344,54 @@ test('a stored record that is not a list is no record', async () => {
   assert.deepEqual(w.store.seen, [S(1)])
 })
 
-test('a lead (a minted one too) seen running and then gone is never archived: only Lanes are remembered', async () => {
+const LEADS = () => ({ [S(1)]: { name: 'D', folder: A, lead: { repos: [] } }, [S(2)]: { name: 'M', folder: A, lead: { repos: [], minted: true }, under: S(3) }, [S(3)]: { name: 'C', folder: A, lead: { repos: [], conductor: true } } })
+
+test('a lead a conductor made, seen running and then retired, is archived from the Lead group; a lead the person typed and a conductor never are', async () => {
   const rows = [row(1, A), row(2, A), row(3, A)]
-  const table = { [S(1)]: { name: 'D', folder: A, lead: { repos: [] } }, [S(2)]: { name: 'M', folder: A, lead: { repos: [], minted: true }, under: S(1) }, [S(3)]: { name: 'C', folder: A, lead: { repos: [], conductor: true } } }
-  const w = world({ commands: ARCH, rows, table })
+  const w = world({ commands: ARCH, rows, table: LEADS() })
   await w.groups.tick()
-  assert.deepEqual(w.store.seen, [], 'no lead is remembered')
+  assert.deepEqual([w.store.seen, w.store.seenLeads], [[], [S(2)]], 'only the conductor-made lead is remembered')
   for (const sid of [S(1), S(2), S(3)]) retire(w, rows, sid)
   for (let i = 0; i < 4; i++) await w.groups.tick()
-  assert.deepEqual(w.archived, [])
+  assert.deepEqual([w.archived, w.store.seenLeads], [[['Lead', [S(2)]]], []])
+})
+
+test('a conductor-made lead that is closed or parked is forgotten, so it stays listed when the plugin drops its row later', async () => {
+  for (const mark of ['goneAt', 'parked']) {
+    const rows = [row(2, A), row(3, A)]
+    const w = world({ commands: ARCH, rows, table: LEADS() })
+    await w.groups.tick()
+    assert.deepEqual(w.store.seenLeads, [S(2)])
+    // Closed: the process is gone and the row stays, first unmarked, then marked by the plugin.
+    rows.splice(0, 1)
+    await w.groups.tick()
+    assert.deepEqual(w.store.seenLeads, [S(2)], 'a row with no mark yet is a retire under way or a close not yet read')
+    w.table[S(2)][mark] = 1
+    await w.groups.tick()
+    assert.deepEqual(w.store.seenLeads, [], mark)
+    delete w.table[S(2)]
+    for (let i = 0; i < 4; i++) await w.groups.tick()
+    assert.deepEqual(w.archived, [], mark)
+  }
+})
+
+test('a retired session is filed in its group before it is archived, and is forgotten only when the archive command names it or the file command refuses it', async () => {
+  const rows = [row(1, A), row(2, A)]
+  const w = world({ commands: ARCH, rows, lanes: [{ sid: S(1) }, { sid: S(2) }], done: { [S(1)]: 'Lanes', [S(2)]: 'Lanes' }, archiveAnswers: () => [] })
+  await w.groups.tick()
+  assert.deepEqual(w.calls, [], 'both were filed before')
+  retire(w, rows, S(1))
+  for (let i = 0; i < 3; i++) await w.groups.tick()
+  assert.deepEqual(w.calls, [[S(1), 'Lanes'], [S(1), 'Lanes']], 'filed again on each tick that names it')
+  assert.deepEqual([w.archived, w.store.seen], [[['Lanes', [S(1)]], ['Lanes', [S(1)]]], [S(1), S(2)]], 'not named as archived: remembered and tried again')
+  // The file command refuses it (archived by hand, or the list limits): it cannot be archived, so it is forgotten and the archive command is not called for it.
+  const xrows = [row(1, A)]
+  const x = world({ commands: ARCH, rows: xrows, lanes: [{ sid: S(1) }], done: { [S(1)]: 'Lanes' }, refuse: [S(1)] })
+  await x.groups.tick()
+  assert.deepEqual(x.store.seen, [S(1)])
+  retire(x, xrows, S(1))
+  for (let i = 0; i < 3; i++) await x.groups.tick()
+  assert.deepEqual([x.calls, x.archived, x.store.seen], [[[S(1), 'Lanes']], [], []])
 })
 
 test('a missing table (a fresh install) still files the manager but archives nothing', async () => {
