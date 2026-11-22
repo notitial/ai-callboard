@@ -101,6 +101,11 @@ export async function createExcl($: any, p: string, text: string): Promise<'ok' 
     await rm($, [tmp])
   }
 }
+// A path is plain when it does not exist yet (unless it must) or resolves to itself: a link on the way to the brief is not followed.
+export async function plainPath($: any, p: string, mustExist = false): Promise<boolean> {
+  const r = await run($, ['/bin/realpath', '--', p]).catch(() => undefined)
+  return r === undefined || r.exitCode !== 0 ? !mustExist : r.stdout.trim() === p
+}
 // A fresh random id for an ask, a go or a temporary name: 10 characters of 0-9 and a-z.
 export const newId = (): string => (Math.random().toString(36) + '0000000000').slice(2, 12)
 // One writer at a time: a lock folder made by `mkdir` that holds its owner's token, removed only by that owner. One 10 s old is moved aside by a waiter (a move that finds
@@ -135,6 +140,20 @@ export async function log($: any, sid: Sid, event: string, reason = ''): Promise
   mem.logged = key
   await ensureDir($, p.slice(0, p.lastIndexOf('/'))).catch(() => undefined)
   await run($, ['/usr/bin/tee', '-a', '--', p], { stdin: `${JSON.stringify({ t: new Date(await $.clock.now()).toISOString(), event, reason })}\n` }).catch(() => undefined)
+}
+
+// Registers a slash command unless another source already holds its name: the engine refuses a built-in's, and a user's, a skill's or another plugin's would also be answered by this plugin's
+// hook, which hears a command by name. A line of this plugin's own from before a reload (`mine` says which, from the listed line) is registered again. A name not registered is kept in mem.taken, which the hooks
+// read to pass that command on and /callboard status shows, and is logged. A list that fails counts as no clash: the engine's refusal is caught here.
+export async function registerFree($: any, name: string, description: string, mine: (line: { description?: string; plugin?: string }) => boolean): Promise<boolean> {
+  const listed: { name: string; source: string; description?: string; plugin?: string }[] = await $.command.list().catch(() => [])
+  const held = listed.some((c) => c.name === name && !(c.source === 'plugin' && mine(c)))
+  const ok = !held && (await $.command.register({ name, description }).then(() => true, () => false))
+  if (!ok) {
+    mem.taken.add(name)
+    await log($, (await $.session.id()) as Sid, 'command-taken', name)
+  }
+  return ok
 }
 
 // ---- the plugin's own turns ----

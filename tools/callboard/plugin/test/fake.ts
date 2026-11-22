@@ -57,6 +57,14 @@ export function fake(o: { sid?: string } = {}) {
     kinds: new Map<string, string>(),
     undeletable: new Set<string>(),
     onSleep: undefined as undefined | (() => unknown),
+    // Whether the panel commands rename, clear and resume the own registry row; those that do nothing when run (a rename that does not land) and those that never answer; the session id a `/clear` gives.
+    panel: false,
+    dead: new Set<string>(),
+    hang: new Set<string>(),
+    clearTo: 'sid-new',
+  }
+  const ownRow = (f: (r: any) => unknown) => {
+    for (const [p, t] of h.files) if (p.startsWith(`${HOME}/.claude/sessions/`) && t.includes(`"sessionId":"${h.sid}"`)) h.files.set(p, JSON.stringify(f(JSON.parse(t))))
   }
   const under = (dir: string) => {
     const names = new Map<string, string>()
@@ -214,6 +222,15 @@ export function fake(o: { sid?: string } = {}) {
     command: { register: async (c: { name: string }) => void h.commands.push(c.name), list: async () => h.listed, run: async (c: { command: string; args: string }) => {
       h.compactRuns.push(`${c.command} ${c.args}`)
       if (c.command === 'model') h.model = `claude-${c.args}-5-5`
+      // With `panel` set, the panel's own commands land in the registry (unless listed in `dead`): a rename writes the own row's name, `/clear` gives the same process a new session id, `/resume` an earlier one back.
+      if (h.hang.has(c.command)) return new Promise<void>(() => undefined)
+      if (!h.panel || h.dead.has(c.command)) return
+      if (c.command === 'rename') ownRow((r) => ({ ...r, name: c.args, nameSource: 'user' }))
+      if (c.command === 'clear' || c.command === 'resume') {
+        const to = c.command === 'clear' ? h.clearTo : c.args
+        ownRow((r) => ({ ...r, sessionId: to }))
+        h.sid = to
+      }
     } },
     tool: { register: async (t: { name: string }) => void h.tools.push(t.name) },
   }

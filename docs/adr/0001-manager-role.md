@@ -1,6 +1,6 @@
 # 1. The Manager Role
 
-**Status:** accepted
+**Status:** accepted, amended
 **Date:** 2026-10-21
 
 ## Context

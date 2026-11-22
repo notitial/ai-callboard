@@ -1,6 +1,6 @@
 # 2. Callboard: one session runs others through cues
 
-**Status:** accepted
+**Status:** accepted, amended; partly superseded by [ADR 0012](0012-callboard-plugin.md)
 **Date:** 2026-10-24
 
 Scope: the callboard mod, its VS Code panels extension and its sender, as they stand at v15. The user-facing guide is `tools/callboard/README.md`; the code is `tools/callboard/mod/hooks/core.ts` (pure logic) and `register.ts` (engine calls). The manager role that uses callboard is ADR 0001.
@@ -192,7 +192,7 @@ Each addition is part of the decision above; these sections hold what it decided
 ### Design addition: lanes name their lead, several leads in a repo (levels S2, S2b)
 
 - A store record may carry `leadName`: the lead's session name, read only from the live registry (exactly one row for the session id, a valid lane-style name, not reserved, carried by no other live row in any letter case). The name is the key because a lead restarts with a new session id and keeps its name. Any name source counts.
-  *Amended 2026-11-19 ([ADR 0012](0012-callboard-plugin.md)): the reason is out of date. A restart of the same conversation keeps its session id (tested), so a lead does not come back under a new one; the plugin build binds every row by session id, takes no lead over by name and finds only the manager by name. The paragraph stands for the mod only.*
+  *Amended 2026-11-19 ([ADR 0012](0012-callboard-plugin.md); a session's own handover to a clear one, [ADR 0015](0015-session-handover.md), is the one takeover): the reason is out of date. A restart of the same conversation keeps its session id (tested), so a lead does not come back under a new one; the plugin build binds every row by session id, takes no lead over by name and finds only the manager by name. The paragraph stands for the mod only.*
 - A second `/callboard lead` in a repo needs a usable name for this session and every other lead there (`lead-name-taken`, `lead-needs-name`, `other-lead-unnamed`), checked before the dialog and again after a yes; a lead restore runs the same gate.
 - With several live leads the Join dialog first asks "Which lead should this lane join?" (up to 4 names, then `More…`).
 - **Residuals.** The lead's name may be an automatic title; a retitle puts its lanes out of reach, and a later session that takes the title and becomes lead reaches them. Lanes made while a lead was alone and unnamed stay legacy. Two leads that start at the same moment can both pass. The registry and presence files are same-uid writable: the name is a filter between honest sessions.

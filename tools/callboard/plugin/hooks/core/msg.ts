@@ -49,7 +49,7 @@ export type RefuseCode =
   | 'cue-refused'
 
 // The command forms. One help row each: `help.<name>`.
-export type CommandName = 'status' | 'lanes' | 'help' | 'lead' | 'lead-off' | 'conductor' | 'off' | 'on' | 'go' | 'go-off' | 'unattended' | 'config' | 'rest' | 'remote'
+export type CommandName = 'status' | 'lanes' | 'help' | 'lead' | 'lead-off' | 'conductor' | 'off' | 'on' | 'go' | 'go-off' | 'unattended' | 'config' | 'rest' | 'handover' | 'remote'
 
 // The lane list's columns and states (`/callboard lanes`, `lane_list`).
 export type UiColumn = 'name' | 'role' | 'state' | 'folder' | 'context' | 'fiveHour' | 'sevenDay' | 'cost' | 'read'
@@ -64,6 +64,7 @@ export type StatusRow =
   | { field: 'goes'; value: number }
   // A lane's Remote Control wish that could not be applied: the wish, and the code the lane gave up on (core/remote.ts).
   | { field: 'remote'; value: { on: boolean; code: string } }
+  | { field: 'taken'; value: string[] }
 
 type E = Record<never, never>
 type RefuseP = { tool: string; target?: string; detail?: string }
@@ -88,6 +89,11 @@ export type Fixed = {
   'compact.notRun': { reason: string }
   'compact.unconfirmed': { reason: string }
   'compact.start': E // toast: callboard starts this session's own compaction
+  // Handover: the queued result, the toast, the refusal turn, and the turn the new session starts with (the handover file, a lane's brief, the continuation, the steps that did not land).
+  'handover.queued': E
+  'handover.start': E
+  'handover.notRun': { reason: string }
+  'handover.note': { name: string; file: string; brief?: string; continuation: string; failed: string[] }
 
   // Nudges (the 300k, 400k and 150k kinds) and the keepalive ping.
   'nudge.idle': { k: number }
@@ -157,6 +163,8 @@ export type Fixed = {
   'cmd.configReset': E
   'cmd.rest': E
   'cmd.remote': { name: string; on: boolean }
+  // His typed /callboard handover: the turn that asks the session to write its state and call request_handover (also the command's own answer).
+  'cmd.handover': E
   // The notice turn after his own step in this session: a typed /callboard command that changed something, or his click on the go dialog.
   'cmd.told': { result: string }
   // The same after a folder's lead preset command, sent once its name, model and effort steps ran; `failed` names the steps that did not land.

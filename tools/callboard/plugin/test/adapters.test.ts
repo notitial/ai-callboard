@@ -24,6 +24,7 @@ function engine(on: any, f: ReturnType<typeof fake>) {
   on('turn.complete', (_: any, e: any) => ({ text: e.answer }))
   on('turn.start', (_: any, e: any) => ({ turnId: e.turnId }))
   on('agent.list', () => ({ value: [] }))
+  on('command.list', () => ({ value: f.h.listed }))
   on('command.register', (_: any, e: any) => (f.h.commands.push(e.name), { value: { command: e.name } }))
   on('tool.register', (_: any, e: any) => (f.h.tools.push(e.name), { value: { tool: e.name } }))
   on('command.run', (_: any, e: any) => (f.h.compactRuns.push(`${e.command} ${e.args}`), { value: { text: '' } }))
@@ -32,16 +33,16 @@ function engine(on: any, f: ReturnType<typeof fake>) {
 const start = ($: any) => $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
 const own = (f: ReturnType<typeof fake>) => f.seed({ sid: 'sid-me', pid: 10, name: 'me', cwd: '/w/me', kind: 'interactive' })
 
-test('a session starts with the five tools every session has and the five commands; a lead row adds the fourteen at the next tick', async ($, on) => {
+test('a session starts with the six tools every session has and the five commands; a lead row adds the fourteen at the next tick', async ($, on) => {
   const f = fake()
   own(f)
   const clock = engine(on, f)
   await start($)
-  expect(f.h.tools.sort()).toEqual(['go_request', 'go_status', 'pr_watch', 'request_compact', 'rest'])
+  expect(f.h.tools.sort()).toEqual(['go_request', 'go_status', 'pr_watch', 'request_compact', 'request_handover', 'rest'])
   expect(f.h.commands.sort()).toEqual(['callboard', 'conductor', 'lead', 'rest', 'unattended'])
   f.table({ 'sid-me': { name: 'me', folder: '/w/me', lead: { repos: [] } } })
   await clock.advance(12_000)
-  expect(f.h.tools.length).toBe(19)
+  expect(f.h.tools.length).toBe(20)
   expect(f.h.tools).toContain('lane_list')
 })
 test('only his typed turn runs a form that widens what a session may do; the engine-stamped origin decides', async ($, on) => {
@@ -66,6 +67,30 @@ test('/lead and /conductor run the /callboard forms of the same names, and only 
   expect((await $.command.run({ command: 'lead', args: '/w/repo', origin: { kind: 'composer' } } as any)).text).toContain('This session is a lead')
   expect((await $.command.run({ command: 'conductor', args: '/w/repo', origin: { kind: 'composer' } } as any)).text).toContain('This session is a conductor')
   expect((await $.command.run({ command: 'conductor', args: 'reset', origin: { kind: 'composer' } } as any)).text).toContain('forgotten')
+})
+test('a command another source holds is not registered, and its run passes on to that source instead of making the session a lead; the others still work', async ($, on) => {
+  const f = fake()
+  own(f)
+  engine(on, f)
+  f.h.listed = [{ name: 'lead', source: 'user', description: 'My own lead command.' }]
+  await start($)
+  expect(f.h.commands.sort()).toEqual(['callboard', 'conductor', 'rest', 'unattended'])
+  f.h.dirs.add('/w/repo')
+  await $.command.run({ command: 'lead', args: '/w/repo', origin: { kind: 'composer' } } as any)
+  expect(f.h.compactRuns).toEqual(['lead /w/repo'])
+  expect(f.h.files.get('/Users/x/.claude/callboard/v2/sessions.json')).toBeUndefined()
+  expect((await $.command.run({ command: 'conductor', args: '/w/repo', origin: { kind: 'composer' } } as any)).text).toContain('This session is a conductor')
+  expect((await $.command.run({ command: 'callboard', args: 'status', origin: { kind: 'composer' } } as any)).text).toMatch(/Held by another command \| \/lead:/)
+})
+test('a held /callboard, /rest or /unattended passes on as typed', async ($, on) => {
+  const f = fake()
+  own(f)
+  engine(on, f)
+  f.h.listed = ['callboard', 'rest', 'unattended'].map((name) => ({ name, source: 'builtin' }))
+  await start($)
+  expect(f.h.commands.sort()).toEqual(['conductor', 'lead'])
+  for (const [command, args] of [['callboard', 'status'], ['rest', ''], ['unattended', '30m']]) await $.command.run({ command, args, origin: { kind: 'composer' } } as any)
+  expect(f.h.compactRuns).toEqual(['callboard status', 'rest ', 'unattended 30m'])
 })
 test('the keepalive: at the configured 30 minutes after a turn ends, one ping is submitted, and not another in the same gap', async ($, on) => {
   const f = fake()

@@ -1,6 +1,6 @@
 # 12. Callboard as a plugin: one session model, one ask chain
 
-**Status:** accepted
+**Status:** accepted, amended
 **Date:** 2026-11-19
 
 Scope: how callboard decides what a session is, who answers its asks and what unattended mode changes. It replaces the
@@ -9,9 +9,9 @@ may answer a permission prompt and who may widen a session's powers, so it is on
 the person switched the one plugin entry over ([docs/setup.md](../setup.md), A Mac set up before the plugin) and the mod is
 deleted.
 
-It supersedes [ADR 0006](0006-conductor-opens-leads.md), [ADR 0007](0007-conductor-owns-leads.md) and
-[ADR 0011](0011-all-prompts-rise.md), and amends [ADR 0001](0001-manager-role.md), [ADR 0002](0002-callboard.md),
-[ADR 0004](0004-prompt-answering.md), [ADR 0005](0005-callboard-module-layout.md),
+It supersedes [ADR 0005](0005-callboard-module-layout.md), [ADR 0006](0006-conductor-opens-leads.md),
+[ADR 0007](0007-conductor-owns-leads.md) and [ADR 0011](0011-all-prompts-rise.md), and amends
+[ADR 0001](0001-manager-role.md), [ADR 0002](0002-callboard.md), [ADR 0004](0004-prompt-answering.md),
 [ADR 0008](0008-unattended-mode.md), [ADR 0009](0009-go-given-once.md) and [ADR 0010](0010-pr-notices.md).
 
 ## Context
@@ -54,8 +54,8 @@ it, and `MANAGER` is reserved.
 person. A parent that is compacting or inside a question is still live and still owns the ask until its deadline.
 The manager is the one session found by registry name (a residual, in [ADR 0002](0002-callboard.md)).
 
-**Tools follow capability.** Five tools go to every session (`go_request`, `go_status`, `pr_watch`,
-`request_compact`, `rest`); the fourteen that open, stop and list children and answer asks go only to a lead or the
+**Tools follow capability.** Six tools go to every session (`go_request`, `go_status`, `pr_watch`,
+`request_compact`, `request_handover`, `rest`; *amended 2026-11-22, [ADR 0015](0015-session-handover.md)*); the fourteen that open, stop and list children and answer asks go only to a lead or the
 manager, and each body checks the capability again. There is one cap on live children. A parent parks, resumes,
 retires and opens its children with no dialog; only a force stop of a live lane keeps one. A session compacts itself; a lead that
 wants a lane compacted says so in an ordinary message. A lead takes a loose session by name with one tool, and any
@@ -69,8 +69,9 @@ ancestor acts on any descendant.
 3. Every ask has an owner and a deadline (the timeline below).
 4. Unattended mode changes timing and nothing else (below).
 5. A go is only the person's own click or typed turn, for the work it names and the sessions under the one it was
-   given in. Never a merge, a force push, a push to main, a production change or a delete outside the work.
-6. Powers are granted, never inferred. An unknown session has none and is still managed. No carve-outs: a merge goes
+   given in, or the session that took over from it by a handover ([ADR 0015](0015-session-handover.md)). Never a merge, a force push, a push to main, a production change or a delete outside the work.
+6. Powers are granted, never inferred (a handover carries a grant to the session that continues the work, by the plugin, on
+   the session's own call or the person's typed command: [ADR 0015](0015-session-handover.md)). An unknown session has none and is still managed. No carve-outs: a merge goes
    through the same chain as any ask.
 7. Notices follow current relationships: a child's event goes once to the parent computed when it is sent. The manager
    is woken only by asks and expired asks; a lead is told every event about its own lanes.
@@ -193,6 +194,15 @@ text, not as `{ deny }`, so a run counts as stopped only for a `{ deny }`, or fo
 (a command that ran and failed, or another hook's refusal) reads as a run that was not stopped. These two are the exceptions to ADR 0004's observing `tool.check`; neither lifts a deny. The
 relay needs Claude Code 2.1.330 or later.
 
+*Amended 2026-11-22 (typed answers).* In a question's relay dialog, what the person types in place of a pick is their
+answer to that question, no longer a deny with their words as the note: it reaches the asker as that question's answer
+with the same note that it is the person's settled choice, for one question or several, and each question of a call may
+be a pick or typed words. Typed words are the person's alone: a session's `prompt_answer` takes an option only, and the
+engine refuses typed words from any author but the person. They are cut to 2000 bytes when written. An answer that
+leaves a question out, or adds a response, is still the person's deny with what they typed as its note; a dialog that
+closed with no answer is still no answer. This supersedes the clause in the 2026-11-21 amendment above that a typed
+answer is the person's deny.
+
 **Callboard never judges who may answer.** An ask a session cannot decide (a plan-mode exit, a malformed question, a
 guard's own ask) is an ordinary ask that rises like any other; the rubric of the tier that reads it decides. What is
 not an ask is what the person starts themselves, such as creating a lead or a lane and giving a go. Those are their own acts,
@@ -226,7 +236,7 @@ turning it off is the person's typed command.
   go file or an answer file; the protected-paths guard keeps agents' file tools off the state folder, and a hook that
   fails leaves the dialog with the person with no deadline. The README's list of what callboard does not guard against
   says so.
-- A restart of the same conversation keeps its session id, so no lead takeover exists, and [ADR 0002](0002-callboard.md)'s
+- A restart of the same conversation keeps its session id, so no lead takeover exists (a session's own handover to a clear one, [ADR 0015](0015-session-handover.md), is the one exception), and [ADR 0002](0002-callboard.md)'s
   line on a lead restarting under a new session id is marked out of date there.
 - Nothing crosses the switch: the plugin starts with new state, and going back to the mod finds its own state as it was.
 

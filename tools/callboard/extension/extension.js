@@ -10,7 +10,7 @@ const { createPick } = require('./pick.js')
 const { createRegistry } = require('./registry.js')
 const { claudePatched } = require('./claude-patch.js')
 const { createRunBlock } = require('./run-block.js')
-const { createGroups, readManagerName, readSessionTable } = require('./groups.js')
+const { createGroups, readHandovers, readManagerName, readSessionTable } = require('./groups.js')
 const { showClaudeView } = require('./claude-view.js')
 
 const CLAUDE = path.join(os.homedir(), '.claude')
@@ -65,7 +65,7 @@ function activate(context) {
   const sweep = setInterval(() => lanes.sweep().catch(() => undefined), 2000)
   context.subscriptions.push({ dispose: () => clearInterval(sweep) })
   const groups = createGroups({ vscode, registry, state: context.globalState, workspaceFolders: windowFolders,
-    loadTable: () => readSessionTable(tablePath), managerName: () => readManagerName(path.join(CLAUDE, 'callboard', 'manager-name')),
+    loadTable: () => readSessionTable(tablePath), loadHandovers: () => readHandovers(path.join(CLAUDE, 'callboard', 'v2', 'handovers.json')), managerName: () => readManagerName(path.join(CLAUDE, 'callboard', 'manager-name')),
   })
   const groupTick = setInterval(() => groups.tick(), groups.TICK_MS)
   context.subscriptions.push({ dispose: () => clearInterval(groupTick) })

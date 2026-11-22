@@ -1,4 +1,4 @@
-// The /callboard command: its fourteen forms, the settings schema, and the origin rule. Pure. Trust rule held here: a form that is not read-only (it widens what a session
+// The /callboard command: its fifteen forms, the settings schema, and the origin rule. Pure. Trust rule held here: a form that is not read-only (it widens what a session
 // may do, or changes a setting or a go or the window) runs only when the caller says it came from the person's own typed turn. The origin is an input: the adapter decides
 // it, and originOk below is the one place it is judged. Anything but exactly `typed` counts as not typed.
 import type { Config, Decision, LaneEffort, LaneModel } from './model.ts'
@@ -21,7 +21,7 @@ export function parseConfig(raw: unknown): Config {
 
 export type ConfigOp = 'show' | 'reset' | { key: 'keepalive'; value: boolean } | { key: Num; value: number }
 export type Cmd =
-  | { op: 'status' | 'lanes' | 'help' | 'lead-off' | 'off' | 'on' | 'rest' }
+  | { op: 'status' | 'lanes' | 'help' | 'lead-off' | 'off' | 'on' | 'rest' | 'handover' }
   | { op: 'lead'; paths: string[] }
   | { op: 'conductor'; paths: string[]; pick?: true; reset?: true }
   | { op: 'go'; text: string }
@@ -36,7 +36,7 @@ export function configNext(cur: Config, op: Exclude<ConfigOp, 'show'>): Config |
   const next = op === 'reset' ? { ...CONFIG_DEFAULTS } : ({ ...cur, [op.key]: op.value } as Config)
   return next.idleK > next.workingK ? undefined : next
 }
-const WORDS = ['status', 'lanes', 'help', 'off', 'on', 'rest'] as const
+const WORDS = ['status', 'lanes', 'help', 'off', 'on', 'rest', 'handover'] as const
 const KEYS: Record<string, Num> = Object.assign(Object.create(null), { ping: 'pingAfterMin', stop: 'stopAfterH', idle: 'idleK', working: 'workingK' })
 function parseConfigArgs(a: string[]): ConfigOp | undefined {
   if (a.length === 0) return 'show'

@@ -1,6 +1,6 @@
 # 10. PR notices for lanes
 
-**Status:** proposed, amended
+**Status:** accepted, amended
 **Date:** 2026-11-15
 
 Scope: the callboard mod watches the pull requests a lane names and tells the lane, and its lead, when one changes.

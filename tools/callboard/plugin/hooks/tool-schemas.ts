@@ -1,4 +1,4 @@
-// The 19 tools: who is given each, and its input schema. `cap` is 'any' for the tools every session gets and 'parent' for the fourteen a session gets only when it
+// The 20 tools: who is given each, and its input schema. `cap` is 'any' for the tools every session gets and 'parent' for the fourteen a session gets only when it
 // holds the lead capability or is the manager. Data only: the tool descriptions are texts (`tool.<name>`).
 import type { ToolName } from './core/model.ts'
 import { LANE_EFFORTS, LANE_MODELS } from './core/model.ts'
@@ -27,5 +27,6 @@ export const TOOL_SCHEMAS: Record<ToolName, { cap: 'any' | 'parent'; input: Sche
   go_status: { cap: 'any', input: none },
   pr_watch: { cap: 'any', input: { type: 'object', properties: { owner: text, repo: text, number: { type: 'integer' } }, required: ['owner', 'repo', 'number'] } },
   request_compact: { cap: 'any', input: { type: 'object', properties: { focus: text, continuation: text }, required: ['focus', 'continuation'] } },
+  request_handover: { cap: 'any', input: { type: 'object', properties: { file: text, continuation: text }, required: ['file', 'continuation'] } },
   rest: { cap: 'any', input: none },
 }

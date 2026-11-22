@@ -1,6 +1,6 @@
 # 3. Callboard loads from a live checkout, not a root-owned copy
 
-**Status:** accepted
+**Status:** accepted, amended
 **Date:** 2026-11-06
 
 Scope: how callboard's mod and panels extension get onto a Mac, where agents edit this repo, and the root-owned

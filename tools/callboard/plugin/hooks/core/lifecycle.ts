@@ -108,6 +108,11 @@ export function tidy(t: Table, v: View, noSince: (key: string) => number | undef
   if (v.rows === 'unknown') return t
   const out: Table = {}
   for (const [k, r] of Object.entries(t)) {
+    // A session handing over keeps its row as it is: no name is copied from the registry (it holds NAME~N) and no goneAt is set.
+    if (v.handing.has(k)) {
+      out[k] = r
+      continue
+    }
     const reg = v.rows.get(k)
     const name = givenName(reg)
     const row = { ...r, ...(name ? { name } : {}) }

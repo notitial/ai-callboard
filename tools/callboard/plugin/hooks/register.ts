@@ -3,10 +3,10 @@
 import type { Register } from 'claude-code'
 import { CUE_VERBS, STOP_VERBS } from './core/model.ts'
 import { sessionStart, sessionEnd, postToolHook } from './engine/tick.ts'
-import { commandRun, commandComplete, promptCompose } from './engine/commands.ts'
+import { commandHeard, commandComplete, promptCompose } from './engine/commands.ts'
 import { presetRun } from './engine/preset.ts'
 import { toolCheck, permissionRequest, doneHook, proxyRun, proxyJudge } from './engine/ask-hook.ts'
-import { requestCompactCall, turnComplete, promptSubmit, turnStart, postCompact } from './engine/upkeep.ts'
+import { requestCompactCall, requestHandoverCall, turnComplete, promptSubmit, turnStart, postCompact } from './engine/upkeep.ts'
 import { cueVerbCall, stopVerbCall, laneCreateCall, laneOpenCall, laneUnparkCall, laneAdoptCall, laneListCall, laneRemoteCall } from './engine/tools-child.ts'
 import { promptListCall, promptAnswerCall, goRequestCall, goStatusCall } from './engine/tools-ask.ts'
 import { restCall } from './engine/tools-any.ts'
@@ -21,12 +21,12 @@ export const register: Register = (on) => {
   on('session.end', sessionEnd).catch(($, e, next) => next(e))
   on('session.measure', usageMeasure).catch(($, e, next) => next(e))
 
-  on('command.run', { command: 'callboard' }, ($, e) => commandRun($, e)).catch(() => ({ text: 'Callboard hit an error. Run /callboard status.' }))
-  on('command.run', { command: 'rest' }, ($, e) => commandRun($, { ...e, args: 'rest' })).catch(() => ({ text: 'Callboard hit an error. Run /callboard status.' }))
-  on('command.run', { command: 'unattended' }, ($, e) => commandRun($, { ...e, args: `unattended ${typeof (e as { args?: unknown }).args === 'string' ? (e as { args: string }).args : ''}` })).catch(() => ({ text: 'Callboard hit an error. Run /callboard status.' }))
+  on('command.run', { command: 'callboard' }, ($, e, next) => commandHeard($, e, next)).catch(() => ({ text: 'Callboard hit an error. Run /callboard status.' }))
+  on('command.run', { command: 'rest' }, ($, e, next) => commandHeard($, e, next, 'rest')).catch(() => ({ text: 'Callboard hit an error. Run /callboard status.' }))
+  on('command.run', { command: 'unattended' }, ($, e, next) => commandHeard($, e, next, `unattended ${argsOf(e)}`)).catch(() => ({ text: 'Callboard hit an error. Run /callboard status.' }))
   // `/lead` and `/conductor` are `/callboard lead` and `/callboard conductor`: the same run, so the same origin check.
-  on('command.run', { command: 'lead' }, ($, e) => commandRun($, { ...e, args: `lead ${argsOf(e)}` })).catch(() => ({ text: 'Callboard hit an error. Run /callboard status.' }))
-  on('command.run', { command: 'conductor' }, ($, e) => commandRun($, { ...e, args: `conductor ${argsOf(e)}` })).catch(() => ({ text: 'Callboard hit an error. Run /callboard status.' }))
+  on('command.run', { command: 'lead' }, ($, e, next) => commandHeard($, e, next, `lead ${argsOf(e)}`)).catch(() => ({ text: 'Callboard hit an error. Run /callboard status.' }))
+  on('command.run', { command: 'conductor' }, ($, e, next) => commandHeard($, e, next, `conductor ${argsOf(e)}`)).catch(() => ({ text: 'Callboard hit an error. Run /callboard status.' }))
   on('command.run', presetRun)
   on('prompt.autocomplete', commandComplete).catch(($, e, next) => next(e))
   on('prompt.compose', promptCompose).catch(($, e, next) => next(e))
@@ -48,6 +48,7 @@ export const register: Register = (on) => {
   on('tool.call', { tool: 'mcp__callboard__go_status' }, goStatusCall).catch(() => ({ deny: 'go_status failed closed.' }))
   on('tool.call', { tool: 'mcp__callboard__pr_watch' }, prWatchCall).catch(() => ({ deny: 'pr_watch failed closed.' }))
   on('tool.call', { tool: 'mcp__callboard__request_compact' }, requestCompactCall).catch(() => ({ deny: 'request_compact failed closed.' }))
+  on('tool.call', { tool: 'mcp__callboard__request_handover' }, requestHandoverCall).catch(() => ({ deny: 'request_handover failed closed.' }))
   on('tool.call', { tool: 'mcp__callboard__rest' }, restCall).catch(() => ({ deny: 'rest failed closed.' }))
 
   on('tool.check', toolCheck).catch(($, e, next) => next(e))

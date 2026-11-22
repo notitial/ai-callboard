@@ -171,25 +171,36 @@ test('a question is put as the asker\'s own question, opened with the asker\'s n
   click('B')
   await settle()
   const got = await readAnswer(f.$, 'aa11bb22cc')
-  assert.deepEqual([got?.by, got?.decision, got?.option], ['PERSON', 'answer', 2])
+  assert.deepEqual([got?.by, got?.decision, got?.picks], ['PERSON', 'answer', [2]])
   await tickRelay(boss)
   await settle()
   assert.equal(boss.h.calls.length, 1, 'an ask is put once')
 })
-test('a typed answer in place of a pick becomes the person\'s deny with what he typed as the note', async () => {
+test('a typed answer in place of a pick is the person\'s answer to that question, capped at 2000 bytes', async () => {
   const question = { header: 'H', question: 'Which?', options: [{ label: 'A' }, { label: 'B' }] }
   const { f, click } = await open({ tool: 'AskUserQuestion', input: '{"questions":[]}', question })
   click({ result: { answers: { 'lane asks: Which?': 'neither, use the staging branch' } } })
   await settle()
   const got = await readAnswer(f.$, 'aa11bb22cc')
-  assert.deepEqual([got?.by, got?.decision, got?.note], ['PERSON', 'deny', 'neither, use the staging branch'])
+  assert.deepEqual([got?.by, got?.decision, got?.picks, got?.note], ['PERSON', 'answer', ['neither, use the staging branch'], undefined])
+  const long = await open({ tool: 'AskUserQuestion', input: '{"questions":[]}', question })
+  long.click({ result: { answers: { 'lane asks: Which?': 'x'.repeat(3000) } } })
+  await settle()
+  assert.deepEqual((await readAnswer(long.f.$, 'aa11bb22cc'))?.picks, ['x'.repeat(2000)])
 })
-test('a call of several questions is one dialog, and his picks reach the asker together with the plugin\'s note on every answer', async () => {
+test('typed words in the plugin\'s own Allow or Deny dialog stay the person\'s deny with those words as the note', async () => {
+  const { f, boss, click } = await open()
+  click({ result: { answers: { [boss.h.asked[0]!.question]: 'use make test instead' } } })
+  await settle()
+  const got = await readAnswer(f.$, 'aa11bb22cc')
+  assert.deepEqual([got?.by, got?.decision, got?.note, got?.picks], ['PERSON', 'deny', 'use make test instead', undefined])
+})
+test('a call of several questions is one dialog, and his answers, a pick and his own words, reach the asker together with the plugin\'s note on every answer', async () => {
   const f = tiers()
   const [lead, boss] = [peer(f, 'sid-lead'), peer(f, 'sid-boss')]
   const q = (question: string, labels: string[]) => ({ header: 'H', question, multiSelect: false, options: labels.map((label) => ({ label, description: 'd' })) })
   const input = { questions: [q('Which?', ['Yes', 'No']), q('Where?', ['Here', 'There', 'Nowhere'])] }
-  boss.h.askAnswer = async (text: string) => (text.includes('Which?') ? 'No' : 'There')
+  boss.h.askAnswer = async (text: string) => (text.includes('Which?') ? 'No' : 'somewhere else, the cellar')
   shownBy(boss)
   const out: Record<string, any> = {}
   f.h.onSleep = async () => {
@@ -207,7 +218,7 @@ test('a call of several questions is one dialog, and his picks reach the asker t
   assert.equal(r.decision.behavior, 'allow')
   assert.deepEqual(Object.keys(r.decision.updatedInput.answers), ['Which?', 'Where?'])
   assert.match(r.decision.updatedInput.answers['Which?'], /^No \(chosen by the person/)
-  assert.match(r.decision.updatedInput.answers['Where?'], /^There \(chosen by the person/)
+  assert.match(r.decision.updatedInput.answers['Where?'], /^somewhere else, the cellar \(chosen by the person/)
 })
 test('a dismissal of a dialog that went to the person is his deny; one refused before it showed writes nothing and is not put again; one closed by itself while he was idle is put again', async () => {
   const seen = await open()

@@ -9,7 +9,7 @@ import { TOOL_SCHEMAS } from '../tool-schemas.ts'
 
 const next = async (e: unknown) => e
 type F = ReturnType<typeof fake>
-const ANY = ['go_request', 'go_status', 'pr_watch', 'request_compact', 'rest']
+const ANY = ['go_request', 'go_status', 'pr_watch', 'request_compact', 'request_handover', 'rest']
 const PARENT = Object.keys(TOOL_SCHEMAS).filter((n) => TOOL_SCHEMAS[n as keyof typeof TOOL_SCHEMAS].cap === 'parent')
 const tick = async (f: F) => void (await f.h.every!())
 async function start(f: F): Promise<void> {
@@ -23,21 +23,21 @@ function lead(kids: Record<string, object> = {}): F {
 }
 const kid = (extra: object = {}) => ({ name: 'kid', folder: '/w/kid', under: 'sid-me', ...extra })
 
-test('the start registers the five tools every session has and the three commands; the fourteen come once the session holds a capability', async () => {
+test('the start registers the six tools every session has and the three commands; the fourteen come once the session holds a capability', async () => {
   const plain = fake()
   plain.seed({ sid: 'sid-me', pid: 10, name: 'me', kind: 'interactive' })
   await start(plain)
   assert.deepEqual(plain.h.tools.sort(), [...ANY].sort())
   assert.deepEqual(plain.h.commands.sort(), ['callboard', 'conductor', 'lead', 'rest', 'unattended'])
   await tick(plain)
-  assert.equal(plain.h.tools.length, 5)
+  assert.equal(plain.h.tools.length, 6)
   const l = lead()
   await start(l)
-  assert.equal(l.h.tools.length, 5)
+  assert.equal(l.h.tools.length, 6)
   await tick(l)
   assert.deepEqual(l.h.tools.sort(), [...ANY, ...PARENT].sort())
   await tick(l)
-  assert.equal(l.h.tools.length, 19)
+  assert.equal(l.h.tools.length, 20)
   assert.equal(PARENT.length, 14)
 })
 test('the manager is given the fourteen too, by the name file; an off lead is not', async () => {
@@ -46,13 +46,13 @@ test('the manager is given the fourteen too, by the name file; an off lead is no
   m.h.files.set(`${HOME}/.claude/callboard/manager-name`, 'BOSS\n')
   await start(m)
   await tick(m)
-  assert.equal(m.h.tools.length, 19)
+  assert.equal(m.h.tools.length, 20)
   const off = fake()
   off.seed({ sid: 'sid-me', pid: 10, name: 'me', kind: 'interactive' })
   off.table({ 'sid-me': { name: 'me', folder: '/w/me', lead: { repos: [] }, off: true } })
   await start(off)
   await tick(off)
-  assert.equal(off.h.tools.length, 5)
+  assert.equal(off.h.tools.length, 6)
 })
 test('a lead is told what happened to its children as one turn, once, naming them; a session with no capability is told nothing', async () => {
   const f = lead({ 'sid-ghost': kid({ name: 'ghost', goneAt: T0 - 1000 }), 'sid-gone2': kid({ name: 'gone2', goneAt: T0 - 500 }) })
@@ -361,4 +361,19 @@ test('a lead\'s check-in has no digest: it is the manager\'s alone', async () =>
   mem.since = T0 - MIN
   await tick(f)
   assert.doesNotMatch(f.h.submitted[0], /Since your last check-in/)
+})
+
+test('a /clear or a /resume ends the session id: what belonged to it in module memory goes, the process-wide hand-over time stays; any other end keeps it', async () => {
+  for (const reason of ['clear', 'resume']) {
+    const f = lead()
+    mem.owed.push('owed')
+    mem.selfNamed = true
+    mem.handedAt = T0
+    await sessionEnd(f.$, { reason }, next)
+    assert.deepEqual([mem.owed, mem.selfNamed, mem.handedAt], [[], false, T0], reason)
+  }
+  const g = lead()
+  mem.owed.push('owed')
+  await sessionEnd(g.$, { reason: 'logout' }, next)
+  assert.deepEqual(mem.owed, ['owed'])
 })

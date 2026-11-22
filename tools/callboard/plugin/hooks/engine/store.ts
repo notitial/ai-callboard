@@ -3,6 +3,8 @@
 // its parse is no file; the table is written under one lock by read-modify-write, and an unreadable table is never overwritten.
 import { parseConfig } from '../core/commands.ts'
 import { parseGo } from '../core/go.ts'
+import type { Handovers, Marker } from '../core/handover.ts'
+import { HANDING_MS, parseHandovers, parseMarker } from '../core/handover.ts'
 import { CONDUCTOR_REPOS_MAX } from '../core/lifecycle.ts'
 import type { Answer, Ask, AskLogRow, Config, Go, LaneEffort, LaneModel, ManagerName, Question, RaisedBy, Registry, RegistryRow, Row, Sid, Table, UpMark, View } from '../core/model.ts'
 import { LANE_EFFORTS, LANE_MODELS, liveView } from '../core/model.ts'
@@ -89,7 +91,7 @@ function parseTable(text: string): Table | undefined {
   return t
 }
 // The table as the file holds it; no file is the empty table, an unreadable one is `undefined`.
-async function readTable($: any): Promise<Table | undefined> {
+export async function readTable($: any): Promise<Table | undefined> {
   const p = await path($, 'sessions.json')
   if (p === undefined) return undefined
   if (!(await $.fs.exists(p).catch(() => true))) return {}
@@ -105,6 +107,11 @@ export async function updateTable($: any, f: (t: Table) => Table): Promise<boole
   })
   staleView()
   return done === true
+}
+
+// Whether the table reads whole right now, with its lock taken and let go once: a handover starts only on a table that reads.
+export async function tableReadable($: any): Promise<boolean> {
+  return (await locked($, 'sessions', async () => (await readTable($)) !== undefined)) === true
 }
 
 // ---- the manager's files and the settings ----
@@ -162,7 +169,57 @@ export async function saveConductorRepos($: any, folder: string, repos: string[]
   return saved === true
 }
 
-// ---- goes and the window: written only by his typed command (and, in the ask steps, his click) ----
+// ---- a handover: its markers (v2/handover/<old id>.json), its counter file (v2/handovers.json), and the records keyed to the old id that move to the new one ----
+export async function listMarkers($: any): Promise<Marker[]> {
+  const d = await path($, 'handover')
+  const names = d === undefined ? [] : ((await $.fs.list(d).catch(() => [])) as { name: string }[]).filter((f) => /^[A-Za-z0-9-]{1,64}\.json$/.test(f.name)).slice(0, 16)
+  const ms = await Promise.all(names.map(async (f) => ((m) => (m?.old === f.name.slice(0, -5) ? m : undefined))(parseMarker(safeJson((await readText($, `${d}/${f.name}`, 8192)) ?? '')))))
+  return ms.filter((m): m is Marker => m !== undefined).slice(0, 8)
+}
+export async function writeMarker($: any, m: Marker): Promise<boolean> {
+  const p = SID_RE.test(m.old) ? await path($, 'handover', `${m.old}.json`) : undefined
+  return p !== undefined && writeFile($, p, JSON.stringify(m))
+}
+export async function rmMarker($: any, old: Sid): Promise<void> {
+  const p = SID_RE.test(old) ? await path($, 'handover', `${old}.json`) : undefined
+  if (p !== undefined) await rm($, [p])
+}
+// No file is the empty record; a file that is there and does not parse whole is `undefined`, and never overwritten.
+export async function readHandovers($: any): Promise<Handovers | undefined> {
+  const p = await path($, 'handovers.json')
+  if (p === undefined) return undefined
+  if (!(await $.fs.exists(p).catch(() => true))) return {}
+  const t = await readText($, p, 65_536)
+  return t === undefined ? undefined : parseHandovers(safeJson(t))
+}
+export async function updateHandovers($: any, f: (h: Handovers) => Handovers): Promise<boolean> {
+  const p = await path($, 'handovers.json')
+  const done = p === undefined ? false : await locked($, 'handovers', async () => {
+    const cur = await readHandovers($)
+    return cur !== undefined && (await writeFile($, p, JSON.stringify(f(cur))))
+  })
+  return done === true
+}
+// Every go file is read whole (a file that does not parse would not move with its giver); listGoes runs first, so a go that ended long ago is gone before the files are counted.
+export async function goesIntact($: any): Promise<boolean> {
+  const live = await listGoes($)
+  const d = await path($, 'go')
+  const names = d === undefined ? [] : ((await $.fs.list(d).catch(() => [])) as { name: string }[]).filter((f) => /^[A-Za-z0-9]{4,32}\.json$/.test(f.name))
+  return names.length <= 64 && live.length === names.length
+}
+// The goes the old id gave are the new id's, and so are its ask marks (an escalation or a told mark it made); a mark the new id already has is left. True when none failed.
+// Under the goes lock, as `go off` removes them: a go the person just ended is not written back.
+export async function moveGoes($: any, old: Sid, nw: Sid): Promise<boolean> {
+  return (await locked($, 'goes', async () => (await Promise.all((await listGoes($)).filter((g) => g.giver === old).map((g) => writeGo($, { ...g, giver: nw })))).every(Boolean))) === true
+}
+export async function moveMarks($: any, old: Sid, nw: Sid): Promise<boolean> {
+  const f = SID_RE.test(old) && SID_RE.test(nw) ? await askNames($) : undefined
+  if (f === undefined || f.failed) return false
+  const mine = f.names.filter((n) => n.endsWith(`.up.${old}`) && !f.names.includes(`${n.slice(0, -old.length)}${nw}`))
+  return (await Promise.all(mine.map((n) => run($, ['/bin/mv', '-n', '--', `${f.d}/${n}`, `${f.d}/${n.slice(0, -old.length)}${nw}`]).then((r) => r.exitCode === 0, () => false)))).every(Boolean)
+}
+
+// ---- goes and the window: written only by his typed command (and, in the ask steps, his click), a go also moved to its giver's successor by a handover ----
 export async function listGoes($: any): Promise<Go[]> {
   const d = await path($, 'go')
   const names = d === undefined ? [] : ((await $.fs.list(d).catch(() => [])) as { name: string }[]).filter((f) => /^[A-Za-z0-9]{4,32}\.json$/.test(f.name)).slice(0, 64)
@@ -229,8 +286,9 @@ function parseAsk(j: any): Ask | undefined {
   if (typeof j.cut !== 'boolean' || typeof j.tool !== 'string' || typeof j.input !== 'string' || !RAISED.includes(j.raisedBy)) return undefined
   const one = (q: any): Question | undefined => typeof q === 'object' && q !== null && typeof q.header === 'string' && typeof q.question === 'string' && Array.isArray(q.options) && q.options.every((o: any) => typeof o?.label === 'string') ? { header: q.header, question: q.question, options: q.options.map((o: any) => ({ label: o.label, ...(typeof o.description === 'string' ? { description: o.description } : {}) })) } : undefined
   const question = one(j.question)
-  const qs = Array.isArray(j.questions) ? j.questions.map(one) : []
-  return { id: j.id, asker: j.asker, t0: j.t0, awake: j.awake, tool: j.tool, raisedBy: j.raisedBy, input: j.input, cut: j.cut, beat: j.beat, ...(question === undefined ? {} : { question }), ...(qs.length >= 2 && qs.length <= 4 && qs.every((x) => x !== undefined) ? { questions: qs as Question[] } : {}) }
+  const qs: (Question | undefined)[] = Array.isArray(j.questions) ? j.questions.map(one) : []
+  const asked = qs.filter((x) => x !== undefined)
+  return { id: j.id, asker: j.asker, t0: j.t0, awake: j.awake, tool: j.tool, raisedBy: j.raisedBy, input: j.input, cut: j.cut, beat: j.beat, ...(question === undefined ? {} : { question }), ...(qs.length >= 2 && qs.length <= 4 && asked.length === qs.length ? { questions: asked } : {}) }
 }
 export async function writeAsk($: any, a: Ask): Promise<boolean> {
   const p = await askPath($, a.id)
@@ -277,9 +335,9 @@ export async function askOpen($: any, id: string): Promise<boolean> {
 }
 export async function readAnswer($: any, id: string): Promise<Answer | undefined> {
   const p = await askPath($, id, 'answer')
-  const j = (p === undefined ? undefined : safeJson((await readText($, p, 4096)) ?? '')) as Partial<Answer> | null | undefined
+  const j = (p === undefined ? undefined : safeJson((await readText($, p, 32_768)) ?? '')) as Partial<Answer> | null | undefined
   if (!j || j.ask !== id || typeof j.by !== 'string' || !['allow', 'deny', 'answer'].includes(j.decision as string) || !isNum(j.at)) return undefined
-  return { ask: id, by: j.by, decision: j.decision!, at: j.at, ...(typeof j.note === 'string' ? { note: j.note } : {}), ...(Number.isInteger(j.option) ? { option: j.option } : {}), ...(Array.isArray(j.picks) && j.picks.every(Number.isInteger) ? { picks: j.picks } : {}) }
+  return { ask: id, by: j.by, decision: j.decision!, at: j.at, ...(typeof j.note === 'string' ? { note: j.note } : {}), ...(Number.isInteger(j.option) ? { option: j.option } : {}), ...(Array.isArray(j.picks) && j.picks.every((p) => Number.isInteger(p) || typeof p === 'string') ? { picks: j.picks } : {}) }
 }
 // The first writer wins: 'exists' says an answer is already there.
 export async function writeAnswer($: any, a: Answer): Promise<'ok' | 'exists' | 'error'> {
@@ -355,7 +413,9 @@ export async function getView($: any, force = false): Promise<View> {
   const me = (await $.session.id()) as Sid
   const [reg, table, name] = await Promise.all([readRegistry($, me), readTable($), readManagerName($)])
   const last = table ?? mem.view?.v.table
-  const v = liveView(last === undefined ? 'unknown' : reg, last ?? {}, name)
+  // A session is handing over while its marker is fresh and the process that wrote it is live; once the table moved, so is the session that took it (its row keeps the name).
+  const handing = reg === 'unknown' ? [] : (await listMarkers($)).filter((m) => now - m.at < HANDING_MS && reg.some((r) => r.pid === m.pid && r.procStart === m.procStart)).flatMap((m) => (m.nw === undefined ? [m.old] : [m.old, m.nw]))
+  const v = liveView(last === undefined ? 'unknown' : reg, last ?? {}, name, handing)
   mem.view = { at: now, v }
   return v
 }
