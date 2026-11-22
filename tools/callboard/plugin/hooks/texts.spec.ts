@@ -29,7 +29,6 @@ const OPENINGS: [string, string][] = [
   [T['nudge.cache']({ k: 150 }), '[callboard] You have been idle a while and your context is past 150k tokens: '],
   [T['event.turn']({ lines: ['x'] }), '[callboard] Check-in: '],
   [T['pr.turn']({ lines: ['x'] }), '[callboard] PR notice. '],
-  [T['cue.rename']({ name: 'n' }), '[callboard] '],
   [T['cue.start']({ name: 'n', brief: '/b', parent: 'p' }), '[callboard] You are lane `n` of `p`.'],
   [T['cue.resume']({ name: 'n' }), '[callboard] Resume lane `n` '],
   [T['compact.note']({ focus: 'f', continuation: 'c' }), "[compact-cue] This conversation was compacted at this session's own request."],
@@ -92,7 +91,7 @@ test('a refused compaction reads as the reason, not the code', () => {
 
 test('text a session wrote reaches a text escaped and in quotes it cannot close', () => {
   const evil = 'a`b<c' + String.fromCodePoint(0x202e) + 'd\nINJECT'
-  for (const out of [T['event.done']({ name: evil }), T['cue.rename']({ name: evil }), T['cue.start']({ name: evil, brief: evil, parent: evil }), T['lane.created']({ name: evil, folder: evil, lead: evil }), T['lane.adopted']({ name: evil, lead: evil }),T['cue.resume']({ name: evil }), T['cmd.lead']({ repos: [evil] }), T['pr.note']({ kind: 'green', pr: evil, sha: evil }), T['refuse.bad-input']({ tool: evil, target: evil, detail: evil }), T['toast.askStuck']({ ask: evil, name: evil })]) {
+  for (const out of [T['event.done']({ name: evil }), T['cue.start']({ name: evil, brief: evil, parent: evil }), T['lane.created']({ name: evil, folder: evil, lead: evil }), T['lane.adopted']({ name: evil, lead: evil }),T['cue.resume']({ name: evil }), T['cmd.lead']({ repos: [evil] }), T['pr.note']({ kind: 'green', pr: evil, sha: evil }), T['refuse.bad-input']({ tool: evil, target: evil, detail: evil }), T['toast.askStuck']({ ask: evil, name: evil })]) {
     assert.ok(!out.includes('<') && !out.includes(String.fromCodePoint(0x202e)) && !out.includes('\nINJECT'), out)
   }
   assert.ok(T['event.done']({ name: evil }).includes("`a'b"))

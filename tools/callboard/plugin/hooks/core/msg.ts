@@ -79,7 +79,6 @@ export type Fixed = {
   'brief.child': { name: string; sid: string; parent: string; lead: boolean }
 
   // Cue and compaction notes: the turns a parent's cue and a session's own compaction submit.
-  'cue.rename': Names
   'cue.start': { name: string; brief: string; parent: string }
   'cue.resume': Names
   'compact.queued': E

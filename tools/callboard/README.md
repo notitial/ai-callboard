@@ -82,13 +82,13 @@ is the force stop and always asks you, and is refused while unattended mode is o
    a force push, a push to main or production, a delete outside the work, or the rest of the list `go_status`
    prints (ADR 0009). It counts only while the protected-paths guard is in place.
 8. Before you leave the Mac for hours, type `/callboard unattended 8h` (30 minutes to 14 hours, or a time such as
-   `17:30`). Nothing else changes except timing: no callboard dialog opens at you, `go_request` is refused, a subagent's
+   `17:30`). Nothing else changes except timing: no callboard dialog opens at you, `go_request` is refused, a force stop is refused, a subagent's
    dialog is denied with "run it yourself", and the manager closes at once, with a note that you are away, every
    ask it may not or cannot decide. Anything nobody answers is closed at 15 minutes. `/callboard unattended off`, typed
    by you, ends it ([ADR 0008](../../docs/adr/0008-unattended-mode.md), amended by ADR 0012).
 
 A lead you leave idle is told, in one check-in turn, what happened to its lanes: an ask that is its to decide, a lane
-that signed done, is gone, has waited on a prompt for 5 minutes or has been idle, or a safe default callboard used.
+that signed done, is gone, has waited on a prompt for 5 minutes or has been idle.
 
 ## Commands
 
@@ -101,7 +101,7 @@ that signed done, is gone, has waited on a prompt for 5 minutes or has been idle
 
 Anything that widens what a session may do (a lead role, a go, a setting) needs your own typed turn: a model cannot run
 a `/callboard` command at all, and the plugin refuses a form that changes what a session may do unless it came from
-your own prompt or phone. `off`, `rest`, `go off` and the prints are open to narrowing.
+your own prompt or phone. `rest` and the prints (`status`, `lanes`, `help`, `config` and `unattended` with no argument) run from anywhere.
 
 `/callboard config` shows the settings with their defaults: keepalive on, a ping after 50 minutes, a stop after 2
 hours, and the compaction nudge levels (300k and 400k tokens). `config reset` restores the defaults.
@@ -162,7 +162,7 @@ ls ~/.vscode/extensions | grep -i local.callboard-panels
 
 The version is fixed, so an update is a fast-forward of the checkout plus a window reload (Command Palette,
 Developer: Reload Window). Output > Callboard Panels shows the build it loaded. A change to
-`extension/package.json` needs a version bump: quit VS Code, pull, run the script again, reopen VS Code.
+`extension/package.json` needs a version bump: quit VS Code, fast-forward the checkout, run the script again, reopen VS Code.
 
 A window answers a lane open only when the lane's folder is its first workspace folder, so open further windows from
 inside VS Code (File, New Window). With the patch of the Claude Code extension (`patch-claude.py`,
@@ -194,7 +194,7 @@ Type `/rest` in a session you will not touch for hours: it stops the pings for t
 Its next real turn restores them. An agent can set the same rest for its own session with the `rest` tool, when you
 tell it to go idle or it expects you to be away for hours; it asks nothing, because it only narrows, and a
 subagent's call is refused. A rest stops pings only: a PR notice still wakes a lane that rests while it waits on CI,
-and that turn ends the rest. `/callboard config keepalive off` stops pings for every session on this Mac.
+and that turn does not end the rest: the next real turn does. `/callboard config keepalive off` stops pings for every session on this Mac.
 
 A compaction asked for by a nudge (past 300k tokens by default) is always the session's own act: it writes where it
 is to its report or STATE file, calls `request_compact`, and carries on from its continuation. The nudge levels and

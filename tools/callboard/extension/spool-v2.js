@@ -3,7 +3,7 @@
 // <id>.req holds one JSON request: {op:'open',folder}, {op:'reopen',sid,folder}, {op:'close',sid,pid,name,folder} or {op:'pick',folder,ticked}. <id> is the writer's own, one per request.
 // The writer writes `.<id>.tmp` and renames it to <id>.req, uses a fresh random <id> per request, and gives the folder exactly as VS Code names a workspace folder.
 // Only a window that serves the folder takes it (`workspaceFolders()`: its first folder, or every folder when the Claude extension carries the cwd patch,
-// claude-patch.js), and a request older than MAX_AGE_MS (a little over the writer's own wait) is dropped. The answer is <id>.result,
+// claude-patch.js), and a request older than MAX_AGE_MS (twice the writer's own wait) is dropped. The answer is <id>.result,
 // JSON: {ok:true,sid?} or {ok:false,code}; a close is answered too, and its answer is not read. The panel of a close goes to the extension's sweep (lanes.js).
 // A pick shows the conductor's tick list (pick.js) and is answered {ok:true,folders} with what the person ticked. It waits for the person, so it is claimed like
 // any request and then runs beside the scan: the window goes on serving opens while the list is up. One list at a time; a second pick is answered `busy`.

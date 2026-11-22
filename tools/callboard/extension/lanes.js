@@ -138,8 +138,8 @@ function createLanes({ vscode, registry, sleep, now, workspaceFolders = () => un
   // Panels this extension opened and nobody has named yet. Claude gives every new panel a generated name (nameSource auto), so a missing
   // name says nothing; a rename sets nameSource to user. After a timeout or an ambiguous result the panel may still register, so
   // any panel in that folder that was not there before the earliest unresolved attempt counts too: a retry keeps that record
-  // instead of replacing it. The lead's own panel is never counted. A record older than guardMs is dropped: a rename is
-  // refused once the panel is that old, so keeping it would only block the lane for good.
+  // instead of replacing it. The lead's own panel is never counted. A record older than guardMs is dropped: keeping it
+  // would only block the lane for good.
   const opened = new Map()
   const late = new Map()
   const named = (e) => e.nameSource === 'user' || (e.nameSource === undefined && !!e.name)
