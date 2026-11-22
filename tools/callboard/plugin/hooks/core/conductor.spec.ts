@@ -166,4 +166,9 @@ test('/callboard conductor runs only from his typed turn, takes paths or none, a
   assert.equal(planCommand('conductor rel/path', 'typed', NOW).msg, 'cmd.usage')
   assert.equal(planCommand('conductor /a\u0007b', 'typed', NOW).msg, 'cmd.usage')
   assert.equal(planCommand('conductor off', 'typed', NOW).msg, 'cmd.usage')
+  // `pick` asks for the window's tick list: the word alone, and only typed.
+  assert.deepEqual(planCommand('conductor pick', 'typed', NOW), { act: 'run', cmd: { op: 'conductor', paths: [], pick: true } })
+  assert.equal(planCommand('conductor pick', 'other', NOW).msg, 'refuse.bad-origin')
+  assert.equal(planCommand('conductor pick /Users/x/a', 'typed', NOW).msg, 'cmd.usage')
+  assert.equal(planCommand('conductor /Users/x/a pick', 'typed', NOW).msg, 'cmd.usage')
 })

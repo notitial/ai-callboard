@@ -170,7 +170,9 @@ EXT_DIR="$(ls -d "$HOME"/.vscode/extensions/anthropic.claude-code-* | sort -V | 
 - The archive command is another piece (the marker's `archive` field): `callboard archive sessions` archives the sessions it is
   given that sit in the group it is given, as the sidebar's Archive item does. The panels extension names a lane in Lanes
   only after it saw the lane running and then saw it with no table row and no process, on two clean ticks. So a lane the
-  extension never saw running, a parked lane while its row stays, a live lane, a lead and the manager are never archived.
+  extension never saw running, a parked lane while its row stays, a live lane, a lead you typed, a conductor and the
+  manager are never archived. A lead a conductor made is archived the same way when it is retired; one that is closed
+  or parked stays listed.
   The plugin drops a row on a retire, 24 hours after a lane died without one and 28 days after a park, so a lane in
   either of the last two cases is archived once its row goes; so is the old conversation of a lane whose session id
   changed (`/clear`). Unarchive in the sidebar brings any of them back.
@@ -374,18 +376,35 @@ Create a lane named TESTLANE in this folder with the brief "Write hello as the f
 ### Optional: a conductor across repos
 
 A conductor is one session that opens, starts and closes a lead in each of several repos, so you talk to one session
-instead of one per repo ([ADR 0013](adr/0013-conductor.md)). In the conductor's session type the first line once, with
-the real path of each repo; callboard saves the list for that session's folder, so any later conductor session in that
-folder types the second line alone. Only the repos listed are open to it, and only your typed turn changes the list.
-
-```
-/callboard conductor /Users/x/code/repo-a /Users/x/code/repo-b
-```
+instead of one per repo ([ADR 0013](adr/0013-conductor.md)). In the conductor's session type:
 
 ```
 /callboard conductor
 ```
 
+The first time in a folder, the VS Code window shows a tick list: the window's other folders, ticked this first time, and the git repos
+that sit beside the conductor's folder on disk, unticked. It works in a window with one folder. Tick the repos and
+press Enter. Escape, or Enter with nothing ticked, changes nothing, and the list closes itself after 80 seconds. It
+shows at most 100 rows and takes at most 32 ticks. Callboard saves what you ticked for that session's folder, so any
+later conductor session in that folder types the same line and is asked nothing. To change the list, type the next
+line: the list comes back with the saved repos ticked.
+
+```
+/callboard conductor pick
+```
+
+The list needs the panels extension in the window that holds the conductor's folder, as the window's first folder
+unless the patch described under "one multi-folder window" above is applied. When no window takes the request, the
+command says so after 30 seconds. Without the extension, type the real path of
+each repo instead (at most 16); typed paths replace the saved list.
+
+```
+/callboard conductor /Users/x/code/repo-a /Users/x/code/repo-b
+```
+
+Only the repos saved are open to the conductor, and only your typed turn, with your own click in the list, changes them.
+
+A repo can be saved before the window lists it, but a lead opens only in a folder the window lists.
 Each lead it makes needs a window that answers for its folder: open the conductor's windows as one multi-folder
 VS Code window that lists each repo folder exactly as the real path, with the patch described under "one multi-folder
 window" above applied.

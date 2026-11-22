@@ -23,7 +23,7 @@ export type ConfigOp = 'show' | 'reset' | { key: 'keepalive'; value: boolean } |
 export type Cmd =
   | { op: 'status' | 'lanes' | 'help' | 'lead-off' | 'off' | 'on' | 'rest' }
   | { op: 'lead'; paths: string[] }
-  | { op: 'conductor'; paths: string[] }
+  | { op: 'conductor'; paths: string[]; pick?: true }
   | { op: 'go'; text: string }
   | { op: 'go-off'; id?: string }
   | { op: 'unattended'; span: Extract<SpanOp, { op: 'state' | 'off' | 'on' }> }
@@ -56,7 +56,8 @@ export function parseCommand(args: string, now: number): Cmd | Bad {
   if ((WORDS as readonly string[]).includes(w)) return a.length === 0 ? { op: w as (typeof WORDS)[number] } : bad
   const plainPaths = a.every((p) => /^~?\/[^\u0000-\u001f\u007f-\u009f]*$/.test(p))
   if (w === 'lead') return rest === 'off' ? { op: 'lead-off' } : plainPaths ? { op: 'lead', paths: a } : bad
-  if (w === 'conductor') return plainPaths ? { op: 'conductor', paths: a } : bad
+  // `conductor pick` asks the window for its tick list; `pick` is no path, so the two forms cannot be mixed up.
+  if (w === 'conductor') return rest === 'pick' ? { op: 'conductor', paths: [], pick: true } : plainPaths ? { op: 'conductor', paths: a } : bad
   if (w === 'go') {
     const g = goCommand(rest)
     return g === 'bad' ? bad : g.op === 'give' ? { op: 'go', text: g.text } : { op: 'go-off', ...(g.id === undefined ? {} : { id: g.id }) }

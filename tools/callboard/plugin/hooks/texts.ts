@@ -2,7 +2,7 @@
 // `[callboard]` or `[compact-cue]` and says it is no approval (rules/callboard.md matches those openings). A name, a tool or any text a session wrote reaches a string only
 // through `q` or `esc`, so nothing in it closes a frame, hides text or reorders it.
 import { DENY_LABEL } from './core/asks.ts'
-import { CUE_WAIT_S, IDLE_MS, SPOOL_WAIT_S } from './core/lifecycle.ts'
+import { CONDUCTOR_REPOS_MAX, CUE_WAIT_S, IDLE_MS, PICK_WAIT_S, SPOOL_WAIT_S } from './core/lifecycle.ts'
 import { LANE_EFFORTS, LANE_MODELS, MAX_LIVE_CHILDREN, PERSON } from './core/model.ts'
 import type { ToolName } from './core/model.ts'
 import type { CommandName, Fixed, MsgId, Params, RefuseCode, UiColumn, UiState } from './core/msg.ts'
@@ -73,7 +73,13 @@ const BAD_INPUT: Record<string, (p: Params['refuse.bad-input']) => string> = {
   effort: () => `${BAD}: effort must be one of ${LANE_EFFORTS.join(', ')}.`,
   role: () => `${BAD}: role must be lane or lead.`,
   'own-folder': () => 'the only path typed is this session\'s own folder: list the repos to open leads in.',
-  'no-repos': () => 'a conductor needs repos: type /callboard conductor PATH… once in this folder; the list is then saved for it.',
+  'pick-no-window': () => `no window took the request for the list of repos in ${SPOOL_WAIT_S} seconds, or it never answered. The list needs the callboard panels extension in the VS Code window that holds this folder, as the window's first folder unless Claude Code carries callboard's patch. Or type the paths: /callboard conductor PATH….`,
+  'pick-cancelled': () => 'nothing was ticked, so nothing changed.',
+  'pick-timeout': () => `the list closed itself after ${PICK_WAIT_S - 10} seconds with no answer, so nothing changed. /callboard conductor pick shows it again.`,
+  'pick-no-folders': () => 'there is nothing to offer: the window has no other folder and no git repo sits beside this one. Type the paths: /callboard conductor PATH….',
+  'pick-too-many': () => `a conductor takes at most ${CONDUCTOR_REPOS_MAX} repos and more were ticked, so nothing changed.`,
+  'pick-busy': () => 'the window already shows a list of repos. Answer or close that one first.',
+  'pick-failed': () => 'the window could not show the list of repos, or its answer could not be used, so nothing changed. Or type the paths: /callboard conductor PATH….',
   exists: (p) => `${BAD}: .archive/${esc(p.target ?? '')}/BRIEF.md exists already in that folder. Pick another name.`,
   link: (p) => `${BAD}: .archive or .archive/${esc(p.target ?? '')} in that folder is a link, which callboard does not follow. Pick another name or folder.`,
   unwritten: () => `${BAD}: the brief could not be written.`,
@@ -151,7 +157,7 @@ const HELP: Record<CommandName, string> = {
   help: 'show this table.',
   lead: 'make this session a lead, which may create and adopt lanes in its own folder and the folders listed. Only you, typed.',
   'lead-off': "drop this session's lead capability and folder list; its lanes go to the manager.",
-  conductor: 'make this session a conductor: a lead that also makes and closes leads, one per repo, in the repos you list (saved for this folder, so later no paths). Only you, typed.',
+  conductor: 'make this session a conductor: a lead that also makes and closes leads, one per repo, in the repos you tick in the window\'s list or type as paths (saved for this folder, so later neither). `conductor pick` shows the list again. Only you, typed.',
   off: 'take callboard off for this session: no pings, nudges, asks or notices, and it is nobody\'s parent or child.',
   on: 'bring callboard back for this session.',
   go: 'give one go for the work TEXT names (1 to 3 lines), for 24 hours or until `go off`. It covers this session and the sessions under it, never what `go_status` lists.',
@@ -161,7 +167,7 @@ const HELP: Record<CommandName, string> = {
   rest: 'stop keepalive pings in this idle gap. /rest does the same.',
 }
 const FORM: Record<CommandName, string> = {
-  status: 'status', lanes: 'lanes', help: 'help', lead: 'lead [PATH…]', 'lead-off': 'lead off', conductor: 'conductor [PATH…]', off: 'off', on: 'on', go: 'go TEXT', 'go-off': 'go off [ID]',
+  status: 'status', lanes: 'lanes', help: 'help', lead: 'lead [PATH…]', 'lead-off': 'lead off', conductor: 'conductor [pick | PATH…]', off: 'off', on: 'on', go: 'go TEXT', 'go-off': 'go off [ID]',
   unattended: 'unattended Nm|Nh|HH:MM|off', config: 'config [keepalive on|off | ping 30-55 | stop 1-8 | idle 150-800 | working 150-900 | reset]', rest: 'rest',
 }
 const COL: Record<UiColumn, string> = { name: 'Name', role: 'Role', state: 'State', folder: 'Folder', context: 'Context', fiveHour: '5 h', sevenDay: '7 d', cost: 'Cost', read: 'Read' }
@@ -308,7 +314,7 @@ const fixed: { [K in keyof Fixed]: (p: Fixed[K]) => string } = {
   'help.head': () => '**Callboard commands**',
   'cmd.usage': () => `Use /callboard ${Object.values(FORM).join(', ')}.`,
   'cmd.lead': (p) => `This session is a lead from your next prompt. It may create and adopt lanes in its own folder${p.repos.length === 0 ? '' : ' and in ' + p.repos.map(q).join(', ')}.`,
-  'cmd.conductor': (p) => `This session is a conductor from your next prompt: a lead that also makes and closes leads, one per repo, in ${p.repos.map(q).join(', ')}. The list is saved for this folder, so /callboard conductor here needs no paths next time. Another conductor session in this folder keeps the list it was given until you type the paths there.`,
+  'cmd.conductor': (p) => `This session is a conductor from your next prompt: a lead that also makes and closes leads, one per repo, in ${p.repos.map(q).join(', ')}. The list is saved for this folder, so /callboard conductor here asks nothing next time; /callboard conductor pick changes it. A lead opens only in a folder the VS Code window lists, so a repo the window does not list waits until it does. Another conductor session in this folder keeps the list it was given until you type the command there.`,
   'cmd.leadOff': () => 'Lead is off for this session. Its lanes now have the manager as parent.',
   'cmd.off': () => 'Callboard is off for this session: no pings, nudges, asks or notices, and it is nobody\'s parent or child. Type /callboard on to bring it back.',
   'cmd.on': () => 'Callboard is on for this session.',

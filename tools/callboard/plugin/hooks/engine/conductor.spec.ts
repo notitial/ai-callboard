@@ -53,9 +53,141 @@ test('/callboard conductor: typed paths become the row\'s repos and the list sav
   assert.deepEqual(rows(f).lead, { repos: ['/w/other'] })
 })
 
-test('/callboard conductor with nothing typed and nothing saved, or a path that does not exist, changes nothing', async () => {
+// The window's answer to a pick: `reply` is read at each request, and `seen` collects the requests.
+const picking = (f: F, reply: () => object | undefined, seen: any[] = []) => window(f, (req) => (req.op === 'pick' ? (seen.push(req), reply()) : undefined))
+const spooled = (f: F) => [...f.h.files.keys()].filter((p) => p.startsWith(`${V2}/open/`))
+
+test('/callboard conductor with nothing saved asks the window for its tick list: what he ticks is resolved, saved and given like typed paths', async () => {
   const f = world()
-  assert.match((await run(f, 'conductor', 'composer')).text, /a conductor needs repos: type \/callboard conductor PATH… once in this folder/)
+  f.h.real.set('/w/link', '/w/repo2')
+  const seen: any[] = []
+  let answer: object = { ok: true, folders: ['/w/repo', '/w/link', '/w/me', '/w/repo'] }
+  picking(f, () => answer, seen)
+  const r = await run(f, 'conductor', 'composer')
+  assert.deepEqual(seen, [{ op: 'pick', folder: '/w/me', ticked: [] }])
+  assert.equal(r.text, T['cmd.conductor']({ repos: ['/w/repo', '/w/repo2'] }))
+  assert.deepEqual(rows(f).lead, { repos: ['/w/repo', '/w/repo2'], conductor: true })
+  assert.deepEqual(JSON.parse(f.file('conductors.json')!), { '/w/me': ['/w/repo', '/w/repo2'] })
+  assert.equal(mem.owed.length, 1)
+  assert.deepEqual(spooled(f), [], 'the request and its answer are taken away')
+  // With a list saved the bare command asks nothing; `pick` shows the list again with the saved repos ticked, and its answer replaces them.
+  seen.length = 0
+  await run(f, 'conductor', 'composer')
+  assert.deepEqual(seen, [])
+  answer = { ok: true, folders: ['/w/other'] }
+  await run(f, 'conductor pick', 'composer')
+  assert.deepEqual(seen.at(-1), { op: 'pick', folder: '/w/me', ticked: ['/w/repo', '/w/repo2'] })
+  assert.deepEqual(rows(f).lead, { repos: ['/w/other'], conductor: true })
+  assert.deepEqual(await conductorRepos(f.$, '/w/me'), ['/w/other'])
+})
+
+test('a tick list that picks nothing changes nothing, and says why: cancelled, timed out, nothing to offer, too many, a list already up, no window, a bad answer', async () => {
+  const cases: [object | undefined, RegExp][] = [
+    [{ ok: false, code: 'cancelled' }, /nothing was ticked, so nothing changed/],
+    [{ ok: false, code: 'timeout' }, /the list closed itself after 80 seconds/],
+    [{ ok: false, code: 'no-folders' }, /no git repo sits beside this one/],
+    [{ ok: false, code: 'too-many' }, /at most 32 repos/],
+    [{ ok: false, code: 'busy' }, /already shows a list/],
+    [{ ok: false, code: 'stale' }, /could not show the list of repos/],
+    [undefined, /no window took the request for the list of repos in 30 seconds.*\/callboard conductor PATH…/],
+    // An answer that is not a list of at most 32 plain absolute paths is a bad answer, said at once.
+    [{ ok: true, folders: ['relative'] }, /its answer could not be used/],
+    [{ ok: true, folders: ['/w/repo\u0007'] }, /its answer could not be used/],
+    [{ ok: true, folders: Array.from({ length: 33 }, () => '/w/repo') }, /its answer could not be used/],
+    [{ ok: true, folders: '/w/repo' }, /its answer could not be used/],
+    [{ ok: true, folders: ['/w/repo'], sid: 'sid-x' }, /its answer could not be used/],
+    [{ nonsense: 1 }, /its answer could not be used/],
+    // An answer with nothing usable in it: no folders, only the conductor's own, or one that does not exist.
+    [{ ok: true }, /could not show the list of repos/],
+    [{ ok: true, folders: [] }, /could not show the list of repos/],
+    [{ ok: true, folders: ['/w/me'] }, /could not show the list of repos/],
+    [{ ok: true, folders: ['/no/such/dir'] }, /input is not valid/],
+  ]
+  for (const [reply, want] of cases) {
+    const f = world()
+    picking(f, () => reply)
+    assert.match((await run(f, 'conductor', 'composer')).text, want, JSON.stringify(reply))
+    assert.equal(f.file('sessions.json'), undefined)
+    assert.equal(f.file('conductors.json'), undefined)
+    assert.deepEqual(spooled(f), [])
+    // On a saved list a `pick` that picks nothing keeps the list and the row as they were.
+    const g = world()
+    await run(g, 'conductor /w/repo', 'composer')
+    picking(g, () => reply)
+    assert.match((await run(g, 'conductor pick', 'composer')).text, want, JSON.stringify(reply))
+    assert.deepEqual(await conductorRepos(g.$, '/w/me'), ['/w/repo'])
+    assert.deepEqual(rows(g).lead, { repos: ['/w/repo'], conductor: true })
+  }
+})
+
+// A window that takes the request (its file goes) at the `claimAt`-th second and answers at the `answerAt`-th; `n` counts the seconds waited.
+function slowWindow(f: F, claimAt: number | undefined, answerAt: number | undefined) {
+  const w = { n: 0 }
+  let req: string | undefined
+  const orig = f.$.process.run
+  f.$.process.run = async (argv: string[], o?: unknown) => {
+    if (argv[0] === '/bin/sleep') {
+      w.n++
+      req ??= spooled(f).find((p) => p.endsWith('.req'))
+      if (w.n === claimAt && req !== undefined) f.h.files.delete(req)
+      if (w.n === answerAt && req !== undefined) f.h.files.set(req.replace(/\.req$/, '.result'), JSON.stringify({ ok: true, folders: ['/w/repo'] }))
+    }
+    return orig(argv, o)
+  }
+  return w
+}
+
+test('the wait for the tick list: 30 s for a window to take the request, then 90 s from when one took it; a bad answer ends it at once', async () => {
+  // No window takes it.
+  const none = world()
+  const a = slowWindow(none, undefined, undefined)
+  assert.match((await run(none, 'conductor', 'composer')).text, /no window took the request/)
+  assert.equal(a.n, 30)
+  // Taken at 20 s, answered 85 s later: inside the 90 s that run from the taking.
+  const late = world()
+  const b = slowWindow(late, 20, 105)
+  await run(late, 'conductor', 'composer')
+  assert.deepEqual([await conductorRepos(late.$, '/w/me'), b.n], [['/w/repo'], 105])
+  // Taken in the last second of the 30: the request cannot be taken back, so the window is waited for and its answer saved.
+  const edge = world()
+  const e = slowWindow(edge, 30, 60)
+  await run(edge, 'conductor', 'composer')
+  assert.deepEqual([await conductorRepos(edge.$, '/w/me'), e.n], [['/w/repo'], 60])
+  // Taken and never answered: 90 s after the taking.
+  const mute = world()
+  const c = slowWindow(mute, 20, undefined)
+  assert.match((await run(mute, 'conductor', 'composer')).text, /or it never answered/)
+  assert.deepEqual([c.n, mute.file('conductors.json')], [20 + 90, undefined])
+  // An answer after the wait ended is not read: its file is taken away with the request.
+  assert.deepEqual(spooled(mute), [])
+  // A bad answer is not waited on.
+  const bad = world()
+  let n = 0
+  picking(bad, () => (n++, { ok: true, folders: ['relative'] }))
+  await run(bad, 'conductor', 'composer')
+  assert.equal(n, 1)
+})
+
+test('the tick list is asked for only from his typed turn, and takes up to 32 repos where typed paths take 16', async () => {
+  for (const kind of ['plugin', 'sdk', 'peer', undefined]) {
+    const f = world()
+    const seen: any[] = []
+    picking(f, () => ({ ok: true, folders: ['/w/repo'] }), seen)
+    for (const args of ['conductor', 'conductor pick']) assert.match((await run(f, args, kind)).text, /only when the person types it themselves/)
+    assert.deepEqual([seen, f.file('conductors.json')], [[], undefined])
+  }
+  const f = world()
+  const many = Array.from({ length: 32 }, (_, i) => `/w/r${i}`)
+  for (const d of many) f.h.dirs.add(d)
+  picking(f, () => ({ ok: true, folders: many }))
+  await run(f, 'conductor', 'composer')
+  assert.deepEqual(await conductorRepos(f.$, '/w/me'), many)
+  await run(f, `conductor ${many.join(' ')}`, 'composer')
+  assert.deepEqual(await conductorRepos(f.$, '/w/me'), many.slice(0, 16))
+})
+
+test('/callboard conductor with a path that does not exist, or only its own folder, changes nothing', async () => {
+  const f = world()
   assert.match((await run(f, 'conductor /no/such/dir', 'composer')).text, /input is not valid/)
   assert.match((await run(f, 'conductor /w/me', 'composer')).text, /only path typed is this session's own folder/)
   assert.equal(f.file('sessions.json'), undefined)

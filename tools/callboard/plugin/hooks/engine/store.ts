@@ -3,6 +3,7 @@
 // its parse is no file; the table is written under one lock by read-modify-write, and an unreadable table is never overwritten.
 import { parseConfig } from '../core/commands.ts'
 import { parseGo } from '../core/go.ts'
+import { CONDUCTOR_REPOS_MAX } from '../core/lifecycle.ts'
 import type { Answer, Ask, AskLogRow, Config, Go, LaneEffort, LaneModel, ManagerName, Question, RaisedBy, Registry, RegistryRow, Row, Sid, Table, UpMark, View } from '../core/model.ts'
 import { LANE_EFFORTS, LANE_MODELS, liveView } from '../core/model.ts'
 import { createExcl, home, locked, path, readText, rm, run, writeFile } from './io.ts'
@@ -138,7 +139,6 @@ export async function writeConfig($: any, c: Config): Promise<boolean> {
 }
 
 // ---- the conductor's repos: kept per conductor folder, written only by his typed command ----
-const CONDUCTOR_REPOS_MAX = 32
 const conductorFile = (t: string): Record<string, unknown> | undefined => {
   const j = safeJson(t)
   return typeof j === 'object' && j !== null && !Array.isArray(j) ? (j as Record<string, unknown>) : undefined

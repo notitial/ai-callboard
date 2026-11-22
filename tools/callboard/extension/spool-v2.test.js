@@ -12,7 +12,7 @@ const OTHER = '2b2c3d4e-0000-4000-8000-123456789abc'
 const FOLDER = '/work/repo/lab'
 
 // `lanes` stands in for lanes.js: open and reopen answer a session id, adopt answers whether it took the panel.
-function world({ ws = [FOLDER], lanes = {}, dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cb-spool2-')), now } = {}) {
+function world({ ws = [FOLDER], lanes = {}, dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cb-spool2-')), now, pick } = {}) {
   const calls = []
   let shift = 0
   const fake = {
@@ -21,7 +21,7 @@ function world({ ws = [FOLDER], lanes = {}, dir = fs.mkdtempSync(path.join(os.tm
     adopt: (...a) => (calls.push(['adopt', ...a]), true),
     ...lanes,
   }
-  const spool = createSpool({ dir, lanes: fake, workspaceFolders: () => ws, timeoutMs: 20000, now: now ?? (() => Date.now() + shift) })
+  const spool = createSpool({ dir, lanes: fake, workspaceFolders: () => ws, timeoutMs: 20000, pick, now: now ?? (() => Date.now() + shift) })
   const put = (id, req, text = typeof req === 'string' ? req : JSON.stringify(req)) => {
     const f = path.join(dir, `${id}.req`)
     fs.writeFileSync(f, text)
@@ -130,7 +130,8 @@ test('what is not a request is dropped with bad-request and does nothing', async
     'not json', '[]', 'null', '{}', '{"op":"open"}', '{"op":"open","folder":""}', '{"op":"open","folder":7}', '{"op":"launch","folder":"/work/repo/lab"}',
     JSON.stringify({ op: 'reopen', folder: FOLDER }), JSON.stringify({ op: 'reopen', sid: 'x', folder: FOLDER }), JSON.stringify({ op: 'reopen', sid: [SID], folder: FOLDER }),
     JSON.stringify({ ...CLOSE, pid: 1 }), JSON.stringify({ ...CLOSE, pid: 2 ** 22 + 1 }), JSON.stringify({ ...CLOSE, pid: '4242' }), JSON.stringify({ ...CLOSE, name: 'a b' }),
-    JSON.stringify({ ...CLOSE, name: undefined }), JSON.stringify({ op: 'open', folder: FOLDER, pad: 'x'.repeat(2000) }),
+    JSON.stringify({ ...CLOSE, name: undefined }), JSON.stringify({ op: 'open', folder: FOLDER, pad: 'x'.repeat(40_000) }),
+    JSON.stringify({ op: 'pick', folder: FOLDER }), JSON.stringify({ op: 'pick', folder: FOLDER, ticked: [7] }), JSON.stringify({ op: 'pick', folder: FOLDER, ticked: Array(33).fill('/r') }),
   ]
   bad.forEach((t, i) => w.put(`b${i}`, t))
   fs.mkdirSync(path.join(w.dir, 'dir.req'))
@@ -183,7 +184,62 @@ test('a scan while another runs does nothing, and a missing folder is made', asy
   assert.deepEqual(await first, [['a1', 'done']])
 })
 
+const PICK = { op: 'pick', folder: FOLDER, ticked: ['/work/repo/a'] }
+
+test('a pick shows the list with the saved folders ticked and answers what was ticked, or the list\'s own code', async () => {
+  const seen = []
+  const w = world({ pick: async (...a) => (seen.push(a), ['/work/repo/a', '/work/repo/b']) })
+  const file = w.put('p1', PICK)
+  assert.deepEqual(await w.spool.scan(), [['p1', 'picking']])
+  await w.spool.picked()
+  assert.deepEqual(seen, [[FOLDER, ['/work/repo/a']]])
+  assert.deepEqual(w.result('p1'), { ok: true, folders: ['/work/repo/a', '/work/repo/b'] })
+  assert.equal(fs.existsSync(file), false)
+  for (const [message, code] of [['cancelled', 'cancelled'], ['timeout', 'timeout'], ['no-folders', 'no-folders'], ['too-many', 'too-many'], ['boom', 'failed']]) {
+    const x = world({ pick: async () => { throw new Error(message) } })
+    x.put('p1', PICK)
+    await x.spool.scan()
+    await x.spool.picked()
+    assert.deepEqual(x.result('p1'), { ok: false, code })
+  }
+})
+
+test('a pick runs beside the scan: an open is served while the list is up, a second pick is answered busy, and a new one is taken once the list closed', async () => {
+  let close
+  const w = world({ pick: () => new Promise((r) => { close = () => r(['/work/repo/a']) }) })
+  w.put('p1', PICK)
+  assert.deepEqual(await w.spool.scan(), [['p1', 'picking']])
+  w.put('a1', OPEN)
+  w.put('p2', PICK)
+  assert.deepEqual(await w.spool.scan(), [['a1', 'done'], ['p2', 'busy']])
+  assert.deepEqual(w.result('a1'), { ok: true, sid: SID })
+  assert.deepEqual(w.result('p2'), { ok: false, code: 'busy' })
+  assert.equal(w.result('p1'), undefined)
+  close()
+  await w.spool.picked()
+  assert.deepEqual(w.result('p1'), { ok: true, folders: ['/work/repo/a'] })
+  w.put('p3', PICK)
+  assert.deepEqual(await w.spool.scan(), [['p3', 'picking']])
+})
+
+test('a pick for another window\'s folder is left alone, a stale one is dropped, and a window with no list answers failed', async () => {
+  let shown = 0
+  const pick = async () => (shown++, ['/work/repo/a'])
+  const other = world({ ws: ['/work/other'], pick })
+  other.put('p1', PICK)
+  assert.deepEqual(await other.spool.scan(), [['p1', 'not-mine']])
+  const old = world({ pick })
+  old.put('p1', PICK)
+  old.tick(61_000)
+  assert.deepEqual(await old.spool.scan(), [['p1', 'stale']])
+  const none = world()
+  none.put('p1', PICK)
+  assert.deepEqual(await none.spool.scan(), [['p1', 'failed']])
+  assert.equal(shown, 0)
+})
+
 test('parse keeps only the request\'s own fields', () => {
+  assert.deepEqual(parse(JSON.stringify({ ...PICK, extra: 1 })), PICK)
   assert.deepEqual(parse(JSON.stringify({ ...CLOSE, extra: 1 })), CLOSE)
   assert.deepEqual(parse(JSON.stringify({ ...OPEN, sid: SID })), OPEN)
 })
