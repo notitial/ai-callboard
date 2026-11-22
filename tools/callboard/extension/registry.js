@@ -52,7 +52,7 @@ function createRegistry(dir) {
         const r = await readEntry(path.join(dir, f))
         if (r.state === 'unsure') complete = false
         const j = r.state === 'ok' ? r.j : undefined
-        if (j && typeof j === 'object' && !Array.isArray(j) && typeof j.sessionId === 'string' && f === `${j.pid}.json`) out.push({ sessionId: j.sessionId, cwd: j.cwd, entrypoint: j.entrypoint, name: j.name, nameSource: j.nameSource, pid: j.pid, procStart: j.procStart, startedAt: j.startedAt, status: j.status, statusAt: j.statusUpdatedAt, waitingFor: j.waitingFor })
+        if (j && typeof j === 'object' && !Array.isArray(j) && typeof j.sessionId === 'string' && f === `${j.pid}.json`) out.push({ sessionId: j.sessionId, cwd: j.cwd, entrypoint: j.entrypoint, name: j.name, nameSource: j.nameSource, pid: j.pid, procStart: j.procStart, startedAt: j.startedAt })
       }
       return Object.defineProperty(out, 'complete', { value: complete })
     },

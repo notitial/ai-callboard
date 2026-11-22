@@ -4,7 +4,7 @@ import { EXPIRE_MS, HEAD_START_MS, MANAGER_AT_MS, awakeAdd, classify, decide, in
 import type { CheckFacts, Open, StageIn } from './asks.ts'
 import { PERSON, ancestors, liveView } from './model.ts'
 import type { Answer, Ask, Sid, Table, UpMark, View } from './model.ts'
-import { MANAGER, NOW, forAll, pick, reg } from './gen.spec.ts'
+import { MANAGER, NOW, forAll, pick, reg } from '../../test/gen.ts'
 
 const M = 'sid-manager'
 const A = 'sid-lead-a'
@@ -122,9 +122,9 @@ test('the sweep: a dead asker\'s ask ends; a live one is only marked stale, and 
 
 test('classify: what raised the ask, whatever the tool or the input', () => {
   assert.equal(classify('Bash', undefined), 'unknown')
-  assert.equal(classify('ExitPlanMode', { decision: 'other' }), 'mode')
-  assert.equal(classify('Bash', { decision: 'ask', rule: 'Bash(rm:*)', setting: 'x' }), 'setting')
-  assert.equal(classify('mcp__github__update_pull_request', { decision: 'ask', hook: 'PreToolUse', reason: 'github-mcp-guard: no' }), 'guard')
+  assert.equal(classify('ExitPlanMode', {}), 'mode')
+  assert.equal(classify('Bash', { rule: 'Bash(rm:*)', setting: 'x' }), 'setting')
+  assert.equal(classify('mcp__github__update_pull_request', { hook: 'PreToolUse', reason: 'github-mcp-guard: no' }), 'guard')
   assert.deepEqual(questionShape({ questions: [{ question: 'Q', header: 'Person', options: [{ label: 'a' }, { label: 'b' }] }] }), { ok: false, code: 'question-person' })
   assert.deepEqual(questionShape({ questions: [{ question: 'Q', options: ['a', 'b', 'c', 'd', 'e'].map((label) => ({ label })) }] }), { ok: false, code: 'question-options' })
   assert.deepEqual(questionShape({ questions: [{ question: 'Q', options: [{ label: 'a' }, { label: 'a ' }] }] }), { ok: false, code: 'question-options' })
@@ -189,12 +189,12 @@ test('a `__proto__` key is an ordinary entry: it is shown, not swallowed into th
 
 // Every kind of ask, from what tool.check saw to who may answer it once it has risen to the manager (the lead escalated it).
 const kinds: [string, { tool: string; input: unknown; facts: CheckFacts | undefined }][] = [
-  ['a rule asks', { tool: 'Bash', input: { command: 'ls' }, facts: { decision: 'ask', rule: 'Bash(ls:*)' } }],
-  ['a hook asks', { tool: 'Bash', input: { command: 'ls' }, facts: { decision: 'ask', hook: 'PreToolUse' } }],
+  ['a rule asks', { tool: 'Bash', input: { command: 'ls' }, facts: { rule: 'Bash(ls:*)' } }],
+  ['a hook asks', { tool: 'Bash', input: { command: 'ls' }, facts: { hook: 'PreToolUse' } }],
   ['no tool.check entry', { tool: 'Bash', input: { command: 'ls' }, facts: undefined }],
-  ['a plan exit', { tool: 'ExitPlanMode', input: {}, facts: { decision: 'other' } }],
-  ['a question', { tool: 'AskUserQuestion', input: { questions: [{ question: 'Q', header: 'Pick', options: [{ label: 'a' }, { label: 'b' }] }] }, facts: { decision: 'ask' } }],
-  ['a malformed question', { tool: 'AskUserQuestion', input: { questions: [{ question: 'Q', header: 'Pick', options: [{ label: 'a' }] }] }, facts: { decision: 'ask' } }],
+  ['a plan exit', { tool: 'ExitPlanMode', input: {}, facts: {} }],
+  ['a question', { tool: 'AskUserQuestion', input: { questions: [{ question: 'Q', header: 'Pick', options: [{ label: 'a' }, { label: 'b' }] }] }, facts: {} }],
+  ['a malformed question', { tool: 'AskUserQuestion', input: { questions: [{ question: 'Q', header: 'Pick', options: [{ label: 'a' }] }] }, facts: {} }],
 ]
 test('every kind of ask rises to the manager and the manager can close it by replying', () => {
   for (const [name, k] of kinds) {

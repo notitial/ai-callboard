@@ -10,7 +10,7 @@ export type Person = 'PERSON'
 export type Owner = Sid | Person
 
 // A fact that may not be known: `unknown` is a failed or doubtful read and never closes or moves anything.
-export type Liveness = 'yes' | 'no' | 'unknown'
+type Liveness = 'yes' | 'no' | 'unknown'
 
 // The tools, by name without the `mcp__callboard__` prefix. A child tool acts on a descendant of the caller; the cue verbs reach the child through its cue file,
 // the stop verbs end its process (one body for the three).
@@ -72,7 +72,7 @@ export const refusal = <A extends string>(act: A, code: RefuseCode, p: { tool: s
 // ---- the ask ----
 
 export type RaisedBy = 'mode' | 'rule' | 'guard' | 'hook' | 'setting' | 'plugin' | 'ceiling' | 'unknown'
-export type Question = { header: string; question: string; options: { label: string; description?: string }[]; multi?: boolean }
+export type Question = { header: string; question: string; options: { label: string; description?: string }[] }
 
 // `asks/<id>.json`, rewritten only by the asker's hook. `awake` is the time the asker's hook has counted awake, and the 5 and 15 minute steps run on it; `t0` and `beat`
 // are wall time. `input` is redacted and capped; `cut` says a reader has not seen all of it.
@@ -99,7 +99,6 @@ export type Answer = {
   note?: string
   option?: number
   picks?: number[] // the person's pick (1-based) for each of an ask's questions
-  answer?: string
   at: number
 }
 
@@ -114,7 +113,7 @@ export type AskLogRow = { t: number; ev: AskEvent; ask: string; asker: Sid; by?:
 // ---- the cue and its result (cue.ts) ----
 
 // `cue/<child sid>`: a parent's ordinary message to a child that needs the child's own process (a rename, the start on its brief, a resume).
-export type Cue = { id: string; verb: CueVerb; from: Sid; at: number; name?: string; brief?: string }
+export type Cue = { id: string; verb: CueVerb; from: Sid; at: number; name?: string }
 // `result/<id>`: the child's answer. `held` is "not now" (a turn is running), retried by the parent.
 export type CueResult = { id: string; outcome: 'ok' | 'refused' | 'held'; code?: string }
 
@@ -137,7 +136,7 @@ export type Config = { keepalive: boolean; pingAfterMin: number; stopAfterH: num
 
 // ---- events ----
 
-export type EventKind = 'ask' | 'expired' | 'done' | 'gone' | 'waiting' | 'quiet' | 'report'
+type EventKind = 'ask' | 'expired' | 'done' | 'gone' | 'waiting' | 'quiet' | 'report'
 // One event a parent is told, computed from its own observation of its children now. `key` keeps "once" per event and process and is spent when the turn
 // carrying it starts. `about` is the child; `ask` is the ask's id for the two ask kinds; `code` is the refusal or fallback code of a `report`.
 export type Notice = { kind: EventKind; key: string; about: Sid; ask?: string; code?: string }
@@ -148,7 +147,7 @@ export type Receives = { [C in Exclude<Capability, 'none'>]: { from: 'children' 
 
 export const PERSON: Person = 'PERSON'
 export const NAME_RE = /^[A-Za-z0-9_-]{1,40}$/
-export const RESERVED_NAME = 'MANAGER'
+const RESERVED_NAME = 'MANAGER'
 export const MAX_LIVE_CHILDREN = 8
 // The models a lead may give a lane at lane_create; the lane switches to it at its start.
 export const LANE_MODELS = ['opus', 'sonnet', 'haiku', 'fable'] as const
@@ -163,7 +162,7 @@ export type ManagerName = string | null | 'unknown'
 // every live session that is not off and carries the manager's name, oldest first; two or more is the toast that names both.
 export type View = { rows: ReadonlyMap<Sid, RegistryRow> | 'unknown'; table: Table; managerName: ManagerName; manager: Sid | null | 'unknown'; managers: Sid[] }
 // What is above a session: an owner, or `unknown` when a read could not tell. Unknown is not nobody: it never moves an ask or a child.
-export type Up = Owner | 'unknown'
+type Up = Owner | 'unknown'
 
 const startMs = (r: RegistryRow): number => (Number.isFinite(Date.parse(r.procStart)) ? Date.parse(r.procStart) : Infinity)
 export function liveView(reg: Registry, table: Table, managerName: ManagerName): View {
@@ -236,7 +235,7 @@ export const capRefusal = (v: View, p: string): RefuseCode | undefined => (isLea
 const allowlist = (v: View, s: Sid): Folder[] | undefined => (isLead(v, s) ? [v.table[s].folder, ...v.table[s].lead!.repos] : undefined)
 // Only an absolute path with no empty, `.` or `..` segment counts, on either side: the root and a relative path are inside nothing and contain nothing.
 const plain = (f: Folder): boolean => f.startsWith('/') && f.split('/').slice(1).every((s) => s !== '' && s !== '.' && s !== '..')
-export const inside = (folder: Folder, repos: readonly Folder[]): boolean => plain(folder) && repos.some((r) => plain(r) && (folder === r || folder.startsWith(`${r}/`)))
+const inside = (folder: Folder, repos: readonly Folder[]): boolean => plain(folder) && repos.some((r) => plain(r) && (folder === r || folder.startsWith(`${r}/`)))
 
 // A conductor may also make a lead, but only inside its saved repos and never in its own folder; any other lead is refused it.
 export function mayCreate(v: View, actor: Sid, name: string, folder: Folder, role: 'lane' | 'lead' = 'lane'): RefuseCode | undefined {

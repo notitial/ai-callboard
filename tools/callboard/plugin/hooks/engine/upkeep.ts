@@ -6,7 +6,6 @@ import { signedBy } from '../core/lifecycle.ts'
 import { isOff, refusal } from '../core/model.ts'
 import type { NudgeAct, ReqEvent } from '../core/upkeep.ts'
 import { compactPlan, keepalive, pushRecent, reqExpired, reqStep, sizeNudge, validateRequest } from '../core/upkeep.ts'
-import { T } from '../texts.ts'
 import { countDown, log, ownTextOf, submitOwn, toast } from './io.ts'
 import type { Up } from './mem.ts'
 import { getUp, mem, patchUp, spendStarted } from './mem.ts'
@@ -19,7 +18,7 @@ const RESUME_MS = 120_000
 const MID_SKIP_MS = 60_000
 
 const rowOf = (v: View, sid: Sid) => (v.rows === 'unknown' ? undefined : v.rows.get(sid))
-export const interactive = (v: View, sid: Sid): boolean => rowOf(v, sid)?.kind === 'interactive'
+const interactive = (v: View, sid: Sid): boolean => rowOf(v, sid)?.kind === 'interactive'
 async function tokensOf($: any): Promise<number> {
   return ((await $.session.usage()).context?.tokens as number | undefined) ?? 0
 }

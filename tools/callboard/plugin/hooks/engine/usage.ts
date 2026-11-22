@@ -7,7 +7,7 @@ import { safeJson } from './store.ts'
 
 const WRITE_MS = 30_000
 const KEEP_MS = 24 * 3_600_000
-export type Reading = { at: number; tokens?: number; cost?: number; fiveHour?: number; sevenDay?: number }
+type Reading = { at: number; tokens?: number; cost?: number; fiveHour?: number; sevenDay?: number }
 const fig = (x: unknown, max: number): number | undefined => (typeof x === 'number' && Number.isFinite(x) && x >= 0 && x <= max ? x : undefined)
 async function file($: any, sid: Sid): Promise<string | undefined> {
   return /^[A-Za-z0-9-]{1,64}$/.test(sid) ? path($, 'usage', `${sid}.json`) : undefined

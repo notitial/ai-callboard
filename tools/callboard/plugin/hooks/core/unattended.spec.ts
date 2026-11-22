@@ -1,8 +1,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { WINDOW_MAX_MS, WINDOW_MIN_MS, parseSpan, readWindow } from './unattended.ts'
+import { parseSpan, readWindow } from './unattended.ts'
 import type { WindowReading } from './model.ts'
-import { NOW } from './gen.spec.ts'
+import { NOW } from '../../test/gen.ts'
 
 test('the span: Nm, Nh and HH:MM, between 30 minutes and 14 hours from now; anything else is refused', () => {
   assert.deepEqual(parseSpan('', NOW), { op: 'state' })
@@ -20,8 +20,8 @@ test('the span: Nm, Nh and HH:MM, between 30 minutes and 14 hours from now; anyt
   const local = (h: number, m: number, day = 0) => new Date(ten.getFullYear(), ten.getMonth(), ten.getDate() + day, h, m).getTime()
   assert.deepEqual(parseSpan('23:30', t), { op: 'on', end: local(23, 30) })
   assert.deepEqual(parseSpan('06:15', t), { op: 'on', end: local(6, 15, 1) })
-  assert.deepEqual(parseSpan('22:10', t), { op: 'short', earliest: t + WINDOW_MIN_MS })
-  assert.deepEqual(parseSpan('21:00', t), { op: 'long', latest: t + WINDOW_MAX_MS })
+  assert.deepEqual(parseSpan('22:10', t), { op: 'short' })
+  assert.deepEqual(parseSpan('21:00', t), { op: 'long' })
 })
 
 test('the window file: on only inside its span; no file is off; a failed read keeps the last good reading until it ends, and with none is unknown', () => {

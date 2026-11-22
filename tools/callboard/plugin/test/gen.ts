@@ -1,8 +1,8 @@
 // The generator the core's property tests share: random machines of every session shape (no row; a row under a live lead, a gone lead, a session that is no lead,
 // an off lead; a lead; a conductor; a minted lead under a conductor, a gone one or a session that is none; the manager by name, two sessions with its name; off; parked; gone; unnamed; a row never opened; two registry rows for one id; an unreadable
 // registry or manager-name file), each session idle, busy, compacting or in a dialog. Seeded, so a failure names its seed.
-import type { ManagerName, RegistryRow, Row, Sid, Table, View, WindowReading } from './model.ts'
-import { liveView } from './model.ts'
+import type { ManagerName, RegistryRow, Row, Sid, Table, View, WindowReading } from '../hooks/core/model.ts'
+import { liveView } from '../hooks/core/model.ts'
 
 export function rng(seed: number): () => number {
   let a = seed >>> 0

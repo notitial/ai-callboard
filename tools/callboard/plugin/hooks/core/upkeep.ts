@@ -1,6 +1,6 @@
 // Upkeep: when a keepalive ping or a compaction nudge is due, whether a session's own request_compact may queue, and what state a request is in. Pure. Trust rules held
 // here: every bound is a constant or a setting inside its range; a ping goes to no off, resting, asleep or signed-done session and stops after real work ends; a nudge
-// obeys one gap and an hourly cap; a request is refused below the floor and inside the gap, and a session compacts only itself (no mode, no order, no one else's cue).
+// obeys one gap and an hourly cap; a request is refused below the floor and inside the gap, and a session compacts only itself.
 import type { Config, Decision } from './model.ts'
 import { refusal } from './model.ts'
 import type { Say } from './msg.ts'
@@ -12,7 +12,6 @@ export const KEEPALIVE_COLD_MS = 58 * 60_000
 export const SLEEP_GAP_MS = 5 * 60_000
 export const NUDGE_GAP_MS = 30 * 60_000
 export const NUDGES_PER_HOUR = 3
-export const NOTICES_PER_HOUR = 3
 export const COMPACT_GAP_MS = 30 * 60_000
 export const MIN_CONTEXT_TOKENS = 100_000
 export const CACHE_NUDGE_TOKENS = 150_000
@@ -21,7 +20,7 @@ export const REQUEST_TTL_MS = 15 * 60_000
 // A stamp from the future (a clock that ran back) still counts, so the cap holds until the clock catches up.
 const inHour = (ts: readonly number[], now: number): number[] => ts.filter((t) => Math.abs(now - t) < HOUR_MS)
 export const pushRecent = (ts: readonly number[], now: number): number[] => [...inHour(ts, now), now]
-export const recentOk = (ts: readonly number[], now: number, max: number = NOTICES_PER_HOUR): boolean => inHour(ts, now).length < max
+export const recentOk = (ts: readonly number[], now: number, max: number): boolean => inHour(ts, now).length < max
 
 // ---- nudges ----
 export type NudgeKind = 'idle' | 'working' | 'cache'
@@ -31,10 +30,10 @@ export type NudgeAct = { act: 'nudge'; kind: NudgeKind } & Say<'nudge.idle' | 'n
 
 // At most one nudge in NUDGE_GAP_MS, except a working one right after an idle one (it then is the last nudge); `again` (the resend of a mid-turn nudge) skips the gap once.
 // A clock that ran back leaves the gap shut. The hourly cap holds for every kind.
-export const nudgeOk = (c: Counters, now: number, kind: NudgeKind, again = false): boolean =>
+const nudgeOk = (c: Counters, now: number, kind: NudgeKind, again = false): boolean =>
   (again || c.lastNudgeMs === undefined || now - c.lastNudgeMs >= NUDGE_GAP_MS || (kind === 'working' && c.lastNudgeKind === 'idle')) && recentOk(c.nudgeTimes ?? [], now, NUDGES_PER_HOUR)
 
-export function nudgeSay(kind: NudgeKind, cfg: Config): NudgeAct {
+function nudgeSay(kind: NudgeKind, cfg: Config): NudgeAct {
   const [msg, k] = kind === 'idle' ? (['nudge.idle', cfg.idleK] as const) : kind === 'working' ? (['nudge.working', cfg.workingK] as const) : (['nudge.cache', CACHE_NUDGE_TOKENS / 1000] as const)
   return { act: 'nudge', kind, msg, p: { k } }
 }

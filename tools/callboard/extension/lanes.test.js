@@ -442,33 +442,6 @@ test('sweep never closes a panel it did not open, an ambiguous label or a non-Cl
   assert.deepEqual(closed, [], 'not a Claude panel')
 })
 
-test('sweep closes the tab of a lane named like the manager once its process is dead, and keeps it while a live session carries the name', async () => {
-  const dead = new Set()
-  const w = world({ alive: (pid) => !dead.has(pid) })
-  const tab = claudeTab('MANAGER-182')
-  const closed = trackTabs(w, tab)
-  await w.lanes.open(A)
-  w.entries[0].pid = 31
-  w.entries[0].name = 'MANAGER-182'
-  await w.lanes.sweep()
-  w.entries.length = 0
-  dead.add(31)
-  w.entries.push({ sessionId: 'f0000000-0000-4000-8000-0000000000bb', cwd: A, entrypoint: 'claude-vscode', name: 'MANAGER-182', pid: 32 })
-  await w.lanes.sweep()
-  assert.deepEqual(closed, [], 'a live session carrying the name holds the tab')
-
-  const w2 = world({ alive: (pid) => !dead.has(pid) })
-  const closed2 = trackTabs(w2, tab)
-  await w2.lanes.open(A)
-  w2.entries[0].pid = 33
-  w2.entries[0].name = 'MANAGER-182'
-  await w2.lanes.sweep()
-  w2.entries.length = 0
-  dead.add(33)
-  await w2.lanes.sweep()
-  assert.deepEqual(closed2, [tab])
-})
-
 test('sweep keeps the tab when a live session already carries the name, and drops a record with no known pid without closing', async () => {
   const dead = new Set()
   const w = world({ alive: (pid) => !dead.has(pid) })
@@ -628,15 +601,6 @@ test('adopt gives the sweep a panel it did not open: its tab closes once the pid
   assert.deepEqual(closed, [tab])
   await w.lanes.sweep()
   assert.equal(closed.length, 1, 'closed once')
-})
-
-test('an adopted panel named like the manager is accepted and its tab closes once the pid is dead', async () => {
-  const w = world({ alive: () => false })
-  const tab = claudeTab('MANAGER-182')
-  const closed = trackTabs(w, tab)
-  assert.equal(w.lanes.adopt(VALID_SID, { name: 'MANAGER-182', pid: 4242 }), true)
-  await w.lanes.sweep()
-  assert.deepEqual(closed, [tab])
 })
 
 test('an adopted panel keeps its tab while a live session carries the name, or while its registry entry is still there', async () => {

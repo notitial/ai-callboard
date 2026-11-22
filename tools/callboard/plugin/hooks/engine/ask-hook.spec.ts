@@ -69,7 +69,7 @@ test('the manager\'s own dialog is denied at once while a window is on; an unkno
   assert.match((await ask(h)).decision.message, /Expired/)
 })
 test('a go dialog or a force-stop dialog open in the session is the person\'s alone: its question gets no decision from the hook and no ask', async () => {
-  for (const spec of [goDialog('lane', 'finish the tests', '2026-11-20 10:00'), stopDialog('kid', 'terminate')]) {
+  for (const spec of [goDialog('lane', 'finish the tests', '2026-11-20 10:00'), stopDialog('kid')]) {
     const f = tiers()
     f.h.askAnswer = () => new Promise(() => undefined)
     void personDialog(f.$, spec)

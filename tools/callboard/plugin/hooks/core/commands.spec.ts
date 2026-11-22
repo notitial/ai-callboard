@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { CONFIG_DEFAULTS, configNext, originOk, parseCommand, parseConfig, parsePreset, planCommand } from './commands.ts'
 import type { Cmd, Origin } from './commands.ts'
-import { NOW } from './gen.spec.ts'
+import { NOW } from '../../test/gen.ts'
 
 test('every form parses to its command', () => {
   const cases: [string, Cmd][] = [

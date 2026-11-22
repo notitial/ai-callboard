@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { PR_MAX, PR_TRACK_MS, mergeNotes, notesOf, parseAnswer, parseRef, parseTracker, refKey, refText, seenOf, trackExpired } from './pr.ts'
 import type { PrNote, PrRef, Seen } from './pr.ts'
-import { NOW } from './gen.spec.ts'
+import { NOW } from '../../test/gen.ts'
 
 const A = 'a'.repeat(40)
 const B = 'b'.repeat(40)

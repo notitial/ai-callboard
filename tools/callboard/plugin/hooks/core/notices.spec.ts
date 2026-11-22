@@ -4,7 +4,7 @@ import { DIGEST_MAX, QUIET_MS, RECEIVES, WAITING_MS, digest, notices, prRoute } 
 import type { NoticeIn } from './notices.ts'
 import { capability, children, descendants, liveView } from './model.ts'
 import type { Table } from './model.ts'
-import { MANAGER, NOW, forAll, pick, reg } from './gen.spec.ts'
+import { MANAGER, NOW, forAll, pick, reg } from '../../test/gen.ts'
 
 const M = 'sid-manager'
 const A = 'sid-lead-a'
