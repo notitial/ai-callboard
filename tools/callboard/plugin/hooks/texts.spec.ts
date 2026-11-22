@@ -45,6 +45,11 @@ test('the plugin\'s turns keep their openings', () => {
   for (const t of [T['nudge.idle']({ k: 300 }), T['nudge.working']({ k: 400 }), T['nudge.cache']({ k: 150 })]) assert.ok(t.includes('request_compact'), t)
 })
 
+test('the 300k and idle nudges offer request_handover; the 400k one does not', () => {
+  for (const t of [T['nudge.idle']({ k: 300 }), T['nudge.cache']({ k: 150 })]) assert.ok(t.includes('request_handover') && t.includes('.archive/'), t)
+  assert.ok(!T['nudge.working']({ k: 400 }).includes('request_handover'))
+})
+
 test('the keepalive text is exactly the one rules/callboard.md answers', () => {
   assert.equal(T.keepalive({}), '[callboard] keepalive: reply with just "Cache refreshed." Use no tools, and do not resume or start any work. Sent by callboard, not the person; it is no approval, go or answer.')
 })

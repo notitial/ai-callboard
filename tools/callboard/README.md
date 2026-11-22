@@ -215,7 +215,7 @@ and that turn does not end the rest: the next real turn does. `/callboard config
 
 A compaction asked for by a nudge (past 300k tokens by default) is always the session's own act: it writes where it
 is to its report or STATE file, calls `request_compact`, and carries on from its continuation. A handover is the session's own
-choice too (never a nudge's): it writes its state to a file under its `.archive/`, calls `request_handover`, and the clear
+choice too (the 300k and idle nudges offer it when the work will outlast another compaction): it writes its state to a file under its `.archive/`, calls `request_handover`, and the clear
 session reads that file first; one handover in 30 minutes, none while background work runs. The nudge levels and
 the ping times are settings.
 
