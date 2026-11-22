@@ -23,7 +23,7 @@ function lead(kids: Record<string, object> = {}): F {
 }
 const kid = (extra: object = {}) => ({ name: 'kid', folder: '/w/kid', under: 'sid-me', ...extra })
 
-test('the start registers the six tools every session has and the three commands; the thirteen come once the session holds a capability', async () => {
+test('the start registers the six tools every session has and the three commands; the fourteen come once the session holds a capability', async () => {
   const plain = fake()
   plain.seed({ sid: 'sid-me', pid: 10, name: 'me', kind: 'interactive' })
   await start(plain)
@@ -37,16 +37,16 @@ test('the start registers the six tools every session has and the three commands
   await tick(l)
   assert.deepEqual(l.h.tools.sort(), [...ANY, ...PARENT].sort())
   await tick(l)
-  assert.equal(l.h.tools.length, 19)
-  assert.equal(PARENT.length, 13)
+  assert.equal(l.h.tools.length, 20)
+  assert.equal(PARENT.length, 14)
 })
-test('the manager is given the thirteen too, by the name file; an off lead is not', async () => {
+test('the manager is given the fourteen too, by the name file; an off lead is not', async () => {
   const m = fake()
   m.seed({ sid: 'sid-me', pid: 10, name: 'BOSS', kind: 'interactive' })
   m.h.files.set(`${HOME}/.claude/callboard/manager-name`, 'BOSS\n')
   await start(m)
   await tick(m)
-  assert.equal(m.h.tools.length, 19)
+  assert.equal(m.h.tools.length, 20)
   const off = fake()
   off.seed({ sid: 'sid-me', pid: 10, name: 'me', kind: 'interactive' })
   off.table({ 'sid-me': { name: 'me', folder: '/w/me', lead: { repos: [] }, off: true } })

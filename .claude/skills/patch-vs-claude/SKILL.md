@@ -26,7 +26,7 @@ Callboard is then back to one repo per window. This is the person's way out at a
    (the first word of the output: `patched`, `outdated`, `unpatched-patchable`, `anchors-missing` or `leftovers`), whether the marker
    `callboard-cwd-patch.json` is in that folder, and, when the output has a `warning:` line, which optional piece (the panel width, the wider composer;
    the context pie, the folder pill and the Run button, which also edit `webview/index.js`; the restore fix, which makes a restored panel resume in its folder; or the group command
-   `callboard file session`, which files the manager, conductor, lead and lane sessions in the Session Manager's groups by tier; the archive command `callboard archive sessions`, which archives a retired lane; or the session list,
+   `callboard file session`, which files the manager, conductor, lead and lane sessions in the Session Manager's groups by tier; the archive command `callboard archive sessions`, which archives a retired lane; the remote command `callboard remote session`, which turns a lane's Remote Control on or off; or the session list,
    which lists the saved conversations of every folder of the window in the sidebar) is not in or would be left out while the folder patch still applies.
 3. **`patched`:** is up to date (an older build reads `outdated`, below): say so, with the warning if there is one, and stop. **`outdated`:** an older version of the script
    built the patch. Say what the line after the colon says differs, then run the same command with `--update` (it rebuilds the

@@ -5,6 +5,7 @@ import type { CheckFacts, Open } from '../core/asks.ts'
 import type { Counters, Req } from '../core/upkeep.ts'
 import type { PrNote } from '../core/pr.ts'
 import type { Preset } from '../core/commands.ts'
+import type { RemoteMemo } from '../core/remote.ts'
 
 // What outlives a reload (the cache is still warm) and not a restart. `due`: a nudge recorded at a turn's end, sent by the tick once the session is quiet; its kind follows the size
 // at the send. `req` carries the session id it was made in and the time its compaction ended.
@@ -66,6 +67,9 @@ const fresh = () => ({
   toasted: new Set<string>(),
   logged: '',
   parentTools: false,
+  // This lane's Remote Control wish as asked so far, and whether an ask is out (engine/remote.ts).
+  remote: undefined as RemoteMemo | undefined,
+  remoteBusy: false,
   selfNamed: false,
   dialogs: new Set<string>(),
   usageAt: 0,

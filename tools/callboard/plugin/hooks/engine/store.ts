@@ -21,7 +21,7 @@ const str = (x: unknown): string | undefined => (typeof x === 'string' ? x : und
 // ---- the registry: the engine's rows, each confirmed by one `ps` for every pid and start time ----
 function rowOf(j: any, file: string): RegistryRow | undefined {
   if (typeof j !== 'object' || j === null || String(j.pid) !== file.slice(0, -5) || typeof j.sessionId !== 'string' || !SID_RE.test(j.sessionId) || typeof j.procStart !== 'string' || typeof j.cwd !== 'string') return undefined
-  return { sid: j.sessionId, pid: Number(j.pid), procStart: j.procStart, folder: j.cwd, name: str(j.name), nameSource: str(j.nameSource), status: str(j.status), statusAt: num(j.statusUpdatedAt), waitingFor: str(j.waitingFor) ?? null, kind: str(j.kind) }
+  return { sid: j.sessionId, pid: Number(j.pid), procStart: j.procStart, folder: j.cwd, name: str(j.name), nameSource: str(j.nameSource), status: str(j.status), statusAt: num(j.statusUpdatedAt), waitingFor: str(j.waitingFor) ?? null, kind: str(j.kind), bridge: typeof j.bridgeSessionId === 'string' }
 }
 const squash = (s: string): string => s.replace(/\s+/g, ' ').trim()
 // The rows whose pid is alive with the same start time, or `unknown`: too many files, a file that is there and stays unreadable or unparseable, two rows of one session id, a `ps` that failed or printed nothing, or no row of the
@@ -82,6 +82,8 @@ function parseTable(text: string): Table | undefined {
     // A row is a conductor or a minted lead, never both: a row that claims both is a minted lead, so the flag a conductor's powers rest on cannot ride on a minted row.
     if (typeof lead === 'object' && lead !== null && Array.isArray(lead.repos)) row.lead = { repos: lead.repos.filter((x): x is string => typeof x === 'string'), ...(lead.minted === true ? { minted: true as const } : lead.conductor === true ? { conductor: true as const } : {}) }
     if (o.off === true) row.off = true
+    const remote = o.remote as { on?: unknown; at?: unknown; met?: unknown } | undefined
+    if (typeof remote === 'object' && remote !== null && typeof remote.on === 'boolean') row.remote = { on: remote.on, ...(num(remote.at) === undefined ? {} : { at: num(remote.at) }), ...(remote.met === true ? { met: true as const } : {}) }
     if ((LANE_MODELS as readonly unknown[]).includes(o.model)) row.model = o.model as LaneModel
     if ((LANE_EFFORTS as readonly unknown[]).includes(o.effort)) row.effort = o.effort as LaneEffort
     t[k] = row

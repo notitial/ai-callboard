@@ -7,7 +7,7 @@ import { commandHeard, commandComplete, promptCompose } from './engine/commands.
 import { presetRun } from './engine/preset.ts'
 import { toolCheck, permissionRequest, doneHook, proxyRun, proxyJudge } from './engine/ask-hook.ts'
 import { requestCompactCall, requestHandoverCall, turnComplete, promptSubmit, turnStart, postCompact } from './engine/upkeep.ts'
-import { cueVerbCall, stopVerbCall, laneCreateCall, laneOpenCall, laneUnparkCall, laneAdoptCall, laneListCall } from './engine/tools-child.ts'
+import { cueVerbCall, stopVerbCall, laneCreateCall, laneOpenCall, laneUnparkCall, laneAdoptCall, laneListCall, laneRemoteCall } from './engine/tools-child.ts'
 import { promptListCall, promptAnswerCall, goRequestCall, goStatusCall } from './engine/tools-ask.ts'
 import { restCall } from './engine/tools-any.ts'
 import { prWatchCall } from './engine/pr.ts'
@@ -40,6 +40,7 @@ export const register: Register = (on) => {
   on('tool.call', { tool: 'mcp__callboard__lane_open' }, laneOpenCall).catch(() => ({ deny: 'lane_open failed closed.' }))
   on('tool.call', { tool: 'mcp__callboard__lane_unpark' }, laneUnparkCall).catch(() => ({ deny: 'lane_unpark failed closed.' }))
   on('tool.call', { tool: 'mcp__callboard__lane_adopt' }, laneAdoptCall).catch(() => ({ deny: 'lane_adopt failed closed.' }))
+  on('tool.call', { tool: 'mcp__callboard__lane_remote' }, laneRemoteCall).catch(() => ({ deny: 'lane_remote failed closed.' }))
   on('tool.call', { tool: 'mcp__callboard__lane_list' }, laneListCall).catch(() => ({ deny: 'lane_list failed closed.' }))
   on('tool.call', { tool: 'mcp__callboard__prompt_list' }, promptListCall).catch(() => ({ deny: 'prompt_list failed closed.' }))
   on('tool.call', { tool: 'mcp__callboard__prompt_answer' }, promptAnswerCall).catch(() => ({ deny: 'prompt_answer failed closed.' }))

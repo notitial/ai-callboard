@@ -37,7 +37,7 @@ test('/callboard conductor: typed paths become the row\'s repos and the list sav
   assert.deepEqual(rows(f), { name: 'me', folder: '/w/me', lead: { repos: ['/w/repo', '/w/repo2'], conductor: true } })
   assert.deepEqual(JSON.parse(f.file('conductors.json')!), { '/w/me': ['/w/repo', '/w/repo2'] })
   assert.equal(f.h.modes.get(V2), '700')
-  assert.equal(f.h.tools.filter((n) => n.startsWith('lane_')).length, 8 + 3)
+  assert.equal(f.h.tools.filter((n) => n.startsWith('lane_')).length, 9 + 3)
   // `lead off` drops the grant; the saved list stays, so a bare `conductor` restores it.
   await run(f, 'lead off', 'composer')
   assert.equal(rows(f).lead, undefined)

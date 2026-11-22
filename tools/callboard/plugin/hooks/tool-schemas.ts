@@ -1,4 +1,4 @@
-// The 19 tools: who is given each, and its input schema. `cap` is 'any' for the tools every session gets and 'parent' for the thirteen a session gets only when it
+// The 20 tools: who is given each, and its input schema. `cap` is 'any' for the tools every session gets and 'parent' for the fourteen a session gets only when it
 // holds the lead capability or is the manager. Data only: the tool descriptions are texts (`tool.<name>`).
 import type { ToolName } from './core/model.ts'
 import { LANE_EFFORTS, LANE_MODELS } from './core/model.ts'
@@ -20,6 +20,7 @@ export const TOOL_SCHEMAS: Record<ToolName, { cap: 'any' | 'parent'; input: Sche
   lane_create: { cap: 'parent', input: { type: 'object', properties: { name: text, folder: text, brief: text, model: { type: 'string', enum: [...LANE_MODELS] }, effort: { type: 'string', enum: [...LANE_EFFORTS] }, role: { type: 'string', enum: ['lane', 'lead'] } }, required: ['name', 'folder', 'brief'] } },
   lane_open: { cap: 'parent', input: lane },
   lane_adopt: { cap: 'parent', input: { type: 'object', properties: { name: text }, required: ['name'] } },
+  lane_remote: { cap: 'parent', input: { type: 'object', properties: { lane: text, on: { type: 'boolean' } }, required: ['lane', 'on'] } },
   prompt_list: { cap: 'parent', input: none },
   prompt_answer: { cap: 'parent', input: { type: 'object', properties: { id: text, decision: { type: 'string', enum: ['allow', 'deny', 'answer', 'escalate'] }, note: text, option: { type: 'integer', minimum: 1, maximum: 4 } }, required: ['id', 'decision'] } },
   go_request: { cap: 'any', input: { type: 'object', properties: { text }, required: ['text'] } },

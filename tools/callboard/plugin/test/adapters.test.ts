@@ -33,7 +33,7 @@ function engine(on: any, f: ReturnType<typeof fake>) {
 const start = ($: any) => $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
 const own = (f: ReturnType<typeof fake>) => f.seed({ sid: 'sid-me', pid: 10, name: 'me', cwd: '/w/me', kind: 'interactive' })
 
-test('a session starts with the six tools every session has and the five commands; a lead row adds the thirteen at the next tick', async ($, on) => {
+test('a session starts with the six tools every session has and the five commands; a lead row adds the fourteen at the next tick', async ($, on) => {
   const f = fake()
   own(f)
   const clock = engine(on, f)
@@ -42,7 +42,7 @@ test('a session starts with the six tools every session has and the five command
   expect(f.h.commands.sort()).toEqual(['callboard', 'conductor', 'lead', 'rest', 'unattended'])
   f.table({ 'sid-me': { name: 'me', folder: '/w/me', lead: { repos: [] } } })
   await clock.advance(12_000)
-  expect(f.h.tools.length).toBe(19)
+  expect(f.h.tools.length).toBe(20)
   expect(f.h.tools).toContain('lane_list')
 })
 test('only his typed turn runs a form that widens what a session may do; the engine-stamped origin decides', async ($, on) => {
