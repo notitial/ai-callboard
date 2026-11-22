@@ -157,7 +157,7 @@ test('a pick on an ask closed meanwhile writes nothing and says so, and the next
 test('a question is put as the asker\'s own question, opened with the asker\'s name, and his pick lands as that option once', async () => {
   const question = { header: 'H', question: 'Which?', options: [{ label: 'A', description: 'why' }, { label: 'B', description: '' }] }
   const { f, boss, click } = await open({ tool: 'AskUserQuestion', input: '{"questions":[]}', question })
-  assert.deepEqual(boss.h.asked, [{ header: 'H', question: '`lane` asks: Which?', options: ['A', 'B'] }])
+  assert.deepEqual(boss.h.asked, [{ header: 'H', question: 'lane asks: Which?', options: ['A', 'B'] }])
   assert.deepEqual(boss.h.calls[0]!.input.questions[0].options, [{ label: 'A', description: 'why' }, { label: 'B', description: '' }])
   click('B')
   await settle()
@@ -170,7 +170,7 @@ test('a question is put as the asker\'s own question, opened with the asker\'s n
 test('a typed answer in place of a pick becomes the person\'s deny with what he typed as the note', async () => {
   const question = { header: 'H', question: 'Which?', options: [{ label: 'A' }, { label: 'B' }] }
   const { f, click } = await open({ tool: 'AskUserQuestion', input: '{"questions":[]}', question })
-  click({ result: { answers: { '`lane` asks: Which?': 'neither, use the staging branch' } } })
+  click({ result: { answers: { 'lane asks: Which?': 'neither, use the staging branch' } } })
   await settle()
   const got = await readAnswer(f.$, 'aa11bb22cc')
   assert.deepEqual([got?.by, got?.decision, got?.note], ['PERSON', 'deny', 'neither, use the staging branch'])
@@ -244,7 +244,7 @@ test('a hook beneath that answers the dialog in his place writes nothing: only a
 test('a cut ask, or a question not shown whole, offers Deny and Leave it; Leave it writes nothing', async () => {
   const cut = await open({ cut: true })
   assert.deepEqual(cut.boss.h.asked[0]!.options, ['Deny', 'Leave it'])
-  assert.match(cut.boss.h.asked[0]!.question, /NOT SHOWN WHOLE/)
+  assert.match(cut.boss.h.asked[0]!.question, /Not shown whole, so you can only deny it\./)
   cut.click('Leave it')
   await settle()
   assert.equal(await readAnswer(cut.f.$, 'aa11bb22cc'), undefined)
@@ -314,15 +314,15 @@ test('the first dialog shows the manager\'s own note and no command, never the l
     return b.h.asked[0]!
   }
   const both = await shown('aa11bb22cc', {}, 'Lead: safe build.', 'Manager: runs make. Low risk.')
-  assert.match(both.question, /Manager: runs make\. Low risk\./)
+  assert.equal(both.question, "lane wants to run Bash.\n\nBOSS's summary: Manager: runs make. Low risk.", 'the label names the manager, never the lead')
   assert.doesNotMatch(both.question, /Lead: safe|"command"/)
   assert.deepEqual(both.options, ['Allow', 'Show the command', 'Deny'])
   const bare = await shown('bb11cc22dd', {}, 'Lead: safe build.', undefined)
   assert.match(bare.question, /"command":"make"/)
-  assert.doesNotMatch(bare.question, /Lead: safe|manager's own note/)
+  assert.doesNotMatch(bare.question, /Lead: safe|summary:/)
   const cut = await shown('cc11dd22ee', { cut: true }, undefined, 'Manager: runs make.')
   assert.deepEqual(cut.options, ['Deny', 'Leave it'])
-  assert.match(cut.question, /NOT SHOWN WHOLE/)
+  assert.match(cut.question, /Not shown whole, so you can only deny it\./)
   const q = { header: 'H', question: 'Which?', options: [{ label: 'A' }, { label: 'B' }] }
   const asked = await shown('dd11ee22ff', { tool: 'AskUserQuestion', input: '{}', question: q }, undefined, 'Manager: a note.')
   assert.doesNotMatch(asked.question, /Manager: a note/)
@@ -377,5 +377,5 @@ test('with a note, Allow or Deny on it decides at once and Show the command open
   assert.deepEqual([closed3.b.h.asked.length, closed3.got], [1, undefined], 'an Allow on the note of an ask closed meanwhile writes nothing')
   const big = await run(['Show the command', 'Deny'], { input: '<'.repeat(6000) })
   assert.deepEqual(big.b.h.asked.map((a) => a.options), [['Show the command', 'Deny'], ['Deny', 'Leave it']], 'a command too large to print leaves no Allow on the note and Deny only in the second dialog')
-  assert.match(big.b.h.asked[1]!.question, /NOT SHOWN WHOLE/)
+  assert.match(big.b.h.asked[1]!.question, /Not shown whole, so you can only deny it\./)
 })

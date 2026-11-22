@@ -3,7 +3,7 @@
 // is the plugin's handle on it: each tick first closes the open one once its ask is closed elsewhere or a window is not off. Trust rules held here: the answer is the person's pick
 // in that dialog, written as theirs by answerAsk after the ask is read again (a pick on a closed ask writes nothing and says so); only a dialog the ask hook saw go to the person
 // is theirs, so a result or a refusal that came before it writes nothing, and a dismissal after it is their deny; a dialog that was cut or closed by itself writes nothing and is
-// put again; nothing is raised unless the window reads off; the OS notification names the asker by a plain name or its id, and the tool, never the command.
+// put again; nothing is raised unless the window reads off; the dialogs and the OS notification name the asker by a plain name or its id, and the notification names the tool, never the command.
 import type { Ask, Question, Sid, View } from '../core/model.ts'
 import { NAME_RE, PERSON, nameOf } from '../core/model.ts'
 import type { Picked } from '../core/asks.ts'
@@ -35,7 +35,7 @@ async function put($: any, p: Relay, questions: AskQuestion[]): Promise<Out> {
   if (r?.result?.afkTimeoutMs !== undefined) p.idle = true
   return readAnswers(questions, r?.result)
 }
-// A pop-up of the plugin's own: the label he picked, or what else came of it.
+// A dialog of the plugin's own: the label he picked, or what else came of it.
 async function pick($: any, p: Relay, spec: DialogSpec): Promise<Chosen> {
   const qs = askOf(spec)
   const r = await put($, p, qs)
@@ -45,17 +45,17 @@ async function pick($: any, p: Relay, spec: DialogSpec): Promise<Chosen> {
 const answerOf = (r: Chosen): Answer | undefined =>
   r === undefined ? undefined : r === 'dismissed' ? { decision: 'deny' } : 'note' in r ? { decision: 'deny', note: r.note } : r.label === T['dialog.allow']({}) ? { decision: 'allow' } : r.label === T['dialog.deny']({}) ? { decision: 'deny' } : undefined
 
-// A tool ask the manager escalated with a note: the note first, where Allow or Deny decides and Show the command opens the command's own pop-up; an ask closed between the two
-// ends it. Without a note, or for a cut ask, it is the command's pop-up alone.
-async function relayCall($: any, p: Relay, ask: Ask, name: string, note: string | undefined): Promise<Answer | undefined> {
+// A tool ask the manager escalated with a note: the note first, where Allow or Deny decides and Show the command opens the command's own dialog; an ask closed between the two
+// ends it. Without a note, or for a cut ask, it is the command's dialog alone.
+async function relayCall($: any, p: Relay, ask: Ask, name: string, note: string | undefined, by: string | undefined): Promise<Answer | undefined> {
   if (note !== undefined && !ask.cut) {
-    const r = await pick($, p, relayNote(name, ask.tool, note, ask.input))
+    const r = await pick($, p, relayNote(name, ask.tool, note, ask.input, by))
     if (r === undefined || r === 'dismissed' || 'note' in r || r.label !== T['dialog.show']({})) return answerOf(r)
     if (!(await askOpen($, ask.id))) return undefined
   }
   return answerOf(await pick($, p, relayDialog(name, ask.tool, ask.input, ask.cut)))
 }
-// A question, or a call of several: the asker's own questions in one dialog, his pick for each sent together. A question not shown whole gets the command's pop-up, Deny only.
+// A question, or a call of several: the asker's own questions in one dialog, his pick for each sent together. A question not shown whole gets the command's dialog, Deny only.
 async function relayQuestions($: any, p: Relay, ask: Ask, name: string, qs: readonly Question[]): Promise<Answer | undefined> {
   const sent = mirrorOf(name, qs)
   if (sent === undefined || ask.cut) return answerOf(await pick($, p, relayDialog(name, ask.tool, ask.input, true)))
@@ -68,12 +68,14 @@ async function relayRun($: any, me: Sid, ask: Ask, v: View): Promise<void> {
   const p: Relay = { id: ask.id, ctrl: new AbortController(), shown: false }
   mem.proxy = p
   try {
-    const name = nameOf(v, ask.asker)
-    notify($, ask.id, T['notify.relay']({ name: NAME_RE.test(name) ? name : ask.asker, tool: ask.tool }))
+    // Names as the person reads them, in plain text: a plain session name, else the asker's id and no name for the manager.
+    const plain = (s: string): string | undefined => (NAME_RE.test(s) ? s : undefined)
+    const name = plain(nameOf(v, ask.asker)) ?? ask.asker
+    notify($, ask.id, T['notify.relay']({ name, tool: ask.tool }))
     const qs = ask.questions ?? (ask.question === undefined ? undefined : [ask.question])
     // The note the person reads is the manager's own, never a lead's: an escalate of the manager's with no note shows the command.
     const note = qs === undefined ? (await askState($, ask.id)).ups.find((u) => u.kind === 'escalated' && u.by === v.manager)?.note : undefined
-    const a = await (qs === undefined ? relayCall($, p, ask, name, note) : relayQuestions($, p, ask, name, qs))
+    const a = await (qs === undefined ? relayCall($, p, ask, name, note, plain(nameOf(v, me))) : relayQuestions($, p, ask, name, qs))
     if (a === undefined) {
       // Cut while still open (a window came on), or closed by itself while he was idle: offered again. Never shown to him: not offered again, and logged.
       if (p.ctrl.signal.aborted || p.idle) mem.relayed.delete(ask.id)

@@ -132,7 +132,7 @@ test('classify: what raised the ask, whatever the tool or the input', () => {
   assert.deepEqual(questionShape({ questions: [{ question: 'Q', options: [{ label: ' Deny ' }, { label: 'b' }] }] }), { ok: false, code: 'question-options' }, 'the plugin\'s Deny button is read by its label')
   assert.equal(questionsView({ questions: [{ question: 'Q1', options: [{ label: 'a' }, { label: 'b' }] }, { question: 'Q2', options: [{ label: 'Deny' }, { label: 'b' }] }] }), undefined)
   assert.equal(questionView({ questions: [{ question: 'token=abc123', header: 'H', options: [{ label: 'a' }, { label: 'b' }] }] })?.question, 'token=[REDACTED]')
-  // A call of 2 to 4 questions has no one-question view for a session; it has a list for the person's pop-ups, and one bad question takes it back.
+  // A call of 2 to 4 questions has no one-question view for a session; it has a list for the person's dialogs, and one bad question takes it back.
   let n = 0
   const qn = (extra: object = {}) => ({ question: `Q${n++}`, header: 'H', options: [{ label: 'a' }, { label: 'b' }], ...extra })
   assert.equal(questionView({ questions: [qn(), qn()] }), undefined)
