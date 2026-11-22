@@ -146,3 +146,12 @@ test('a session named like a sentinel shows as its id, never as the person or as
   assert.deepEqual([nameOf(v, A), nameOf(v, B), nameOf(v, L1), nameOf(v, 'sid-gone')], [A, B, 'lane', 'sid-gone'])
   assert.equal(nameOf(liveView('unknown', t, MANAGER), A), A)
 })
+
+test('a session handing over is unknown while its row is gone, live when its row is there, and gone otherwise', () => {
+  const t: Table = { [A]: { name: 'A', folder: '/Users/x/a', lead: { repos: [] } }, [L1]: { name: 'L1', folder: '/Users/x/a', under: A } }
+  const rows = [reg(M, MANAGER), reg(A, 'A')]
+  assert.equal(liveness(liveView(rows, t, MANAGER), L1), 'no')
+  assert.equal(liveness(liveView(rows, t, MANAGER, [L1]), L1), 'unknown')
+  assert.equal(liveness(liveView([...rows, reg(L1, 'L1~1')], t, MANAGER, [L1]), L1), 'yes')
+  assert.equal(liveness(liveView(rows, t, MANAGER, ['sid-other']), L1), 'no')
+})

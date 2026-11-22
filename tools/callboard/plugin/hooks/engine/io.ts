@@ -101,6 +101,11 @@ export async function createExcl($: any, p: string, text: string): Promise<'ok' 
     await rm($, [tmp])
   }
 }
+// A path is plain when it does not exist yet (unless it must) or resolves to itself: a link on the way to the brief is not followed.
+export async function plainPath($: any, p: string, mustExist = false): Promise<boolean> {
+  const r = await run($, ['/bin/realpath', '--', p]).catch(() => undefined)
+  return r === undefined || r.exitCode !== 0 ? !mustExist : r.stdout.trim() === p
+}
 // A fresh random id for an ask, a go or a temporary name: 10 characters of 0-9 and a-z.
 export const newId = (): string => (Math.random().toString(36) + '0000000000').slice(2, 12)
 // One writer at a time: a lock folder made by `mkdir` that holds its owner's token, removed only by that owner. One 10 s old is moved aside by a waiter (a move that finds

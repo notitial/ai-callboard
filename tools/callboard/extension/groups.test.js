@@ -4,7 +4,7 @@ const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
-const { createGroups, groupsFor, managerOf, readManagerName, readSessionTable, COMMAND, ARCHIVE } = require('./groups.js')
+const { createGroups, groupsFor, managerOf, readHandovers, readManagerName, readSessionTable, COMMAND, ARCHIVE } = require('./groups.js')
 
 const S = (n) => `${String(n).padStart(8, '0')}-0000-4000-8000-000000000000`
 const A = '/w/a'
@@ -16,9 +16,9 @@ const row = (n, cwd, extra = {}) => ({ sessionId: S(n), cwd, entrypoint: 'claude
 // rows as they are. `done` is the stored record; `manager` the manager-name file's line (an Error: a file that cannot be read); `incomplete` marks the registry read as one with doubt in it.
 // `startOf` is `ps`: by default each pid starts when its row says, so a row whose pid answers is its own process.
 // `seen` is the stored record of lanes seen running, `seenLeads` that of conductor-made leads; `archived` records every call of the archive command (group, ids), which `archiveFails` makes throw; it answers the ids it was given, or what `archiveAnswers` says.
-function world({ commands = [COMMAND], rows = [], lanes = [], leads = [], table: extra = {}, folders = [A], done = {}, seen = [], seenLeads = [], manager = null, incomplete = false, failing = false, failOn = 0, failSid, refuse = [], loadError = false, missingTable = false, archiveFails = false, archiveAnswers, alive = () => true, startOf = async (pid) => rows.find((r) => r.pid === pid)?.procStart } = {}) {
+function world({ commands = [COMMAND], rows = [], lanes = [], leads = [], table: extra = {}, folders = [A], done = {}, seen = [], seenLeads = [], manager = null, incomplete = false, failing = false, failOn = 0, failSid, refuse = [], loadError = false, missingTable = false, archiveFails = false, archiveAnswers, handed = null, handedDone = [], alive = () => true, startOf = async (pid) => rows.find((r) => r.pid === pid)?.procStart } = {}) {
   const table = { ...Object.fromEntries(lanes.map((l) => [l.sid, { name: 'L', folder: A, under: S(99) }])), ...Object.fromEntries(leads.map((l) => [l.sid, { name: 'D', folder: A, lead: { repos: [] } }])), ...extra }
-  const w = { calls: [], archived: [], store: { done, seen, seenLeads }, keys: new Set(), updates: 0, listed: 0, looked: 0, table }
+  const w = { calls: [], archived: [], store: { done, seen, seenLeads, handed: handedDone }, keys: new Set(), updates: 0, listed: 0, looked: 0, table }
   const vscode = {
     commands: {
       getCommands: async () => { w.looked++; return commands },
@@ -36,12 +36,12 @@ function world({ commands = [COMMAND], rows = [], lanes = [], leads = [], table:
       },
     },
   }
-  const keys = { 'callboard.groups.done': 'done', 'callboard.groups.seen': 'seen', 'callboard.groups.seenLeads': 'seenLeads' }
+  const keys = { 'callboard.groups.done': 'done', 'callboard.groups.seen': 'seen', 'callboard.groups.seenLeads': 'seenLeads', 'callboard.groups.handed': 'handed' }
   // The records are keyed by the window's first folder. Another key throws inside the tick, which is silent, so that tick files and stores nothing; `keys` holds the keys used.
   const part = (k) => { const at = k.lastIndexOf(':'); assert.equal(k.slice(at + 1), folders[0] ?? ''); assert.ok(keys[k.slice(0, at)], k); w.keys.add(k); return keys[k.slice(0, at)] }
   const state = { get: (k) => w.store[part(k)], update: async (k, v) => { w.store[part(k)] = v; if (part(k) === 'done') w.updates++ } }
   const registry = { list: async () => { w.listed++; return Object.defineProperty([...rows], 'complete', { value: !incomplete }) } }
-  w.groups = createGroups({ vscode, registry, state, loadTable: async () => { if (loadError || w.doubt) throw new Error('bad table'); return missingTable ? null : table }, managerName: async () => { if (manager instanceof Error) throw manager; return manager }, workspaceFolders: () => folders, alive, startOf })
+  w.groups = createGroups({ vscode, registry, state, loadHandovers: async () => handed, loadTable: async () => { if (loadError || w.doubt) throw new Error('bad table'); return missingTable ? null : table }, managerName: async () => { if (manager instanceof Error) throw manager; return manager }, workspaceFolders: () => folders, alive, startOf })
   return w
 }
 // A session carrying the manager's name, with a pid and a start time.
@@ -428,4 +428,60 @@ test('readSessionTable: the table as an object, null for a missing file; an unpa
   } finally {
     fs.rmSync(d, { recursive: true, force: true })
   }
+})
+
+test('an old session of a handover with no table row and no process is filed in its group and archived on the second clean tick, whatever its tier, and once', async () => {
+  const old = (n, group, folder = A) => ({ sid: S(n), group, folder, at: 1 })
+  const handed = [old(1, 'Lead'), old(2, 'Conductor'), old(3, 'Manager'), old(4, 'Lanes', B)]
+  const w = world({ commands: ARCH, rows: [], handed, archiveAnswers: (ids) => ids })
+  await w.groups.tick()
+  assert.deepEqual([w.calls, w.archived], [[], []], 'the first tick names no one')
+  await w.groups.tick()
+  assert.deepEqual(w.calls, [[S(1), 'Lead'], [S(2), 'Conductor'], [S(3), 'Manager']], 'filed in its group first; a session of another window is not touched')
+  assert.deepEqual(w.archived, [['Lead', [S(1)]], ['Conductor', [S(2)]], ['Manager', [S(3)]]])
+  assert.deepEqual(w.store.handed, [S(1), S(2), S(3)])
+  await w.groups.tick()
+  await w.groups.tick()
+  assert.equal(w.archived.length, 3, 'never archived twice')
+})
+
+test('an old session that still has a table row or a live process is kept; one the archive command does not name is tried again; the record drops what the file no longer lists', async () => {
+  const handed = [1, 2, 3].map((n) => ({ sid: S(n), group: 'Lead', folder: A, at: 1 }))
+  const w = world({ commands: ARCH, rows: [row(1, A)], table: { [S(2)]: { name: 'D', folder: A, lead: { repos: [] } } }, handed, handedDone: [S(9)], archiveAnswers: () => [] })
+  for (let i = 0; i < 3; i++) await w.groups.tick()
+  assert.deepEqual(w.archived, [['Lead', [S(3)]], ['Lead', [S(3)]]], 'only the one that is gone, and again as it was not named')
+  assert.deepEqual(w.store.handed, [], 'S(9) is not in the file any more')
+})
+
+test('an old session the file command refuses is forgotten; a failing command is tried again; no record and no archive command do nothing', async () => {
+  const handed = [{ sid: S(1), group: 'Lead', folder: A, at: 1 }]
+  const x = world({ commands: ARCH, handed, refuse: [S(1)] })
+  for (let i = 0; i < 3; i++) await x.groups.tick()
+  assert.deepEqual([x.archived, x.store.handed], [[], [S(1)]])
+  const y = world({ commands: ARCH, handed, archiveFails: true })
+  for (let i = 0; i < 3; i++) await y.groups.tick()
+  assert.deepEqual(y.store.handed, [])
+  const none = world({ commands: ARCH })
+  const bare = world({ commands: [COMMAND], handed })
+  for (let i = 0; i < 3; i++) (await none.groups.tick(), await bare.groups.tick())
+  assert.deepEqual([none.archived, bare.archived, bare.store.handed], [[], [], []])
+})
+
+test('readHandovers: the old sessions of every name; null for a missing file; a file that does not parse throws; an entry with no group or folder is left out', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cb-handovers-'))
+  const f = path.join(dir, 'handovers.json')
+  assert.equal(await readHandovers(f), null)
+  fs.writeFileSync(f, JSON.stringify({ A: { n: 2, old: [{ sid: S(1), group: 'Lead', folder: A, at: 1 }, { sid: S(2), group: 'Nope', folder: A, at: 1 }, { sid: S(3), group: 'Lanes', at: 1 }, { sid: S(4), group: 'Lanes', folder: A }] }, B: { n: 1, old: [] } }))
+  assert.deepEqual(await readHandovers(f), [{ sid: S(1), group: 'Lead', folder: A, at: 1 }])
+  fs.writeFileSync(f, '[]')
+  await assert.rejects(readHandovers(f))
+  fs.writeFileSync(f, '{')
+  await assert.rejects(readHandovers(f))
+  fs.rmSync(dir, { recursive: true })
+})
+
+test('an old session of a handover that began a moment ago is not archived yet: the handover could still be undone', async () => {
+  const w = world({ commands: ARCH, handed: [{ sid: S(1), group: 'Lead', folder: A, at: Date.now() - 10_000 }], archiveAnswers: (ids) => ids })
+  for (let i = 0; i < 3; i++) await w.groups.tick()
+  assert.deepEqual([w.calls, w.archived], [[], []])
 })

@@ -12,7 +12,7 @@ import { T } from '../texts.ts'
 import type { LaneRow } from '../ui.ts'
 import { RULES_CAP, lanesTable, printed, stamp, statusPage } from '../ui.ts'
 import { spool } from './cue.ts'
-import { home, newId, run, windowNow } from './io.ts'
+import { home, locked, newId, run, windowNow } from './io.ts'
 import { mem } from './mem.ts'
 import { cfgNow, conductorRepos, getView, listGoes, readRules, rmGo, saveConductorRepos, updateTable, writeConfig, writeGo, writeWindow } from './store.ts'
 import { restSet, say } from './tools-any.ts'
@@ -111,6 +111,10 @@ export async function perform($: any, cmd: Cmd, me: Sid, v: View, now: number, s
       if (ok) await giveParentTools($, await getView($, true), me)
       return saved(ok, T['cmd.conductor']({ repos }), chosen.length > 0 ? 'repos-row' : 'lane')
     }
+    case 'handover':
+      if (isOff(v, me)) return say(refusal('refuse', 'is-off', { tool: 'callboard', target: 'handover' }))
+      mem.owed.push(T['cmd.handover']({}))
+      return T['cmd.handover']({})
     case 'lead-off': return saved(await setRow($, v, me, folder ?? '', ({ lead: _, ...r }) => r), T['cmd.leadOff']({}), 'lane')
     case 'off': return saved(await setRow($, v, me, folder ?? '', (r) => ({ ...r, off: true })), T['cmd.off']({}), 'lane')
     case 'on': return saved(await setRow($, v, me, folder ?? '', ({ off: _, ...r }) => r), T['cmd.on']({}), 'lane')
@@ -120,7 +124,7 @@ export async function perform($: any, cmd: Cmd, me: Sid, v: View, now: number, s
     }
     case 'go-off': {
       const live = (await listGoes($)).filter((g) => now < g.end && (cmd.id === undefined || g.id === cmd.id))
-      await Promise.all(live.map((g) => rmGo($, g.id)))
+      await locked($, 'goes', () => Promise.all(live.map((g) => rmGo($, g.id))))
       const left = (await listGoes($)).filter((g) => live.some((l) => l.id === g.id)).length
       return saved(left === 0, T['cmd.goOff']({ n: live.length }), 'go-off')
     }

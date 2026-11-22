@@ -73,7 +73,9 @@ is the force stop and always asks you, and is refused while unattended mode is o
 4. A session that waits on a pull request registers it with `pr_watch` and is told when checks finish, reviews arrive
    or the PR is mergeable, merged or closed. A merge is still yours.
 5. A big session is asked to compact before it loses its notes, and compacts itself (`request_compact`). A lead that
-   wants a lane compacted says so in an ordinary message.
+   wants a lane compacted says so in an ordinary message. A session whose work will outlast another compaction can hand
+   itself over to a clear one in the same panel (`request_handover`, or the person's typed `/callboard handover`): it
+   keeps its name, role, parent, children, goes and PR watches, and the old conversation is renamed `NAME~N`.
 6. A lane finishes, signs its report, and its lead retires it. The lead is told of a signature in a check-in. A lane
    you may need again is parked instead.
 7. Before a long stretch, give a lead one go for the whole body of work (`/callboard go TEXT`, one to three lines) so
@@ -198,7 +200,9 @@ subagent's call is refused. A rest stops pings only: a PR notice still wakes a l
 and that turn does not end the rest: the next real turn does. `/callboard config keepalive off` stops pings for every session on this Mac.
 
 A compaction asked for by a nudge (past 300k tokens by default) is always the session's own act: it writes where it
-is to its report or STATE file, calls `request_compact`, and carries on from its continuation. The nudge levels and
+is to its report or STATE file, calls `request_compact`, and carries on from its continuation. A handover is the session's own
+choice too (never a nudge's): it writes its state to a file under its `.archive/`, calls `request_handover`, and the clear
+session reads that file first; one handover in 30 minutes, none while background work runs. The nudge levels and
 the ping times are settings.
 
 ## Where things live

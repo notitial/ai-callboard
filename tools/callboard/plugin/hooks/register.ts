@@ -6,7 +6,7 @@ import { sessionStart, sessionEnd, postToolHook } from './engine/tick.ts'
 import { commandRun, commandComplete, promptCompose } from './engine/commands.ts'
 import { presetRun } from './engine/preset.ts'
 import { toolCheck, permissionRequest, doneHook } from './engine/ask-hook.ts'
-import { requestCompactCall, turnComplete, promptSubmit, turnStart, postCompact } from './engine/upkeep.ts'
+import { requestCompactCall, requestHandoverCall, turnComplete, promptSubmit, turnStart, postCompact } from './engine/upkeep.ts'
 import { cueVerbCall, stopVerbCall, laneCreateCall, laneOpenCall, laneUnparkCall, laneAdoptCall, laneListCall } from './engine/tools-child.ts'
 import { promptListCall, promptAnswerCall, goRequestCall, goStatusCall } from './engine/tools-ask.ts'
 import { restCall } from './engine/tools-any.ts'
@@ -42,6 +42,7 @@ export const register: Register = (on) => {
   on('tool.call', { tool: 'mcp__callboard__go_status' }, goStatusCall).catch(() => ({ deny: 'go_status failed closed.' }))
   on('tool.call', { tool: 'mcp__callboard__pr_watch' }, prWatchCall).catch(() => ({ deny: 'pr_watch failed closed.' }))
   on('tool.call', { tool: 'mcp__callboard__request_compact' }, requestCompactCall).catch(() => ({ deny: 'request_compact failed closed.' }))
+  on('tool.call', { tool: 'mcp__callboard__request_handover' }, requestHandoverCall).catch(() => ({ deny: 'request_handover failed closed.' }))
   on('tool.call', { tool: 'mcp__callboard__rest' }, restCall).catch(() => ({ deny: 'rest failed closed.' }))
 
   on('tool.check', toolCheck).catch(($, e, next) => next(e))

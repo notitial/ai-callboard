@@ -13,7 +13,7 @@ import { T } from '../texts.ts'
 import { lanesTable, stopDialog } from '../ui.ts'
 import { laneRows } from './commands.ts'
 import { sendCue, spool, spoolSend } from './cue.ts'
-import { log, pause, personDialog, run, windowNow, writeFile } from './io.ts'
+import { log, pause, personDialog, plainPath, run, windowNow, writeFile } from './io.ts'
 import { getView, updateTable } from './store.ts'
 import { signedNow } from './upkeep.ts'
 import { deny, isSub, say } from './tools-any.ts'
@@ -153,11 +153,6 @@ export async function laneUnparkCall($: any, e: any, _next: any) {
 async function real($: any, p: string): Promise<string | undefined> {
   const r = p.startsWith('/') ? await run($, ['/bin/realpath', '--', p]).catch(() => undefined) : undefined
   return r?.exitCode === 0 && r.stdout.trim().startsWith('/') ? r.stdout.trim() : undefined
-}
-// A path is plain when it does not exist yet or resolves to itself: a link on the way to the brief is not followed.
-async function plainPath($: any, p: string): Promise<boolean> {
-  const r = await run($, ['/bin/realpath', '--', p]).catch(() => undefined)
-  return r === undefined || r.exitCode !== 0 || r.stdout.trim() === p
 }
 export async function laneCreateCall($: any, e: any, _next: any) {
   const tool = 'lane_create'

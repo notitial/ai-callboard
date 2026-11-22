@@ -1,15 +1,17 @@
-// request_compact, the compaction itself, PostCompact, the turn marks, and the keepalive and nudge sends: the adapter over core/upkeep.ts. Trust rules held here: a session compacts only
+// request_compact and request_handover (one body, a kind), the compaction itself, PostCompact, the turn marks, and the keepalive and nudge sends: the adapter over core/upkeep.ts. Trust rules held here: a session compacts only
 // itself (its request carries the session id it was made in, and the tool is the main agent's); nothing is sent to a session that is not an interactive one, idle with an empty prompt box;
 // at most one text is submitted per tick; a ping or a nudge is not work and moves no stop clock.
 import type { Row, Sid, View } from '../core/model.ts'
 import { signedBy } from '../core/lifecycle.ts'
 import { isOff, refusal } from '../core/model.ts'
 import type { NudgeAct, ReqEvent } from '../core/upkeep.ts'
-import { compactPlan, keepalive, pushRecent, reqExpired, reqStep, sizeNudge, validateRequest } from '../core/upkeep.ts'
+import type { Kind } from '../core/upkeep.ts'
+import { compactPlan, keepalive, pushRecent, reqExpired, reqStep, sizeNudge, toolOf, validateRequest } from '../core/upkeep.ts'
 import { compactWhy } from '../texts.ts'
-import { countDown, log, ownTextOf, submitOwn, toast } from './io.ts'
+import { countDown, log, ownTextOf, plainPath, submitOwn, toast } from './io.ts'
 import type { Up } from './mem.ts'
 import { getUp, mem, patchUp, spendStarted } from './mem.ts'
+import { handoverBegin } from './handover.ts'
 import { cfgNow, getView } from './store.ts'
 import { deny, isSub, say } from './tools-any.ts'
 
@@ -43,20 +45,34 @@ function stepReq(u: Up, ev: ReqEvent, now: number): Up['req'] {
 }
 
 // ---- the tool and the hooks that move a request ----
-export async function requestCompactCall($: any, e: any, _next: any) {
+// A handover's file is the session's own note: a plain file, under `.archive/` of its own folder, at most 256 KB.
+async function noteFileOk($: any, file: string, folder: string | undefined): Promise<boolean> {
+  const st = folder === undefined || !file.startsWith(`${folder}/.archive/`) ? undefined : ((await $.fs.stat(file).catch(() => undefined)) as { size: number; kind?: string } | undefined)
+  return st?.kind === 'file' && st.size <= 262_144 && (await plainPath($, file, true))
+}
+async function requestCall($: any, e: any, kind: Kind) {
+  const tool = toolOf(kind)
   const sid = (await $.session.id()) as Sid
-  const no = (detail: string) => deny(refusal('refuse', 'bad-input', { tool: 'request_compact', detail }))
+  const no = (detail: string) => deny(refusal('refuse', 'bad-input', { tool, detail }))
   if (isSub(e)) return no('subagent')
-  const v = validateRequest(e)
+  const v = validateRequest(e, kind)
   if (!('ok' in v)) return deny(v)
-  if (!interactive(await getView($), sid)) return no('not-interactive')
+  const view = await getView($)
+  if (!interactive(view, sid)) return no('not-interactive')
+  if (kind === 'handover') {
+    if (isOff(view, sid)) return deny(refusal('refuse', 'is-off', { tool }))
+    if (mem.proxy !== undefined) return no('relay-open')
+    if (!(await noteFileOk($, v.req.focus, rowOf(view, sid)?.folder))) return no('file')
+  }
   const now = await $.clock.now()
-  const plan = compactPlan((await getUp($)).counters, await tokensOf($), now, await busyAgents($))
+  const plan = compactPlan((await getUp($)).counters, await tokensOf($), now, await busyAgents($), kind, mem.handedAt)
   if (plan.act === 'refuse') return deny(plan)
   await patchUp($, (u) => ({ ...u, due: null, req: { ...v.req, phase: 'called', at: now, sid } }))
   await log($, sid, 'requested')
   return { result: say(plan) }
 }
+export const requestCompactCall = ($: any, e: any, _next: any) => requestCall($, e, 'compact')
+export const requestHandoverCall = ($: any, e: any, _next: any) => requestCall($, e, 'handover')
 
 // A size past a level at the end of an answer: one nudge is recorded, and the tick sends it once the session is quiet. A nudge that went mid-turn is sent once more (`again`).
 async function recordNudge($: any, sid: Sid, now: number): Promise<void> {
@@ -101,7 +117,7 @@ export async function promptSubmit($: any, e: any, next: any) {
   const up = await getUp($)
   if (up.req !== null && up.req.phase !== 'compacting') {
     await patchUp($, (u) => ({ ...u, req: stepReq(u, 'prompt', now) }))
-    if (up.req.phase !== 'compacted') toast($, say({ msg: 'compact.notRun', p: { reason: 'a new prompt came in' } }))
+    if (up.req.phase !== 'compacted') toast($, notRun(up.req.kind, 'a new prompt came in'))
   }
   return next(e)
 }
@@ -123,17 +139,23 @@ export async function postCompact($: any, e: any, next: any) {
   return next(e)
 }
 
+// What the person is told of a request that did not run.
+const notRun = (kind: Kind | undefined, reason: string) => say({ msg: kind === 'handover' ? 'handover.notRun' : 'compact.notRun', p: { reason } })
+
 // ---- the tick's steps ----
-// The request: dropped when it is another session's or has waited too long, resumed with its note once the compaction ended and the session is quiet (for at most RESUME_MS), compacted at the end of the turn that made it.
-export async function requestTick($: any, sid: Sid): Promise<void> {
+// The request: dropped when it is another session's or has waited too long, resumed with its note once the compaction ended and the session is quiet (for at most RESUME_MS), compacted
+// at the end of the turn that made it, or (a handover) begun once the session is idle: true says the session was handed over and the tick ends.
+export async function requestTick($: any, sid: Sid): Promise<boolean | void> {
   const up = await getUp($)
   const r = up.req
   if (r === null) return
   const now = await $.clock.now()
+  const handover = r.kind === 'handover'
   const drop = async (why: string, shown?: string) => {
     await patchUp($, (u) => ({ ...u, req: null }))
     await log($, sid, 'dropped', why)
-    if (shown !== undefined) toast($, say({ msg: 'compact.notRun', p: { reason: shown } }))
+    if (shown !== undefined) toast($, notRun(r.kind, shown))
+    if (shown !== undefined && handover) mem.owed.push(notRun(r.kind, shown))
   }
   if (r.sid !== sid) return drop('other-session')
   if (r.phase === 'compacted') {
@@ -149,9 +171,18 @@ export async function requestTick($: any, sid: Sid): Promise<void> {
     return r.phase === 'compacting' ? toast($, say({ msg: 'compact.unconfirmed', p: { reason: 'the compaction did not report back' } })) : undefined
   }
   if (r.phase !== 'armed') return
-  const plan = compactPlan(up.counters, await tokensOf($), now, await busyAgents($))
+  const plan = compactPlan(up.counters, await tokensOf($), now, await busyAgents($), r.kind ?? 'compact', mem.handedAt)
   if (plan.act === 'refuse') return drop('refused', compactWhy(plan.msg.slice(7), (plan.p as { detail?: string }).detail))
   if ((await draft($)) !== '') return drop('draft-in-box', 'there is a draft in the prompt box')
+  if (handover) {
+    if (!(await idle($, sid)) || mem.proxy !== undefined) return
+    let took = false
+    await patchUp($, (u) => ((took = u.req?.phase === 'armed'), took ? { ...u, req: null } : u))
+    if (!took) return
+    const begun = await handoverBegin($, sid, r, now)
+    if ('no' in begun) return drop('begin', begun.no)
+    return true
+  }
   if ((await patchUp($, (u) => ({ ...u, req: stepReq(u, 'begin', now) }))).req?.phase !== 'compacting') return
   toast($, say({ msg: 'compact.start', p: {} }))
   Promise.resolve($.command.run({ command: 'compact', args: r.focus })).catch(() => drop('rejected', 'the engine refused the command'))

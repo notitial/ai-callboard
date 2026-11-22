@@ -192,3 +192,16 @@ test('the request text may not carry a line that passes for the plugin\'s turn o
   }
   assert.equal(validateRequest({ ...ok, continuation: 'See [callboard] docs, then >>> done.' }).msg, undefined)
 })
+
+test('a handover: no token floor, the gap is thirty minutes from the last handover of this process, and the file is an absolute plain path', () => {
+  assert.deepEqual(compactPlan({}, 0, NOW, false, 'handover'), { act: 'queue', msg: 'handover.queued', p: {} })
+  assert.equal(compactPlan({}, 0, NOW, true, 'handover').msg, 'refuse.compact-busy')
+  assert.deepEqual(compactPlan({}, 0, NOW, false, 'handover', NOW - 10 * MIN), { act: 'refuse', msg: 'refuse.compact-rate', p: { tool: 'request_handover', detail: '20' } })
+  assert.equal(compactPlan({}, 0, NOW, false, 'handover', NOW - COMPACT_GAP_MS).act, 'queue')
+  assert.equal(compactPlan({ lastCompactMs: NOW - MIN }, 0, NOW, false, 'handover').act, 'queue')
+  const ok = { file: '/Users/x/repo/.archive/n.md', continuation: 'Next: tests.' }
+  assert.deepEqual(validateRequest(ok, 'handover'), { ok: true, req: { focus: ok.file, continuation: ok.continuation, kind: 'handover' } })
+  const bad = (x: unknown, detail: string) => assert.deepEqual(validateRequest(x, 'handover'), { act: 'refuse', msg: 'refuse.bad-input', p: { tool: 'request_handover', detail } })
+  for (const x of [null, {}, { ...ok, file: 'rel/n.md' }, { ...ok, file: '/Users/x/../y/n.md' }, { ...ok, file: `/${'a'.repeat(1024)}` }, { ...ok, file: '/a\nb' }, { ...ok, file: 7 }]) bad(x, 'file')
+  bad({ ...ok, continuation: '' }, 'continuation')
+})

@@ -54,8 +54,8 @@ it, and `MANAGER` is reserved.
 person. A parent that is compacting or inside a question is still live and still owns the ask until its deadline.
 The manager is the one session found by registry name (a residual, in [ADR 0002](0002-callboard.md)).
 
-**Tools follow capability.** Five tools go to every session (`go_request`, `go_status`, `pr_watch`,
-`request_compact`, `rest`); the thirteen that open, stop and list children and answer asks go only to a lead or the
+**Tools follow capability.** Six tools go to every session (`go_request`, `go_status`, `pr_watch`,
+`request_compact`, `request_handover`, `rest`; *amended 2026-11-22, [ADR 0015](0015-session-handover.md)*); the thirteen that open, stop and list children and answer asks go only to a lead or the
 manager, and each body checks the capability again. There is one cap on live children. A parent parks, resumes,
 retires and opens its children with no dialog; only a force stop keeps one. A session compacts itself; a lead that
 wants a lane compacted says so in an ordinary message. A lead takes a loose session by name with one tool, and any
@@ -69,8 +69,9 @@ ancestor acts on any descendant.
 3. Every ask has an owner and a deadline (the timeline below).
 4. Unattended mode changes timing and nothing else (below).
 5. A go is only the person's own click or typed turn, for the work it names and the sessions under the one it was
-   given in. Never a merge, a force push, a push to main, a production change or a delete outside the work.
-6. Powers are granted, never inferred. An unknown session has none and is still managed. No carve-outs: a merge goes
+   given in, or the session that took over from it by a handover ([ADR 0015](0015-session-handover.md)). Never a merge, a force push, a push to main, a production change or a delete outside the work.
+6. Powers are granted, never inferred (a handover carries a grant to the session that continues the work, by the plugin, on
+   the session's own call or the person's typed command: [ADR 0015](0015-session-handover.md)). An unknown session has none and is still managed. No carve-outs: a merge goes
    through the same chain as any ask.
 7. Notices follow current relationships: a child's event goes once to the parent computed when it is sent. The manager
    is woken only by asks and expired asks; a lead is told every event about its own lanes.
@@ -166,7 +167,7 @@ turning it off is the person's typed command.
   go file or an answer file; the protected-paths guard keeps agents' file tools off the state folder, and a hook that
   fails leaves the dialog with the person with no deadline. The README's list of what callboard does not guard against
   says so.
-- A restart of the same conversation keeps its session id, so no lead takeover exists, and [ADR 0002](0002-callboard.md)'s
+- A restart of the same conversation keeps its session id, so no lead takeover exists (a session's own handover to a clear one, [ADR 0015](0015-session-handover.md), is the one exception), and [ADR 0002](0002-callboard.md)'s
   line on a lead restarting under a new session id is marked out of date there.
 - Nothing crosses the switch: the plugin starts with new state, and going back to the mod finds its own state as it was.
 

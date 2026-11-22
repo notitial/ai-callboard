@@ -1,5 +1,5 @@
 // The go: what a go file holds, what text a go may carry, and whom it covers. Pure. Trust rules held here: a go covers only its giver and the sessions under the
-// giver now, until its end; a go file is written only by the go dialog's click or his typed `go` (the adapters), so this file only reads one.
+// giver now, until its end; a go file is written only by the go dialog's click or his typed `go` (the adapters), or moved to its giver's successor by a handover, so this file only reads one.
 import type { Go, Sid, View } from './model.ts'
 import { ancestors } from './model.ts'
 

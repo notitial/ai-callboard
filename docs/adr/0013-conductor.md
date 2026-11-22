@@ -89,4 +89,5 @@ for answers, and that it cannot make leads.
 - The lanes of a minted lead whose row is removed have no lead above them and fall to the manager, as any lane does.
   A conductor retires a lead's lanes first when it wants them gone.
 - Nothing here lets a session grant the conductor role. A request to become one is refused unless it comes from the
-  person's own typed turn.
+  person's own typed turn. *Amended 2026-11-22 ([ADR 0015](0015-session-handover.md)):* a handover carries the flag to the
+  session that continues the same conversation's work, and grants it to no other session.

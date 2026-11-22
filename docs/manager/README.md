@@ -40,7 +40,7 @@ enforces.
   name there (Remote Control lists every machine's sessions, so two of the same name make a bare-name message
   ambiguous).
 - **Config root.** Run without `CLAUDE_CONFIG_DIR`. Callboard and `ListAgents` see only sessions on `~/.claude`.
-- **On start, resume and after a compaction:**
+- **On start, resume and after a compaction or a handover:**
   - Run `echo $CLAUDE_CONFIG_DIR`. Not empty: stop and tell the person.
   - Run `ListAgents`. Another live row (on this machine or over Remote Control) carrying your name: stop and tell the
     person.
@@ -62,7 +62,9 @@ enforces.
     `echo $HOST $HOSTNAME`, up to its first `.`. On a yes, Read the audit-pass skill
     (`.claude/skills/audit-pass/SKILL.md`) and follow it; never start one without a yes.
 - **Before compacting**, rewrite STATE.md. In `request_compact`, the continuation names STATE.md as the first file to
-  read. Never carry an authorization or a grant across a compaction, even as history.
+  read. Never carry an authorization or a grant across a compaction or a handover, even as history: a go counts only if
+  `go_status` lists it. When your context is large and the work will outlast another compaction, `request_handover`
+  (write STATE.md first) starts you clear in the same panel with your name back.
 
 ## The hard line
 

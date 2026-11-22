@@ -11,8 +11,9 @@ import { SLEEP_GAP_MS } from '../core/upkeep.ts'
 import { T } from '../texts.ts'
 import { TOOL_SCHEMAS } from '../tool-schemas.ts'
 import { cueTick } from './cue.ts'
+import { handoverTick } from './handover.ts'
 import { TICK_MS, log, submitOwn, toast } from './io.ts'
-import { getUp, mem, spendStarted } from './mem.ts'
+import { getUp, mem, resetSession, spendStarted, staleView } from './mem.ts'
 import { markDone } from './ask-hook.ts'
 import { prClaim, prTick } from './pr.ts'
 import { presetRegister, presetTick } from './preset.ts'
@@ -23,7 +24,7 @@ import { openAsks } from './tools-ask.ts'
 import { idle, keepaliveTick, midNudge, nudgeTick, requestTick, signedNow } from './upkeep.ts'
 import { usageDrop, usageFlush, usageSweep } from './usage.ts'
 
-// ---- what a session is given: the five tools every session has at its start, the thirteen when it holds a capability (and, once, from the tick or from `/callboard lead`) ----
+// ---- what a session is given: the six tools every session has at its start, the thirteen when it holds a capability (and, once, from the tick or from `/callboard lead`) ----
 async function registerTools($: any, group: 'any' | 'parent'): Promise<void> {
   for (const name of TOOLS) {
     const s = TOOL_SCHEMAS[name as ToolName]
@@ -52,6 +53,11 @@ export async function sessionStart($: any, e: any, next: any) {
 }
 export async function sessionEnd($: any, e: any, next: any) {
   await usageDrop($, await $.session.id()).catch(() => undefined)
+  // The process goes on under a new session id after a `/clear` (a handover's or one typed) and after a `/resume`: what belonged to the id that ended does not carry over.
+  if (e?.reason === 'clear' || e?.reason === 'resume') {
+    resetSession()
+    staleView()
+  }
   return next(e)
 }
 
@@ -119,7 +125,7 @@ async function owedTick($: any, me: Sid, v: View): Promise<void> {
 function toasts($: any, v: View, me: Sid): void {
   const once = (key: string, text: string) => (mem.toasted.has(key) ? undefined : (mem.toasted.add(key), toast($, text)))
   if (v.managers.length > 1) once(`two:${v.managers.join()}`, say({ msg: 'toast.twoManagers', p: { a: nameOf(v, v.managers[0]!), b: nameOf(v, v.managers[1]!) } }))
-  if (v.manager === null && typeof v.managerName === 'string' && parent(v, me) === PERSON) once('no-manager', say({ msg: 'toast.noManager', p: {} }))
+  if (v.manager === null && v.handing.size === 0 && typeof v.managerName === 'string' && parent(v, me) === PERSON) once('no-manager', say({ msg: 'toast.noManager', p: {} }))
   if (v.manager !== null) mem.toasted.delete('no-manager')
   for (const r of mem.reports) if (parent(v, r.about) === PERSON) once(`report:${r.about}:${r.code}:${r.at}`, say({ msg: 'toast.report', p: { name: nameOf(v, r.about), code: r.code } }))
 }
@@ -184,7 +190,9 @@ async function tick($: any): Promise<void> {
     await step('table', () => tableTick($, v, now))
     await step('signed', () => signedTick($, v, me, now))
     await step('toasts', async () => toasts($, v, me))
-    await step('request', () => requestTick($, me))
+    await step('handover', () => handoverTick($, me, now))
+    // A session handed over by this step is a new one from here: the rest of the tick belongs to the next.
+    if ((await step('request', () => requestTick($, me))) === true) return
     if (mem.submits === start) await step('cue', () => cueTick($, me, v, now))
     if (mem.submits === start) await step('nudge', () => nudgeTick($, me, v))
     if (mem.submits === start) await step('events', () => eventsTick($, me, v, now))
