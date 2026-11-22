@@ -467,7 +467,7 @@ test('a self-test whose run was not stopped leaves every ask a question; the rel
   const relayed = { tool: 'Bash', command: 'ls', description: 'Relayed from a lane of its own' }
   const reserved = 'Refused by callboard: a Bash description that starts "Relayed from" is kept for its relay. Use another description.'
   assert.deepEqual(await proxyRun(boss.$, relayed, engine({ result: 'ran' })), { deny: reserved })
-  for (const description of ['Relayed from x', '  relayed  FROM x', 'Ｒelayed from x']) assert.deepEqual(await toolCheck(boss.$, { tool: 'Bash', input: { command: 'ls', description }, tool_use_id: 't1' }, engine({ decision: 'ask' })), { decision: 'deny', reason: reserved }, description)
+  for (const description of ['Relayed from x', '  relayed  FROM x', 'Ｒelayed from x', 'Relayed​ from x', 'Re­layed from x', 'Rel⁠ayed from x', 'Rеlayed from x', 'Re1ayed-from x', 'RELAYED:FROM x']) assert.deepEqual(await toolCheck(boss.$, { tool: 'Bash', input: { command: 'ls', description }, tool_use_id: 't1' }, engine({ decision: 'ask' })), { decision: 'deny', reason: reserved }, description)
   assert.deepEqual(await toolCheck(boss.$, { tool: 'Bash', input: { command: 'ls', description: 'List files relayed from x' }, tool_use_id: 't1' }, engine({ decision: 'ask' })), { decision: 'ask' })
   assert.deepEqual(await proxyJudge(boss.$, { tool: 'Bash', input: relayed }, engine({ decision: 'allow' })), { decision: 'allow' })
   const own = Object.assign(async () => ({ decision: 'allow' }), { origin: { plugin: 'callboard', tier: 'user' }, signal: undefined })

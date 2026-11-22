@@ -152,7 +152,10 @@ in this process; the path through a dialog is the engine's documented order. A r
 stopped anyway turns the dialog off until callboard restarts, says so, and puts the question form. The description is
 the relay's alone: any other Bash whose description starts "Relayed from" is refused in every session, at its check
 and at its run, so no dialog in the manager's session that runs a command can pass for the relay's, and the relay's
-always reads "Your click decides this ask only." on its reason line. The relay needs Claude Code 2.1.330 or later.
+always reads "Your click decides this ask only." on its reason line. A description counts as the relay's by its
+letters and digits alone, with any letter outside ASCII standing in for one of its own, so no invisible character or
+look-alike gets past. These two are the exceptions to ADR 0004's observing `tool.check`; neither lifts a deny. The
+relay needs Claude Code 2.1.330 or later.
 
 **Callboard never judges who may answer.** An ask a session cannot decide (a plan-mode exit, a malformed question, a
 guard's own ask) is an ordinary ask that rises like any other; the rubric of the tier that reads it decides. What is

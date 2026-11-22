@@ -34,7 +34,10 @@ const decided = (x: any): boolean => x?.decision !== undefined || x?.hookSpecifi
 const PLUGIN = 'callboard'
 export const SELF_TEST = { command: 'true', description: 'Relayed from callboard: self-test' }
 const ours = (next: any): boolean => next?.origin?.plugin === PLUGIN
-const RESERVED_RE = /^\W*relayed\s+from\b/iu
+// The relay's description, read as a person reads it: only its letters and digits count (so no invisible character, space or mark between them), and any letter or digit
+// outside ASCII may stand in for one of "relayedfrom" (a look-alike from another script).
+const RESERVED_RE = new RegExp(`^${[...'relayedfrom'].map((c) => `(?:${c}|[^\\x00-\\x7f]|\\d)`).join('')}`, 'iu')
+const reserved = (d: unknown): boolean => RESERVED_RE.test(String(d ?? '').normalize('NFKC').replace(/[^\p{L}\p{N}]/gu, ''))
 const mine = (tool: unknown, input: any): boolean => {
   const p = mem.proxy
   return p === undefined ? false : tool === 'Bash' ? p.native !== undefined && input?.command === p.native.input.command && input?.description === p.native.input.description : tool === QUESTION_TOOL && p.first !== undefined && input?.questions?.[0]?.question === p.first
@@ -45,12 +48,13 @@ const isProxy = (tool: unknown, input: any, next: any): boolean => ours(next) &&
 const nativeCheck = (input: any, r: any): unknown =>
   r?.decision === 'deny' ? r : input?.command === SELF_TEST.command && input?.description === SELF_TEST.description ? { decision: 'allow' } : mine('Bash', input) ? { decision: 'ask', reason: mem.proxy!.native!.reason } : { decision: 'deny', reason: T['dialog.relay.held']({}) }
 
-// tool.check only observes: it keeps what it saw for a call that is neither allowed nor denied (a dialog may follow), 60 s, and returns the engine's verdict unchanged, every time.
+// tool.check observes every call but two kinds: it keeps what it saw for a call that is neither allowed nor denied (a dialog may follow), 60 s, and returns the engine's verdict
+// unchanged. The two it decides: this plugin's own Bash (nativeCheck), and any other Bash whose description reads as the relay's, which it denies, in every session, so no dialog
+// that runs a command may pass for the relay's, which runs nothing. A tool.run hook is matched on the plain spelling only: a call denied here never runs.
 export async function toolCheck($: any, e: any, next: any) {
   const r = await next(e)
   if (isProxy(e.tool, e.input, next)) return e.tool === 'Bash' ? nativeCheck(e.input, r) : r
-  // The relay's description is its own, in every session: no other Bash dialog may pass for the relay's, which runs nothing.
-  if (e.tool === 'Bash' && RESERVED_RE.test(String(e.input?.description ?? '').normalize('NFKC'))) return { decision: 'deny', reason: T['dialog.relay.reserved']({}) }
+  if (e.tool === 'Bash' && reserved(e.input?.description)) return { decision: 'deny', reason: T['dialog.relay.reserved']({}) }
   try {
     if (r?.decision !== 'allow' && r?.decision !== 'deny' && typeof e.tool_use_id === 'string' && !isSub(e)) {
       const key = joinKey(String(e.tool), e.input)
