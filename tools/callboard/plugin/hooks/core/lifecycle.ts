@@ -6,7 +6,7 @@ import { CUE_VERBS, capRefusal, givenName, isMinted, liveness, mayActOn, nameOf,
 import type { RefuseCode, UiState } from './msg.ts'
 
 export const IDLE_MS = 30_000
-export const GONE_AFTER_MS = 30_000
+const GONE_AFTER_MS = 30_000
 export const LANE_ROW_KEEP_MS = 24 * 3_600_000
 export const PARKED_ROW_KEEP_MS = 28 * 24 * 3_600_000
 // The key of a row between lane_create and the opened panel's session id.
@@ -80,7 +80,7 @@ const isStr = (x: unknown): x is string => typeof x === 'string'
 export function parseCue(raw: unknown): Cue | undefined {
   const c = (raw ?? {}) as Partial<Cue>
   if (!isStr(c.id) || !isStr(c.from) || !Number.isFinite(c.at) || !(CUE_VERBS as readonly unknown[]).includes(c.verb)) return undefined
-  return { id: c.id, verb: c.verb!, from: c.from, at: c.at!, ...(isStr(c.name) ? { name: c.name } : {}), ...(isStr(c.brief) ? { brief: c.brief } : {}) }
+  return { id: c.id, verb: c.verb!, from: c.from, at: c.at!, ...(isStr(c.name) ? { name: c.name } : {}) }
 }
 export function parseResult(raw: unknown): CueResult | undefined {
   const r = (raw ?? {}) as Partial<CueResult>

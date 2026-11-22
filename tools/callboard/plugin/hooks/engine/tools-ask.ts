@@ -76,8 +76,8 @@ export async function promptListCall($: any, e: any, _next: any) {
   if (cap === 'none') return deny(refusal('refuse', 'no-capability', { tool: 'prompt_list' }))
   const now = await $.clock.now()
   const mine = (await openAsks($, c.me, c.v, now, true)).open.filter((o) => o.st.eligible.includes(c.me))
-  const views = mine.map(({ ask }) => ({ ask, asker: nameOf(c.v, ask.asker), ageMin: Math.floor((now - ask.t0) / 60_000), yours: true }))
-  return { result: promptList(cap === 'manager' ? await readRules($) : undefined, views).text }
+  const views = mine.map(({ ask }) => ({ ask, asker: nameOf(c.v, ask.asker), ageMin: Math.floor((now - ask.t0) / 60_000) }))
+  return { result: promptList(cap === 'manager' ? await readRules($) : undefined, views) }
 }
 
 export async function promptAnswerCall($: any, e: any, _next: any) {

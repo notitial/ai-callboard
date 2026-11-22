@@ -6,7 +6,6 @@ import json
 import os
 import shutil
 import subprocess
-import sys
 import tempfile
 import unittest
 
@@ -92,9 +91,9 @@ class Case(unittest.TestCase):
         with open(path) as f:
             return f.read()
 
-    def assertRefused(self, root, ext, *extra, running="no"):
+    def assertRefused(self, root, ext, running="no"):
         before = snap(ext)
-        self.run_script(root, "--ext-dir", ext, "--apply", *extra, running=running)
+        self.run_script(root, "--ext-dir", ext, "--apply", running=running)
         self.assertEqual(self.rc, 1, self.out)
         self.assertEqual(snap(ext), before)
 
@@ -287,7 +286,6 @@ class Registry(Case):
         self.assertFalse(os.path.exists(os.path.join(fe, ".obsolete")))
 
     def test_refusals_change_nothing_and_name_the_file(self):
-        here = lambda f: None
         cases = {
             "malformed-registry": ("extensions.json", "[{", "not valid JSON"),
             "registry-object": ("extensions.json", "{}", "not a JSON list"),

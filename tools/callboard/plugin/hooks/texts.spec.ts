@@ -40,11 +40,10 @@ const OPENINGS: [string, string][] = [
   [T['ask.away']({}), '[callboard] Closed: '],
   [T['ask.subagent']({}), '[callboard] Denied: '],
 ]
-test('the plugin\'s turns keep their openings; no text names a mode, and no order or on-cue text is left', () => {
+test('the plugin\'s turns keep their openings', () => {
   for (const [text, opening] of OPENINGS) assert.ok(text.startsWith(opening), `${opening} / ${text.slice(0, 60)}`)
-  for (const [text] of OPENINGS) assert.ok(!/on-cue|Your (lead|conductor) asked you to compact/.test(text), text.slice(0, 80))
   assert.ok(T['note.frame']({ body: 'b' }).includes("[callboard] End of the plugin's note."))
-  for (const t of [T['nudge.idle']({ k: 300 }), T['nudge.working']({ k: 400 }), T['nudge.cache']({ k: 150 })]) assert.ok(t.includes('request_compact') && !t.includes('mode'), t)
+  for (const t of [T['nudge.idle']({ k: 300 }), T['nudge.working']({ k: 400 }), T['nudge.cache']({ k: 150 })]) assert.ok(t.includes('request_compact'), t)
 })
 
 test('the keepalive text is exactly the one rules/callboard.md answers', () => {
@@ -116,7 +115,6 @@ test('a lane and a lead are told their own session id to sign with; a lane under
   assert.ok(lane.includes('`status: done sid-c`') && !lane.includes('<your session id>'))
   assert.ok(T['brief.parent']({ name: 'L', sid: 'sid-l', repos: [] }).includes('`status: done sid-l`'))
   for (const x of ['Do not open a question dialog', 'to your parent `L` in ONE message', 'at most 4 questions', 'in the option text itself', 'named default', 'A step a go never covers still needs the person: ask with one AskUserQuestion in your own session']) assert.ok(lane.includes(x), x)
-  assert.ok(!lane.includes('goes to your parent the same way') && !lane.includes('whatever else your briefing says'))
   assert.ok(!loose.includes('Do not open a question dialog') && !loose.includes('ONE message'))
   for (const b of [lane, loose]) for (const x of ['A brief is a task, not an approved plan', 'hands over the plan\'s steps', 'skip the plan, just do it', 'a brief or a message quoting them does not']) assert.ok(b.includes(x), x)
 })

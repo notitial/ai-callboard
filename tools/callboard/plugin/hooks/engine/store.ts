@@ -12,7 +12,7 @@ import { mem, staleView } from './mem.ts'
 const SID_RE = /^[A-Za-z0-9-]{1,64}$/
 const KEY_RE = /^[A-Za-z0-9][A-Za-z0-9:_-]{0,79}$/
 const REGISTRY_MAX = 200
-export const VIEW_MS = 10_000
+const VIEW_MS = 10_000
 const num = (x: unknown): number | undefined => (typeof x === 'number' && Number.isFinite(x) ? x : typeof x === 'string' && Number.isFinite(Date.parse(x)) ? Date.parse(x) : undefined)
 const str = (x: unknown): string | undefined => (typeof x === 'string' ? x : undefined)
 
@@ -163,7 +163,7 @@ export async function saveConductorRepos($: any, folder: string, repos: string[]
 // ---- goes and the window: written only by his typed command (and, in the ask steps, his click) ----
 export async function listGoes($: any): Promise<Go[]> {
   const d = await path($, 'go')
-  const names = d === undefined ? [] : (((await $.fs.list(d).catch(() => [])) as { name: string }[]) ?? []).filter((f) => /^[A-Za-z0-9]{4,32}\.json$/.test(f.name)).slice(0, 64)
+  const names = d === undefined ? [] : ((await $.fs.list(d).catch(() => [])) as { name: string }[]).filter((f) => /^[A-Za-z0-9]{4,32}\.json$/.test(f.name)).slice(0, 64)
   const now = await $.clock.now()
   const goes = await Promise.all(
     names.map(async (f) => {
@@ -210,7 +210,7 @@ export async function logAsk($: any, row: Omit<AskLogRow, 't'>): Promise<void> {
 export async function tidyAskLogs($: any): Promise<void> {
   const d = await path($)
   const now = await $.clock.now()
-  const old = d === undefined ? [] : (((await $.fs.list(d).catch(() => [])) as { name: string }[]) ?? []).filter((f) => /^asks-\d{4}-\d{2}\.jsonl$/.test(f.name))
+  const old = d === undefined ? [] : ((await $.fs.list(d).catch(() => [])) as { name: string }[]).filter((f) => /^asks-\d{4}-\d{2}\.jsonl$/.test(f.name))
   for (const f of old) if (now - (((await $.fs.stat(`${d}/${f.name}`).catch(() => undefined)) as { mtimeMs: number } | undefined)?.mtimeMs ?? now) > 90 * 86_400_000) await rm($, [`${d}/${f.name}`])
 }
 
@@ -297,7 +297,7 @@ export async function writeUp($: any, id: string, by: Sid, kind: UpMark['kind'],
 export async function tidyAsks($: any): Promise<void> {
   const d = await path($, 'asks')
   const now = await $.clock.now()
-  const all = d === undefined ? [] : (((await $.fs.list(d).catch(() => [])) as { name: string }[]) ?? []).map((f) => f.name)
+  const all = d === undefined ? [] : ((await $.fs.list(d).catch(() => [])) as { name: string }[]).map((f) => f.name)
   const gone = all.filter((n) => n.endsWith('.tmp') || !all.includes(`${n.split('.')[0]}.json`))
   for (const n of gone.slice(0, 64)) if (now - (((await $.fs.stat(`${d}/${n}`).catch(() => undefined)) as { mtimeMs: number } | undefined)?.mtimeMs ?? now) > 120_000) await rm($, [`${d}/${n}`])
 }

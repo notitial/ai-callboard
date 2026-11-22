@@ -1,24 +1,23 @@
 // The ask, as one timeline: who may decide it now (eligible), when it closes, which answer counts, and what a reader is shown of it. Pure. Trust rules held here:
 // an ask's deciders are only sessions above its asker now (or the person); every ask closes at 15 minutes awake; a liveness that cannot be read never closes anything
 // early and never moves an owner.
-import type { Answer, Ask, Decision, Person, Question, RaisedBy, Sid, UpMark, View } from './model.ts'
+import type { Answer, Ask, Decision, Question, RaisedBy, Sid, UpMark, View } from './model.ts'
 import { PERSON, chain, liveness, nameOf, refusal } from './model.ts'
 import type { RefuseCode } from './msg.ts'
 
 export const HEAD_START_MS = 30_000 // wall time: hidden this long
 export const MANAGER_AT_MS = 5 * 60_000 // awake: the manager is reached whatever happened below
 export const EXPIRE_MS = 15 * 60_000 // awake: every ask closes
-export const STALE_BEAT_MS = 60_000
-export const SWEEPER_AWAKE_MS = 90_000
+const STALE_BEAT_MS = 60_000
+const SWEEPER_AWAKE_MS = 90_000
 const AWAKE_GAP_CAP_MS = 10_000
 
 // Awake time: the gap since the last poll, never more than the cap and never negative (a clock that ran back or a Mac that slept adds nothing).
 export const awakeAdd = (awake: number, gapMs: number): number => awake + (Number.isFinite(gapMs) ? Math.min(Math.max(gapMs, 0), AWAKE_GAP_CAP_MS) : 0)
 
 export type StageIn = { ask: Ask; now: number; ups: readonly UpMark[]; v: View }
-// reach: how many sessions of the chain the ask has reached (0: hidden). toPerson: it has reached past the chain, so the person's click counts. relay: the manager's
-// dialog may show it (relayTick raises none while unattended). top: what ends the chain, the person or unknown.
-export type Open = { open: true; reach: number; eligible: Sid[]; toPerson: boolean; relay: boolean; top: Person | 'unknown' }
+// toPerson: the ask has reached past the chain, so the person's click counts. relay: the manager's dialog may show it (relayTick raises none while unattended).
+export type Open = { open: true; eligible: Sid[]; toPerson: boolean; relay: boolean }
 export type Stage = Open | ({ open: false } & Decision<'deny'>)
 
 // An off session's ask is never staged: the hook's first line (isOff) returns the dialog to him before any ask exists, the one place managed-or-not is decided.
@@ -41,7 +40,7 @@ export function stage(x: StageIn): Stage {
   const marked = x.ups.map((u) => u.by).filter((s) => c.up.includes(s))
   const eligible = [...new Set([...c.up.slice(0, reach), ...marked])].filter((s) => c.up.indexOf(s) > top || s === x.v.manager)
   const relay = toPerson && reach > 0 && typeof x.v.manager === 'string' && x.v.manager !== 'unknown' && x.v.manager !== x.ask.asker
-  return { open: true, reach, eligible, toPerson, relay, top: c.top }
+  return { open: true, eligible, toPerson, relay }
 }
 
 // One check for an answer: it names this ask, and its author is eligible now, or the person on an ask that has reached him (the relay dialog). Then it must fit
@@ -70,7 +69,7 @@ export function sweep(ask: Ask, v: View, now: number, sweeperAwake: number): 'ke
 
 // ---- what raised it ----
 // What tool.check reported for the call, joined by session, tool and input hash. None (no entry, two identical calls, one too old): raised by `unknown`.
-export type CheckFacts = { decision?: unknown; reason?: unknown; rule?: unknown; hook?: unknown; setting?: unknown; plugin?: unknown; ceiling?: unknown }
+export type CheckFacts = { reason?: unknown; rule?: unknown; hook?: unknown; setting?: unknown; plugin?: unknown; ceiling?: unknown }
 export const QUESTION_TOOL = 'AskUserQuestion'
 const GUARD_PREFIX = 'github-mcp-guard: '
 const GUARD_TOOLS = ['mcp__github__create_pull_request', 'mcp__github__add_issue_comment', 'mcp__github__add_reply_to_pull_request_comment', 'mcp__github__update_pull_request']
@@ -181,7 +180,7 @@ const REDACT: [RegExp, string | ((m: string, k: string) => string)][] = [
 // An object key that names a secret: whatever string it holds is replaced.
 const SECRET_KEY_RE = /(password|passwd|passphrase|pwd|secret|token(?!s)|api_?key|authorization|cookie|credential|private_?key|access_?key|bearer|(^|_)auth(_|$)|^(key|pass)$)/i
 const secretKey = (k: string): boolean => SECRET_KEY_RE.test(k.replace(/([a-z0-9])([A-Z])/g, '$1_$2').replace(/-/g, '_'))
-export const redact = (s: string): string => REDACT.reduce((t, [re, to]) => t.replace(re, to as string), s)
+const redact = (s: string): string => REDACT.reduce((t, [re, to]) => t.replace(re, to as string), s)
 
 const enc = new TextEncoder()
 const bytes = (s: string): number => enc.encode(s).length
@@ -193,8 +192,8 @@ export function capBytes(s: string, max: number): { text: string; cut: boolean }
 }
 // An escalate note as stored: one line, trimmed, at most 300 characters; empty or not a string is no note.
 export const noteOf = (x: unknown): string | undefined => (typeof x === 'string' ? Array.from(x.replace(/\s+/g, ' ').trim()).slice(0, 300).join('').trim() || undefined : undefined)
-export const STRING_CAP = 10 * 1024
-export const INPUT_CAP = 32 * 1024
+const STRING_CAP = 10 * 1024
+const INPUT_CAP = 32 * 1024
 const KEY_CAP = 200
 // What a reader is shown of one string: capped before redaction (some patterns are super-linear on long text), redacted, then capped. changed: a pattern hit.
 const shown = (s: string, max: number): { text: string; cut: boolean; changed: boolean } => {

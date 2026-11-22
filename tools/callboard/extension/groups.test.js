@@ -4,7 +4,7 @@ const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
-const { createGroups, groupsFor, managerOf, readManagerName, readSessionTable, COMMAND, ARCHIVE, ORDER } = require('./groups.js')
+const { createGroups, groupsFor, managerOf, readManagerName, readSessionTable, COMMAND, ARCHIVE } = require('./groups.js')
 
 const S = (n) => `${String(n).padStart(8, '0')}-0000-4000-8000-000000000000`
 const A = '/w/a'
@@ -52,8 +52,6 @@ test('groupsFor: the manager, a conductor, a lead (a minted one too) and a lane 
   assert.deepEqual([...m], [[S(8), 'Manager'], [S(1), 'Lead'], [S(2), 'Lanes'], [S(6), 'Conductor'], [S(7), 'Lead']])
   assert.deepEqual([...groupsFor({ [S(1)]: { lead: {}, under: S(2) } })], [[S(1), 'Lead']], 'one group per session, the lead role first')
   assert.deepEqual([...groupsFor({ [S(1)]: { lead: { conductor: true } } }, S(1))], [[S(1), 'Manager']], 'the manager wins over its row')
-  assert.deepEqual([...groupsFor()], [])
-  assert.deepEqual(ORDER, ['Manager', 'Conductor', 'Lead', 'Lanes'])
 })
 
 test('managerOf: the oldest proven row with the name, not one whose row is off or whose process is dead; unknown when one cannot be told; none without a name', async () => {
@@ -104,13 +102,6 @@ test('a session whose tier changes is filed again in its new group', async () =>
   await w.groups.tick()
   assert.deepEqual(w.calls, [[S(1), 'Lead'], [S(1), 'Conductor']])
   assert.deepEqual(w.store.done, { [S(1)]: 'Conductor' })
-})
-
-test('a stored list is no record: every session is filed once more, then remembered', async () => {
-  const w = world({ rows: [row(1, A), row(2, A)], lanes: [{ sid: S(1) }], table: { [S(2)]: { name: 'C', folder: A, lead: { repos: [], conductor: true } } }, done: [S(1), S(2)] })
-  await w.groups.tick()
-  assert.deepEqual(w.calls, [[S(1), 'Lanes'], [S(2), 'Conductor']])
-  assert.deepEqual(w.store.done, { [S(1)]: 'Lanes', [S(2)]: 'Conductor' })
 })
 
 test('a session outside the window, with no registry row, or with a dead process is left for later and not remembered', async () => {

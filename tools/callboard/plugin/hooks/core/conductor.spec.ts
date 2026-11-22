@@ -6,7 +6,7 @@ import { MAX_LIVE_CHILDREN, PERSON, ancestors, capability, chain, descendants, i
 import { LANE_ROW_KEEP_MS, tidy, verbPlan } from './lifecycle.ts'
 import { notices } from './notices.ts'
 import { planCommand } from './commands.ts'
-import { MANAGER, NOW, WINDOWS, forAll, reg } from './gen.spec.ts'
+import { MANAGER, NOW, WINDOWS, forAll, reg } from '../../test/gen.ts'
 
 const M = 'sid-manager'
 const C = 'sid-conductor'

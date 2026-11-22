@@ -1,9 +1,9 @@
-// What the person and a parent session see: the status page, the lane table, prompt_list, the go list, the three dialogs and the refusal toast. Pure: every
+// What the person and a parent session see: the status page, the lane table, prompt_list and the dialogs. Pure: every
 // string comes from `T`. Trust rules held here: text a session wrote (an ask's input, a name, a folder) is escaped before it reaches a text (`<` and invisible characters
 // become escapes, so nothing closes a frame, hides text or reorders it); an input whose printed form had to be cut is reported cut, so no session may allow it.
 import { capBytes } from './core/asks.ts'
-import type { Ask, Capability, Decision, Question, Sid, StopVerb } from './core/model.ts'
-import type { RefuseCode, StatusRow, UiColumn, UiState } from './core/msg.ts'
+import type { Ask, Capability, Question, Sid } from './core/model.ts'
+import type { StatusRow, UiColumn, UiState } from './core/msg.ts'
 import { esc, escBlock, escCell, T } from './texts.ts'
 
 export const PRINT_CAP = 32 * 1024
@@ -13,7 +13,7 @@ const clock = (t: number): string => `${two(new Date(t).getHours())}:${two(new D
 export const stamp = (t: number): string => `${new Date(t).getFullYear()}-${two(new Date(t).getMonth() + 1)}-${two(new Date(t).getDate())} ${clock(t)}`
 export const RULES_CAP = 8 * 1024
 // What a dialog is trusted to show whole: a longer input gets Deny only.
-export const DIALOG_CAP = 4 * 1024
+const DIALOG_CAP = 4 * 1024
 // The text as printed: escaped, then cut to `max` bytes. cut: what is shown is not the whole.
 export const printed = (s: string, max: number): { text: string; cut: boolean } => capBytes(escBlock(s), max)
 
@@ -55,44 +55,35 @@ export function lanesTable(rows: readonly LaneRow[]): string {
 }
 
 // ---- prompt_list: the standing rules first, then the asks ----
-// asker: the asker's name. cutIds: asks whose input had to be cut to print; the adapter stores that on the ask (`cut`), so `decide` refuses an allow of it.
-export type AskView = { ask: Ask; asker: string; ageMin: number; yours: boolean }
-export function promptList(rules: string | null | undefined, asks: readonly AskView[]): { text: string; cutIds: string[] } {
+// asker: the asker's name. An ask whose input had to be cut to print reads as cut.
+export type AskView = { ask: Ask; asker: string; ageMin: number }
+export function promptList(rules: string | null | undefined, asks: readonly AskView[]): string {
   const r = rules === null || rules === undefined ? undefined : printed(rules, RULES_CAP)
-  const cutIds: string[] = []
-  const blocks = asks.map(({ ask: a, asker, ageMin, yours }) => {
+  const blocks = asks.map(({ ask: a, asker, ageMin }) => {
     const p = printed(a.input, PRINT_CAP)
-    if (p.cut && !a.cut) cutIds.push(a.id)
-    return T['ui.ask']({ id: a.id, asker, tool: a.tool, ageMin, raisedBy: a.raisedBy, yours, input: p.text, cut: a.cut || p.cut, question: a.question })
+    return T['ui.ask']({ id: a.id, asker, tool: a.tool, ageMin, raisedBy: a.raisedBy, input: p.text, cut: a.cut || p.cut, question: a.question })
   })
   const head = rules === undefined ? [] : [r === undefined ? T['ui.rules.none']({}) : T['ui.rules']({ rules: r.text, cut: r.cut })]
-  return { text: [...head, ...(blocks.length > 0 ? blocks : [T['ui.asks.none']({})])].join('\n\n'), cutIds }
-}
-
-// ---- the lists for the person ----
-// giver: a name; end: a time as the person reads it.
-export function goList(goes: readonly { id: string; giver: string; text: string; end: string }[]): string {
-  return goes.length === 0 ? `${T['ui.goes.head']({})}\n${T['ui.goes.none']({})}` : [T['ui.goes.head']({}), ...goes.map((g) => T['ui.goes.row'](g)), '', T['go.neverCovers']({})].join('\n')
+  return [...head, ...(blocks.length > 0 ? blocks : [T['ui.asks.none']({})])].join('\n\n')
 }
 
 // ---- the dialogs: a header, a question and buttons. The adapter maps a click by its label; only a dialog that offers Allow can allow, and anything else is a deny ----
 export type DialogSpec = { header: string; question: string; options: { label: string }[] }
 const yesNo = (): { label: string }[] => [{ label: T['dialog.yes']({}) }, { label: T['dialog.no']({}) }]
 export const goDialog = (giver: string, text: string, end: string): DialogSpec => ({ header: T['dialog.go.header']({}), question: T['dialog.go.question']({ giver, text, end }), options: yesNo() })
-export const stopDialog = (name: string, verb: StopVerb): DialogSpec => ({ header: T['dialog.stop.header']({}), question: T['dialog.stop.question']({ name, verb }), options: yesNo() })
-// The relay dialog, in plain text (the tool shows no markdown): an input not shown whole (cut, or too large to print) gets Deny only, as `decide` refuses its allow. `cut` is that
-// finding: the adapter stores it on the ask, as it stores promptList's cutIds, so no other path allows the input. A question not shown whole comes here with `cut` set; a whole
-// one is mirrored (mirrorOf). The input is the ask's JSON (inputText), whose strings carry every line break as \n, so no line of it can pass for the dialog's own text; an input
-// that is not JSON (an ask file written by hand) gets Deny only, as a cut one does.
+export const stopDialog = (name: string): DialogSpec => ({ header: T['dialog.stop.header']({}), question: T['dialog.stop.question']({ name }), options: yesNo() })
+// The relay dialog, in plain text (the tool shows no markdown): an input not shown whole (cut, or too large to print) gets Deny only, as `decide` refuses its allow. `cut` is the
+// ask's own finding that its input was cut. A question not shown whole comes here with `cut` set; a whole one is mirrored (mirrorOf). The input is the ask's JSON (inputText),
+// whose strings carry every line break as \n, so no line of it can pass for the dialog's own text; an input that is not JSON (an ask file written by hand) gets Deny only, as a
+// cut one does.
 const isJson = (s: string): boolean => { try { JSON.parse(s); return true } catch { return false } }
-export function relayDialog(asker: string, tool: string, input: string, cut: boolean): DialogSpec & { cut: boolean } {
-  const p = printed(input, DIALOG_CAP)
-  const whole = !cut && !p.cut && isJson(input)
+const shownWhole = (input: string, cut: boolean): boolean => !cut && !printed(input, DIALOG_CAP).cut && isJson(input)
+export function relayDialog(asker: string, tool: string, input: string, cut: boolean): DialogSpec {
+  const whole = shownWhole(input, cut)
   return {
     header: T['dialog.relay.header']({}),
-    question: T['dialog.relay.question']({ asker, tool, input: p.text, cut: !whole }),
+    question: T['dialog.relay.question']({ asker, tool, input: printed(input, DIALOG_CAP).text, cut: !whole }),
     options: [...(whole ? [{ label: T['dialog.allow']({}) }] : []), { label: T['dialog.deny']({}) }],
-    cut: !whole,
   }
 }
 
@@ -100,7 +91,7 @@ export function relayDialog(asker: string, tool: string, input: string, cut: boo
 // as the plugin's, with Allow, Show the command (the second dialog, relayDialog) and Deny. Allow is offered only where relayDialog offers it. A note the manager wrote is at most
 // 300 characters (noteOf), and any other is cut to what a dialog shows.
 export function relayNote(asker: string, tool: string, note: string, input: string, by?: string): DialogSpec {
-  const whole = relayDialog(asker, tool, input, false).cut === false
+  const whole = shownWhole(input, false)
   return { header: T['dialog.relay.header']({}), question: T['dialog.relay.note']({ asker, tool, note: printed(note, DIALOG_CAP).text, ...(by === undefined ? {} : { by }) }), options: [...(whole ? [{ label: T['dialog.allow']({}) }] : []), { label: T['dialog.show']({}) }, { label: T['dialog.deny']({}) }] }
 }
 
@@ -120,10 +111,4 @@ export function mirrorOf(asker: string, qs: readonly Question[]): AskQuestion[] 
   const sent = qs.map((q): AskQuestion => ({ question: T['dialog.relay.asks']({ asker, question: q.question }), header: esc(q.header).slice(0, HEADER_MAX), options: q.options.map((o) => ({ label: esc(o.label), description: esc(o.description ?? '') })), multiSelect: false }))
   const distinct = (xs: string[]) => new Set(xs).size === xs.length
   return distinct(sent.map((q) => q.question)) && sent.every((q) => distinct(q.options.map((o) => o.label))) ? sent : undefined
-}
-
-// ---- the toast ----
-// A refusal's toast; any other decision has none.
-export function refusalToast(d: Decision): string | undefined {
-  return d.msg.startsWith('refuse.') ? T['toast.refused']({ tool: (d.p as { tool: string }).tool, code: d.msg.slice(7) as RefuseCode }) : undefined
 }

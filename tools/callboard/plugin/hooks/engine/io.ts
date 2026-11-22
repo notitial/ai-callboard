@@ -47,7 +47,7 @@ export async function home($: any): Promise<string | undefined> {
   }
   return mem.home
 }
-export async function v2($: any): Promise<string | undefined> {
+async function v2($: any): Promise<string | undefined> {
   const h = await home($)
   return h === undefined ? undefined : `${h}/.claude/callboard/v2`
 }

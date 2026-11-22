@@ -88,7 +88,7 @@ export async function stopVerbCall($: any, e: any, _next: any, verb: StopVerb) {
   const name = nameOf(v, key)
   if (plan.act === 'refuse') return deny(plan)
   if (plan.dialog || verb === 'terminate') {
-    const a = await personDialog($, stopDialog(name, verb))
+    const a = await personDialog($, stopDialog(name))
     if (!('label' in a) || a.label !== T['dialog.yes']({})) return deny(refusal('refuse', 'no' in a && a.no === 'unattended' ? 'unattended' : 'stop-declined', { tool, target: name }))
     v = await getView($, true)
     plan = await planOf($, verb, v, me, key)

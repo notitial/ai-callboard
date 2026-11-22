@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { covers, goCommand, goTextOk, parseGo } from './go.ts'
 import { ancestors, liveView } from './model.ts'
 import type { Go, Table } from './model.ts'
-import { MANAGER, NOW, forAll, pick, reg } from './gen.spec.ts'
+import { MANAGER, NOW, forAll, pick, reg } from '../../test/gen.ts'
 
 test('a go covers only its giver and the sessions under the giver now, until its end', () => {
   forAll(400, (r, w) => {

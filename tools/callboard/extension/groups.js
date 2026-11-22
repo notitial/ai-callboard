@@ -72,7 +72,7 @@ async function readSessionTable(file) {
 }
 
 // session id -> group name: the manager first, then the table's rows. A row marked off is not callboard's; a loose row is not filed.
-function groupsFor(table = {}, manager) {
+function groupsFor(table, manager) {
   const out = new Map(manager ? [[manager, 'Manager']] : [])
   for (const [sid, r] of Object.entries(table)) {
     if (!r || r.off === true || out.has(sid)) continue
@@ -115,8 +115,7 @@ function createGroups({ vscode, registry, state, loadTable, managerName, workspa
       const rows = list.filter((r) => !Number.isInteger(r.pid) || alive(r.pid))
       const want = groupsFor(table, manager)
       const was = state.get(keyOf(DONE_KEY), {})
-      // A stored value that is not a plain object (such as a list) is no record: every session is filed once more.
-      const filed = was && typeof was === 'object' && !Array.isArray(was) ? { ...was } : {}
+      const filed = { ...was }
       for (const [sid, group] of want) {
         if (filed[sid] === group || !rows.some((r) => r.sessionId === sid && inWindow(r.cwd))) continue
         try {
@@ -178,4 +177,4 @@ function createGroups({ vscode, registry, state, loadTable, managerName, workspa
   return { tick, TICK_MS }
 }
 
-module.exports = { createGroups, groupsFor, managerOf, readManagerName, readSessionTable, COMMAND, ARCHIVE, ORDER }
+module.exports = { createGroups, groupsFor, managerOf, readManagerName, readSessionTable, COMMAND, ARCHIVE }

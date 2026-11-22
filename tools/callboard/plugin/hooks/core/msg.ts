@@ -78,7 +78,7 @@ export type Fixed = {
   // `lead`: the parent is a lead, so the lane sends its questions to it instead of opening a dialog.
   'brief.child': { name: string; sid: string; parent: string; lead: boolean }
 
-  // Cue and compaction notes: the turns a parent's cue and a session's own compaction submit. There is no order nudge and no on-cue note.
+  // Cue and compaction notes: the turns a parent's cue and a session's own compaction submit.
   'cue.rename': Names
   'cue.start': { name: string; brief: string; parent: string }
   'cue.resume': Names
@@ -86,7 +86,6 @@ export type Fixed = {
   'compact.note': { focus: string; continuation: string }
   'compact.notRun': { reason: string }
   'compact.unconfirmed': { reason: string }
-  'compact.cut': E // toast: a restart may have cut a compaction off
   'compact.start': E // toast: callboard starts this session's own compaction
 
   // Nudges (the 300k, 400k and 150k kinds) and the keepalive ping.
@@ -166,7 +165,7 @@ export type Fixed = {
   'dialog.go.header': E
   'dialog.go.question': { giver: string; text: string; end: string }
   'dialog.stop.header': E
-  'dialog.stop.question': { name: string; verb: StopVerb }
+  'dialog.stop.question': { name: string }
   'dialog.relay.header': E
   'dialog.relay.question': { asker: string; tool: string; input: string; cut: boolean }
   'dialog.relay.note': { asker: string; tool: string; note: string; by?: string } // by: the manager's plain name, if it has one
@@ -186,7 +185,6 @@ export type Fixed = {
   'go.noGuard': E // the protected-paths guard is not in place, so no go counts
 
   // Toasts.
-  'toast.refused': { tool: string; code: RefuseCode }
   'toast.askClosed': E // a click on a relay dialog whose ask is closed
   'notify.relay': { name: string; tool: string } // the OS notification beside a relayed ask's dialog, taken back when it closes
   'toast.askNoFile': AskRef // the ask file could not be written; the loop still holds the deadline
@@ -203,10 +201,7 @@ export type Fixed = {
   'ui.rules': { rules: string; cut: boolean }
   'ui.rules.none': E
   'ui.asks.none': E
-  'ui.ask': { id: string; asker: string; tool: string; ageMin: number; raisedBy: RaisedBy; yours: boolean; input: string; cut: boolean; question?: Question }
-  'ui.goes.head': E
-  'ui.goes.row': { id: string; giver: string; text: string; end: string }
-  'ui.goes.none': E
+  'ui.ask': { id: string; asker: string; tool: string; ageMin: number; raisedBy: RaisedBy; input: string; cut: boolean; question?: Question }
   'ui.usage.footnote': E
 }
 

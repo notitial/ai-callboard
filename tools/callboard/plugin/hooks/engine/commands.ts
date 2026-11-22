@@ -50,7 +50,7 @@ export async function laneRows($: any, v: View, me: Sid): Promise<LaneRow[]> {
 
 // This session's real folder and the real paths of what it was given (`~` is the person's home); undefined when one does not resolve.
 // At most `max` paths are taken: 16 typed ones, or the saved list's own limit for the window's tick list.
-export async function realPaths($: any, v: View, me: Sid, paths: string[], max = 16): Promise<string[] | undefined> {
+export async function realPaths($: any, paths: string[], max = 16): Promise<string[] | undefined> {
   const h = await home($)
   const folder = (await $.session.root().catch(() => undefined)) as string | undefined
   const out: string[] = []
@@ -81,14 +81,14 @@ export async function perform($: any, cmd: Cmd, me: Sid, v: View, now: number, s
     case 'help': return help()
     case 'rest': return saved(await restSet($, me, 'command'), T['cmd.rest']({}))
     case 'lead': {
-      const [own, ...repos] = (await realPaths($, v, me, cmd.paths)) ?? []
+      const [own, ...repos] = (await realPaths($, cmd.paths)) ?? []
       if (own === undefined) return fail('path')
       const ok = await setRow($, v, me, own, (r) => ({ ...r, folder: own, lead: { repos: [...new Set([...(r.lead?.repos ?? []), ...repos])] } }))
       if (ok) await giveParentTools($, await getView($, true), me)
       return saved(ok, T['cmd.lead']({ repos }))
     }
     case 'conductor': {
-      const [own, ...typed] = (await realPaths($, v, me, cmd.paths)) ?? []
+      const [own, ...typed] = (await realPaths($, cmd.paths)) ?? []
       if (own === undefined) return fail('path')
       // Paths typed now replace the list saved for this folder; none typed reuses it.
       if (cmd.paths.length > 0 && typed.length === 0) return fail('own-folder')
@@ -100,7 +100,7 @@ export async function perform($: any, cmd: Cmd, me: Sid, v: View, now: number, s
         const a = root === undefined ? undefined : await spool($, { op: 'pick', folder: root, ticked: kept }, me, PICK_WAIT_S)
         if (a === undefined) return fail('pick-no-window')
         if (!a.ok) return fail(PICK_CODES.includes(a.code) ? `pick-${a.code}` : 'pick-failed')
-        const real = await realPaths($, v, me, a.folders ?? [], CONDUCTOR_REPOS_MAX)
+        const real = await realPaths($, a.folders ?? [], CONDUCTOR_REPOS_MAX)
         if (real === undefined) return fail('path')
         chosen = real.slice(1)
         if (chosen.length === 0) return fail('pick-failed')

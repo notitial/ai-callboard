@@ -1,5 +1,5 @@
 // The hooks the plugin registers, in the order the engine sees them: the bodies are in engine/, one area to a file. This file only wires: it decides nothing and
-// holds no state. It names every hook and tool the plugin has; a body not written yet is a stub in engine/, and writing it does not change this file.
+// holds no state. It names every hook and tool the plugin has.
 import type { Register } from 'claude-code'
 import { CUE_VERBS, STOP_VERBS } from './core/model.ts'
 import { sessionStart, sessionEnd, postToolHook } from './engine/tick.ts'

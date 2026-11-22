@@ -131,8 +131,8 @@ function createSpool({ dir, lanes, workspaceFolders, timeoutMs, pick, now = Date
     return out
   }
 
-  function start(intervalMs = 1000) {
-    const timer = setInterval(() => void scan(), intervalMs)
+  function start() {
+    const timer = setInterval(() => void scan(), 1000)
     return { dispose: () => clearInterval(timer) }
   }
 

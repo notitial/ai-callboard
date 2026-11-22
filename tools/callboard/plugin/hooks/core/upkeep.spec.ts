@@ -4,7 +4,7 @@ import { COMPACT_GAP_MS, HOUR_MS, KEEPALIVE_COLD_MS, MIN_CONTEXT_TOKENS, NUDGE_G
 import type { Counters, KeepIn, NudgeKind, Req } from './upkeep.ts'
 import { CONFIG_DEFAULTS, CONFIG_RANGE } from './commands.ts'
 import type { Config } from './model.ts'
-import { NOW, pick, rng } from './gen.spec.ts'
+import { NOW, pick, rng } from '../../test/gen.ts'
 
 const MIN = 60_000
 // A setting set anywhere inside its range (the idle level never over the working one).
@@ -61,9 +61,7 @@ test('the request: focus and continuation are plain printable text inside their 
   assert.deepEqual(validateRequest(ok), { ok: true, req: ok })
   const bad = (x: unknown, detail: string) => assert.deepEqual(validateRequest(x), { act: 'refuse', msg: 'refuse.bad-input', p: { tool: 'request_compact', detail } })
   for (const x of [null, {}, { ...ok, focus: '' }, { ...ok, focus: '/clear' }, { ...ok, focus: 'x'.repeat(1201) }, { ...ok, focus: 'a\nb' }, { ...ok, focus: 'café' }, { ...ok, focus: 7 }]) bad(x, 'focus')
-  for (const x of [{ ...ok, continuation: '' }, { ...ok, continuation: '\n \n' }, { ...ok, continuation: 'x'.repeat(601) }, { ...ok, continuation: '1\n2\n3\n4\n5\n6' }, { ...ok, continuation: 'a\u0000b' }, { ...ok, mode: 'now', continuation: undefined }]) bad(x, 'continuation')
-  // A mode is not part of the request: it is dropped.
-  assert.deepEqual(validateRequest({ ...ok, mode: 'on-cue' }), { ok: true, req: ok })
+  for (const x of [{ ...ok, continuation: '' }, { ...ok, continuation: '\n \n' }, { ...ok, continuation: 'x'.repeat(601) }, { ...ok, continuation: '1\n2\n3\n4\n5\n6' }, { ...ok, continuation: 'a\u0000b' }, { ...ok, continuation: undefined }]) bad(x, 'continuation')
 })
 
 test('the request moves called, armed, compacting, compacted; any other prompt or turn end drops it; the note is owed once', () => {

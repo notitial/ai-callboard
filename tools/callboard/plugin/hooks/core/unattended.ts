@@ -9,7 +9,7 @@ const MINUTE = 60_000
 
 // `/callboard unattended` with nothing (the state), `off`, `Nm`, `Nh` (at most two decimals) or `HH:MM` (the next such local time). An end outside 30 minutes to
 // 14 hours from now is refused with the nearest end that fits, to the minute.
-export type SpanOp = { op: 'state' } | { op: 'off' } | { op: 'on'; end: number } | { op: 'bad' } | { op: 'short'; earliest: number } | { op: 'long'; latest: number }
+export type SpanOp = { op: 'state' } | { op: 'off' } | { op: 'on'; end: number } | { op: 'bad' } | { op: 'short' } | { op: 'long' }
 export function parseSpan(args: string, now: number): SpanOp {
   const a = args.trim()
   if (a === '' || a === 'off') return { op: a === '' ? 'state' : 'off' }
@@ -23,8 +23,8 @@ export function parseSpan(args: string, now: number): SpanOp {
     end = d.getTime()
   } else if (span) end = now + Math.round(Number(span[1]) * (a.endsWith('h') ? 60 * MINUTE : MINUTE))
   else return { op: 'bad' }
-  if (end - now < WINDOW_MIN_MS) return { op: 'short', earliest: Math.ceil((now + WINDOW_MIN_MS) / MINUTE) * MINUTE }
-  if (end - now > WINDOW_MAX_MS) return { op: 'long', latest: Math.floor((now + WINDOW_MAX_MS) / MINUTE) * MINUTE }
+  if (end - now < WINDOW_MIN_MS) return { op: 'short' }
+  if (end - now > WINDOW_MAX_MS) return { op: 'long' }
   return { op: 'on', end }
 }
 

@@ -11,7 +11,7 @@ const REFRESH_MS = 3000
 const SESSION_COMMAND = 'callboard active session'
 
 // The folder of the one live panel session whose id is `sid`, else of the one whose name is `label` (or whose name the label shortens), or undefined.
-function folderOf(label, rows, alive = pidAlive, sid) {
+function folderOf(label, rows, alive, sid) {
   const cut = typeof label === 'string' && label.endsWith('…') ? label.slice(0, -1) : undefined
   const named = (name) => name === label || (cut !== undefined && typeof name === 'string' && name.length > cut.length && name.startsWith(cut))
   const one = (same) => {

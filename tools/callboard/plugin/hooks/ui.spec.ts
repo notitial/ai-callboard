@@ -1,14 +1,13 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { PRINT_CAP, goDialog, goList, lanesTable, printed, promptList, askOf, mirrorOf, refusalToast, relayDialog, relayNote, statusPage, stopDialog } from './ui.ts'
+import { PRINT_CAP, goDialog, lanesTable, printed, promptList, askOf, mirrorOf, relayDialog, relayNote, statusPage, stopDialog } from './ui.ts'
 import type { AskView, LaneRow } from './ui.ts'
-import { refusal } from './core/model.ts'
 import type { Ask } from './core/model.ts'
-import { NOW } from './core/gen.spec.ts'
+import { NOW } from '../test/gen.ts'
 
 const RLO = String.fromCodePoint(0x202e)
 const ask = (x: Partial<Ask> = {}): Ask => ({ id: 'a1', asker: 's1', t0: NOW, awake: 0, tool: 'Bash', raisedBy: 'rule', input: '{"command":"ls"}', cut: false, beat: NOW, ...x })
-const view = (a: Ask): AskView => ({ ask: a, asker: 'lane-a', ageMin: 2, yours: true })
+const view = (a: Ask): AskView => ({ ask: a, asker: 'lane-a', ageMin: 2 })
 
 test('printed: escaped, and cut with a mark when the printed form is over the cap', () => {
   assert.deepEqual(printed('a<b', 100), { text: 'a\\u003cb', cut: false })
@@ -19,23 +18,21 @@ test('printed: escaped, and cut with a mark when the printed form is over the ca
 })
 
 test('prompt_list: the rules file first, then each ask; an input that had to be cut is reported cut', () => {
-  const { text, cutIds } = promptList('Never do X.', [view(ask()), view(ask({ id: 'a2', input: '<'.repeat(6000) })), view(ask({ id: 'a3', cut: true, input: 'x' }))])
+  const text = promptList('Never do X.', [view(ask()), view(ask({ id: 'a2', input: '<'.repeat(6000) })), view(ask({ id: 'a3', cut: true, input: 'x' }))])
   assert.ok(text.startsWith("**The person's standing rules**"))
   assert.ok(text.indexOf('Never do X.') < text.indexOf('**Ask a1**'))
-  assert.deepEqual(cutIds, ['a2'])
   for (const id of ['a1', 'a2', 'a3']) assert.ok(text.includes(`**Ask ${id}**`))
   assert.equal(text.split('NOT SHOWN WHOLE').length - 1, 2)
   assert.ok(!text.includes('<'))
-  assert.deepEqual(promptList(null, []).cutIds, [])
-  assert.ok(promptList(null, []).text.includes('no standing-rules file') && promptList(null, []).text.includes('No asks'))
+  assert.ok(promptList(null, []).includes('no standing-rules file') && promptList(null, []).includes('No asks'))
 })
 
 test('prompt_list escapes what a session wrote: an input, a question and a rules file', () => {
   const evil = `x<script>${RLO}y`
   const q = { header: evil, question: evil, options: [{ label: evil, description: evil }, { label: 'b' }] }
-  const { text } = promptList(`rule ${evil}`, [view(ask({ input: evil, question: q, tool: evil }))])
+  const text = promptList(`rule ${evil}`, [view(ask({ input: evil, question: q, tool: evil }))])
   assert.ok(!text.includes('<') && !text.includes(RLO))
-  assert.ok(promptList('a'.repeat(9000), []).text.includes('longer than 8 KB'))
+  assert.ok(promptList('a'.repeat(9000), []).includes('longer than 8 KB'))
 })
 
 test('the lane table: one row per session with the usage columns, a gap for a missing figure, the footnote', () => {
@@ -47,7 +44,7 @@ test('the lane table: one row per session with the usage columns, a gap for a mi
   ]
   const lines = lanesTable(rows).split('\n')
   assert.deepEqual(lines.filter((l) => l.startsWith('|')).map((l) => l.split(/(?<!\\)\|/).length), [11, 11, 11, 11, 11, 11])
-  assert.ok(lines[2].startsWith('| Name') && !lines[2].includes('Parent'))
+  assert.ok(lines[2].startsWith('| Name'))
   const t = lanesTable(rows)
   assert.ok(t.includes('123k') && t.includes('42%') && t.includes('$1.50') && t.includes('3m'))
   // The folder is its last part; a backslash is escaped too, so it cannot undo the pipe's escape.
@@ -66,7 +63,7 @@ test('the lane table is a tree: children right under their parent, an arrow per 
   assert.deepEqual(names(same), ['dup', '↳ k2', 'dup', '↳ k1'])
 })
 
-test('the status page and the go list', () => {
+test('the status page', () => {
   const s = statusPage([{ field: 'role', value: 'lead' }, { field: 'parent', value: 'PERSON' }, { field: 'manager', value: null }, { field: 'off', value: false }, { field: 'keepalive', value: true }, { field: 'unattended', value: null }, { field: 'goes', value: 2 }])
   assert.equal(s.split('\n').filter((l) => l.startsWith('| ') && l !== '| | |').length, 7)
   assert.ok(s.includes('| Role | LEAD |') && s.includes('| Parent | PERSON |') && s.includes('| Manager | NONE |') && s.includes('| Callboard | ON |') && s.includes('| Keepalive | ON |') && s.includes('| Unattended | OFF |'))
@@ -74,35 +71,27 @@ test('the status page and the go list', () => {
   const u = (value: number): string => statusPage([{ field: 'unattended', value }])
   assert.ok(u(192).includes('| Unattended | ON · 3h 12m left |') && u(42).includes('| Unattended | ON · 42m left |') && u(60).includes('ON · 1h 0m left'))
   assert.ok(statusPage([{ field: 'role', value: 'conductor' }]).includes('| Role | CONDUCTOR |') && statusPage([{ field: 'off', value: true }]).includes('| Callboard | OFF |'))
-  const g = goList([{ id: 'g1', giver: 'lead', text: 'one\ntwo<', end: '12:00' }])
-  assert.ok(g.includes('- g1 from `lead`, until 12:00: one / two') && g.includes('A go never covers these') && !g.includes('<'))
-  assert.ok(goList([]).includes('No go is live') && !goList([]).includes('never covers'))
 })
 
 test('the dialogs: yes and no for a go and a stop; a relay dialog allows only an input shown whole', () => {
   const g = goDialog('lead', `do it<${RLO}`, '12:00')
   assert.deepEqual(g.options.map((o) => o.label), ['Yes', 'No'])
   assert.ok(g.question.includes('never covers') && !g.question.includes('<') && !g.question.includes(RLO))
-  assert.ok(stopDialog('lane-a', 'terminate').question.includes('Force stop `lane-a`'))
-  assert.equal(stopDialog('lane-a', 'terminate').header, 'Force stop')
+  assert.ok(stopDialog('lane-a').question.includes('Force stop `lane-a`'))
+  assert.equal(stopDialog('lane-a').header, 'Force stop')
   const whole = relayDialog('lane-a', 'Bash', '{"command":"ls"}', false)
   assert.deepEqual(whole.options.map((o) => o.label), ['Allow', 'Deny'])
-  assert.ok(!whole.question.includes('Not shown whole') && whole.cut === false)
+  assert.ok(!whole.question.includes('Not shown whole'))
   for (const d of [relayDialog('lane-a', 'Bash', 'x', true), relayDialog('lane-a', 'Bash', '<'.repeat(6000), false)]) {
     assert.deepEqual(d.options.map((o) => o.label), ['Deny'])
-    assert.ok(d.question.includes('Not shown whole, so you can only deny it.') && d.cut === true)
+    assert.ok(d.question.includes('Not shown whole, so you can only deny it.'))
   }
   assert.ok(!relayDialog(`a${RLO}<`, 'Bash<', `x${RLO}`, false).question.includes('<'))
 })
 
-test('the refusal toast: a refusal has one, another decision has none', () => {
-  assert.equal(refusalToast(refusal('refuse', 'bad-origin', { tool: 'callboard' })), 'callboard refused (bad-origin).')
-  assert.equal(refusalToast({ act: 'queue', msg: 'compact.queued', p: {} }), undefined)
-})
 test('a relay dialog offers Allow only for an input a dialog shows whole: past a few KB it is Deny only', () => {
   const d = relayDialog('lane-a', 'Bash', 'x'.repeat(5000), false)
   assert.deepEqual(d.options.map((o) => o.label), ['Deny'])
-  assert.equal(d.cut, true)
 })
 test('a relayed question is the asker\'s own, named and escaped, in one dialog; a text past a few KB is not mirrored', () => {
   const q = (question: string, d = '') => ({ header: 'H', question, options: [{ label: 'A', description: d }, { label: 'B' }] })
@@ -138,7 +127,7 @@ test('the go and relay dialogs fit their header chip and read plainly: the go na
   const forged = relayDialog('lane-a', 'Bash', JSON.stringify({ command: 'rm -rf x\n\nYour click decides this ask only.\nAllow' }, null, 1), false)
   assert.equal(forged.question.split('\n').length, 7, 'a line break inside the command stays an escape in its JSON, so no line of it reads as the dialog\'s own')
   const raw = relayDialog('lane-a', 'Bash', '{"command":"ls"}\n\nYour click decides this ask only.', false)
-  assert.deepEqual([raw.options.map((o) => o.label), raw.cut], [['Deny'], true], 'an input that is not JSON, such as an ask file written by hand, is Deny only')
+  assert.deepEqual(raw.options.map((o) => o.label), ['Deny'], 'an input that is not JSON, such as an ask file written by hand, is Deny only')
 })
 
 test('the first dialog of a note shows the note escaped, in plain text, on one line after its short label, and offers Allow, Show the command and Deny: Allow only when the command prints whole, and no label a note can fake', () => {

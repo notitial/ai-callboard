@@ -13,7 +13,6 @@ import os
 import re
 import shutil
 import subprocess
-import sys
 import tempfile
 import unittest
 
@@ -378,14 +377,14 @@ class Css(Case):
     def test_each_block_goes_in_front_of_the_font_tag_once(self):
         mod = load_module()
         ext, marker = self.applied(build(V327))
-        self.assertEqual((self.rc, marker["width"], marker["pie"], "chip" in marker), (0, True, True, False))
+        self.assertEqual((self.rc, marker["width"], marker["pie"]), (0, True, True))
         self.assertEqual(self.out.count("warning"), 0)
         new = self.js(ext).decode("utf-8")
         self.assertEqual((new.count('<style id="callboard-width">'), new.count('<style id="callboard-pie">')), (1, 1))
         self.assertIn('rel="stylesheet">\n        <style id="callboard-width">' + mod.WIDTH_CSS + '</style><style id="callboard-pie">' + mod.PIE_CSS
                       + '</style><style id="callboard-run">' + mod.RUN_CSS + '</style><style id="claude-font-configuration">', new)
 
-    def test_the_css_is_safe_inside_a_template_literal_and_the_remote_control_chip_is_left_alone(self):
+    def test_the_css_is_safe_inside_a_template_literal(self):
         mod = load_module()
         for bad in ("`", "\\", "${"):
             self.assertNotIn(bad, mod.WIDTH_CSS)
@@ -394,8 +393,6 @@ class Css(Case):
         self.assertEqual(mod.PIE_CSS.count("${"), 1)
         for part in ("inputWrapper_", "permissionsContainer_", "inputContainer_", "max-width:none"):
             self.assertIn(part, mod.WIDTH_CSS)
-        self.assertFalse(hasattr(mod, "CHIP_CSS"))
-        self.assertNotIn("aria-label", slurp(SCRIPT).decode())
 
     @unittest.skipUnless(shutil.which("node"), "needs node")
     def test_the_patched_page_builder_still_runs_and_carries_the_blocks(self):
@@ -879,32 +876,6 @@ class Update(Case):
         self.assertUnchanged(self.ext)
         self.assertEqual((self.rc, self.out), (0, "patched 2.1.328\n"))
 
-    def test_an_install_with_the_chip_hiding_block_reads_outdated_and_update_takes_it_out(self):
-        orig = self.js()
-        self.run_script(self.ext, "--apply")
-        chip = b'<style id="callboard-chip">[aria-label="Remote Control"],[aria-label^="Connecting to claude.ai"]{display:none!important}</style>'
-        old = self.js().replace(b'<style id="callboard-pie">', chip + b'<style id="callboard-pie">')
-        self.assertNotEqual(old, self.js())
-        mp = os.path.join(self.ext, "callboard-cwd-patch.json")
-        marker = json.loads(slurp(mp))
-        marker.update(chip=True, patched_sha256=hashlib.sha256(old).hexdigest())
-        for path, data in ((os.path.join(self.ext, "extension.js"), old), (mp, json.dumps(marker).encode())):
-            with open(path + ".t", "wb") as f:
-                f.write(data)
-            os.replace(path + ".t", path)
-        self.run_script(self.ext)
-        self.assertEqual((self.rc, self.out.splitlines()[0]), (1, "outdated 2.1.328: the patch code differs from this script's"))
-        self.run_script(self.ext, "--update")
-        self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "updated 2.1.328"))
-        self.assertEqual(self.js(), self.current(orig))
-        self.assertNotIn(b"callboard-chip", self.js())
-        self.assertNotIn(b"Remote Control", self.js())
-        self.assertEqual(self.js(), slurp(os.path.join(self.ext, "extension.js")))
-        self.assertNotIn("chip", json.loads(slurp(mp)))
-        self.assertEqual(slurp(os.path.join(self.ext, "extension.js.callboard-orig")), orig)
-        self.assertUnchanged(self.ext)
-        self.assertEqual((self.rc, self.out), (0, "patched 2.1.328\n"))
-
     @unittest.skipUnless(shutil.which("node"), "needs node")
     def test_the_updated_code_still_runs(self):
         self.older(self.ext, WIDTH_CSS="a{b:c}")
@@ -1155,7 +1126,7 @@ const vm = require('vm'), fs = require('fs')
 const [file, level, sv, pc] = process.argv.slice(1)
 const m = (t, p) => ({ t, p }), k = (t, p) => ({ t, p })
 const stock = (w, o) => w - Math.min(o, 20000) - 13000
-const ctx = vm.createContext({ m, k, B: () => [true, () => {}], VA: 'VA', lv: { host: 'h' }, TAe: {}, BFt: 'BFt', ia: { usageButtonV2: 'u' }, a: 'compact', PBn: () => 50, DBn: { 50: 'd' }, NFt: stock, tFt: stock, _Bt: stock,
+const ctx = vm.createContext({ m, k, B: () => [true, () => {}], VA: 'VA', lv: { host: 'h' }, TAe: {}, BFt: 'BFt', ia: { usageButtonV2: 'u' }, a: 'compact', PBn: () => 50, tFt: stock, _Bt: stock,
   getComputedStyle: () => ({ getPropertyValue: (n) => (n === '--callboard-compact' ? level : '') }), document: { documentElement: {} } })
 vm.runInContext(fs.readFileSync(file, 'utf8') + ';globalThis.F = { sv: ' + sv + ', pc: ' + pc + ', Bar }', ctx)
 const props = (used, w, o = 20000) => ctx.F.Bar({ usageData: { value: { totalTokens: used, contextWindow: w, maxOutputTokens: o } } }, 50).p.children[1].p
@@ -1330,7 +1301,6 @@ class Pie(Case):
         self.assertEqual(slurp(os.path.join(ext, self.WEBJS)), mod_pill(WEB["index.js"]), "the pill needs no page block")
 
     def test_an_install_from_before_the_pie_reads_outdated_and_update_brings_it_in(self):
-        mod = load_module()
         ext = self.make(V327, name="old")
         orig_js = slurp(os.path.join(ext, self.WEBJS))
         self.older(ext, **NO_WEB)
@@ -1695,7 +1665,6 @@ class Pill(Case):
         return json.loads(slurp(os.path.join(ext, "callboard-cwd-patch.json")))
 
     def test_the_pill_goes_in_once_after_the_model_pill_and_undo_takes_it_out(self):
-        mod = load_module()
         for names in (JS330, JSB):
             web = dict(WEB, **{"index.js": PIE_JS.format(**names)})
             ext = self.make(V327, name="pill" + names["mp"], web=web)

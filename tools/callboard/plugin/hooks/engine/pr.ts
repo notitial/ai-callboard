@@ -18,7 +18,7 @@ const STDOUT_MAX = 262_144
 const LOST_AFTER = 5
 const LOOKS_PER_HOUR = 30
 const repoKey = (p: PrRef): string => `${p.owner}/${p.repo}`.toLowerCase()
-export const prQuery = (numbers: number[]): string => `query($owner:String!,$name:String!){repository(owner:$owner,name:$name){${numbers.map((n) => `p${n}:pullRequest(number:${n}){${PR_FIELDS}}`).join(' ')}}}`
+const prQuery = (numbers: number[]): string => `query($owner:String!,$name:String!){repository(owner:$owner,name:$name){${numbers.map((n) => `p${n}:pullRequest(number:${n}){${PR_FIELDS}}`).join(' ')}}}`
 const byRepo = (prs: readonly Tracked[]): Tracked[][] => [...prs.reduce((m, p) => m.set(repoKey(p), [...(m.get(repoKey(p)) ?? []), p]), new Map<string, Tracked[]>()).values()]
 
 // The first of the fixed paths that exists, looked up once a minute.

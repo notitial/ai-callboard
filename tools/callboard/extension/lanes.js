@@ -15,7 +15,7 @@ const SETTLE_MS = 2000
 const SHOW_MS = 300
 const GROUP_FOCUS = ['First', 'Second', 'Third', 'Fourth', 'Fifth', 'Sixth', 'Seventh', 'Eighth'].map((n) => `workbench.action.focus${n}EditorGroup`)
 
-function createLanes({ vscode, registry, sleep, now, workspaceFolders = () => undefined, passCwd = false, timeoutMs = 15000, pollMs = 200, settleMs = SETTLE_MS, showMs = SHOW_MS, guardMs = 120000, adoptTtlMs = ADOPT_TTL_MS, alive = pidAlive, startOf = psStart }) {
+function createLanes({ vscode, registry, sleep, now, workspaceFolders = () => undefined, passCwd = false, timeoutMs = 15000, pollMs = 200, settleMs = SETTLE_MS, guardMs = 120000, alive = pidAlive, startOf = psStart }) {
   // registry.list() -> [{ sessionId, cwd, entrypoint, name }] (parsed ~/.claude/sessions/*.json)
   let chain = Promise.resolve()
   function serial(fn) {
@@ -227,7 +227,7 @@ function createLanes({ vscode, registry, sleep, now, workspaceFolders = () => un
         if (at && at.tab !== tab && tab.isActive !== true) {
           prev = at.tab
           await focusTab(tab)
-          await sleep(showMs)
+          await sleep(SHOW_MS)
         }
       } catch {}
       try {
@@ -355,7 +355,7 @@ function createLanes({ vscode, registry, sleep, now, workspaceFolders = () => un
         continue
       }
       if (maybePids.some((p) => p !== rec.pid) || (await procState(rec.pid, rec.procStart, starts)) !== 'dead') {
-        if (adoptedAt.has(sid) && now() - adoptedAt.get(sid) > adoptTtlMs) forget(sid)
+        if (adoptedAt.has(sid) && now() - adoptedAt.get(sid) > ADOPT_TTL_MS) forget(sid)
         continue
       }
       forget(sid)

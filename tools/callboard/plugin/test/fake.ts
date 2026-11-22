@@ -33,7 +33,6 @@ export function fake(o: { sid?: string } = {}) {
     sleepFails: false,
     draft: '',
     usage: { context: { tokens: 0 }, cost: { usd: 1.5 }, rateLimits: [{ kind: 'five_hour', percentUsed: 12 }, { kind: 'seven_day', percentUsed: 40 }] } as unknown,
-    agents: [] as { status: string }[],
     tools: [] as string[],
     commands: [] as string[],
     listed: [] as { name: string; source: string; description?: string }[],
@@ -45,15 +44,12 @@ export function fake(o: { sid?: string } = {}) {
     ghBin: undefined as string | undefined,
     ghOut: undefined as undefined | { exitCode: number; stdout: string; isStdoutTruncated?: boolean },
     state: new Map<string, { value: unknown; version: number }>(),
-    stateBusy: 0,
     every: undefined as undefined | (() => unknown),
-    submitFails: false,
     unreadable: new Set<string>(),
     kinds: new Map<string, string>(),
     undeletable: new Set<string>(),
     onSleep: undefined as undefined | (() => unknown),
   }
-  const parent = (p: string) => p.slice(0, p.lastIndexOf('/'))
   const under = (dir: string) => {
     const names = new Map<string, string>()
     for (const f of h.files.keys()) if (f.startsWith(`${dir}/`) && !f.slice(dir.length + 1).includes('/')) names.set(f.slice(dir.length + 1), 'file')
@@ -117,12 +113,11 @@ export function fake(o: { sid?: string } = {}) {
       await h.onSleep?.()
       return ok()
     }
-    if (cmd === '/usr/bin/find') return ok()
     if (cmd === '/bin/realpath') return h.real.has(paths[0]) ? ok(`${h.real.get(paths[0])}\n`) : h.dirs.has(paths[0]) || paths[0] === h.root ? ok(`${paths[0]}\n`) : bad
     if (cmd === h.ghBin) return h.ghOut ?? bad
     return bad
   }
-  // The plugin's own tool call. An AskUserQuestion runs h.permission first (its deny refuses the call), then shows each question (h.asked) and resolves with h.askAnswer's answer
+  // The plugin's own tool call. An AskUserQuestion runs h.permission first (its result is ignored), then shows each question (h.asked) and resolves with h.askAnswer's answer
   // to each: a label is that question's pick, an object is the call's whole result, and undefined (a dismissal) resolves `{ deny }`. An abort resolves `{ deny }` at once, as the
   // engine does. Any other tool is refused.
   const call = async (c: { tool: string; input: any }, o: { signal?: AbortSignal } = {}): Promise<unknown> => {
@@ -134,8 +129,7 @@ export function fake(o: { sid?: string } = {}) {
     const aborted = new Promise<unknown>((res) => signal?.addEventListener('abort', () => res(cut), { once: true }))
     const shown = async (): Promise<unknown> => {
       const next = Object.assign(async () => ({}), { origin: { plugin: 'callboard', tier: 'user' }, signal })
-      const r: any = h.permission === undefined ? undefined : await h.permission({ tool_name: c.tool, tool_input: c.input }, next)
-      if (r?.decision?.behavior === 'deny') return { deny: 'refused by a hook' }
+      await h.permission?.({ tool_name: c.tool, tool_input: c.input }, next)
       const qs: { question: string; header: string; options: { label: string }[] }[] = c.input.questions
       for (const q of qs) h.asked.push({ question: q.question, options: q.options.map((x) => x.label), header: q.header })
       const got = await Promise.all(qs.map((q) => h.askAnswer(q.question)))
@@ -173,7 +167,7 @@ export function fake(o: { sid?: string } = {}) {
       get: async (k: { key: string }) => h.state.get(k.key) ?? { value: undefined, version: 0 },
       set: async (k: { key: string }, value: unknown, o: { ifVersion?: number } = {}) => {
         const cur = h.state.get(k.key)
-        if (h.stateBusy > 0 || (o.ifVersion !== undefined && (cur?.version ?? 0) !== o.ifVersion)) return { isSet: false }
+        if ((o.ifVersion !== undefined && (cur?.version ?? 0) !== o.ifVersion)) return { isSet: false }
         h.state.set(k.key, { value, version: (cur?.version ?? 0) + 1 })
         return { isSet: true }
       },
@@ -181,13 +175,12 @@ export function fake(o: { sid?: string } = {}) {
     prompt: {
       read: async () => ({ text: h.draft }),
       submit: async ({ text }: { text: string }) => {
-        if (h.submitFails) throw new Error('refused')
         h.submitted.push(text)
         setStatus('busy')
       },
     },
     ui: { toast: async (t: string) => void h.toasts.push(t), notify: async (t: string, o: { key: string }) => void h.notified.push([o.key, t]), cancelNotify: async (key: string) => void h.unnotified.push(key), ask: (q: string, o: { options: string[]; header: string }) => (h.asked.push({ question: q, options: o.options, header: o.header }), h.askAnswer(q)) },
-    agent: { list: async () => h.agents, call },
+    agent: { list: async () => [], call },
     command: { register: async (c: { name: string }) => void h.commands.push(c.name), list: async () => h.listed, run: async (c: { command: string; args: string }) => {
       h.compactRuns.push(`${c.command} ${c.args}`)
       if (c.command === 'model') h.model = `claude-${c.args}-5-5`
@@ -207,7 +200,7 @@ export function fake(o: { sid?: string } = {}) {
   }
   const table = (t: unknown) => void h.files.set(`${V2}/sessions.json`, JSON.stringify(t))
   const file = (name: string) => h.files.get(`${V2}/${name}`)
-  return { $: $ as any, h, seed, table, file, parent, idle: () => setStatus('idle') }
+  return { $: $ as any, h, seed, table, file, idle: () => setStatus('idle') }
 }
 
 // A second session on the same machine: one file system, clock and process list with `f`, its own session id, toasts and dialogs. Make every peer before the first call: a fake resets the

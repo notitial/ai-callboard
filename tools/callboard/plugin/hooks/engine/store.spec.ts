@@ -106,15 +106,6 @@ test('usage: written at most every 30 s, read back for a session, none past a da
   assert.equal(await usageRead(f.$, '../evil', T0), undefined)
 })
 
-test('the fake: a file written is read back, a plain mkdir fails twice, a registry row needs its process', async () => {
-  const f = fake()
-  await f.$.fs.write('/a/b', 'x')
-  assert.equal(await f.$.fs.read('/a/b'), 'x')
-  assert.equal((await f.$.process.run(['/bin/mkdir', '/d'])).exitCode, 0)
-  assert.equal((await f.$.process.run(['/bin/mkdir', '/d'])).exitCode, 1)
-  f.seed({ sid: 'sid-me', pid: 7 })
-  assert.match(f.h.ps, /7 /)
-})
 test('a registry file that is there and cannot be read makes the reading unknown; one that vanished is skipped', async () => {
   const f = fake()
   f.seed({ sid: 'sid-me', pid: 10 })

@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { MAX_LIVE_CHILDREN, PERSON, ancestors, capability, chain, children, descendants, isLead, isOff, liveView, liveness, mayActOn, mayAdopt, mayCreate, nameOf, nameRefusal, parent } from './model.ts'
 import type { Table } from './model.ts'
-import { MANAGER, forAll, reg } from './gen.spec.ts'
+import { MANAGER, forAll, reg } from '../../test/gen.ts'
 
 const M = 'sid-manager'
 const A = 'sid-lead-a'

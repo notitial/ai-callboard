@@ -40,7 +40,7 @@ export async function presetRun($: any, e: any, next: any) {
 // The rows of this preset's own ended leads: another typed lead in this session's folder that holds the preset's name and has no live session. Its name is free to take, and its row goes
 // when the new name is set (a typed lead's row is never expired). A live holder, a lane, a conductor, a minted lead, a row he turned off and a row of another folder are not in it.
 async function ended($: any, v: View, me: Sid, p: Preset): Promise<Sid[]> {
-  const own = v.rows === 'unknown' ? undefined : (await realPaths($, v, me, []))?.[0]
+  const own = v.rows === 'unknown' ? undefined : (await realPaths($, []))?.[0]
   if (v.rows === 'unknown' || own === undefined) return []
   return Object.entries(v.table).filter(([k, r]) => k !== me && r.name === p.name && r.folder === own && r.lead && !r.lead.minted && !r.lead.conductor && !r.off && !v.rows.has(k)).map(([k]) => k)
 }

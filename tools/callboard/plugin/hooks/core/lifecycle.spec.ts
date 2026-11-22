@@ -4,7 +4,7 @@ import { CUE_MAX_AGE_MS, IDLE_MS, LANE_ROW_KEEP_MS, PARKED_ROW_KEEP_MS, childSta
 import type { Verb } from './lifecycle.ts'
 import { MAX_LIVE_CHILDREN, liveView, mayActOn, nameOf } from './model.ts'
 import type { Table } from './model.ts'
-import { MANAGER, NOW, WINDOWS, forAll, pick, reg } from './gen.spec.ts'
+import { MANAGER, NOW, WINDOWS, forAll, pick, reg } from '../../test/gen.ts'
 
 const M = 'sid-manager'
 const A = 'sid-lead-a'
@@ -76,7 +76,7 @@ test('the state lane_list shows', () => {
 })
 
 test('the cue: acted on only when its sender is above the child now and it is fresh; held while a turn runs', () => {
-  const cue = parseCue({ id: 'c', verb: 'start', from: A, at: NOW, brief: 'b' })!
+  const cue = parseCue({ id: 'c', verb: 'start', from: A, at: NOW })!
   assert.equal(cueAnswer(view({}), L1, cue, false, NOW + CUE_MAX_AGE_MS).outcome, 'ok')
   assert.equal(cueAnswer(view({}), L1, cue, true, NOW).outcome, 'held')
   assert.deepEqual(cueAnswer(view({}), L1, cue, false, NOW + CUE_MAX_AGE_MS + 1), { id: 'c', outcome: 'refused', code: 'cue-stale' })
