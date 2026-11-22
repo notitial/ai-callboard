@@ -281,7 +281,7 @@ test('after the run ends, later output is dropped: nothing listens for it and bo
 test('a real background writer keeps its pipe, and what it writes after the run is read and dropped', async () => {
   let child
   const spawn = (...a) => (child = childProcess.spawn(...a))
-  const w = world({ extra: { spawn, kill: (pid, sig) => process.kill(pid, sig), graceMs: 10, timeoutMs: 5000, env: { PATH: '/usr/bin:/bin', SHELL: '/bin/sh' } } })
+  const w = world({ extra: { spawn, kill: (pid, sig) => process.kill(pid, sig), graceMs: 100, timeoutMs: 5000, env: { PATH: '/usr/bin:/bin', SHELL: '/bin/sh' } } })
   const r = await ask(w, '(sleep 0.3; echo late) & echo first')
   assert.match(r.text, /Output:\n```\nfirst\n\n```$/, 'the late line is not in the result')
   assert.equal(child.stdout.listenerCount('data'), 0)

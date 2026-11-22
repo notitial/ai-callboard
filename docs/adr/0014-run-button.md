@@ -69,14 +69,16 @@ default), send it as it is, or send nothing. The scan is best effort and not a g
 
 - The button deliberately runs what the agent hooks block, so the person's click on the modal is the only safety check.
   There is no auto-run and no "safe command" exception, and nothing wires the button to `bash_command` or to any path
-  that skips the modal. The remaining risk is approving a long command without reading it, and since the amendment Enter approves it.
+  that skips the modal. The remaining risk is approving a long command without reading it, and since the amendment
+  Enter approves it.
 - Output in the chat is saved on this computer and sent to the API. The masked copy is the default, and not complete.
 - The result arrives as a human turn, which is what makes Claude answer it, and a permission mode that judges by the
   author of a turn may give it more trust than its text deserves. Output can hold text written by someone else, so the
   rule above treats it as data; that is a rule for the model, not a technical barrier.
 - A background process that keeps the output pipes open ends the run a half second after the shell exits, and keeps its
-  pipe descriptors until it exits itself; what it writes after the run ended is read and dropped. The secret scan misses what it has no shape for (a key cut across the output's
-  cut, an unusual format); it is a courtesy beside the person's own read, not a control.
+  pipe descriptors until it exits itself; what it writes after the run ended is read and dropped. The secret scan
+  misses what it has no shape for (a key cut across the output's cut, an unusual format); it is a courtesy beside the
+  person's own read, not a control.
 - A command that waits for input gets end-of-file. `-l` reads `.zprofile`, not `.zshrc`, so `PATH` can differ from a
   terminal's. A panel reloaded during a run loses the output (the run still ends at the timeout).
 - A Claude Code update that moves one of the three anchors drops only the button, with a warning from
