@@ -9,12 +9,12 @@
         unpatched-patchable      every anchor was found exactly once: --apply would patch it
         anchors-missing <names>  an update moved the code the patch hooks into (a name is missing or matches twice): --apply refuses
       --apply: patch extension.js, keep the original beside it as extension.js.callboard-orig and write callboard-cwd-patch.json
-      (the marker callboard's panels extension reads; its "width", "pie", "pill", "restore", "groups", "session", "archive" and "list" fields say whether the panel width, the context pie, the folder pill, the restore fix, the group command, the session command, the archive command and the session list below went in). Patched already: says so and stops; outdated: refuses and names --update. A window reload (Developer: Reload
+      (the marker callboard's panels extension reads; its "width", "pie", "pill", "restore", "groups", "session", "archive", "list" and "run" fields say whether the panel width, the context pie, the folder pill, the restore fix, the group command, the session command, the archive command, the session list and the run button below went in). Patched already: says so and stops; outdated: refuses and names --update. A window reload (Developer: Reload
       Window) loads it.
       --update: for an `outdated` install, build the patch again from the backup original and swap it in: extension.js and the marker are
-      replaced (and webview/index.js, when the context pie or the folder pill is or goes in or out), the backups are not touched. The new bytes are built before anything is written (a refusal changes nothing), and a failed write puts the
+      replaced (and webview/index.js, when the context pie, the folder pill or the run button is or goes in or out), the backups are not touched. The new bytes are built before anything is written (a refusal changes nothing), and a failed write puts the
       previous patched files back. Any other state: the same as --apply. An install made by a script that still hid the Remote Control chip reads outdated: --update leaves the chip out.
-      --undo: put the original back from the backup (webview/index.js too, when the pie or the pill was in) and remove the backups and the marker.
+      --undo: put the original back from the backup (webview/index.js too, when the pie, the pill or the run button was in) and remove the backups and the marker.
 
 The patch gives `claude-vscode.editor.open` a `cwd` in its sixth argument ({cwd: folder}), which becomes the working folder of the
 new panel instead of the window's first folder, when it is one of the window's folders (4 edits). A fresh panel opened by a + New session button
@@ -24,7 +24,7 @@ width. Each anchor is a pattern that tolerates renamed minified
 identifiers, and the file is written only when every anchor matches exactly once: otherwise nothing changes and the missing ones
 are named. The optional pieces are separate: the width block goes in when the font tag matches exactly once and the shipped webview has its tokens, the context pie (PIE_ANCHORS below: the composer's stock pie shown always, as one ring,
 against the autocompact level of the settings, in webview/index.js, kept as webview/index.js.callboard-orig) goes in when the font tag and its three anchors there each match once, the folder pill (PILL_ANCHOR below: a name for the session's folder next to the model name in the composer, in webview/index.js, read from <folder>/.archive/.folder and renamed by a click, which asks the extension: PILL_HANDLER_ANCHOR, in extension.js) goes in when its one anchor in each
-matches once, the restore fix
+matches once, the run button (RUN_CODE_ANCHOR: a button before Copy on shell code blocks, with its app handle in index.js and a case in extension.js, which ask the panels extension's `callboard run block` command: a modal first, then the run, then the output goes back into the chat as the person's message; see the comment above RUN_CODE_ANCHOR) goes in when its three anchors and its style tokens match, the restore fix
 (RESTORE_ANCHORS below: a panel that VS Code restores or Claude reopens keeps the folder of its conversation, found from the session's transcript) goes in
 when its two anchors do, and the group command (GROUPS_ANCHOR below) registers `callboard file session` (session id, group name, order), so callboard's panels
 extension can put the manager, a conductor, a lead or a lane in the sidebar's Manager, Conductor, Lead or Lanes group, with those groups first in that order, when its one anchor matches exactly once, and the session command (at the same anchor) registers `callboard active session`, which
@@ -255,6 +255,65 @@ def pill_web(js):
                   + b",ref:(cbfE)=>cbfP.ref(cbfE," + m.group("s") + b"),onClick:()=>cbfP.click(" + m.group("s") + b")}))(" + PILL_HELPER + b"),", js)
 
 
+# The run button: a small button before Copy on a chat's shell code blocks (a block with no language, or sh, bash, zsh, shell, console; the style block hides it on any other
+# language). A click (only a real one: isTrusted) hands the block's text to extension.js, which asks the panels extension's `callboard run block` command (extension/run-block.js:
+# validation, its own modal with "Don't run" as the default button, the run, the output) with the session's folder, which the host holds for the session (the request's channel; the window's one folder when the channel has none) and never takes from the page. What comes back
+# is sent into the same chat as the person's own message, through the page's own session.send. Three edits and a style block: the page's app handle (globalThis.cbRunApp, the session
+# manager, so a click finds the session on screen), the button in the code block component, and in extension.js a case in front of the one that opens an url. All three anchors
+# must match exactly once and the shipped webview must carry the tokens its style names; otherwise the piece is left out whole, with a warning, and the others still apply.
+RUN_CODE_ANCHOR = (
+    rb'function ID\(\{children:ID\}\)\{let (?P<ref>ID)=ID\(null\);return ID\("div",\{className:(?P<ly>ID)\.codeBlockWrapper,children:\[(?=(?P<jsx>ID)\(ID,\{getText:)'
+    .replace(b"ID", ID)
+)
+RUN_APP_ANCHOR = rb"(?<=\}\),)(?P<a>ID)\.activateSessionEvents\.add\(\(\{sessionId:ID,initialPrompt:ID\}\)=>\{ID\((?P<c>ID),".replace(b"ID", ID)
+# The page side, built once per page (the `??=` skips it after the first click): one run at a time, the text trimmed the way Copy does, the request asked through the connection the
+# session already has with its channel id, and the answer's text, when there is one, sent as a human message. A failure is swallowed: the host has already shown it.
+RUN_HELPER = (
+    b'(globalThis.cbxRun??=((B)=>(E)=>{if(B.b)return;let S=globalThis.cbRunApp?.activeSession?.value,T=E?.textContent;if(!S||typeof T!="string"||!(T=T.trimEnd()))return;B.b=1;'
+    b'Promise.resolve().then(()=>S.getConnection()).then((C)=>C.sendRequest({type:"callboard_run",text:T},S.claudeChannelId))'
+    b'.then((R)=>typeof R?.text=="string"&&R.text?S.send(R.text,[],!1,{kind:"human"},{expandMentions:!1}):void 0).catch(()=>{}).finally(()=>{B.b=0})})({}))'
+)
+RUN_CSS = (
+    '[class*="codeBlockWrapper_"] .cbRun{right:34px!important;box-sizing:border-box;min-width:26px;min-height:26px;padding:0;display:flex;justify-content:center;align-items:center;'
+    'font-size:10px;line-height:1;color:var(--app-primary-foreground);background:var(--app-secondary-background);border:1px solid var(--app-input-border);border-radius:4px;cursor:pointer;'
+    'opacity:0;transition:opacity .15s,background .15s}'
+    '[class*="codeBlockWrapper_"]:hover .cbRun,[class*="codeBlockWrapper_"] .cbRun:focus-visible{opacity:1}[class*="codeBlockWrapper_"] .cbRun:hover{background:var(--app-ghost-button-hover-background)}'
+    '[class*="codeBlockWrapper_"]:has(code[class*="language-"]:not(.language-sh,.language-bash,.language-zsh,.language-shell,.language-console)) .cbRun{display:none!important}'
+)
+# The extension side: the folder is the one the host holds for the request's channel (a session that has not started has none: then the window's folder, when the window has only
+# one, else nothing and the command refuses), and the answer is only ever {text} or {}. Validation, the modal and the run
+# live in the panels extension, not here. Without it the command is missing: an error toast, nothing runs.
+RUN_HANDLER = (
+    b'case"callboard_run":return{type:"callboard_run_response",...await(async(cbxQ,cbxC)=>{try{let cbxR=await require("vscode").commands.executeCommand("callboard run block",{text:cbxQ?.text,cwd:cbxC});'
+    b'return typeof cbxR?.text=="string"?{text:cbxR.text}:{}}catch{require("vscode").window.showErrorMessage("Run needs the Callboard Panels extension, which is not running.");return{}}})'
+    b'(%s.request,this.channels?.get(%s.channelId)?.cwd??((require("vscode").workspace.workspaceFolders||[]).length<2?this.cwd:void 0))};'
+)
+
+
+def run_problem(raw, web):
+    """Why the run button cannot go in (None when it can): an anchor does not match exactly once (the code block and the app handle in index.js, the request switch in
+    extension.js), the shipped script lacks what the page side calls, extension.js already has the case, or the style block cannot go in (font tag, tokens)."""
+    for what, pat, text in (("run code block anchor", RUN_CODE_ANCHOR, web[1]), ("run app anchor", RUN_APP_ANCHOR, web[1]), ("run handler anchor", PILL_HANDLER_ANCHOR, raw)):
+        n = len(re.findall(pat, text))
+        if n != 1:
+            return "%s (%s)" % (what, "no match" if n == 0 else "%d matches" % n)
+    if b"callboard_run" in raw:
+        return "the file already contains callboard_run"
+    miss = [t for t in (b".getConnection()", b".sendRequest(", b"claudeChannelId", b".activeSession.value") if t not in web[1]]
+    return "no " + ", ".join(t.decode() for t in miss) if miss else css_problem(raw, web, "run", ("codeBlockWrapper_", "copyButton_"))
+
+
+def run_in(raw):
+    raw = re.sub(PILL_HANDLER_ANCHOR, lambda m: RUN_HANDLER % (m.group("r"), m.group("r")) + m.group(0), raw)
+    return css_in(raw, "run", RUN_CSS)
+
+
+def run_web(js):
+    js = re.sub(RUN_APP_ANCHOR, lambda m: b"globalThis.cbRunApp=" + m.group("c") + b"," + m.group(0), js)
+    return re.sub(RUN_CODE_ANCHOR, lambda m: m.group(0) + m.group("jsx") + b'("button",{className:"cbRun "+' + m.group("ly") + b'.copyButton,title:"Run in this session\'s folder",'
+                  b"onClick:(cbxE)=>{if(cbxE.isTrusted)" + RUN_HELPER + b"(" + m.group("ref") + b'.current)},children:"\\u25b6"}),', js)
+
+
 # The restore fix: a Claude panel that VS Code restores (or Claude reopens) for a session starts in the window's first folder, where that session is not in the
 # list, so it comes back as a new empty session. The saved panel state names no folder, so the fix finds it: the window folder whose project folder holds
 # the session's transcript (<config dir>/projects/<folder, every character but a letter or digit as "-">/<session id>.jsonl, the way Claude names it). Three edits:
@@ -401,6 +460,7 @@ PIECES = (
     ("session", "session command", lambda raw, _: command_problem(raw, SESSION_COMMAND), session_in),
     ("archive", "archive command", lambda raw, _: command_problem(raw, ARCHIVE_COMMAND), archive_in),
     ("list", "session list", list_problem, list_in),
+    ("run", "run button", run_problem, run_in),  # its page side is in webview/index.js (run_web)
 )
 
 
@@ -531,6 +591,7 @@ def patched(raw, web):
             raw = put_in(raw)
     js = pie_web(web[1]) if left["pie"] is None else web[1]
     js = pill_web(js) if left["pill"] is None else js
+    js = run_web(js) if left["run"] is None else js
     return raw, left, None if js == web[1] else js
 
 
