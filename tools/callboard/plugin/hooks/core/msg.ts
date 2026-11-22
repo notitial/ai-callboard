@@ -173,6 +173,7 @@ export type Fixed = {
   'dialog.relay.reason': { note?: string; by?: string } // that dialog's reason line, with the manager's note if there is one
   'dialog.relay.held': E // the deny that stops a relayed command where it would run
   'dialog.relay.reserved': E // the deny of any other Bash that uses the relay's description
+  'dialog.relay.hidden': E // the deny of a Bash description with a hidden character or the reason line's sentence
   'dialog.allow': E
   'dialog.show': E
   'dialog.leave': E // the second option beside a lone Deny: it writes nothing
