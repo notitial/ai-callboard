@@ -32,6 +32,12 @@ folder needs none. The list is callboard's own state, written only by that typed
 A pick-list dialog was the first idea. The engine's dialog offers at most four options, which cannot list a machine's
 repos, so the person types the paths once instead.
 
+**Amended 2026-11-22:** the pick list comes back as VS Code's own multi-select list, shown by the panels extension when
+the person types `/callboard conductor` with nothing saved, or `/callboard conductor pick`. It offers the window's other
+folders and the git repos beside the conductor's folder; what the person ticks is saved after the same checks as typed
+paths. The list is still written only by the typed command, now with the person's click in a list no session can press.
+The engine's dialog stays rejected, and typed paths still work.
+
 **A lead a conductor made is a minted lead.** It acts only in its own folder, cannot make leads, and has the conductor
 as its parent while the conductor lives; when the conductor is gone it falls to the manager and keeps only its own
 folder. A chain is lane, lead, conductor, manager.

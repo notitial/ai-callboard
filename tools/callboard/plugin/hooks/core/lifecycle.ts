@@ -15,6 +15,9 @@ export const CUE_MAX_AGE_MS = 120_000
 // How long a parent waits for a child's answer to a cue, and for the window's answer to a spool request (its own open wait is 20 s, plus scan and claim slack).
 export const CUE_WAIT_S = 20
 export const SPOOL_WAIT_S = 30
+// How long the typed `/callboard conductor` waits for the person's click in the window's tick list, which closes itself 10 s sooner; and the most repos a conductor is given.
+export const PICK_WAIT_S = 90
+export const CONDUCTOR_REPOS_MAX = 32
 
 // The report path is fixed when the row is made, from the name at that time: a rename never moves it.
 export const reportPath = (folder: Folder, name: string): string => `${folder}/.archive/${name}/REPORT.md`

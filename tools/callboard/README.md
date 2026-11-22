@@ -28,9 +28,14 @@ parent and a capability: none, lead or manager.
 - **Lead.** `/callboard lead [PATH…]`, typed by you in the session that coordinates a repo's lanes. It may create and
   adopt lanes in its own folder and the folders you list, and holds the tools that open, prompt, park, retire and list
   its lanes and answer their asks. A lead can also request a go (below).
-- **Conductor.** `/callboard conductor [PATH…]`, typed by you: a lead that also makes, starts and closes leads, one per
-  repo, in the repos you list (`lane_create` with role `lead`). Type the paths once: callboard saves the list for that
-  folder (`v2/conductors.json`), and a later `/callboard conductor` there needs none. A lead it makes acts only in its own
+- **Conductor.** `/callboard conductor [pick | PATH…]`, typed by you: a lead that also makes, starts and closes leads,
+  one per repo, in the repos you choose (`lane_create` with role `lead`). With nothing saved for the folder, the VS Code
+  window shows a tick list: its other folders, ticked, and the git repos beside the conductor's folder, unticked. Tick
+  and press Enter; Escape changes nothing, and the list closes itself after 80 seconds. It shows at most 100 rows and
+  takes at most 32 ticks, and needs the panels extension in the window that holds the folder. Or type the paths (at
+  most 16). Either way callboard saves the list for that folder (`v2/conductors.json`), a later `/callboard conductor`
+  there asks nothing, and `/callboard conductor pick` shows the list again with the saved repos ticked. A lead opens
+  only in a folder the window lists, so a saved repo outside the window waits until the window lists it. A lead it makes acts only in its own
   folder, cannot make leads, and asks the conductor for a go. The conductor and everything under it count 8 live
   children per parent, leads and lanes together. [ADR 0013](../../docs/adr/0013-conductor.md).
 - **Lead preset.** A folder may hold `.claude/callboard-lead.json`, `{ "command", "name", "model", "effort" }`, for
@@ -88,7 +93,7 @@ that signed done, is gone, has waited on a prompt for 5 minutes or has been idle
 `/callboard help` prints the full table and is the authority.
 
 - **Look:** `status`, `lanes`, `help`.
-- **Roles and switches:** `lead [PATH…]`, `conductor [PATH…]`, `lead off`, `off`, `on`.
+- **Roles and switches:** `lead [PATH…]`, `conductor [pick | PATH…]`, `lead off`, `off`, `on`.
 - **Settings:** `config [keepalive on|off | ping 30-55 | stop 1-8 | idle 150-800 | working 150-900 | reset]`,
   `rest` (or `/rest`), `go TEXT`, `go off [ID]`, `unattended Nm|Nh|HH:MM|off`.
 

@@ -3,11 +3,12 @@
 // registry read does nothing; the brief a `start` points at is the child's own row's, never the cue's; every file name is built from an id this file checks first.
 // The spool: `open/<id>.req` is written as a dot-file and renamed, with a fresh random id, and the folder is named exactly as the lane's row holds it; the window that serves it answers
 // `open/<id>.result` within its own 20 s, so the writer waits one budget (SPOOL_WAIT_S) and, with no answer, takes its own request back so a window that wakes later opens nothing.
-// Bounds that hold for the same user (ADR 0002): the window opens only a folder of its own workspace, drops a request older than 60 s, reads plain files up to 1200 bytes and takes one
-// request at a time; the plugin checks capability, allowlist, name and the cap of live children before it writes. No rate limit and no lane store are checked beyond that.
+// A `pick` is the one request that waits for the person: the window shows its tick list for up to 80 s, and the answer's folders are checked here (absolute, plain, at most 32) before the caller resolves them.
+// Bounds that hold for the same user (ADR 0002): the window opens only a folder of its own workspace, drops a request older than 60 s, reads plain files up to 40 000 bytes and takes one
+// request at a time (a tick list is shown beside that); the plugin checks capability, allowlist, name and the cap of live children before it writes. No rate limit and no lane store are checked beyond that.
 import type { Cue, CueResult, CueVerb, Sid, SpoolReply, SpoolRequest, View } from '../core/model.ts'
 import { givenName, nameOf, nameRefusal } from '../core/model.ts'
-import { CUE_WAIT_S, SPOOL_WAIT_S, cueAnswer, parseCue, parseResult } from '../core/lifecycle.ts'
+import { CONDUCTOR_REPOS_MAX, CUE_WAIT_S, SPOOL_WAIT_S, cueAnswer, parseCue, parseResult } from '../core/lifecycle.ts'
 import { T } from '../texts.ts'
 import { ensureDir, log, path, pause, readText, rm, run, submitOwn, writeFile } from './io.ts'
 import { mem } from './mem.ts'
@@ -80,8 +81,11 @@ export async function cueTick($: any, me: Sid, v: View, now: number): Promise<vo
 
 // ---- the window's spool ----
 const isSid = (x: unknown): x is Sid => typeof x === 'string' && /^[A-Za-z0-9-]{1,64}$/.test(x)
+// A picked folder is an absolute path with no control character, as a typed one is (core/commands.ts).
+const isFolder = (x: unknown): x is string => typeof x === 'string' && x.length <= 1024 && /^\/[^\u0000-\u001f\u007f-\u009f]*$/.test(x)
 function parseReply(raw: unknown): SpoolReply | undefined {
-  const r = (raw ?? {}) as { ok?: unknown; sid?: unknown; code?: unknown }
+  const r = (raw ?? {}) as { ok?: unknown; sid?: unknown; code?: unknown; folders?: unknown }
+  if (r.ok === true && r.folders !== undefined) return r.sid === undefined && Array.isArray(r.folders) && r.folders.length <= CONDUCTOR_REPOS_MAX && r.folders.every(isFolder) ? { ok: true, folders: r.folders } : undefined
   if (r.ok === true) return isSid(r.sid) ? { ok: true, sid: r.sid } : r.sid === undefined ? { ok: true } : undefined
   return r.ok === false && typeof r.code === 'string' && /^[a-z-]{1,24}$/.test(r.code) ? { ok: false, code: r.code } : undefined
 }
@@ -100,14 +104,14 @@ export async function spoolSend($: any, req: SpoolRequest): Promise<string | und
   await rm($, [tmp])
   return undefined
 }
-// A request and its answer. undefined: nothing came in SPOOL_WAIT_S, and the request is taken back.
-export async function spool($: any, req: SpoolRequest, who: Sid): Promise<SpoolReply | undefined> {
+// A request and its answer. undefined: nothing came in `waitS` seconds (a pick waits for the person's click, so its caller gives a longer one), and the request is taken back.
+export async function spool($: any, req: SpoolRequest, who: Sid, waitS: number = SPOOL_WAIT_S): Promise<SpoolReply | undefined> {
   const id = await spoolSend($, req)
   const dir = await path($, 'open')
   if (id === undefined || dir === undefined) return undefined
   let a: SpoolReply | undefined
-  for (let i = 0; i < SPOOL_WAIT_S && a === undefined; i++) {
-    a = parseReply(json(await readText($, `${dir}/${id}.result`, 512)))
+  for (let i = 0; i < waitS && a === undefined; i++) {
+    a = parseReply(json(await readText($, `${dir}/${id}.result`, 40_000)))
     if (a === undefined && !(await pause($, 1000))) break
   }
   await rm($, [`${dir}/${id}.req`, `${dir}/${id}.result`])

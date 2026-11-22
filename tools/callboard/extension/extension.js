@@ -6,6 +6,7 @@ const path = require('node:path')
 const { buildId } = require('./build.js')
 const { createLanes } = require('./lanes.js')
 const { createSpool } = require('./spool-v2.js')
+const { createPick } = require('./pick.js')
 const { createRegistry } = require('./registry.js')
 const { claudePatched } = require('./claude-patch.js')
 const { createFolderBadge } = require('./folder-badge.js')
@@ -47,7 +48,9 @@ function activate(context) {
   const lanes = createLanes({ vscode, registry, sleep: (ms) => new Promise((r) => setTimeout(r, ms)), now: Date.now,
     workspaceFolders: windowFolders, passCwd: patched,
   })
-  context.subscriptions.push(createSpool({ dir: path.join(CLAUDE, 'callboard', 'v2', 'open'), lanes, workspaceFolders: windowFolders, timeoutMs: SPOOL_OPEN_MS }).start())
+  // The conductor's tick list offers every folder of the window, patched or not: it only saves a list, and a lead is opened later through `windowFolders`.
+  const pick = createPick({ vscode, windowFolders: allFolders })
+  context.subscriptions.push(createSpool({ dir: path.join(CLAUDE, 'callboard', 'v2', 'open'), lanes, workspaceFolders: windowFolders, timeoutMs: SPOOL_OPEN_MS, pick }).start())
   try {
     context.subscriptions.push(createFolderBadge({ vscode, registry }))
   } catch {

@@ -6,11 +6,12 @@ import { PERSON, capability, children, descendants, isConductor, isMinted, isOff
 import type { Cmd, Origin } from '../core/commands.ts'
 import { configNext, planCommand } from '../core/commands.ts'
 import { GO_HOURS, covers } from '../core/go.ts'
-import { childState } from '../core/lifecycle.ts'
+import { CONDUCTOR_REPOS_MAX, PICK_WAIT_S, childState } from '../core/lifecycle.ts'
 import type { StatusRow } from '../core/msg.ts'
 import { T } from '../texts.ts'
 import type { LaneRow } from '../ui.ts'
 import { RULES_CAP, lanesTable, printed, stamp, statusPage } from '../ui.ts'
+import { spool } from './cue.ts'
 import { home, newId, run, windowNow } from './io.ts'
 import { mem } from './mem.ts'
 import { cfgNow, conductorRepos, getView, listGoes, readRules, rmGo, saveConductorRepos, updateTable, writeConfig, writeGo, writeWindow } from './store.ts'
@@ -21,6 +22,8 @@ import { usageRead } from './usage.ts'
 const TYPED_ORIGINS = ['composer', 'bridge']
 // The forms whose saved change owes the session a notice turn. Off is not among them: an off session is sent nothing.
 const CHANGES: string[] = ['lead', 'lead-off', 'conductor', 'on', 'go', 'go-off', 'unattended']
+// The window's own reasons for a tick list that picked nothing; each has its text (texts.ts), any other code is the bare failure.
+const PICK_CODES = ['cancelled', 'timeout', 'no-folders', 'too-many', 'busy']
 // A command is typed when the engine stamped its origin as one of his own typed turns; any other origin, or none, is not.
 export const originOf = (e: any): Origin => (TYPED_ORIGINS.includes(e?.origin?.kind) ? 'typed' : 'other')
 const person = (v: View, s: Sid | 'unknown' | null): string | null => (s === null ? null : s === 'unknown' ? 'unknown' : s === PERSON ? PERSON : nameOf(v, s))
@@ -46,11 +49,12 @@ export async function laneRows($: any, v: View, me: Sid): Promise<LaneRow[]> {
 }
 
 // This session's real folder and the real paths of what it was given (`~` is the person's home); undefined when one does not resolve.
-export async function realPaths($: any, v: View, me: Sid, paths: string[]): Promise<string[] | undefined> {
+// At most `max` paths are taken: 16 typed ones, or the saved list's own limit for the window's tick list.
+export async function realPaths($: any, v: View, me: Sid, paths: string[], max = 16): Promise<string[] | undefined> {
   const h = await home($)
   const folder = (await $.session.root().catch(() => undefined)) as string | undefined
   const out: string[] = []
-  for (const p of folder === undefined || h === undefined ? [] : [folder, ...paths].slice(0, 17)) {
+  for (const p of folder === undefined || h === undefined ? [] : [folder, ...paths].slice(0, max + 1)) {
     const r = await run($, ['/bin/realpath', '--', p.startsWith('~/') ? `${h}${p.slice(1)}` : p]).catch(() => undefined)
     const real = r?.stdout.trim()
     if (r?.exitCode !== 0 || real === undefined || !real.startsWith('/')) return undefined
@@ -88,9 +92,21 @@ export async function perform($: any, cmd: Cmd, me: Sid, v: View, now: number, s
       if (own === undefined) return fail('path')
       // Paths typed now replace the list saved for this folder; none typed reuses it.
       if (cmd.paths.length > 0 && typed.length === 0) return fail('own-folder')
-      const repos = typed.length > 0 ? typed : await conductorRepos($, own)
-      if (repos.length === 0) return fail('no-repos')
-      if (typed.length > 0 && !(await saveConductorRepos($, own, typed))) return saved(false, '')
+      const kept = await conductorRepos($, own)
+      let chosen = typed
+      // `pick`, or nothing typed and nothing saved: the window that holds this folder shows its tick list, and what he ticks there is taken as if he had typed it.
+      if (cmd.pick === true || (typed.length === 0 && kept.length === 0)) {
+        const root = (await $.session.root().catch(() => undefined)) as string | undefined
+        const a = root === undefined ? undefined : await spool($, { op: 'pick', folder: root, ticked: kept }, me, PICK_WAIT_S)
+        if (a === undefined) return fail('pick-no-window')
+        if (!a.ok) return fail(PICK_CODES.includes(a.code) ? `pick-${a.code}` : 'pick-failed')
+        const real = await realPaths($, v, me, a.folders ?? [], CONDUCTOR_REPOS_MAX)
+        if (real === undefined) return fail('path')
+        chosen = real.slice(1)
+        if (chosen.length === 0) return fail('pick-failed')
+      }
+      const repos = chosen.length > 0 ? chosen : kept
+      if (chosen.length > 0 && !(await saveConductorRepos($, own, chosen))) return saved(false, '')
       const ok = await setRow($, v, me, own, (r) => ({ ...r, folder: own, lead: { repos, conductor: true } }))
       if (ok) await giveParentTools($, await getView($, true), me)
       return saved(ok, T['cmd.conductor']({ repos }))
