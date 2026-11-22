@@ -4,7 +4,7 @@ const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
-const { createGroups, groupsFor, managerOf, readHandovers, readManagerName, readSessionTable, COMMAND, ARCHIVE } = require('./groups.js')
+const { createGroups, groupsFor, managerOf, readHandovers, readManagerName, readSessionTable, COMMAND, ARCHIVE, UNFILE } = require('./groups.js')
 
 const S = (n) => `${String(n).padStart(8, '0')}-0000-4000-8000-000000000000`
 const A = '/w/a'
@@ -16,9 +16,9 @@ const row = (n, cwd, extra = {}) => ({ sessionId: S(n), cwd, entrypoint: 'claude
 // rows as they are. `done` is the stored record; `manager` the manager-name file's line (an Error: a file that cannot be read); `incomplete` marks the registry read as one with doubt in it.
 // `startOf` is `ps`: by default each pid starts when its row says, so a row whose pid answers is its own process.
 // `seen` is the stored record of lanes seen running, `seenLeads` that of conductor-made leads; `archived` records every call of the archive command (group, ids), which `archiveFails` makes throw; it answers the ids it was given, or what `archiveAnswers` says.
-function world({ commands = [COMMAND], rows = [], lanes = [], leads = [], table: extra = {}, folders = [A], done = {}, seen = [], seenLeads = [], manager = null, incomplete = false, failing = false, failOn = 0, failSid, refuse = [], loadError = false, missingTable = false, archiveFails = false, archiveAnswers, handed = null, handedDone = [], alive = () => true, startOf = async (pid) => rows.find((r) => r.pid === pid)?.procStart } = {}) {
+function world({ commands = [COMMAND], rows = [], lanes = [], leads = [], table: extra = {}, folders = [A], done = {}, seen = [], seenLeads = [], manager = null, incomplete = false, failing = false, failOn = 0, failSid, refuse = [], loadError = false, missingTable = false, archiveFails = false, archiveAnswers, unfileAnswer = true, unfileFails = false, handed = null, handedDone = [], alive = () => true, startOf = async (pid) => rows.find((r) => r.pid === pid)?.procStart } = {}) {
   const table = { ...Object.fromEntries(lanes.map((l) => [l.sid, { name: 'L', folder: A, under: S(99) }])), ...Object.fromEntries(leads.map((l) => [l.sid, { name: 'D', folder: A, lead: { repos: [] } }])), ...extra }
-  const w = { calls: [], archived: [], store: { done, seen, seenLeads, handed: handedDone }, keys: new Set(), updates: 0, listed: 0, looked: 0, table }
+  const w = { calls: [], archived: [], unfiled: [], store: { done, seen, seenLeads, handed: handedDone }, keys: new Set(), updates: 0, listed: 0, looked: 0, table }
   const vscode = {
     commands: {
       getCommands: async () => { w.looked++; return commands },
@@ -27,6 +27,12 @@ function world({ commands = [COMMAND], rows = [], lanes = [], leads = [], table:
           if (archiveFails) throw new Error('boom')
           w.archived.push([sid, group])
           return archiveAnswers ? archiveAnswers(group) : group
+        }
+        if (cmd === UNFILE) {
+          assert.equal(order, undefined, 'the command takes the session and its group only')
+          if (unfileFails) throw new Error('boom')
+          w.unfiled.push([sid, group])
+          return unfileAnswer
         }
         assert.equal(cmd, COMMAND)
         assert.deepEqual(order, ['Manager', 'Conductor', 'Lead', 'Lanes'])
@@ -239,6 +245,76 @@ test('under the plugin the session table decides: a loose or off row is not file
   const w = world({ rows: [1, 2, 3, 4].map((n) => row(n, A)), table })
   await w.groups.tick()
   assert.deepEqual(w.calls, [[S(1), 'Lead'], [S(2), 'Lanes']])
+})
+
+// The unfile command, as the patch registers it: a session with a table row and no tier (lead off, off) is taken out of the group it was filed in.
+const UNF = [COMMAND, UNFILE]
+
+test('a typed lead that types lead off is taken out of Lead, once, and is filed again when it becomes a lead again', async () => {
+  const table = { [S(1)]: { name: 'D', folder: A, lead: { repos: [] } } }
+  const w = world({ commands: UNF, rows: [row(1, A)], table })
+  await w.groups.tick()
+  assert.deepEqual([w.calls, w.unfiled], [[[S(1), 'Lead']], []])
+  w.table[S(1)] = { name: 'D', folder: A }
+  await w.groups.tick()
+  assert.deepEqual([w.unfiled, w.store.done], [[[S(1), 'Lead']], {}])
+  await w.groups.tick()
+  assert.equal(w.unfiled.length, 1, 'taken out once')
+  w.table[S(1)] = { name: 'D', folder: A, lead: { repos: [] } }
+  await w.groups.tick()
+  assert.deepEqual([w.calls, w.store.done], [[[S(1), 'Lead'], [S(1), 'Lead']], { [S(1)]: 'Lead' }])
+})
+
+test('a lane that is turned off is taken out of Lanes and is filed again when it is turned on', async () => {
+  const w = world({ commands: UNF, rows: [row(1, A)], lanes: [{ sid: S(1) }] })
+  await w.groups.tick()
+  w.table[S(1)].off = true
+  await w.groups.tick()
+  assert.deepEqual([w.unfiled, w.store.done], [[[S(1), 'Lanes']], {}])
+  delete w.table[S(1)].off
+  await w.groups.tick()
+  assert.deepEqual(w.calls, [[S(1), 'Lanes'], [S(1), 'Lanes']])
+  assert.equal(w.unfiled.length, 1)
+})
+
+test('a minted lead that types lead off moves to Lanes and is not taken out of anything', async () => {
+  const table = { [S(1)]: { name: 'D', folder: A, under: S(99), lead: { repos: [], minted: true } } }
+  const w = world({ commands: UNF, rows: [row(1, A)], table })
+  await w.groups.tick()
+  delete w.table[S(1)].lead
+  await w.groups.tick()
+  assert.deepEqual([w.calls, w.unfiled, w.store.done], [[[S(1), 'Lead'], [S(1), 'Lanes']], [], { [S(1)]: 'Lanes' }])
+})
+
+test('a session with no row at all (a retired lane) is not taken out: the archive path has it', async () => {
+  const rows = [row(1, A)]
+  const w = world({ commands: UNF, rows, lanes: [{ sid: S(1) }] })
+  await w.groups.tick()
+  retire(w, rows, S(1))
+  await w.groups.tick()
+  assert.deepEqual([w.unfiled, w.store.done], [[], {}])
+})
+
+test('an unfile that answers false or throws keeps the session in the record and is tried again at the next tick', async () => {
+  const w = world({ commands: UNF, rows: [row(1, A)], lanes: [{ sid: S(1) }], unfileAnswer: false })
+  await w.groups.tick()
+  w.table[S(1)].off = true
+  await w.groups.tick()
+  await w.groups.tick()
+  assert.deepEqual([w.unfiled, w.store.done], [[[S(1), 'Lanes'], [S(1), 'Lanes']], { [S(1)]: 'Lanes' }], 'false: kept, called again')
+  const t = world({ commands: UNF, rows: [row(1, A)], lanes: [{ sid: S(1) }], unfileFails: true })
+  await t.groups.tick()
+  t.table[S(1)].off = true
+  await assert.doesNotReject(t.groups.tick())
+  assert.deepEqual(t.store.done, { [S(1)]: 'Lanes' }, 'a throw: kept')
+})
+
+test('without the unfile command (a patch from before it) a session with no tier is left where it is and is forgotten, as before', async () => {
+  const w = world({ rows: [row(1, A)], lanes: [{ sid: S(1) }] })
+  await w.groups.tick()
+  w.table[S(1)].off = true
+  await w.groups.tick()
+  assert.deepEqual([w.unfiled, w.store.done], [[], {}])
 })
 
 // The archive command, as the patch registers it. A lane is archived only after the extension saw it with a table row and a live process in this window and

@@ -20,6 +20,8 @@
 // since the archive command takes only a session that sits there.
 // A session that handed itself over to a clear one (`/callboard handover`) is archived the same way whatever its tier (the typed lead, a conductor and the manager too): the plugin's
 // `handovers.json` names each old session with its group and folder. The ids archived are kept, so a session is never archived twice.
+// A session that still has a table row but no tier (`lead off` on a typed lead, or `off`) is taken out of the group it was filed in, through the patch's `callboard unfile session`,
+// and only out of that one, so a session the person moved by hand stays where it is. The record keeps it until the command answers true. `/callboard on` or `lead` files it again.
 const fs = require('node:fs')
 const { pidAlive } = require('./reserved.js')
 const { procStateWith } = require('./proc.js')
@@ -29,6 +31,7 @@ const DONE_KEY = 'callboard.groups.done'
 const SEEN_KEY = 'callboard.groups.seen'
 const HANDED_KEY = 'callboard.groups.handed'
 const ARCHIVE = 'callboard archive sessions'
+const UNFILE = 'callboard unfile session'
 const TICK_MS = 10000
 // A handover can still be undone for this long after it started (the plugin's own marker window).
 const UNDO_MS = 120000
@@ -100,6 +103,7 @@ function createGroups({ vscode, registry, state, loadTable, loadHandovers = asyn
   let busy = false
   let present = false
   let canArchive = false
+  let canUnfile = false
   let pending = new Set()
   const procState = procStateWith({ alive, startOf })
   // Claude keys its groups by the window's first folder; the records here are keyed the same way.
@@ -118,6 +122,7 @@ function createGroups({ vscode, registry, state, loadTable, loadHandovers = asyn
         const all = await vscode.commands.getCommands(true)
         present = all.includes(COMMAND)
         canArchive = all.includes(ARCHIVE)
+        canUnfile = all.includes(UNFILE)
       }
       if (!present) return
       const [loaded, list, name] = await Promise.all([loadTable(), registry.list(), managerName()])
@@ -138,10 +143,21 @@ function createGroups({ vscode, registry, state, loadTable, loadHandovers = asyn
           // One session that fails does not stop the others; it is tried again at the next tick.
         }
       }
-      // Only sessions still in a tier are remembered, so the record cannot outgrow them. The manager is in a tier only while it runs, so while no manager
-      // runs its entry is kept: a manager closed and resumed is not filed again.
+      // A session with a row and no tier is taken out of its group; it stays in the record until that has worked.
+      const leaving = new Set()
+      for (const [sid, group] of Object.entries(filed)) {
+        if (!canUnfile || want.has(sid) || !Object.hasOwn(table, sid)) continue
+        try {
+          if ((await vscode.commands.executeCommand(UNFILE, sid, group)) === true) continue
+        } catch {
+          // The session is taken out again at the next tick.
+        }
+        leaving.add(sid)
+      }
+      // Only sessions still in a tier (or still to be taken out of one) are remembered, so the record cannot outgrow them. The manager is in a tier only while it
+      // runs, so while no manager runs its entry is kept: a manager closed and resumed is not filed again.
       const managed = [...want.values()].includes('Manager')
-      const keep = Object.fromEntries(Object.entries(filed).filter(([sid, group]) => want.has(sid) || (!managed && group === 'Manager')))
+      const keep = Object.fromEntries(Object.entries(filed).filter(([sid, group]) => want.has(sid) || leaving.has(sid) || (!managed && group === 'Manager')))
       if (JSON.stringify(keep) !== JSON.stringify(was)) await state.update(keyOf(DONE_KEY), keep)
       if (canArchive && loaded) await archiveRetired({ want, table, rows, prior })
       if (canArchive && loaded) await archiveHanded({ table, rows, prior })
@@ -214,4 +230,4 @@ function createGroups({ vscode, registry, state, loadTable, loadHandovers = asyn
   return { tick, TICK_MS }
 }
 
-module.exports = { createGroups, groupsFor, managerOf, readHandovers, readManagerName, readSessionTable, COMMAND, ARCHIVE }
+module.exports = { createGroups, groupsFor, managerOf, readHandovers, readManagerName, readSessionTable, COMMAND, ARCHIVE, UNFILE }
