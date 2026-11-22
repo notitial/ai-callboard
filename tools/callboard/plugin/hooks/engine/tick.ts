@@ -17,13 +17,14 @@ import { markDone } from './ask-hook.ts'
 import { prClaim, prTick } from './pr.ts'
 import { presetRegister, presetTick } from './preset.ts'
 import { relayTick } from './relay.ts'
+import { remoteTick } from './remote.ts'
 import { askOpen, getView, listGoes, logAsk, readAsks, rmAsk, tidyAsks, tidyAskLogs, updateTable } from './store.ts'
 import { isSub, say } from './tools-any.ts'
 import { openAsks } from './tools-ask.ts'
 import { idle, keepaliveTick, midNudge, nudgeTick, requestTick, signedNow } from './upkeep.ts'
 import { usageDrop, usageFlush, usageSweep } from './usage.ts'
 
-// ---- what a session is given: the five tools every session has at its start, the thirteen when it holds a capability (and, once, from the tick or from `/callboard lead`) ----
+// ---- what a session is given: the five tools every session has at its start, the fourteen when it holds a capability (and, once, from the tick or from `/callboard lead`) ----
 async function registerTools($: any, group: 'any' | 'parent'): Promise<void> {
   for (const name of TOOLS) {
     const s = TOOL_SCHEMAS[name as ToolName]
@@ -185,6 +186,7 @@ async function tick($: any): Promise<void> {
     await step('toasts', async () => toasts($, v, me))
     await step('request', () => requestTick($, me))
     if (mem.submits === start) await step('cue', () => cueTick($, me, v, now))
+    await step('remote', () => remoteTick($, me, v, now))
     if (mem.submits === start) await step('nudge', () => nudgeTick($, me, v))
     if (mem.submits === start) await step('events', () => eventsTick($, me, v, now))
     await step('asks', () => sweepTick($, v, me, now))

@@ -1,19 +1,21 @@
 // `/callboard`, `/rest`, `/unattended`, the typeahead and the prompt composer. Trust rules held here: the one origin check is planCommand's, fed by originOf, and only his typed turn passes
-// it for a form that widens what a session may do (lead, conductor, off, on, go, go off, unattended on and off, config changes); a write that does not land is said, never reported as done; a path a
+// it for a form that widens what a session may do (lead, conductor, off, on, go, go off, unattended on and off, config changes, remote); a write that does not land is said, never reported as done; a path a
 // lead is given is resolved to its real path; the table is written under its lock.
 import type { Row, Sid, View } from '../core/model.ts'
-import { PERSON, capability, children, descendants, isConductor, isMinted, isOff, nameOf, parent, refusal } from '../core/model.ts'
+import { PERSON, capability, children, descendants, isConductor, isMinted, isOff, keysNamed, nameOf, parent, refusal } from '../core/model.ts'
 import type { Cmd, Origin } from '../core/commands.ts'
 import { configNext, parsePreset, planCommand } from '../core/commands.ts'
 import { GO_HOURS, covers } from '../core/go.ts'
 import { CONDUCTOR_REPOS_MAX, PICK_WAIT_S, childState } from '../core/lifecycle.ts'
 import type { StatusRow } from '../core/msg.ts'
+import { isLane, remoteRefusal } from '../core/remote.ts'
 import { T } from '../texts.ts'
 import type { LaneRow } from '../ui.ts'
 import { RULES_CAP, lanesTable, printed, stamp, statusPage } from '../ui.ts'
 import { spool } from './cue.ts'
 import { home, newId, readText, run, windowNow } from './io.ts'
 import { mem } from './mem.ts'
+import { setRemote } from './remote.ts'
 import { cfgNow, conductorRepos, getView, listGoes, readRules, rmGo, saveConductorRepos, updateTable, writeConfig, writeGo, writeWindow } from './store.ts'
 import { restSet, say } from './tools-any.ts'
 import { giveParentTools } from './tick.ts'
@@ -78,10 +80,18 @@ export async function perform($: any, cmd: Cmd, me: Sid, v: View, now: number, s
     case 'status': {
       const goes = (await listGoes($)).filter((g) => covers(g, me, v, now)).length
       const rows: StatusRow[] = [{ field: 'role', value: statusRole(v, me) }, { field: 'parent', value: person(v, parent(v, me)) }, { field: 'manager', value: person(v, v.manager) }, { field: 'off', value: isOff(v, me) }, { field: 'keepalive', value: (await cfgNow($)).keepalive }, { field: 'unattended', value: w.state === 'on' ? Math.max(1, Math.ceil((w.window.end - now) / 60_000)) : null }, { field: 'goes', value: goes }]
+      // A lane that gave up on its Remote Control wish says so; a wish changed since is not the one it gave up on.
+      if (mem.remote?.stopped !== undefined && isLane(v, me) && mem.remote.wish === (v.table[me]!.remote === true)) rows.push({ field: 'remote', value: { on: mem.remote.wish, code: mem.remote.stopped } })
       return statusPage(rows)
     }
     case 'lanes': return lanesTable(await laneRows($, v, me))
     case 'help': return help()
+    case 'remote': {
+      const keys = keysNamed(v, cmd.name)
+      const no = keys.length !== 1 ? (keys.length === 0 ? 'no-such-lane' : 'ambiguous') : remoteRefusal(v, keys[0]!)
+      if (no !== undefined) return say(refusal('refuse', no, { tool: 'callboard', target: cmd.name }))
+      return saved(await setRemote($, keys[0]!, cmd.on), T['cmd.remote']({ name: cmd.name, on: cmd.on }), 'lane')
+    }
     case 'rest': return saved(await restSet($, me, 'command'), T['cmd.rest']({}), 'rest')
     case 'lead': {
       const [own, ...repos] = (await realPaths($, cmd.paths)) ?? []

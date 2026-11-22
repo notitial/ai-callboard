@@ -50,7 +50,10 @@ function activate(context) {
   })
   // The conductor's tick list offers every folder of the window, patched or not: it only saves a list, and a lead is opened later through `windowFolders`.
   const pick = createPick({ vscode, windowFolders: allFolders })
-  context.subscriptions.push(createSpool({ dir: path.join(CLAUDE, 'callboard', 'v2', 'open'), lanes, workspaceFolders: windowFolders, timeoutMs: SPOOL_OPEN_MS, pick }).start())
+  context.subscriptions.push(createSpool({ dir: path.join(CLAUDE, 'callboard', 'v2', 'open'), lanes, workspaceFolders: windowFolders, timeoutMs: SPOOL_OPEN_MS, pick,
+    // The Claude extension's command from the remote piece of the patch; an unpatched install has none, which the spool answers as patch-missing.
+    remote: (sid, on) => vscode.commands.executeCommand('callboard remote session', sid, on),
+  }).start())
   try {
     // The Run button the Claude patch adds to shell code blocks calls this; it always asks in a modal first (run-block.js).
     const runBlock = createRunBlock({ vscode, spawn: require('node:child_process').spawn })

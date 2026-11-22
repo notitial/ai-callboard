@@ -113,6 +113,8 @@ export async function turnStart($: any, e: any, next: any) {
     if (t !== undefined) countDown(t)
     mem.turnKind = own === undefined || own.real ? undefined : t === say({ msg: 'keepalive', p: {} }) ? 'ping' : 'unreal'
     spendStarted(e.text, await $.clock.now())
+    // A panel's channel gets its session id with its first message, so a lane that found none asks again at a turn's start.
+    if (mem.remote?.stopped === 'no-channel') mem.remote = undefined
     if (mem.turnKind === undefined && typeof (await getUp($)).restAt === 'number') await patchUp($, (u) => ({ ...u, restAt: undefined }))
   }
   return next(e)

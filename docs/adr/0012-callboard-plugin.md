@@ -55,7 +55,7 @@ person. A parent that is compacting or inside a question is still live and still
 The manager is the one session found by registry name (a residual, in [ADR 0002](0002-callboard.md)).
 
 **Tools follow capability.** Five tools go to every session (`go_request`, `go_status`, `pr_watch`,
-`request_compact`, `rest`); the thirteen that open, stop and list children and answer asks go only to a lead or the
+`request_compact`, `rest`); the fourteen that open, stop and list children and answer asks go only to a lead or the
 manager, and each body checks the capability again. There is one cap on live children. A parent parks, resumes,
 retires and opens its children with no dialog; only a force stop of a live lane keeps one. A session compacts itself; a lead that
 wants a lane compacted says so in an ordinary message. A lead takes a loose session by name with one tool, and any
@@ -124,6 +124,23 @@ itself while the person was idle writes nothing and is put again. `answerAsk` re
 closed ask writes nothing and a toast says so. A keyed OS notification that names the asker (a plain name, else its
 id) and the tool, never the command, stands beside the open dialog and is taken back when it closes. This replaces the pop-up per question, the line under a stale pop-up
 and the out-of-date toast.
+
+*Amended 2026-11-22 (lane Remote Control).* Remote Control sends the person's phone a push for every ask of every
+connected session, so a lane starts with it off. The wish is the lane's table row (`remote`, off when absent), set by a
+lead's `lane_remote` (its own lanes: the same `mayActOn` gate as the other lane verbs) or by the person's typed
+`/callboard remote NAME on|off`; a lead, the manager and a session with no lane row have no wish and stay as the person
+set them. The lane itself reconciles: its 2-second tick reads its own registry row (`bridgeSessionId` is Remote Control
+on) and, on a mismatch, asks the window that holds its panel through the spool's `remote` op, which runs the `callboard
+remote session` command of the Claude Code patch (`patch-claude.py`, the `remote` piece) and toggles the panel's own
+channel. The window's answer decides what follows: `patch-missing` ends the asking until the wish changes, the other
+failures (`no-channel`, `busy`, `failed`, no answer) are tried five times, 30 seconds apart, and a lane that found no
+channel asks again at its next turn (a panel has its session id only after its first message). One log line says it
+gave up, and the lane's `/callboard status` has a Remote Control row. A chip click on a lane is overruled at the next
+tick; the typed command is the person's way. Rejected: `command.run('remote-control')`, which opens a dialog in the
+terminal client and is refused in a panel, and a settings edit (`remoteControlAtStartup` is global and read live, a
+per-repo file is a settings write, which callboard never does for the person). Turning it on exposes the lane to the
+person's own account only; the `remote` request carries a session id and a boolean and nothing else, and the same-uid
+bounds of the spool apply ([ADR 0002](0002-callboard.md)).
 
 *Amended 2026-11-22 (plain dialog text).* The tool shows no markdown, and the person may read the dialog on a phone, so
 every relay dialog is plain text with no code quotes or fences. Names are a plain session name, else the session id.

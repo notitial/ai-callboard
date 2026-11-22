@@ -1,4 +1,4 @@
-// The /callboard command: its thirteen forms, the settings schema, and the origin rule. Pure. Trust rule held here: a form that is not read-only (it widens what a session
+// The /callboard command: its fourteen forms, the settings schema, and the origin rule. Pure. Trust rule held here: a form that is not read-only (it widens what a session
 // may do, or changes a setting or a go or the window) runs only when the caller says it came from the person's own typed turn. The origin is an input: the adapter decides
 // it, and originOk below is the one place it is judged. Anything but exactly `typed` counts as not typed.
 import type { Config, Decision, LaneEffort, LaneModel } from './model.ts'
@@ -28,6 +28,7 @@ export type Cmd =
   | { op: 'go-off'; id?: string }
   | { op: 'unattended'; span: Extract<SpanOp, { op: 'state' | 'off' | 'on' }> }
   | { op: 'config'; config: ConfigOp }
+  | { op: 'remote'; name: string; on: boolean }
 // A form that does not parse: `detail` says a window length that does not fit; none is the usage line.
 export type Bad = { op: 'bad'; detail?: 'short' | 'long' }
 // The new settings after one change, or undefined when the idle level would pass the working one.
@@ -66,6 +67,7 @@ export function parseCommand(args: string, now: number): Cmd | Bad {
     const s = parseSpan(rest, now)
     return s.op === 'bad' ? bad : s.op === 'short' || s.op === 'long' ? { op: 'bad', detail: s.op } : { op: 'unattended', span: s }
   }
+  if (w === 'remote') return a.length === 2 && NAME_RE.test(a[0]!) && (a[1] === 'on' || a[1] === 'off') ? { op: 'remote', name: a[0]!, on: a[1] === 'on' } : bad
   const config = w === 'config' ? parseConfigArgs(a) : undefined
   return config === undefined ? bad : { op: 'config', config }
 }

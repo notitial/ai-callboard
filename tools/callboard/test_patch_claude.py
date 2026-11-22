@@ -531,9 +531,9 @@ class Groups(Case):
             self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "patched 2.1.328"))
             self.assertEqual(self.out.count("warning"), 0)
             marker = self.marker(ext)
-            self.assertEqual((marker["patch"], marker["width"], marker["pie"], marker["groups"], marker["archive"], marker["list"]), (1, True, True, True, True, True))
+            self.assertEqual((marker["patch"], marker["width"], marker["pie"], marker["groups"], marker["archive"], marker["remote"], marker["list"]), (1, True, True, True, True, True, True))
             new = self.js(ext)
-            self.assertEqual((new.count(b"callboard file session"), new.count(b"callboard archive sessions"), new.count(b"cbListOne(e){")), (1, 1, 1))
+            self.assertEqual((new.count(b"callboard file session"), new.count(b"callboard archive sessions"), new.count(b"callboard remote session"), new.count(b"cbListOne(e){")), (1, 1, 1, 1))
             self.assertEqual(new.count(b"cbCwd"), 6)
 
     def test_the_command_goes_in_front_of_the_stock_one_inside_its_push_call(self):
@@ -541,10 +541,11 @@ class Groups(Case):
         new = self.js(ext).decode("utf-8")
         i, j = new.index("Pe.commands.registerCommand(\"callboard file session\""), new.index("Pe.commands.registerCommand(\"claude-vscode.addSessionTabToGroup\"")
         self.assertLess(i, j)
-        self.assertEqual(new[i:j].count("registerCommand"), 2, "the group command, then the archive command")
+        self.assertEqual(new[i:j].count("registerCommand"), 3, "the group command, then the archive and the remote command")
         self.assertTrue(new[:i].endswith("x.push("))
         self.assertIn('Pe.commands.registerCommand("callboard archive sessions",async(', new[i:j])
-        self.assertTrue(new[i:j].endswith("return cbqD}),"))
+        self.assertIn('Pe.commands.registerCommand("callboard remote session",async(', new[i:j])
+        self.assertTrue(new[i:j].endswith('"ok":"failed"}),'))
 
     @unittest.skipUnless(shutil.which("node"), "needs node")
     def test_the_command_files_a_session_by_name_creates_a_missing_group_and_moves_a_grouped_session(self):
@@ -671,6 +672,9 @@ class Groups(Case):
             if marker["archive"]:
                 for member in (b"archiveSessions(", b"broadcastSessionArchiveChanged(", b"getArchivedSessionIds()"):
                     self.assertIn(member, raw, "%s: the members the archive command uses" % d)
+            if marker["remote"]:
+                for member in (b".allComms", b".channels", b"toggleRemoteControl(", b"remoteControlState"):
+                    self.assertIn(member, raw, "%s: the members the remote command uses" % d)
             if marker["list"]:
                 self.assertEqual(self.js(ext).count(b"async cbListOne("), 1, d)
             p = subprocess.run(["node", "--check", os.path.join(ext, "extension.js")], capture_output=True, text=True, timeout=120)
@@ -717,6 +721,33 @@ const start = JSON.parse(process.argv[2])
   vm.runInContext(code, ctx)
   const out = []
   for (const args of start.calls) { log.length = 0; out.push({ result: await H['callboard archive sessions'](...args), log: [...log] }) }
+  console.log(JSON.stringify(out))
+})()
+"""
+
+
+# Runs the patched stand-in's remote command against a fake provider whose comms objects hold channels, and prints each result and the toggles it made.
+REMOTE_RUNNER = r"""
+const vm = require('vm'), fs = require('fs')
+const code = fs.readFileSync(process.argv[1], 'utf8')
+const start = JSON.parse(process.argv[2])
+;(async () => {
+  const H = {}, log = []
+  const comms = start.comms.map((c) => {
+    const channels = new Map(c.map(([key, ch]) => [key, { sessionId: ch.sessionId, remoteControlState: ch.status === undefined ? undefined : { status: ch.status }, ...ch }]))
+    return { channels, toggleRemoteControl: async (key, on) => {
+      log.push([key, on])
+      const ch = channels.get(key)
+      if (ch.throws) throw new Error('boom')
+      if (!ch.stuck) ch.remoteControlState = { status: on ? 'connected' : 'disconnected' }
+    } }
+  })
+  const provider = { allComms: start.noComms ? undefined : comms, settings: { getSessionGroups: () => [], getArchivedSessionIds: () => [] }, persistGroupsFromHost: () => {}, addActiveSessionTabToGroup: async () => true, activePanelSessionId: () => 'sid' }
+  const fake = { workspace: {}, window: {}, commands: { registerCommand: (id, fn) => { H[id] = fn; return {} } } }
+  const ctx = vm.createContext({ x: [], Wp: () => {}, F: () => ({}), G: provider, Gq: provider, $e: fake, Pe: fake, require: () => fake })
+  vm.runInContext(code, ctx)
+  const out = []
+  for (const args of start.calls) { log.length = 0; out.push({ result: await H['callboard remote session'](...args), log: [...log] }) }
   console.log(JSON.stringify(out))
 })()
 """
@@ -789,11 +820,31 @@ class ListAndArchive(Case):
         self.assertEqual((r[0]["result"], r[0]["log"][0]), (["s0"], ["archive", ["s0"]]))
         self.assertEqual((r[1]["result"], r[1]["log"]), ([], []), "s0 is archived by now")
 
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_the_remote_command_turns_the_channel_of_the_session_on_or_off_and_says_what_it_found(self):
+        for variant in (V327, V328):
+            ext, marker = self.applied(variant=variant, name="remote%s" % variant["pv"])
+            self.assertTrue(marker["remote"])
+            comms = [[["k1", {"sessionId": "s1", "status": "disconnected"}], ["k2", {"sessionId": "s2", "status": "connected"}], ["k3", {"sessionId": None}]],
+                     [["k4", {"sessionId": "s4", "status": "connecting"}], ["k5", {"sessionId": "s5", "status": "disconnected", "throws": True}], ["k6", {"sessionId": "s6", "status": "disconnected", "stuck": True}]],
+                     [["k7", {"sessionId": "dup", "status": "disconnected"}]], [["k8", {"sessionId": "dup", "status": "disconnected"}]]]
+            calls = [["s1", True], ["s1", True], ["s2", False], ["s2", False], ["s1", False], ["nobody", True], [None, True], ["s1", "yes"], ["s1"], ["s4", True], ["s5", True], ["s6", True], ["dup", True]]
+            r = self.node(REMOTE_RUNNER, ext, {"comms": comms, "calls": calls})
+            self.assertEqual([x["result"] for x in r], ["ok", "ok", "ok", "ok", "ok", "no-channel", "bad-request", "bad-request", "bad-request", "busy", "failed", "failed", "ambiguous"])
+            self.assertEqual([x["log"] for x in r], [[["k1", True]], [], [["k2", False]], [], [["k1", False]], [], [], [], [], [], [["k5", True]], [["k6", True]], []],
+                             "a toggle only when the channel is not in the state asked for, and none for a bad argument, no channel, a connecting channel or two channels")
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_the_remote_command_asks_for_no_channel_when_the_provider_has_no_comms(self):
+        ext, _ = self.applied(name="nocomms")
+        r = self.node(REMOTE_RUNNER, ext, {"comms": [], "noComms": True, "calls": [["s1", True]]})
+        self.assertEqual(r[0]["result"], "no-channel")
+
     def test_a_missing_list_anchor_costs_only_the_list_and_a_missing_group_anchor_costs_only_the_two_commands_there(self):
         for label, raw, left, kept in (
-            ("renamed method", build(V327).replace(b"async listSdkSessions", b"async listSessionsFromSdk"), ("list", "session list"), ("groups", "archive")),
-            ("doubled method", build(V327).replace(b"function Act(", b"class Z{async listSdkSessions(e=this.sessionListOptions()){let t=gd();return t===void 0?await c$e(e):await RHe(e,void 0,t)}}function Act("), ("list", "session list"), ("groups", "archive")),
-            ("no group registration", build(V327, grp=""), ("groups", "group command", "archive"), ("list",)),
+            ("renamed method", build(V327).replace(b"async listSdkSessions", b"async listSessionsFromSdk"), ("list", "session list"), ("groups", "archive", "remote")),
+            ("doubled method", build(V327).replace(b"function Act(", b"class Z{async listSdkSessions(e=this.sessionListOptions()){let t=gd();return t===void 0?await c$e(e):await RHe(e,void 0,t)}}function Act("), ("list", "session list"), ("groups", "archive", "remote")),
+            ("no group registration", build(V327, grp=""), ("groups", "group command", "archive", "remote"), ("list",)),
         ):
             ext = self.make(V327, name="miss%d" % len(os.listdir(self.t)), raw=raw)
             self.run_script(ext, "--apply")
@@ -811,6 +862,8 @@ class ListAndArchive(Case):
         self.assertEqual(marker["list"], False)
         ext, marker = self.applied(raw=build(V327, grp=GROUP + 'x.push(Wp("callboard archive sessions",()=>1));'), name="havearch")
         self.assertEqual((marker["archive"], self.js(ext).count(b"callboard archive sessions")), (False, 1))
+        ext, marker = self.applied(raw=build(V327, grp=GROUP + 'x.push(Wp("callboard remote session",()=>1));'), name="haveremote")
+        self.assertEqual((marker["remote"], self.js(ext).count(b"callboard remote session")), (False, 1))
 
     def test_an_install_from_before_the_list_reads_outdated_and_update_brings_it_in(self):
         mod = load_module()

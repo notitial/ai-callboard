@@ -3,9 +3,10 @@
 // session carries is refused, never guessed; the core's gates (`verbPlan`, `mayCreate`, `mayAdopt`) decide, and a stop is decided again after the person's dialog and just before the signal;
 // a force stop of a live lane always opens the person's dialog (a row no live session carries is removed with none); a reply that makes or takes a lane names its lead.
 import type { Decision, LaneEffort, LaneModel, Row, Sid, StopVerb, View } from '../core/model.ts'
-import { LANE_EFFORTS, LANE_MODELS, MAX_LIVE_CHILDREN, capRefusal, capability, liveChildren, liveness, mayActOn, mayAdopt, mayCreate, nameOf, parent, refusal } from '../core/model.ts'
+import { LANE_EFFORTS, LANE_MODELS, MAX_LIVE_CHILDREN, capRefusal, capability, keysNamed, liveChildren, liveness, mayActOn, mayAdopt, mayCreate, nameOf, parent, refusal } from '../core/model.ts'
 import type { CueVerb } from '../core/model.ts'
 import { NEW_KEY, reportPath, verbPlan } from '../core/lifecycle.ts'
+import { remoteRefusal } from '../core/remote.ts'
 import type { Verb } from '../core/lifecycle.ts'
 import { cueReply } from '../core/lifecycle.ts'
 import type { RefuseCode } from '../core/msg.ts'
@@ -14,6 +15,7 @@ import { lanesTable, stopDialog } from '../ui.ts'
 import { laneRows } from './commands.ts'
 import { sendCue, spool, spoolSend } from './cue.ts'
 import { log, pause, personDialog, run, windowNow, writeFile } from './io.ts'
+import { setRemote } from './remote.ts'
 import { getView, updateTable } from './store.ts'
 import { signedNow } from './upkeep.ts'
 import { deny, isSub, say } from './tools-any.ts'
@@ -33,7 +35,7 @@ async function gate($: any, e: any, tool: string): Promise<Ctx | { deny: string 
 // The one session of this name among the live ones and the table's rows.
 function target(v: View, tool: string, lane: unknown): { key: Sid } | { deny: string } {
   const name = typeof lane === 'string' ? lane : ''
-  const keys = [...new Set([...(v.rows === 'unknown' ? [] : v.rows.keys()), ...Object.keys(v.table)])].filter((k) => name !== '' && nameOf(v, k) === name)
+  const keys = keysNamed(v, name)
   return keys.length === 1 ? { key: keys[0]! } : deny(refusal('refuse', keys.length === 0 ? 'no-such-lane' : 'ambiguous', { tool, target: name }))
 }
 async function planOf($: any, verb: Verb, v: View, me: Sid, key: Sid, name?: string) {
@@ -211,6 +213,20 @@ export async function laneAdoptCall($: any, e: any, _next: any) {
   if (!written || (await getView($, true)).table[a.ok]?.under !== me) return deny(refusal('refuse', 'not-loose', { tool, target: name }))
   await log($, me, 'lane-adopted', name)
   return { result: say({ msg: 'lane.adopted', p: { name, lead: nameOf(v, me) } }) }
+}
+// A lead's wish for one of its own lanes (the manager's for any lane under it): the row's `remote`, which the lane's own tick makes its panel match.
+export async function laneRemoteCall($: any, e: any, _next: any) {
+  const tool = 'lane_remote'
+  const g = await gated($, e, tool)
+  if ('deny' in g) return g
+  const { me, v, key } = g
+  const name = nameOf(v, key)
+  if (typeof e.on !== 'boolean') return deny(refusal('refuse', 'bad-input', { tool, target: name, detail: 'on' }))
+  const no = !mayActOn(v, me, key) ? 'not-a-parent' : remoteRefusal(v, key)
+  if (no !== undefined) return deny(refusal('refuse', no, { tool, target: name }))
+  if (!(await setRemote($, key, e.on))) return deny(refusal('refuse', 'table-unwritten', { tool, target: name }))
+  await log($, me, 'lane-remote', `${name}:${e.on ? 'on' : 'off'}`)
+  return { result: say({ msg: 'lane.remote', p: { name, on: e.on } }) }
 }
 export async function laneListCall($: any, e: any, _next: any) {
   const g = await gate($, e, 'lane_list')

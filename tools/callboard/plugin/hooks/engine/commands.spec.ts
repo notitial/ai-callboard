@@ -37,7 +37,7 @@ test('lead: the row gets the real folder and real repo paths, the lead tools are
   assert.match(r.text, /repo2/)
   const t = JSON.parse(f.h.files.get(`${V2}/sessions.json`)!)
   assert.deepEqual(t['sid-me'], { name: 'me', folder: '/w/me', lead: { repos: ['/w/repo2', `${HOME}/code`] } })
-  assert.equal(f.h.tools.filter((n) => n.startsWith('lane_')).length, 8 + 3)
+  assert.equal(f.h.tools.filter((n) => n.startsWith('lane_')).length, 9 + 3)
   assert.match((await run(f, 'lead /no/such/dir', 'composer')).text, /does not resolve to a real folder/)
   await run(f, 'lead /w/repo2', 'composer')
   assert.deepEqual(JSON.parse(f.h.files.get(`${V2}/sessions.json`)!)['sid-me'].lead.repos, ['/w/repo2', `${HOME}/code`])

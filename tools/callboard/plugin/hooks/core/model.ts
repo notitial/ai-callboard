@@ -20,7 +20,7 @@ export type CueVerb = (typeof CUE_VERBS)[number]
 export type StopVerb = (typeof STOP_VERBS)[number]
 export const TOOLS = [
   'lane_rename', 'lane_start', 'lane_resume', 'lane_park', 'lane_retire', 'lane_terminate', 'lane_unpark', 'lane_list',
-  'lane_create', 'lane_open', 'lane_adopt',
+  'lane_create', 'lane_open', 'lane_adopt', 'lane_remote',
   'prompt_list', 'prompt_answer',
   'go_request', 'go_status', 'pr_watch', 'request_compact', 'rest',
 ] as const
@@ -41,6 +41,8 @@ export type RegistryRow = {
   statusAt?: number
   waitingFor?: string | null
   kind?: string
+  // Remote Control is on for the session: the registry row holds a bridge session id.
+  bridge?: boolean
 }
 // The registry read: the rows whose pid and start time `ps` confirmed, or `unknown` (a changing file, too many files, a `ps` that cannot be trusted, no row of its
 // own, a stale group, a cut `ps` confirm). A list with doubt in it is not a list.
@@ -61,6 +63,8 @@ export type Row = {
   goneAt?: number
   model?: LaneModel
   effort?: LaneEffort
+  // The Remote Control wish of a lane (core/remote.ts): on when set, off when not. The lane's own tick makes its panel match.
+  remote?: true
 }
 export type Table = { [key: string]: Row }
 
@@ -120,7 +124,8 @@ export type CueResult = { id: string; outcome: 'ok' | 'refused' | 'held'; code?:
 // ---- the window's spool (the extension's requests) ----
 // One JSON file `v2/open/<id>.req` per request (written as a dot-file and renamed, a fresh random id, the folder as VS Code names the window's first folder), answered in `<id>.result`. A close names the session's name: the window finds the panel's tab by it.
 // A `pick` asks the window that holds the conductor's `folder` for its tick list, with the repos saved for that folder ticked; its answer's `folders` are what the person ticked.
-export type SpoolRequest = { op: 'open'; folder: Folder } | { op: 'reopen'; sid: Sid; folder: Folder } | { op: 'close'; sid: Sid; pid: number; name: string; folder: Folder } | { op: 'pick'; folder: Folder; ticked: string[] }
+// A `remote` asks the window to turn Remote Control of the panel that holds session `sid` on or off.
+export type SpoolRequest = { op: 'open'; folder: Folder } | { op: 'reopen'; sid: Sid; folder: Folder } | { op: 'close'; sid: Sid; pid: number; name: string; folder: Folder } | { op: 'pick'; folder: Folder; ticked: string[] } | { op: 'remote'; sid: Sid; on: boolean; folder: Folder }
 export type SpoolReply = { ok: true; sid?: Sid; folders?: string[] } | { ok: false; code: string }
 
 // ---- goes, the unattended window, the settings ----
@@ -213,6 +218,8 @@ export function chain(v: View, s: Sid): { up: Sid[]; top: Person | 'unknown' } {
 export const ancestors = (v: View, s: Sid): Sid[] => chain(v, s).up
 // Every session the view knows: live rows and table keys (a parked, gone or not yet opened row has no live row).
 const known = (v: View): Sid[] => [...new Set([...(v.rows === 'unknown' ? [] : v.rows.keys()), ...Object.keys(v.table)])]
+// The sessions and rows that carry a name: a name more than one carries is not one session.
+export const keysNamed = (v: View, name: string): Sid[] => (name === '' ? [] : known(v).filter((k) => nameOf(v, k) === name))
 export const children = (v: View, p: Sid): Sid[] => known(v).filter((s) => parent(v, s) === p)
 export function descendants(v: View, p: Sid): Sid[] {
   const out: Sid[] = []
