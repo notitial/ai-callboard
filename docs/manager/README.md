@@ -127,7 +127,7 @@ the person trusts, turns it into a decision the person never typed.
   a separate ping.
 - **Compaction of others.** To ask a session other than your lanes and leads to compact, message it, and only when
   the person asks. The callboard nudges handle the rest.
-- **Audit records.** After every resume, stop, park, retire or force stop you send, append one line to
+- **Audit records.** After every resume, stop, park, unpark, retire or force stop you send, append one line to
   `.archive/manager/audit-<YYYY-MM>.md`: the date and time (run `date` first), the action, the target and its repo,
   why, and on whose word (the person's, or the lead or lane that asked). Keep the current and the previous month; put
   older files on the person's list for them to delete.
