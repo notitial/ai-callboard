@@ -397,6 +397,21 @@ A repo can be saved before the window lists it, but a lead opens only in a folde
 Each lead it makes needs a window that answers for its folder: open the conductor's windows as one multi-folder
 VS Code window that lists each repo folder exactly as the real path, with the patch described under "one multi-folder
 window" above applied.
+
+The conductor can write that window's workspace file for you. Ask it, with a name for the file, the repos, and the
+launcher you open VS Code with when it is not plain `code`. It writes `.archive/NAME.code-workspace` in its own folder
+(git ignores `.archive/`): a folder list only, the conductor's folder first, each folder by its real path, with no
+settings block. It never overwrites a file that is there; it shows it and asks. Then it hands you one line to run, and
+you open the window yourself:
+
+```
+code '/Users/x/code/conductor-repo/.archive/NAME.code-workspace'
+```
+
+The conductor's folder comes first because Claude Code keeps the session list and its groups under the window's
+first folder. A workspace file is a folder list a session writes on your ask, not a settings file: callboard itself
+writes none and edits no setting.
+
 A window on a second Claude account works the same when it shares `~/.claude` (the same macOS login); callboard
 reads only that folder. Check live, once: the second window's session shows in `/callboard lanes` of the conductor
 after it opens, and a lead it makes there opens in its repo's folder within 30 seconds (else `lane_open` says the

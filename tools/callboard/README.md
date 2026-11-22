@@ -36,7 +36,8 @@ parent and a capability: none, lead or manager.
   unless Claude Code carries the patch); with no such window the command says so after 30 seconds. Or type the paths (at
   most 16). Either way callboard saves the list for that folder (`v2/conductors.json`), a later `/callboard conductor`
   there asks nothing, and `/callboard conductor pick` shows the list again with the saved repos ticked. A lead opens
-  only in a folder the window lists, so a saved repo outside the window waits until the window lists it. A lead it makes acts only in its own
+  only in a folder the window lists, so a saved repo outside the window waits until the window lists it; on your ask the conductor writes a workspace file
+  that lists them and hands you the line that opens it (docs/setup.md). A lead it makes acts only in its own
   folder, cannot make leads, and asks the conductor for a go. The conductor and everything under it count 8 live
   children per parent, leads and lanes together. [ADR 0013](../../docs/adr/0013-conductor.md).
 - **Lead preset.** A folder may hold `.claude/callboard-lead.json`, `{ "command", "name", "model", "effort" }`, for
