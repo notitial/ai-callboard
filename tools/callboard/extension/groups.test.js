@@ -18,7 +18,7 @@ const row = (n, cwd, extra = {}) => ({ sessionId: S(n), cwd, entrypoint: 'claude
 // `seen` is the stored record of lanes seen running; `archived` records every call of the archive command (group, ids), which `archiveFails` makes throw.
 function world({ commands = [COMMAND], rows = [], lanes = [], leads = [], table: extra = {}, folders = [A], done = {}, seen = [], manager = null, incomplete = false, failing = false, failOn = 0, failSid, refuse = [], loadError = false, missingTable = false, archiveFails = false, alive = () => true, startOf = async (pid) => rows.find((r) => r.pid === pid)?.procStart } = {}) {
   const table = { ...Object.fromEntries(lanes.map((l) => [l.sid, { name: 'L', folder: A, under: S(99) }])), ...Object.fromEntries(leads.map((l) => [l.sid, { name: 'D', folder: A, lead: { repos: [] } }])), ...extra }
-  const w = { calls: [], archived: [], store: { done, seen }, updates: 0, listed: 0, looked: 0, table }
+  const w = { calls: [], archived: [], store: { done, seen }, keys: new Set(), updates: 0, listed: 0, looked: 0, table }
   const vscode = {
     commands: {
       getCommands: async () => { w.looked++; return commands },
@@ -37,7 +37,9 @@ function world({ commands = [COMMAND], rows = [], lanes = [], leads = [], table:
     },
   }
   const keys = { 'callboard.groups.done': 'done', 'callboard.groups.seen': 'seen' }
-  const state = { get: (k, d) => (keys[k] ? w.store[keys[k]] : d), update: async (k, v) => { assert.ok(keys[k]); w.store[keys[k]] = v; if (keys[k] === 'done') w.updates++ } }
+  // Both records are keyed by the window's first folder. Another key throws inside the tick, which is silent, so that tick files and stores nothing; `keys` holds the keys used.
+  const part = (k) => { const at = k.lastIndexOf(':'); assert.equal(k.slice(at + 1), folders[0] ?? ''); assert.ok(keys[k.slice(0, at)], k); w.keys.add(k); return keys[k.slice(0, at)] }
+  const state = { get: (k) => w.store[part(k)], update: async (k, v) => { w.store[part(k)] = v; if (part(k) === 'done') w.updates++ } }
   const registry = { list: async () => { w.listed++; return Object.defineProperty([...rows], 'complete', { value: !incomplete }) } }
   w.groups = createGroups({ vscode, registry, state, loadTable: async () => { if (loadError || w.doubt) throw new Error('bad table'); return missingTable ? null : table }, managerName: async () => { if (manager instanceof Error) throw manager; return manager }, workspaceFolders: () => folders, alive, startOf })
   return w
@@ -166,6 +168,13 @@ test('a patched window with several folders serves a session in any of them', as
   const w = world({ rows: [row(1, B)], lanes: [{ sid: S(1) }], folders: [A, B] })
   await w.groups.tick()
   assert.deepEqual(w.calls, [[S(1), 'Lanes']])
+})
+
+test('both records are kept under the window\'s first folder, as Claude keeps its groups', async () => {
+  const w = world({ commands: [COMMAND, ARCHIVE], rows: [row(1, A)], lanes: [{ sid: S(1) }], folders: [B, A] })
+  await w.groups.tick()
+  assert.deepEqual([...w.keys].sort(), [`callboard.groups.done:${B}`, `callboard.groups.seen:${B}`])
+  assert.deepEqual([w.store.done, w.store.seen], [{ [S(1)]: 'Lanes' }, [S(1)]])
 })
 
 test('without the command (an unpatched Claude Code, or one with only `callboard assign group`) nothing is read, called or stored', async () => {

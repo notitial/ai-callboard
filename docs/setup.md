@@ -207,25 +207,6 @@ EXT_DIR="$(ls -d "$HOME"/.vscode/extensions/anthropic.claude-code-* | sort -V | 
   file beside it. Without the patch, open one VS Code window per repo and use callboard as before. If a patched open
   does not bring up its panel, it fails as the usual open timeout, once.
 
-### Optional: the lane view
-
-The panels extension adds a tree, Callboard Lanes, in Claude Code's Session Manager below its session list (when that
-list is on; otherwise at the bottom of the Explorer): one row per callboard session in this window's folders that the
-plugin's session table knows, with its folder and state (live, working, waiting, parked, closed,
-gone), a lane under the lead that owns it. A click reopens the session in its own folder, so a parked or closed lane
-comes back with its conversation. With the patch above every folder of the window is listed; without it, only its first
-folder, the one a panel can open in. Below the lanes, one group
-per window folder lists its newest saved chats, and a click opens one the same way. The view reads names and times only
-and refreshes every 3 seconds while it is visible. Nothing is needed for it beyond the extension, and a session marked
-off is left out.
-
-VS Code caches the extension's manifest, and the view is declared in it. After an update that changes the manifest, quit
-VS Code (Cmd+Q), fast-forward the checkout ([Updating](#updating)), run this in a plain Terminal, then reopen VS Code:
-
-```
-/usr/bin/python3 -I <checkout>/tools/callboard/link-extension.py --apply
-```
-
 ### Load it in every session
 
 Add this line to the `env` block of `~/.claude/settings.json`, with `<checkout>` written as an absolute path:
@@ -389,8 +370,6 @@ Create a lane named TESTLANE in this folder with the brief "Write hello as the f
 ```
 /callboard on
 ```
-
-If the lane view is installed (see above), step 6 shows the lane in Callboard Lanes with its lead and its state.
 
 ### Optional: a conductor across repos
 

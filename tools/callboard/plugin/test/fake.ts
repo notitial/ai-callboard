@@ -21,9 +21,13 @@ export function fake(o: { sid?: string } = {}) {
     runs: [] as { argv: string[]; env?: Record<string, string> }[],
     submitted: [] as string[],
     toasts: [] as string[],
-    notices: [] as [string, string][],
+    notified: [] as [string, string][],
+    unnotified: [] as string[],
     asked: [] as { question: string; options: string[]; header: string }[],
     askAnswer: (() => Promise.resolve('Yes')) as (q: string) => Promise<unknown>,
+    calls: [] as { tool: string; input: any; signal?: AbortSignal }[],
+    // The plugin's own PermissionRequest hook, run on each AskUserQuestion it calls (set by a spec): the engine consults it before the dialog shows.
+    permission: undefined as undefined | ((e: any, next: any) => Promise<unknown>),
     sleepDone: false,
     sleepMoves: false,
     sleepFails: false,
@@ -118,6 +122,29 @@ export function fake(o: { sid?: string } = {}) {
     if (cmd === h.ghBin) return h.ghOut ?? bad
     return bad
   }
+  // The plugin's own tool call. An AskUserQuestion runs h.permission first (its deny refuses the call), then shows each question (h.asked) and resolves with h.askAnswer's answer
+  // to each: a label is that question's pick, an object is the call's whole result, and undefined (a dismissal) resolves `{ deny }`. An abort resolves `{ deny }` at once, as the
+  // engine does. Any other tool is refused.
+  const call = async (c: { tool: string; input: any }, o: { signal?: AbortSignal } = {}): Promise<unknown> => {
+    h.calls.push({ ...c, signal: o.signal })
+    if (c.tool !== 'AskUserQuestion') return { deny: 'no such tool' }
+    const signal = o.signal
+    const cut = { deny: 'cancelled by the plugin' }
+    if (signal?.aborted) return cut
+    const aborted = new Promise<unknown>((res) => signal?.addEventListener('abort', () => res(cut), { once: true }))
+    const shown = async (): Promise<unknown> => {
+      const next = Object.assign(async () => ({}), { origin: { plugin: 'callboard', tier: 'user' }, signal })
+      const r: any = h.permission === undefined ? undefined : await h.permission({ tool_name: c.tool, tool_input: c.input }, next)
+      if (r?.decision?.behavior === 'deny') return { deny: 'refused by a hook' }
+      const qs: { question: string; header: string; options: { label: string }[] }[] = c.input.questions
+      for (const q of qs) h.asked.push({ question: q.question, options: q.options.map((x) => x.label), header: q.header })
+      const got = await Promise.all(qs.map((q) => h.askAnswer(q.question)))
+      if (got.some((x) => x === undefined)) return { deny: 'dismissed' }
+      const whole = got.find((x) => typeof x === 'object')
+      return whole ?? { result: { questions: qs, answers: Object.fromEntries(qs.map((q, k) => [q.question, got[k]])) } }
+    }
+    return Promise.race([shown(), aborted])
+  }
   const $ = {
     clock: { now: async () => h.now, every: (_ms: number, f: () => unknown) => void (h.every = f), sleep: (_ms: number) => (h.sleepDone ? Promise.resolve() : new Promise<void>(() => undefined)) },
     env: { get: async (n: string) => (n === 'HOME' ? HOME : undefined) },
@@ -159,8 +186,8 @@ export function fake(o: { sid?: string } = {}) {
         setStatus('busy')
       },
     },
-    ui: { toast: async (t: string) => void h.toasts.push(t), notice: (tid: string, t: string) => void h.notices.push([tid, t]), ask: (q: string, o: { options: string[]; header: string }) => (h.asked.push({ question: q, options: o.options, header: o.header }), h.askAnswer(q)) },
-    agent: { list: async () => h.agents },
+    ui: { toast: async (t: string) => void h.toasts.push(t), notify: async (t: string, o: { key: string }) => void h.notified.push([o.key, t]), cancelNotify: async (key: string) => void h.unnotified.push(key), ask: (q: string, o: { options: string[]; header: string }) => (h.asked.push({ question: q, options: o.options, header: o.header }), h.askAnswer(q)) },
+    agent: { list: async () => h.agents, call },
     command: { register: async (c: { name: string }) => void h.commands.push(c.name), list: async () => h.listed, run: async (c: { command: string; args: string }) => {
       h.compactRuns.push(`${c.command} ${c.args}`)
       if (c.command === 'model') h.model = `claude-${c.args}-5-5`

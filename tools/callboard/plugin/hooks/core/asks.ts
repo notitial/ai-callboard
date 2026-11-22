@@ -17,7 +17,7 @@ export const awakeAdd = (awake: number, gapMs: number): number => awake + (Numbe
 
 export type StageIn = { ask: Ask; now: number; ups: readonly UpMark[]; v: View }
 // reach: how many sessions of the chain the ask has reached (0: hidden). toPerson: it has reached past the chain, so the person's click counts. relay: the manager's
-// pop-up may show it (personDialog opens none while unattended). top: what ends the chain, the person or unknown.
+// dialog may show it (relayTick raises none while unattended). top: what ends the chain, the person or unknown.
 export type Open = { open: true; reach: number; eligible: Sid[]; toPerson: boolean; relay: boolean; top: Person | 'unknown' }
 export type Stage = Open | ({ open: false } & Decision<'deny'>)
 
@@ -56,7 +56,7 @@ export function decide(a: Answer, ask: Ask, s: Open, v: View, liveInput: unknown
   if (ask.cut) return no('input-cut')
   const isQuestion = ask.tool === QUESTION_TOOL
   if (a.decision === 'allow') return isQuestion ? no('bad-input') : { act: 'allow', msg: 'ask.allowed', p: { ask: ask.id } }
-  // Several questions are answered by the person's pop-ups only, one pick for each; a session answers one question.
+  // Several questions are answered by the person's relay dialog only, one pick for each; a session answers one question.
   const picks = !isQuestion ? undefined : a.picks !== undefined ? (a.by === PERSON ? picksOf(liveInput, a.picks) : undefined) : a.option !== undefined ? [answerOf(liveInput, a.option)] : undefined
   return picks === undefined || picks.some((x) => x === undefined) ? no('bad-input') : { act: 'answer', by, picks: picks as { question: string; label: string }[] }
 }
@@ -141,6 +141,20 @@ export function answerOf(liveInput: unknown, option: number): { question: string
   const q = obj((obj(liveInput).questions as unknown[])[0])
   const l = labels(liveInput)[option - 1]
   return typeof l === 'string' ? { question: str(q.question), label: l.trim() } : undefined
+}
+// What the person picked in a dialog the relay put to them as an AskUserQuestion, read from that tool's result: one pick (1-based) for each question sent, when each answer is
+// exactly one of its question's labels; else what they typed or picked as a note (a free-text answer, several picks, a question left out). A dialog that closed by itself
+// (`afkTimeoutMs`) or holds no answer is none.
+export type Picked = { picks: number[] } | { note: string } | undefined
+export function readAnswers(sent: readonly { question: string; options: readonly { label: string }[] }[], result: unknown): Picked {
+  const r = obj(result)
+  if (r.afkTimeoutMs !== undefined) return undefined
+  const got = sent.map((q) => str(obj(r.answers)[q.question]))
+  const typed = str(r.response)
+  const picks = sent.map((q, k) => q.options.findIndex((o) => o.label === got[k]) + 1)
+  if (typed === '' && sent.length > 0 && picks.every((p) => p > 0)) return { picks }
+  const note = [...got, typed].filter((s) => s !== '').join('\n')
+  return note === '' ? undefined : { note }
 }
 
 // ---- redaction and capping: what a parent sees of the input. A copy of the toolkit's audit-logger.sh rules, best effort (that script says the same) ----

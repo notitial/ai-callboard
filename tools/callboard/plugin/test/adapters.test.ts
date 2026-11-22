@@ -1,5 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
-import { fake, MIN, T0 } from './fake'
+import { fake, MIN, peer, T0, tiers } from './fake'
+import { readAnswer, rmAsk, writeAsk, writeUp } from '../hooks/engine/store'
 
 // The engine beneath the plugin, answered by the in-memory fake: what the adapters call on `$` reaches the same fs, processes, state and session the engine specs use.
 function engine(on: any, f: ReturnType<typeof fake>) {
@@ -83,4 +84,39 @@ test('the ask tools are wired: a lead\'s prompt_list answers and go_status says 
   await start($)
   expect((await $.tool.call({ tool: 'mcp__callboard__prompt_list' } as any)).result).toContain('No asks are waiting')
   expect((await $.tool.call({ tool: 'mcp__callboard__go_status' } as any)).result).toContain('guard')
+})
+test('the relay puts an ask to the person as a call of its own in the manager\'s session, and the engine cuts that call once the ask closes elsewhere', async ($, on) => {
+  const f = tiers()
+  const boss = peer(f, 'sid-boss')
+  const id = 'aa11bb22cc'
+  await writeAsk(f.$, { id, asker: 'sid-me', t0: T0 - MIN, awake: MIN, tool: 'Bash', raisedBy: 'unknown', input: '{"command":"make"}', cut: false, beat: T0 })
+  await writeUp(f.$, id, 'sid-lead', 'escalated', T0)
+  await writeUp(f.$, id, 'sid-boss', 'escalated', T0)
+  const clock = engine(on, boss)
+  const calls: { e: any; signal?: AbortSignal }[] = []
+  on('agent.call', (_: any, e: any, next: any) => new Promise((done) => {
+    calls.push({ e, signal: next.signal })
+    next.signal?.addEventListener('abort', () => done({ deny: 'cut' }), { once: true })
+  }))
+  on('ui.notify', (_: any, e: any) => (boss.h.notified.push([e.key, e.text]), { value: { isSent: true } }))
+  on('ui.cancelNotify', (_: any, e: any) => (boss.h.unnotified.push(e.key), { value: { isSent: true } }))
+  await start($)
+  // The manager is told of the ask first, and its turn on that check-in runs before the relay finds it idle.
+  await clock.advance(2_000)
+  expect(boss.h.submitted.length).toBe(1)
+  await $.turn.start({ text: boss.h.submitted[0], turnId: 't1' } as any)
+  await $.turn.complete({ answer: 'ok', durationMs: 1, isAborted: false, turnId: 't1', reason: 'answer' } as any)
+  await clock.advance(4_000)
+  expect(calls.length).toBe(1)
+  expect(calls[0]!.e.tool).toBe('AskUserQuestion')
+  expect(calls[0]!.e.input.questions[0].options.map((o: { label: string }) => o.label)).toEqual(['Allow', 'Deny'])
+  expect(boss.h.notified).toEqual([[id, 'lane waits on you: Bash']])
+  await clock.advance(4_000)
+  expect(calls[0]!.signal?.aborted).toBe(false)
+  await rmAsk(f.$, id)
+  await clock.advance(4_000)
+  expect(calls[0]!.signal?.aborted).toBe(true)
+  expect(boss.h.unnotified).toEqual([id])
+  expect(await readAnswer(f.$, id)).toBeUndefined()
+  expect(calls.length).toBe(1)
 })

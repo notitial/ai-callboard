@@ -170,9 +170,10 @@ export type Fixed = {
   'dialog.relay.header': E
   'dialog.relay.question': { asker: string; tool: string; input: string; cut: boolean }
   'dialog.relay.note': { asker: string; tool: string; note: string }
-  'dialog.relay.step': { asker: string; i: number; n: number; header: string; question: string; options: string; cut: boolean }
+  'dialog.relay.asks': { asker: string; question: string } // an asker's own question, as the manager's session shows it
   'dialog.allow': E
   'dialog.show': E
+  'dialog.leave': E // the second option beside a lone Deny: it writes nothing
   'dialog.deny': E
   'dialog.yes': E
   'dialog.no': E
@@ -187,8 +188,7 @@ export type Fixed = {
   // Toasts.
   'toast.refused': { tool: string; code: RefuseCode }
   'toast.askClosed': E // a click on a relay pop-up whose ask is closed
-  'toast.askDecided': Names // the ask behind the open relay pop-up closed elsewhere
-  'notice.askDecided': E // the line under that pop-up, once its ask is seen closed
+  'notify.relay': { name: string; tool: string } // the OS notification beside a relayed ask's dialog, taken back when it closes
   'toast.askNoFile': AskRef // the ask file could not be written; the loop still holds the deadline
   'toast.askStuck': AskRef & Names // the sweep found an ask no process answers
   'toast.twoManagers': { a: string; b: string }

@@ -4,7 +4,7 @@
 import { capBytes } from './core/asks.ts'
 import type { Ask, Capability, Decision, Question, Sid, StopVerb } from './core/model.ts'
 import type { RefuseCode, StatusRow, UiColumn, UiState } from './core/msg.ts'
-import { escBlock, escCell, T } from './texts.ts'
+import { esc, escBlock, escCell, T } from './texts.ts'
 
 export const PRINT_CAP = 32 * 1024
 const two = (n: number): string => String(n).padStart(2, '0')
@@ -81,14 +81,14 @@ const yesNo = (): { label: string }[] => [{ label: T['dialog.yes']({}) }, { labe
 export const goDialog = (giver: string, text: string, end: string): DialogSpec => ({ header: T['dialog.go.header']({}), question: T['dialog.go.question']({ giver, text, end }), options: yesNo() })
 export const stopDialog = (name: string, verb: StopVerb): DialogSpec => ({ header: T['dialog.stop.header']({}), question: T['dialog.stop.question']({ name, verb }), options: yesNo() })
 // The relay pop-up: an input not shown whole (cut, or too large to print) gets Deny only, as `decide` refuses its allow. `cut` is that finding: the adapter stores it on the
-// ask, as it stores promptList's cutIds, so no other path allows the input. A question offers its own options (a click on one is that answer) in place of Allow.
-export function relayDialog(asker: string, tool: string, input: string, cut: boolean, q?: Question): DialogSpec & { cut: boolean } {
+// ask, as it stores promptList's cutIds, so no other path allows the input. A question not shown whole comes here with `cut` set; a whole one is mirrored (mirrorOf).
+export function relayDialog(asker: string, tool: string, input: string, cut: boolean): DialogSpec & { cut: boolean } {
   const p = printed(input, DIALOG_CAP)
   const whole = !cut && !p.cut
   return {
     header: T['dialog.relay.header']({}),
     question: T['dialog.relay.question']({ asker, tool, input: p.text, cut: !whole }),
-    options: [...(whole ? (q === undefined ? [{ label: T['dialog.allow']({}) }] : q.options.map((o) => ({ label: o.label }))) : []), { label: T['dialog.deny']({}) }],
+    options: [...(whole ? [{ label: T['dialog.allow']({}) }] : []), { label: T['dialog.deny']({}) }],
     cut: !whole,
   }
 }
@@ -100,18 +100,22 @@ export function relayNote(asker: string, tool: string, note: string, input: stri
   return { header: T['dialog.relay.header']({}), question: T['dialog.relay.note']({ asker, tool, note: printed(note, DIALOG_CAP).text }), options: [...(whole ? [{ label: T['dialog.allow']({}) }] : []), { label: T['dialog.show']({}) }, { label: T['dialog.deny']({}) }] }
 }
 
-// One question of a call (n of them), as a pop-up of its own with a Deny; the person's picks of several are sent together after the last. The buttons carry the labels, so the
-// numbered list is shown only when an option has a description to add. Text that has to be cut to fit leaves Deny only, as in relayDialog.
-export function relayStep(asker: string, q: Question, i: number, n: number): DialogSpec {
-  const raw = [q.header, q.question, q.options.some((x) => x.description) ? q.options.map((x, k) => `${k + 1}. ${x.label}${x.description ? ` - ${x.description}` : ''}`).join('\n') : '']
-  const [h, t, o] = raw.map((s) => capBytes(s, DIALOG_CAP).text)
-  // The pop-up escapes what it shows, so whole means the escaped text fits, as in relayDialog.
-  const cut = raw.some((s) => printed(s, DIALOG_CAP).cut)
-  return {
-    header: T['dialog.relay.header']({}),
-    question: T['dialog.relay.step']({ asker, i, n, header: h!, question: t!, options: o!, cut }),
-    options: [...(cut ? [] : q.options.map((x) => ({ label: x.label }))), { label: T['dialog.deny']({}) }],
-  }
+// ---- what the relay puts to the person: the input of an AskUserQuestion it calls in the manager's session (engine/relay.ts) ----
+export type AskQuestion = { question: string; header: string; options: { label: string; description: string }[]; multiSelect: false }
+const HEADER_MAX = 12
+// A pop-up as one question. The tool takes 2 to 4 options, so a lone Deny gets Leave it beside it, which writes nothing.
+export function askOf(spec: DialogSpec): AskQuestion[] {
+  const options = spec.options.length < 2 ? [...spec.options, { label: T['dialog.leave']({}) }] : spec.options
+  return [{ question: spec.question, header: spec.header, options: options.map((o) => ({ label: o.label, description: '' })), multiSelect: false }]
+}
+// The asker's own questions in one dialog, as the asker saw them: each question opens with the asker's name, and every text is escaped. A text whose escaped form is past what a
+// pop-up shows whole makes it undefined, and the ask then gets relayDialog's Deny only. The answer maps back by position, so the escaped labels need not match the asker's; it
+// is read by label and by question, so escaped labels of one question, or questions, that come out the same make it undefined too.
+export function mirrorOf(asker: string, qs: readonly Question[]): AskQuestion[] | undefined {
+  if (qs.some((q) => [q.header, q.question, ...q.options.flatMap((o) => [o.label, o.description ?? ''])].some((s) => printed(s, DIALOG_CAP).cut))) return undefined
+  const sent = qs.map((q): AskQuestion => ({ question: T['dialog.relay.asks']({ asker, question: q.question }), header: esc(q.header).slice(0, HEADER_MAX), options: q.options.map((o) => ({ label: esc(o.label), description: esc(o.description ?? '') })), multiSelect: false }))
+  const distinct = (xs: string[]) => new Set(xs).size === xs.length
+  return distinct(sent.map((q) => q.question)) && sent.every((q) => distinct(q.options.map((o) => o.label))) ? sent : undefined
 }
 
 // ---- the toast ----
