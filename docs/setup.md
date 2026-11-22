@@ -392,8 +392,9 @@ left for an agent to answer. Until the hook is in place:
    Callboard counts any `PreToolUse` entry of type `command` whose command contains `protected-paths-guard.sh` as the
    guard, with hooks not disabled. It does not judge the rest of the command or the entry, so keep the wrapper the toolkit
    writes: the bare link path lets a call through when the hook cannot start (an install from before the wrapper needs
-   `/setup-claude` again), and a `~` inside the quotes, an entry with `async`, `if` or `args`, a `timeout` under 10 or a
-   settings `env` that sets `HOME` weaken the hook without callboard noticing. An agent never edits settings.
+   `/setup-claude` again), and a `~` inside the quotes, an entry with `async`, `if` or `args`, a `timeout` under 10, a
+   settings `env` that sets `HOME` or a matcher that leaves out Edit, Write or Bash weaken the hook without callboard
+   noticing. An agent never edits settings.
 2. The hook protects a folder only when it holds a `.protected-checkout` file. The file is untracked, so only you
    make it. Run these once, with `<checkout>` your ai-manager checkout and `<toolkit>` your ai-toolkit checkout:
 
