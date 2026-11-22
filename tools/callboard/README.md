@@ -61,8 +61,8 @@ is the force stop and always asks you, and is refused while unattended mode is o
 3. The lanes work. When a lane waits on a permission prompt, the dialog is yours for the first 30 seconds; then its
    parent sees the ask and must allow, deny, answer or escalate it by its rubric. With no choice it reaches the
    manager at 5 minutes of awake time, and at 15 minutes an ask nobody answered is closed with a message that tells the
-   session not to ask again. Your click always wins. By day an ask that reaches you is a pop-up in the manager's
-   session, or you tell the manager in words (ADR 0012).
+   session not to ask again. Your click always wins. By day an ask that reaches you is a dialog in the manager's
+   session, closed again once the ask is decided elsewhere, or you tell the manager in words (ADR 0012).
 4. A session that waits on a pull request registers it with `pr_watch` and is told when checks finish, reviews arrive
    or the PR is mergeable, merged or closed. A merge is still yours.
 5. A big session is asked to compact before it loses its notes, and compacts itself (`request_compact`). A lead that
@@ -75,7 +75,7 @@ is the force stop and always asks you, and is refused while unattended mode is o
    a force push, a push to main or production, a delete outside the work, or the rest of the list `go_status`
    prints (ADR 0009). It counts only while the protected-paths guard is in place.
 8. Before you leave the Mac for hours, type `/callboard unattended 8h` (30 minutes to 14 hours, or a time such as
-   `17:30`). Nothing else changes except timing: no pop-up opens at you, `go_request` is refused, a subagent's
+   `17:30`). Nothing else changes except timing: no callboard dialog opens at you, `go_request` is refused, a subagent's
    dialog is denied with "run it yourself", and the manager closes at once, with a note that you are away, every
    ask it may not or cannot decide. Anything nobody answers is closed at 15 minutes. `/callboard unattended off`, typed
    by you, ends it ([ADR 0008](../../docs/adr/0008-unattended-mode.md), amended by ADR 0012).

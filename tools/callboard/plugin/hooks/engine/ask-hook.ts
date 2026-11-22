@@ -6,10 +6,9 @@ import { capability, isOff, parent } from '../core/model.ts'
 import type { CheckFacts } from '../core/asks.ts'
 import { QUESTION_TOOL, awakeAdd, classify, decide, inputText, questionView, questionsView, stage } from '../core/asks.ts'
 import { PRINT_CAP, printed } from '../ui.ts'
-import { T } from '../texts.ts'
 import { log, newId, pause, toast, windowNow } from './io.ts'
 import { mem } from './mem.ts'
-import { askOpen, askState, getView, guardOk, logAsk, offFile, readAnswer, readOwnRow, rmAnswer, rmAsk, writeAsk } from './store.ts'
+import { askState, getView, guardOk, logAsk, offFile, readAnswer, readOwnRow, rmAnswer, rmAsk, writeAsk } from './store.ts'
 import { isSub, say } from './tools-any.ts'
 
 const JOIN_TTL_MS = 60_000
@@ -29,9 +28,15 @@ const sorted = (_k: string, v: unknown): unknown => {
 const joinKey = (tool: string, input: unknown): string => `${tool}\n${JSON.stringify(input, sorted)}`
 const decided = (x: any): boolean => x?.decision !== undefined || x?.hookSpecificOutput?.decision !== undefined
 
+// The relay's own dialog in the manager's session (engine/relay.ts): the AskUserQuestion this plugin called there itself, known by its first question. It is no ask: the person
+// alone answers it, so both hooks pass it through untouched.
+const PLUGIN = 'callboard'
+const isProxy = (tool: unknown, input: any, next: any): boolean => tool === QUESTION_TOOL && next?.origin?.plugin === PLUGIN && mem.proxy?.first !== undefined && input?.questions?.[0]?.question === mem.proxy.first
+
 // tool.check only observes: it keeps what it saw for a call that is neither allowed nor denied (a dialog may follow), 60 s, and returns the engine's verdict unchanged, every time.
 export async function toolCheck($: any, e: any, next: any) {
   const r = await next(e)
+  if (isProxy(e.tool, e.input, next)) return r
   try {
     if (r?.decision !== 'allow' && r?.decision !== 'deny' && typeof e.tool_use_id === 'string' && !isSub(e)) {
       const key = joinKey(String(e.tool), e.input)
@@ -40,7 +45,6 @@ export async function toolCheck($: any, e: any, next: any) {
       const dup = old !== undefined && now - old.at <= JOIN_TTL_MS && old.toolUseId !== e.tool_use_id
       if (key.length <= JOIN_KEY_MAX) mem.checks.set(key, { toolUseId: e.tool_use_id, at: now, dup, approver: e.approver, facts: { decision: r?.decision, reason: r?.reason, rule: r?.rule, hook: r?.hook, setting: r?.setting, plugin: r?.plugin, ceiling: r?.ceiling } })
       for (const [k, c] of mem.checks) if (now - c.at > JOIN_TTL_MS || mem.checks.size > JOIN_MAX) mem.checks.delete(k)
-      if (mem.shown !== undefined && ownDialog(e.tool, e.input, e)) mem.shown.tid = e.tool_use_id
     }
   } catch {}
   return r
@@ -64,29 +68,18 @@ function ownDialog(tool: unknown, input: any, e: any): boolean {
   return tool === QUESTION_TOOL && !isSub(e) && Array.isArray(qs) && qs.length === 1 && mem.dialogs.has(`${qs[0]?.header}\n${qs[0]?.question}`)
 }
 
-// The relay pop-up stays beside this hook. Once its ask is decided or closed elsewhere the hook denies the dialog, which dismisses it: personDialog reads a dismissal and writes
-// nothing. relayTick also puts a line under the pop-up. Each step is logged by event name and ask id.
-async function closeWhenDecided($: any, me: Sid, e: any, signal: AbortSignal | undefined): Promise<unknown> {
-  const q = e.tool_input.questions[0]
-  const key = `${q.header}\n${q.question}`
-  const id = q.header === T['dialog.relay.header']({}) ? mem.shown?.id : undefined
-  if (id === undefined) return {}
-  const out = async (why: string, r: unknown = {}) => (await log($, me, 'relay-hook', `${why}:${id}`), r)
-  await log($, me, 'relay-hook', `start:${id}`)
-  for (let fails = 0; ; ) {
-    if (signal?.aborted) return out('aborted')
-    if (!mem.dialogs.has(key)) return out('dialog-gone')
-    if (!(await askOpen($, id))) return out('denied', { decision: { behavior: 'deny', message: say({ msg: 'toast.askClosed', p: {} }) } })
-    if (await pause($, POLL_MS)) fails = 0
-    else if (++fails >= PAUSE_FAILS_MAX) return out('gave-up')
-  }
-}
-
 export async function permissionRequest($: any, e: any, next: any) {
+  // The relay's dialog goes to the person unless a hook beneath decides it; the relay writes his dismissal as a deny only when it went to him.
+  if (isProxy(e.tool_name, e.tool_input, next)) {
+    const p = mem.proxy
+    const r = await next(e)
+    if (!decided(r) && p !== undefined) p.shown = true
+    return r
+  }
   const me = (await $.session.id()) as Sid
   const v = await getView($)
   if (isOff(v, me) || (await offFile($))) return next(e)
-  if (ownDialog(e.tool_name, e.tool_input, e)) return closeWhenDecided($, me, e, next.signal).catch(() => ({}))
+  if (ownDialog(e.tool_name, e.tool_input, e)) return {}
   if (isSub(e)) {
     // A subagent's dialog is shown only after the hooks return, so nothing can wait for it: the chain beneath, else a deny that sends the main agent to run the call itself, but only
     // where the main session's own ask could rise (a lead is above it, or a window is on and it rises to the manager).

@@ -77,8 +77,9 @@ const fresh = () => ({
   asks: undefined as { at: number; open: { ask: Ask; st: Open }[]; log: AskLogRow[] } | undefined,
   told: new Set<string>(),
   relayed: new Set<string>(),
-  // The ask whose relay pop-up is on screen, so the tick can say when it closed elsewhere; tid is the pop-up's call id once tool.check has seen it.
-  shown: undefined as { id: string; name: string; tid?: string; stale?: number } | undefined,
+  // The ask whose relay dialog is open: the controller that closes it, the first question it shows (how the ask hook knows it), whether the hook saw it go to the person, and
+  // whether it closed by itself while he was idle.
+  proxy: undefined as { id: string; ctrl: AbortController; first?: string; shown: boolean; idle?: boolean } | undefined,
   sweepAt: 0,
   tidyAt: 0,
   guard: undefined as { at: number; ok: boolean } | undefined,

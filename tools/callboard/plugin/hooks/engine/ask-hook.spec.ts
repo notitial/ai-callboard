@@ -80,6 +80,24 @@ test('a go dialog or a force-stop dialog open in the session is the person\'s al
     assert.deepEqual(await rows(f), [])
   }
 })
+test('the relay\'s own dialog in the manager\'s session passes both hooks untouched: never held, never an ask, and marked shown only when nothing beneath decided it', async () => {
+  const f = tiers()
+  const questions = [{ header: 'H', question: '`lane` asks: Which?', options: [{ label: 'A', description: '' }, { label: 'B', description: '' }], multiSelect: false }]
+  mem.proxy = { id: 'aa11bb22cc', ctrl: new AbortController(), first: questions[0]!.question, shown: false }
+  const own = (r: unknown, plugin = 'callboard') => Object.assign(async () => r, { origin: { plugin, tier: 'user' }, signal: undefined as AbortSignal | undefined })
+  const e = { tool_name: 'AskUserQuestion', tool_input: { questions }, tool_use_id: 't9' }
+  const refused = { decision: { behavior: 'deny', message: 'a hook beneath' } }
+  assert.deepEqual(await ask(f, e, own(refused)), refused)
+  assert.equal(mem.proxy.shown, false, 'a hook beneath decided it, so it never went to the person')
+  assert.deepEqual(await ask(f, e, own({})), {})
+  assert.equal(mem.proxy.shown, true)
+  assert.deepEqual(await rows(f), [])
+  await toolCheck(f.$, { tool: 'AskUserQuestion', input: { questions }, tool_use_id: 't9' }, own({ decision: 'ask' }))
+  assert.equal(mem.checks.size, 0, 'tool.check keeps nothing for it')
+  await toolCheck(f.$, { tool: 'AskUserQuestion', input: { questions }, tool_use_id: 't9' }, own({ decision: 'ask' }, 'other'))
+  assert.equal(mem.checks.size, 1, 'the same question from another plugin is an ordinary call')
+  mem.proxy = undefined
+})
 
 test('the lead escalates and the manager owns the ask from then on: the lead\'s own answer is refused, the manager\'s allow lands, and the log says who did what', async () => {
   const f = tiers()

@@ -73,14 +73,11 @@ test('text a session wrote reaches a text escaped and in quotes it cannot close'
   for (const out of [T['brief.parent']({ name: evil, sid: 's', repos: [evil] }), T['brief.child']({ name: evil, sid: 's', parent: evil, lead: true })]) assert.ok(!out.includes(String.fromCodePoint(0x202e)) && !out.includes('\nINJECT') && out.includes("`a'b"))
 })
 
-test('the relay step text: a counter and the closing line only for several questions, the list only when given, and the stale notice says a click writes nothing', () => {
+test('a relayed question names its asker and keeps its line breaks; it and the notification escape what a session wrote', () => {
   const evil = 'a<' + String.fromCodePoint(0x202e)
-  const one = T['dialog.relay.step']({ asker: evil, i: 1, n: 1, header: evil, question: evil, options: '', cut: false })
-  assert.equal(T['dialog.relay.step']({ asker: 'x', i: 1, n: 1, header: 'H', question: 'Q', options: '', cut: false }), '`x` asks H:\n\nQ')
-  assert.ok(!one.includes('<') && !one.includes(String.fromCodePoint(0x202e)))
-  const many = T['dialog.relay.step']({ asker: 'x', i: 2, n: 3, header: 'H', question: 'Q', options: '1. A - d', cut: true })
-  assert.equal(many, '`x` asks (2 of 3) H:\n\nQ\n\n1. A - d\n\n[NOT SHOWN WHOLE: you can only deny it]\n\nYour picks are sent together after the last one.')
-  assert.match(T['notice.askDecided']({}), /click here writes nothing/)
+  assert.equal(T['dialog.relay.asks']({ asker: 'x', question: 'Which?\nPick one.' }), '`x` asks: Which?\nPick one.')
+  for (const out of [T['dialog.relay.asks']({ asker: evil, question: evil }), T['notify.relay']({ name: evil, tool: evil })]) assert.ok(!out.includes('<') && !out.includes(String.fromCodePoint(0x202e)), out)
+  assert.equal(T['notify.relay']({ name: 'lane', tool: 'Bash' }), 'lane waits on you: Bash')
 })
 
 test('the go texts: a go is the person\'s click and never covers the listed actions', () => {

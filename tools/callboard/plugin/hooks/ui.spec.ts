@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { PRINT_CAP, goDialog, goList, lanesTable, printed, promptList, refusalToast, relayDialog, relayNote, relayStep, statusPage, stopDialog } from './ui.ts'
+import { PRINT_CAP, goDialog, goList, lanesTable, printed, promptList, askOf, mirrorOf, refusalToast, relayDialog, relayNote, statusPage, stopDialog } from './ui.ts'
 import type { AskView, LaneRow } from './ui.ts'
 import { refusal } from './core/model.ts'
 import type { Ask } from './core/model.ts'
@@ -104,27 +104,28 @@ test('a relay pop-up offers Allow only for an input a dialog shows whole: past a
   assert.deepEqual(d.options.map((o) => o.label), ['Deny'])
   assert.equal(d.cut, true)
 })
-test('a pop-up for one question of several offers its options only when it shows the whole text: a question past a few KB is Deny only', () => {
-  const q = (question: string) => ({ header: 'H', question, options: [{ label: 'A', description: 'd' }, { label: 'B', description: '' }] })
-  const whole = relayStep('lane-a', q('Which?'), 1, 2)
-  assert.deepEqual(whole.options.map((o) => o.label), ['A', 'B', 'Deny'])
-  assert.ok(!whole.question.includes('NOT SHOWN WHOLE'))
-  const cut = relayStep('lane-a', q('x'.repeat(5000)), 1, 2)
-  assert.deepEqual(cut.options.map((o) => o.label), ['Deny'])
-  assert.match(cut.question, /NOT SHOWN WHOLE/)
-  assert.deepEqual(relayStep('lane-a', q('<'.repeat(4000)), 1, 2).options.map((o) => o.label), ['Deny'], 'escaping grows the text past the cap')
-  assert.deepEqual(relayStep('lane-a', { header: 'H', question: 'Q', options: [{ label: 'A', description: 'y'.repeat(5000) }, { label: 'B', description: '' }] }, 1, 2).options.map((o) => o.label), ['Deny'], 'long option text is cut too')
+test('a relayed question is the asker\'s own, named and escaped, in one dialog; a text past a few KB is not mirrored', () => {
+  const q = (question: string, d = '') => ({ header: 'H', question, options: [{ label: 'A', description: d }, { label: 'B' }] })
+  assert.deepEqual(mirrorOf('lane-a', [q('Which?', 'why'), q('Where?')]), [
+    { question: '`lane-a` asks: Which?', header: 'H', options: [{ label: 'A', description: 'why' }, { label: 'B', description: '' }], multiSelect: false },
+    { question: '`lane-a` asks: Where?', header: 'H', options: [{ label: 'A', description: '' }, { label: 'B', description: '' }], multiSelect: false },
+  ])
+  const odd = mirrorOf('lane-a', [{ header: `H${RLO}<`, question: `Q<${RLO}`, options: [{ label: 'A<', description: '<' }, { label: 'B' }] }])!
+  assert.ok(!JSON.stringify(odd).includes('<') && !JSON.stringify(odd).includes(RLO))
+  assert.ok(odd[0]!.header.length <= 12, 'the tool takes a header of 12 characters at most')
+  assert.equal(mirrorOf('lane-a', [q('x'.repeat(5000))]), undefined)
+  assert.equal(mirrorOf('lane-a', [q('<'.repeat(4000))]), undefined, 'escaping grows the text past the cap')
+  assert.equal(mirrorOf('lane-a', [q('Q', 'y'.repeat(5000))]), undefined, 'long option text too')
+  const same = (labels: string[]) => ({ header: 'H', question: 'Q', options: labels.map((label) => ({ label })) })
+  assert.equal(mirrorOf('lane-a', [same(['a<', 'a\\u003c'])]), undefined, 'two labels that escape alike would map a pick to the wrong option')
+  assert.equal(mirrorOf('lane-a', [{ ...same(['A', 'B']), question: 'Q<' }, { ...same(['A', 'B']), question: 'Q\\u003c' }]), undefined, 'two questions that escape alike would share one answer')
 })
 
-test('a pop-up for a single question has no counter and no closing line, lists the options only when one has a description, and escapes what the session wrote', () => {
-  const q = (d: string) => ({ header: 'H', question: 'Which?', options: [{ label: 'A', description: d }, { label: 'B', description: '' }] })
-  const plain = relayStep('lane-a', q(''), 1, 1)
-  assert.equal(plain.question, '`lane-a` asks H:\n\nWhich?')
-  assert.deepEqual(plain.options.map((o) => o.label), ['A', 'B', 'Deny'])
-  assert.equal(relayStep('lane-a', q('why'), 1, 1).question, '`lane-a` asks H:\n\nWhich?\n\n1. A - why\n2. B')
-  assert.ok(relayStep('lane-a', q(''), 1, 2).question.includes('(1 of 2)') && relayStep('lane-a', q(''), 1, 2).question.includes('sent together'))
-  const odd = relayStep('lane-a', { header: `H${RLO}<`, question: `Q<${RLO}`, options: [{ label: 'A', description: '<' }] }, 1, 1).question
-  assert.ok(!odd.includes('<') && !odd.includes(RLO))
+test('a pop-up becomes one question of the tool; a lone Deny gets Leave it beside it, since the tool takes 2 to 4 options', () => {
+  const [one] = askOf(relayDialog('lane-a', 'Bash', '{"command":"make"}', false))
+  assert.deepEqual([one!.header, one!.options.map((o) => o.label), one!.multiSelect], ['Your call', ['Allow', 'Deny'], false])
+  assert.deepEqual(askOf(relayDialog('lane-a', 'Bash', 'x', true))[0]!.options.map((o) => o.label), ['Deny', 'Leave it'])
+  assert.deepEqual(askOf(relayNote('lane-a', 'Bash', 'note', 'x'))[0]!.options.map((o) => o.label), ['Allow', 'Show the command', 'Deny'])
 })
 
 test('the go and relay pop-ups fit their header chip and read plainly: the go names its giver, end and work and points to go_status; the relay shows the input one field a line in a block it cannot close', () => {
