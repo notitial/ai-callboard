@@ -274,7 +274,7 @@ touch ~/.claude/callboard/manager-rules.md
 
 The plugin (`<checkout>/tools/callboard/plugin`, [ADR 0012](adr/0012-callboard-plugin.md)) is the only callboard build.
 A Mac whose `CLAUDE_CODE_PLUGIN_DIRS` still names an earlier build (`/usr/local/libexec/callboard/mod` or
-`<checkout>/tools/callboard/mod`, neither of which exists any more) loads no callboard: replace that one entry by hand
+`<checkout>/tools/callboard/mod`; the checkout holds no `mod` folder) loads no callboard: replace that one entry by hand
 with `<checkout>/tools/callboard/plugin`, and never list two callboard folders, because the second one does not load.
 Remove an earlier root-owned install too (`sudo rm -rf /usr/local/libexec/callboard`). Then restart every session, VS
 Code windows included: a reload is not enough, because the plugin list is read when a session starts, and a
