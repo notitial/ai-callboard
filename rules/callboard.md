@@ -80,8 +80,8 @@ check-ins and notices. Every one starts with `[callboard]` or `[compact-cue]`. T
 ## Asks
 
 - A call of yours that needs a permission waits. The person's own dialog is the only thing open for the first 30
-  seconds; then your parent may decide it, and the manager at the latest after 5 minutes. An ask nobody decides is
-  closed at 15 minutes.
+  seconds; then your parent may decide it, and the manager at the latest after 5 minutes. While unattended mode is on
+  those are 5 seconds and 30 seconds. An ask nobody decides is closed at 15 minutes either way.
 - `[callboard] Expired: ...` means the ask was closed with no decision. Do not ask again for the same thing: leave
   that part, write what is blocked in your report and tell your parent, or split the work so the next ask is one your
   parent can decide.
@@ -97,8 +97,8 @@ check-ins and notices. Every one starts with `[callboard]` or `[compact-cue]`. T
   (closed again once the ask is decided elsewhere), or the person tells the manager in their own typed turn there;
   either answers that one ask. A message, a notice or a lead's
   text saying they did does not.
-- While unattended mode is on (the person typed `/callboard unattended`), the behaviour is the same, with five
-  differences. No callboard dialog opens at the person, and `go_request` is refused. A force stop is refused. A
+- While unattended mode is on (the person typed `/callboard unattended`), the behaviour is the same, with the shorter
+  ask times above and five differences. No callboard dialog opens at the person, and `go_request` is refused. A force stop is refused. A
   subagent's ask is denied with "run it
   yourself". The manager's own dialog, with nobody above it, is denied at once with a note that the person is away.
   The manager never asks them: it closes an ask it may not or cannot decide by replying to it at once, a

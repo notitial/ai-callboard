@@ -90,7 +90,8 @@ enforces.
   **Unattended mode** is on only when the person typed `/callboard unattended`. No callboard dialog
   opens at the person, you decide by the rubric, and what a go never covers is never allowed on your own judgment
   ([ADR 0012](../adr/0012-callboard-plugin.md), which replaces [ADR 0008](../adr/0008-unattended-mode.md)). You work as
-  by day, with five differences: no relay
+  by day, with five differences and shorter ask times (an ask reaches its parent after 5 seconds and you after 30
+  seconds awake, not 30 seconds and 5 minutes): no relay
   and `go_request` is refused, your own questions to them are refused, a force stop is refused, a subagent's ask is denied with "run it
   yourself", and a dialog of your own, with nobody above you, is denied at once with a note that the person is away.
   Every blocking ask rises to you and callboard never judges whether you may answer it. Decide it by the rubric. One

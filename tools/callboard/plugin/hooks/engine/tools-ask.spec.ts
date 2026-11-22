@@ -38,6 +38,14 @@ test('prompt_list: the manager gets its rules file first, a lead only its asks, 
   mem.view = undefined
   assert.match((await call(lead, promptListCall)).deny!, /off/)
 })
+test('prompt_list: an unattended window brings the manager in at 30 s awake instead of 5 minutes', async () => {
+  const { f, boss, put } = world()
+  await put()
+  assert.doesNotMatch((await call(boss, promptListCall)).result ?? '', /Ask ab12cd34ef/)
+  f.h.files.set(`${V2}/unattended.json`, JSON.stringify({ start: T0, end: T0 + 60 * MIN, readAt: T0 }))
+  mem.win = undefined
+  assert.match((await call(boss, promptListCall)).result!, /Ask ab12cd34ef/)
+})
 test('prompt_answer: the author is the caller\'s own id whatever the input says, and the first answer wins', async () => {
   const { f, lead, boss, put } = world()
   await put()

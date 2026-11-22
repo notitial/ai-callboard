@@ -46,7 +46,7 @@ folder. A chain is lane, lead, conductor, manager.
 - A parent holds at most the same number of live children as any lead, leads and lanes together; there is no separate
   lead cap.
 - An ask goes lane, lead, conductor, manager by the generic staging of 0012: the lead first, the conductor when the lead
-  passes it up or with the manager after five minutes. A conductor is told of an ask under it once it reaches it, and of every expired ask under it.
+  passes it up or with the manager after five minutes (30 seconds while unattended, [ADR 0012](0012-callboard-plugin.md)). A conductor is told of an ask under it once it reaches it, and of every expired ask under it.
 - A go the person clicks in the conductor's own dialog covers the conductor and everything under it, the leads it makes
   later included, because a go covers the sessions under its giver. A minted lead does not request one: its dialog is
   not where the person looks, so it asks its conductor.

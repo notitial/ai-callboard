@@ -7,6 +7,9 @@ import type { RefuseCode } from './msg.ts'
 
 export const HEAD_START_MS = 30_000 // wall time: hidden this long
 export const MANAGER_AT_MS = 5 * 60_000 // awake: the manager is reached whatever happened below
+// While the person is away (an unattended window is on) nobody is at his panel, so the same two steps come sooner.
+export const AWAY_HEAD_START_MS = 5_000
+export const AWAY_MANAGER_AT_MS = 30_000
 export const EXPIRE_MS = 15 * 60_000 // awake: every ask closes
 const STALE_BEAT_MS = 60_000
 const SWEEPER_AWAKE_MS = 90_000
@@ -15,7 +18,8 @@ const AWAKE_GAP_CAP_MS = 10_000
 // Awake time: the gap since the last poll, never more than the cap and never negative (a clock that ran back or a Mac that slept adds nothing).
 export const awakeAdd = (awake: number, gapMs: number): number => awake + (Number.isFinite(gapMs) ? Math.min(Math.max(gapMs, 0), AWAKE_GAP_CAP_MS) : 0)
 
-export type StageIn = { ask: Ask; now: number; ups: readonly UpMark[]; v: View }
+// away: an unattended window is on (the engine reads the window file; this file stays pure).
+export type StageIn = { ask: Ask; now: number; ups: readonly UpMark[]; v: View; away: boolean }
 // toPerson: the ask has reached past the chain, so the person's click counts. relay: the manager's dialog may show it (relayTick raises none while unattended).
 export type Open = { open: true; eligible: Sid[]; toPerson: boolean; relay: boolean }
 export type Stage = Open | ({ open: false } & Decision<'deny'>)
@@ -24,10 +28,11 @@ export type Stage = Open | ({ open: false } & Decision<'deny'>)
 
 export function stage(x: StageIn): Stage {
   const c = chain(x.v, x.ask.asker)
-  let reach = x.now - x.ask.t0 >= HEAD_START_MS ? 1 : 0
+  const [headStart, managerAt] = x.away ? [AWAY_HEAD_START_MS, AWAY_MANAGER_AT_MS] : [HEAD_START_MS, MANAGER_AT_MS]
+  let reach = x.now - x.ask.t0 >= headStart ? 1 : 0
   // An escalation by a session of the chain moves the ask one past it, at once; one by a session no longer above the asker counts for nothing.
   for (const u of x.ups) if (reach > 0 && u.kind === 'escalated' && c.up.includes(u.by)) reach = Math.max(reach, c.up.indexOf(u.by) + 2)
-  if (reach > 0 && x.ask.awake >= MANAGER_AT_MS) {
+  if (reach > 0 && x.ask.awake >= managerAt) {
     const m = c.up.indexOf(x.v.manager as Sid)
     reach = Math.max(reach, m >= 0 ? m + 1 : c.up.length + (c.top === PERSON ? 1 : 0))
   }
