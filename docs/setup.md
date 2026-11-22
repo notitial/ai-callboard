@@ -427,8 +427,8 @@ One round, once every session is restarted and the manager session runs ([4. Sta
 Each step names what you should see; stop at the first one that differs and tell the manager session which.
 
 1. In any new session type this and read the status page, a table of Role, Parent, Manager, Callboard, Keepalive,
-   Unattended and Goes. A plain session reads Role `session` and Callboard `on`; its Parent and Manager name
-   the manager session if one runs, else Parent reads `the person` and Manager `none`.
+   Unattended and Goes. A plain session reads Role `SESSION` and Callboard `ON`; its Parent and Manager name
+   the manager session if one runs, else Parent reads `PERSON` and Manager `NONE`.
 
 ```
 /callboard status
@@ -447,7 +447,7 @@ Each step names what you should see; stop at the first one that differs and tell
 /callboard config ping 50
 ```
 
-3. In the manager session, type the status command and check that Role reads `manager` and Parent reads `the person`:
+3. In the manager session, type the status command and check that Role reads `MANAGER` and Parent reads `PERSON`:
 
 ```
 /callboard status

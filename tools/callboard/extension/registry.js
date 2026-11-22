@@ -34,7 +34,7 @@ async function readEntry(file, pause = () => new Promise((r) => setTimeout(r, PA
 }
 
 // Each list carries its own complete flag: false when that read could not list the folder or a file could not be read steadily. Reads run at the same
-// time (the sweep, an open's poll, the spool), so a flag shared on the registry could be reset by another read. The sweep closes nothing on such a read;
+// time (the sweep and an open's poll), so a flag shared on the registry could be reset by another read. The sweep closes nothing on such a read;
 // an open retries it. A file that is not an entry (a bad name, unparsable but steady, not this pid's) is skipped and does not count against the read.
 function createRegistry(dir) {
   return {

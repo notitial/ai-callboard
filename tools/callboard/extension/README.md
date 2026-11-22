@@ -31,6 +31,6 @@ It doesn't touch the terminal, any setting or the network (a command you confirm
 
 ## Updating
 
-The version is fixed, so an update is a pull of the checkout plus a window reload (Developer: Reload Window). Output > Callboard Panels shows the build the window loaded. Only a change to this folder's `package.json` needs a version bump: then quit VS Code (Cmd+Q), pull, run callboard's `link-extension.py --apply` from a plain Terminal, and reopen VS Code.
+The version is fixed, so an update is a fast-forward of the checkout plus a window reload (Developer: Reload Window). Output > Callboard Panels shows the build the window loaded. Only a change to this folder's `package.json` needs a version bump: then quit VS Code (Cmd+Q), pull, run callboard's `link-extension.py --apply` from a plain Terminal, and reopen VS Code.
 
 More in the callboard README in the [ai-manager repo](https://github.com/notitial/ai-manager).

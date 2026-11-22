@@ -42,7 +42,7 @@ function world({ delays = [], extra = [], tabs, guardMs, alive, pids = false, st
         }
         assert.equal(cmd, 'claude-vscode.editor.open')
         assert.deepEqual(rest.slice(0, 4), [undefined, undefined, undefined, true], 'every lane panel opens as a full editor')
-        assert.equal(rest.length, patched ? 5 : 4, patched ? 'the folder goes in the sixth argument' : 'unpatched: no sixth argument, as before')
+        assert.equal(rest.length, patched ? 5 : 4, patched ? 'the folder goes in the sixth argument' : 'unpatched: no sixth argument')
         calls.push([s, rest[4]])
         const i = opens++
         const id = s ?? sid()
@@ -697,7 +697,7 @@ test('an adopted panel that the registry shows is tracked like one the extension
 })
 
 // The registry keeps the rows of dead processes: a row counts for the sweep only while its pid is alive and `ps` agrees with its procStart.
-test('sweep: a stale row with the sid (its pid dead) no longer keeps the entry: the tab closes once the recorded pid is dead', async () => {
+test('sweep: a stale row with the sid (its pid dead) does not keep the entry: the tab closes once the recorded pid is dead', async () => {
   const dead = new Set()
   const w = world({ alive: (pid) => !dead.has(pid) })
   const tab = claudeTab('LABS')
@@ -721,7 +721,7 @@ test('sweep: a stale row with the sid (its pid dead) no longer keeps the entry: 
   assert.deepEqual(vclosed, [vtab])
 })
 
-test('sweep: a stale row with the lane\'s name (its pid dead) no longer blocks the close', async () => {
+test('sweep: a stale row with the lane\'s name (its pid dead) does not block the close', async () => {
   const w = world({ alive: () => false })
   const tab = claudeTab('ATT')
   const closed = trackTabs(w, tab)

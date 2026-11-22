@@ -3,7 +3,7 @@
 // by its session id, from the `callboard active session` command of the patched Claude extension (tools/callboard/patch-claude.py), else by its tab label: a Claude panel's tab carries the session's name (cut to 24 characters and "…" when it is longer than 25, as Claude Code does), which the
 // registry row also holds (the sweep in lanes.js relies on it too). A tab that is not a Claude panel, a name no live session carries, or one that two live
 // sessions in different folders carry, shows nothing rather than a guess.
-// VS Code access is injected, so the item can be tested with fakes; nothing here touches the Claude extension.
+// VS Code access is injected, so the item can be tested with fakes; the Claude extension is reached only through that command.
 const path = require('node:path')
 const { pidAlive } = require('./reserved.js')
 

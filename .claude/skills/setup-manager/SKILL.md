@@ -118,7 +118,7 @@ first; it is the source for every step here, and wins where the two differ.
    show the person the missing line to add to `permissions.deny` by hand. The live checkout needs no deny lines: the hook and the markers below
    protect it (docs/setup.md, Keep agents off the live checkout).
    - Protected-paths hook: docs/setup.md, Escalation is on by default once the protected-paths hook is in place. Run
-     `jq -e '[.hooks.PreToolUse[]?.hooks[]?.command] | any(. == "/bin/bash -p \"$HOME/.claude/hooks/protected-paths-guard.sh\" || exit 2")' ~/.claude/settings.json` (a rough pre-check: it finds the command the toolkit writes and does not look at the matcher, `disableAllHooks`, `env` or the entry's other fields; `/callboard status` is the authority)
+     `jq -e '[.hooks.PreToolUse[]?.hooks[]?.command] | any(. == "/bin/bash -p \"$HOME/.claude/hooks/protected-paths-guard.sh\" || exit 2")' ~/.claude/settings.json` (a rough pre-check: it finds the command the toolkit writes and does not look at the matcher, `disableAllHooks`, `env` or the entry's other fields; the plugin's own check decides, and `/callboard status` does not show it)
      and `ls ~/.claude/hooks/protected-paths-guard.sh`. If either fails, tell the person to update their ai-toolkit
      checkout and run `/setup-claude` themselves, then come back: it is ai-toolkit's, never yours to wire or edit.
      Then run `ls <checkout>/.protected-checkout <toolkit>/.protected-checkout ~/.claude/callboard/.protected-checkout`; for each marker that is

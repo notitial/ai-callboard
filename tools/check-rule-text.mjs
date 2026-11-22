@@ -1,5 +1,5 @@
 // Checks that rules/callboard.md quotes the callboard plugin's fixed texts exactly: the keepalive text, the opener and the closing
-// line of the PR notice, the opener of the signed-done notice, the opener of the check-in, of the closed-ask turn and of the own-step notice (its three go-click
+// line of the PR notice, the opener of the signed-done notice, the opener of the check-in, of the closed-ask turn, of both cues and of the own-step notice (its three go-click
 // forms), and the opener of each of the three compaction nudges. A session
 // matches those turns against the rule, so a drifted word would make it treat a real turn as an ordinary message.
 // It also checks that the rule carries the briefings' sentences on instructions from the layer above a session and on plan first word for word.
@@ -48,6 +48,13 @@ for (const opener of ['[callboard] The person ran /callboard in this session:', 
   if (!ownStep.some((t) => t.startsWith(opener)) || !quoted(opener)) problems.push(`rules/callboard.md does not quote the own-step opener exactly: ${opener}`)
 }
 
+// The parent's cue: the rule quotes how the start cue and the resume cue open, and no other cue exists.
+const cues = Object.keys(T).filter((id) => id.startsWith('cue.')).sort()
+if (cues.join() !== 'cue.resume,cue.start') problems.push(`the plugin sends cues other than a start and a resume: ${cues.join(', ')}`)
+for (const [opener, text] of [['[callboard] You are lane `NAME` of `PARENT`.', T['cue.start']({ name: 'NAME', brief: '/b', parent: 'PARENT' })], ['[callboard] Resume lane `NAME` from', T['cue.resume']({ name: 'NAME' })]]) {
+  if (!text.startsWith(opener) || !rule.includes('``' + opener + '``')) problems.push(`rules/callboard.md does not quote the cue opener exactly: ${opener}`)
+}
+
 // The closed-ask turn (unattended mode): the rule quotes how it opens.
 const CLOSED_OPENER = '[callboard] Closed: the person is away and nobody is above you to decide this.'
 if (!T['ask.away']().startsWith(CLOSED_OPENER) || !quoted(CLOSED_OPENER)) problems.push(`rules/callboard.md does not quote the closed-ask opener exactly: ${CLOSED_OPENER}`)
@@ -81,4 +88,4 @@ if (problems.length) {
   for (const p of problems) console.error(p)
   process.exit(1)
 }
-console.log(`rules/callboard.md matches the plugin: keepalive, PR notice, signed-done line, check-in and own-step openers, ${openers.length} nudge openers, the layer-above and plan-first sentences`)
+console.log(`rules/callboard.md matches the plugin: keepalive, PR notice, signed-done line, check-in, cue and own-step openers, ${openers.length} nudge openers, the layer-above and plan-first sentences`)
