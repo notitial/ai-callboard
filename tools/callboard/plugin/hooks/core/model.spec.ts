@@ -110,6 +110,8 @@ test('create and adopt: only a lead, only inside its allowlist, only a loose ses
   assert.equal(mayCreate(v, A, 'MANAGER', '/Users/x/repo'), 'name-reserved')
   assert.equal(mayCreate(v, A, 'L1', '/Users/x/repo'), 'name-taken')
   assert.equal(mayCreate(v, A, 'bad name', '/Users/x/repo'), 'name-bad')
+  assert.equal(mayCreate(v, A, 'x'.repeat(25), '/Users/x/repo'), undefined)
+  assert.equal(mayCreate(v, A, 'x'.repeat(26), '/Users/x/repo'), 'name-bad')
   assert.deepEqual(mayAdopt(v, A, 'loose'), { ok: LOOSE })
   assert.deepEqual(mayAdopt(v, A, 'L1'), { no: 'not-loose' })
   assert.deepEqual(mayAdopt(v, A, 'B'), { no: 'is-lead' })

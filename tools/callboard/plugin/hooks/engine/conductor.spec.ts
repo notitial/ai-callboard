@@ -53,6 +53,18 @@ test('/callboard conductor: typed paths become the row\'s repos and the list sav
   assert.deepEqual(rows(f).lead, { repos: ['/w/other'] })
 })
 
+test('/callboard conductor reset forgets the folder\'s saved list and nothing else: the role and repos stay, no notice turn is owed, and the next bare conductor asks the window', async () => {
+  const f = world()
+  await run(f, 'conductor /w/repo /w/repo2', 'composer')
+  mem.owed.length = 0
+  const r = await run(f, 'conductor reset', 'composer')
+  assert.equal(r.text, T['cmd.conductorReset']({}))
+  assert.deepEqual(await conductorRepos(f.$, '/w/me'), [])
+  assert.deepEqual(rows(f).lead, { repos: ['/w/repo', '/w/repo2'], conductor: true })
+  assert.deepEqual(mem.owed, [])
+  assert.match((await run(f, 'conductor reset', undefined)).text, /types it themselves/)
+})
+
 // The window's answer to a pick: `reply` is read at each request, and `seen` collects the requests.
 const picking = (f: F, reply: () => object | undefined, seen: any[] = []) => window(f, (req) => (req.op === 'pick' ? (seen.push(req), reply()) : undefined))
 const spooled = (f: F) => [...f.h.files.keys()].filter((p) => p.startsWith(`${V2}/open/`))
@@ -279,7 +291,7 @@ test('lane_create role lead: a conductor writes a minted lead row under itself, 
   assert.equal(table(f)['new:LN'].lead, undefined)
 })
 
-test('lane_create role lead is refused to a plain lead and to a minted lead; a brief that cannot be written leaves no minted row', async () => {
+test('lane_create role lead is refused to a plain lead and to a minted lead; the old brief of a finished lead is replaced when its name is used again', async () => {
   const f = world()
   f.table({ 'sid-me': { name: 'me', folder: '/w/me', lead: { repos: ['/w/repo'] } } })
   assert.match(text(await laneCreateCall(f.$, { name: 'NL', folder: '/w/repo/new', brief: 'b', role: 'lead' }, next)), /only a conductor may make a lead\. The person makes a conductor by typing \/callboard conductor\./)
@@ -288,8 +300,9 @@ test('lane_create role lead is refused to a plain lead and to a minted lead; a b
   assert.match(text(await laneCreateCall(f.$, { name: 'NL', folder: '/w/repo/new', brief: 'b', role: 'lead' }, next)), /only a conductor may make a lead/)
   const g = conductor()
   g.h.files.set('/w/repo/new/.archive/OLD/BRIEF.md', 'older work')
-  assert.match(text(await laneCreateCall(g.$, { name: 'OLD', folder: '/w/repo/new', brief: 'b', role: 'lead' }, next)), /exists already/)
-  assert.equal(table(g)['new:OLD'], undefined)
+  assert.match(text(await laneCreateCall(g.$, { name: 'OLD', folder: '/w/repo/new', brief: 'b', role: 'lead' }, next)), /is now a lead of/)
+  assert.doesNotMatch(g.h.files.get('/w/repo/new/.archive/OLD/BRIEF.md')!, /older work/)
+  assert.ok(table(g)['new:OLD'])
 })
 
 test('a minted lead is opened and bound like a lane: its row follows the session id under the conductor, the conductor lists it and its lanes, and a retire removes the row once it is gone', async () => {

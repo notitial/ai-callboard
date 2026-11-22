@@ -28,7 +28,7 @@ test('the start registers the six tools every session has and the three commands
   plain.seed({ sid: 'sid-me', pid: 10, name: 'me', kind: 'interactive' })
   await start(plain)
   assert.deepEqual(plain.h.tools.sort(), [...ANY].sort())
-  assert.deepEqual(plain.h.commands.sort(), ['callboard', 'rest', 'unattended'])
+  assert.deepEqual(plain.h.commands.sort(), ['callboard', 'conductor', 'lead', 'rest', 'unattended'])
   await tick(plain)
   assert.equal(plain.h.tools.length, 6)
   const l = lead()

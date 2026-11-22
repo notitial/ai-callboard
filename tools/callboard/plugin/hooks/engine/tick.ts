@@ -48,6 +48,8 @@ export async function sessionStart($: any, e: any, next: any) {
   await $.command.register({ name: 'callboard', description: T['help.status']() })
   await $.command.register({ name: 'rest', description: T['help.rest']() })
   await $.command.register({ name: 'unattended', description: T['help.unattended']() })
+  await $.command.register({ name: 'lead', description: T['help.lead']() })
+  await $.command.register({ name: 'conductor', description: T['help.conductor']() })
   await presetRegister($).catch(() => undefined)
   return next(e)
 }
@@ -77,7 +79,6 @@ function lineOf(v: View, n: Notice, now: number): string | undefined {
   if (n.kind === 'done' || n.kind === 'gone') return say({ msg: `event.${n.kind}`, p: { name } })
   if (n.kind === 'waiting') return say({ msg: 'event.waiting', p: { name, why: (reg?.waitingFor ?? '').slice(0, 80) } })
   if (n.kind === 'quiet') return say({ msg: 'event.quiet', p: { name, minutes: Math.floor((now - (reg?.statusAt ?? now)) / 60_000) } })
-  if (n.kind === 'report') return say({ msg: 'event.report', p: { name, code: n.code ?? '' } })
   const ask = n.ask ?? ''
   if (n.kind === 'ask') return say({ msg: 'event.ask', p: { ask, name, tool: mem.asks?.open.find((o) => o.ask.id === ask)?.ask.tool ?? '' } })
   return say({ msg: 'event.expired', p: { ask, name, tool: mem.asks?.log.find((l) => l.ask === ask && l.code !== undefined && l.ev === 'expired')?.code ?? '' } })
@@ -90,7 +91,7 @@ const digestLine = (v: View, d: DigestItem): string => (d.kind === 'panel' ? say
 async function owed($: any, me: Sid, v: View, now: number): Promise<{ list: Line[]; since: Line[] }> {
   spendStarted(undefined, now)
   const held = new Set([...mem.pending.values()].flatMap((p) => p.keys))
-  const events = notices({ me, v, now, since: mem.since, reports: mem.reports, signed: mem.signed.set, ...(await askInputs($, me, v, now)) })
+  const events = notices({ me, v, now, since: mem.since, signed: mem.signed.set, ...(await askInputs($, me, v, now)) })
   const list = events.filter((n) => !mem.spent.has(n.key) && !held.has(n.key)).flatMap((n) => ((l) => (l === undefined ? [] : [{ keys: [n.key], line: l }]))(lineOf(v, n, now)))
   const items = list.length === 0 || capability(v, me) !== 'manager' ? [] : digest({ me, v, since: mem.since, now, log: mem.asks?.log ?? [], signed: mem.signed.set, goes: await listGoes($), spent: new Set([...mem.spent, ...held]) })
   return { list, since: items.map((d) => ({ keys: d.keys, line: digestLine(v, d) })) }
@@ -121,13 +122,11 @@ async function owedTick($: any, me: Sid, v: View): Promise<void> {
   const text = mem.owed[0]
   if (text !== undefined && (await quiet($, me))) await submitOwn($, text, false).then(() => void mem.owed.shift(), () => log($, me, 'error', 'owed'))
 }
-// A report about a session whose parent is the person is a toast; the manager is never told of one.
 function toasts($: any, v: View, me: Sid): void {
   const once = (key: string, text: string) => (mem.toasted.has(key) ? undefined : (mem.toasted.add(key), toast($, text)))
   if (v.managers.length > 1) once(`two:${v.managers.join()}`, say({ msg: 'toast.twoManagers', p: { a: nameOf(v, v.managers[0]!), b: nameOf(v, v.managers[1]!) } }))
   if (v.manager === null && v.handing.size === 0 && typeof v.managerName === 'string' && parent(v, me) === PERSON) once('no-manager', say({ msg: 'toast.noManager', p: {} }))
   if (v.manager !== null) mem.toasted.delete('no-manager')
-  for (const r of mem.reports) if (parent(v, r.about) === PERSON) once(`report:${r.about}:${r.code}:${r.at}`, say({ msg: 'toast.report', p: { name: nameOf(v, r.about), code: r.code } }))
 }
 
 // ---- the table and the signed set ----

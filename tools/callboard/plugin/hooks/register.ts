@@ -5,7 +5,7 @@ import { CUE_VERBS, STOP_VERBS } from './core/model.ts'
 import { sessionStart, sessionEnd, postToolHook } from './engine/tick.ts'
 import { commandRun, commandComplete, promptCompose } from './engine/commands.ts'
 import { presetRun } from './engine/preset.ts'
-import { toolCheck, permissionRequest, doneHook } from './engine/ask-hook.ts'
+import { toolCheck, permissionRequest, doneHook, proxyRun, proxyJudge } from './engine/ask-hook.ts'
 import { requestCompactCall, requestHandoverCall, turnComplete, promptSubmit, turnStart, postCompact } from './engine/upkeep.ts'
 import { cueVerbCall, stopVerbCall, laneCreateCall, laneOpenCall, laneUnparkCall, laneAdoptCall, laneListCall } from './engine/tools-child.ts'
 import { promptListCall, promptAnswerCall, goRequestCall, goStatusCall } from './engine/tools-ask.ts'
@@ -13,6 +13,8 @@ import { restCall } from './engine/tools-any.ts'
 import { prWatchCall } from './engine/pr.ts'
 import { usageMeasure } from './engine/usage.ts'
 
+
+const argsOf = (e: { args?: unknown }): string => (typeof e.args === 'string' ? e.args : '')
 
 export const register: Register = (on) => {
   on('session.start', sessionStart).catch(($, e, next) => next(e))
@@ -22,6 +24,9 @@ export const register: Register = (on) => {
   on('command.run', { command: 'callboard' }, ($, e) => commandRun($, e)).catch(() => ({ text: 'Callboard hit an error. Run /callboard status.' }))
   on('command.run', { command: 'rest' }, ($, e) => commandRun($, { ...e, args: 'rest' })).catch(() => ({ text: 'Callboard hit an error. Run /callboard status.' }))
   on('command.run', { command: 'unattended' }, ($, e) => commandRun($, { ...e, args: `unattended ${typeof (e as { args?: unknown }).args === 'string' ? (e as { args: string }).args : ''}` })).catch(() => ({ text: 'Callboard hit an error. Run /callboard status.' }))
+  // `/lead` and `/conductor` are `/callboard lead` and `/callboard conductor`: the same run, so the same origin check.
+  on('command.run', { command: 'lead' }, ($, e) => commandRun($, { ...e, args: `lead ${argsOf(e)}` })).catch(() => ({ text: 'Callboard hit an error. Run /callboard status.' }))
+  on('command.run', { command: 'conductor' }, ($, e) => commandRun($, { ...e, args: `conductor ${argsOf(e)}` })).catch(() => ({ text: 'Callboard hit an error. Run /callboard status.' }))
   on('command.run', presetRun)
   on('prompt.autocomplete', commandComplete).catch(($, e, next) => next(e))
   on('prompt.compose', promptCompose).catch(($, e, next) => next(e))
@@ -46,6 +51,9 @@ export const register: Register = (on) => {
   on('tool.call', { tool: 'mcp__callboard__rest' }, restCall).catch(() => ({ deny: 'rest failed closed.' }))
 
   on('tool.check', toolCheck).catch(($, e, next) => next(e))
+  on('tool.judge', { tool: 'Bash' }, proxyJudge).catch(($, e, next) => next(e))
+  // Only the relay's own commands: a hook that may match a tool's run turns off its move to the background and its live output.
+  on('tool.run', { tool: 'Bash', description: /^Relayed from / }, proxyRun).catch(() => ({ deny: 'The relay failed closed.' }))
   on('classic.PermissionRequest', permissionRequest).catch(($, e, next) => next(e))
   on('classic.PostToolUse', postToolHook).catch(($, e, next) => next(e))
   on('classic.PostToolUseFailure', postToolHook).catch(($, e, next) => next(e))

@@ -114,6 +114,23 @@ test('status role: LANE only under a lead; SESSION under the manager or the pers
   f.table({ 'sid-me': { name: 'me', folder: '/w/me' } })
   assert.equal(await role(), 'SESSION')
 })
+test('the lane table shows a conductor as a conductor and a lead it made as a lead', async () => {
+  const f = fake()
+  me(f)
+  f.seed({ sid: 'sid-cnd', pid: 11, name: 'cnd', cwd: '/w/cnd' })
+  f.seed({ sid: 'sid-led', pid: 12, name: 'led', cwd: '/w/led' })
+  f.h.files.set(`${HOME}/.claude/callboard/manager-name`, 'me\n')
+  f.table({
+    'sid-cnd': { name: 'cnd', folder: '/w/cnd', lead: { repos: [], conductor: true } },
+    'sid-led': { name: 'led', folder: '/w/led', under: 'sid-cnd', lead: { repos: [], minted: true } },
+  })
+  const rows = async () => (await run(f, 'lanes')).text.split('\n').filter((l) => /^\| (cnd|↳ led) /.test(l)).map((l) => l.split(' | ')[1])
+  assert.deepEqual(await rows(), ['conductor', 'lead'])
+  f.h.files.set('/w/led/.claude/callboard-lead.json', JSON.stringify({ command: 'sentinel', name: 'led', model: 'sonnet', effort: 'high' }))
+  assert.deepEqual(await rows(), ['conductor', 'sentinel'], 'a lead its folder\'s preset named reads as the preset\'s command')
+  f.h.files.set('/w/led/.claude/callboard-lead.json', JSON.stringify({ command: 'sentinel', name: 'other', model: 'sonnet', effort: 'high' }))
+  assert.deepEqual(await rows(), ['conductor', 'lead'], 'a preset that names another lead does not apply')
+})
 test('the typeahead offers the commands after /callboard and nothing elsewhere', async () => {
   const f = fake()
   const next = async () => ({ suggestions: [{ text: 'x', label: 'x', description: '' }] })

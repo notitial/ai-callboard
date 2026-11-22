@@ -110,7 +110,6 @@ export type Fixed = {
   'event.gone': Names
   'event.waiting': Names & { why: string }
   'event.quiet': Names & { minutes: number }
-  'event.report': Names & { code: string }
   'pr.turn': { lines: string[] }
   'pr.watching': { pr: string }
   'pr.note': Omit<PrNote, 'at'>
@@ -146,6 +145,7 @@ export type Fixed = {
   'cmd.usage': E
   'cmd.lead': { repos: string[] }
   'cmd.leadOff': E
+  'cmd.conductorReset': E
   'cmd.conductor': { repos: string[] }
   'cmd.off': E
   'cmd.on': E
@@ -165,7 +165,7 @@ export type Fixed = {
   'cmd.toldPreset': { command: string; result: string; failed: string[] }
   // The typeahead line of a preset's command.
   'cmd.presetHelp': { name: string; model: string; effort: string }
-  'go.clicked': { outcome: 'given' | 'declined' | 'unsaved' }
+  'go.clicked': { outcome: 'given' | 'declined' | 'unsaved' | 'closed' }
 
   // Dialogs: the go, the force stop and the relay dialog, each as header and question, and their buttons.
   'dialog.go.header': E
@@ -176,6 +176,11 @@ export type Fixed = {
   'dialog.relay.question': { asker: string; tool: string; input: string; cut: boolean }
   'dialog.relay.note': { asker: string; tool: string; note: string; by?: string } // by: the manager's plain name, if it has one
   'dialog.relay.asks': { asker: string; question: string } // an asker's own question, as the manager's session shows it
+  'dialog.relay.native': { asker: string } // the description line of a relayed command in the engine's own dialog
+  'dialog.relay.reason': { note?: string; by?: string } // that dialog's reason line, with the manager's note if there is one
+  'dialog.relay.held': E // the deny that stops a relayed command where it would run
+  'dialog.relay.reserved': E // the deny of any other Bash that uses the relay's description
+  'dialog.relay.hidden': E // the deny of a Bash description with a hidden character or the reason line's sentence
   'dialog.allow': E
   'dialog.show': E
   'dialog.leave': E // the second option beside a lone Deny: it writes nothing
@@ -192,12 +197,13 @@ export type Fixed = {
 
   // Toasts.
   'toast.askClosed': E // a click on a relay dialog whose ask is closed
+  'toast.relayAmended': E // a Yes on a relayed command the person changed first
+  'toast.relayRan': E // a relayed command ran in the manager's session
   'notify.relay': { name: string; tool: string } // the OS notification beside a relayed ask's dialog, taken back when it closes
   'toast.askNoFile': AskRef // the ask file could not be written; the loop still holds the deadline
   'toast.askStuck': AskRef & Names // the sweep found an ask no process answers
   'toast.twoManagers': { a: string; b: string }
   'toast.noManager': E // the manager is off, renamed away from the file's name, or gone
-  'toast.report': Names & { code: string } // a refusal or fallback `report()`, where the parent is the person
 
   // UI: the status page, the lane list, prompt_list (the rules file first), the go list. A status row is its label and its value in one text.
   'ui.status.head': E

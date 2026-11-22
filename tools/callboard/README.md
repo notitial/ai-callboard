@@ -13,7 +13,7 @@ exact texts are in the code, and `/callboard help` lists every command. Nothing 
 | `plugin/` | The Claude Code plugin. A pure core in `plugin/hooks/core/` (no I/O, no text), adapters in `plugin/hooks/engine/` that feed it and act on what it returns, the texts table `plugin/hooks/texts.ts` and the one UI module `plugin/hooks/ui.ts` |
 | `extension/` | The VS Code extension that opens, reopens and closes lane panels. Its one command, `callboard run block`, is the host side of the Run button. What it does: [`extension/README.md`](extension/README.md) |
 | `link-extension.py` | Links that extension into VS Code from this checkout, once per machine (Install) |
-| `patch-claude.py` | Patches the installed Claude Code extension so a lane of any folder of a multi-folder window opens there, widens the composer, shows the composer's context pie always against your autocompact level, puts the session's folder name next to the model name, adds a Run button on shell code blocks that runs the block on your click (after a modal) and sends the output into the chat, makes a restored or reopened panel resume in its conversation's folder, adds a command (`callboard active session`) that names the panel in front, adds a command that files callboard sessions in the sidebar's Manager, Conductor, Lead and Lanes groups, in that order, adds a command that archives a retired lane there, and lists the saved conversations of every folder of the window in the sidebar (docs/setup.md; `/patch-vs-claude`). Header comment: usage and exit codes |
+| `patch-claude.py` | Patches the installed Claude Code extension so a lane of any folder of a multi-folder window opens there, widens the composer, shows the composer's context pie always against your autocompact level, puts the session's folder name next to the model name, adds a Run button on shell code blocks that runs the block on your click (after a modal) and sends the output into the chat, makes a restored or reopened panel resume in its conversation's folder, adds a command that files callboard sessions in the sidebar's Manager, Conductor, Lead and Lanes groups, in that order, adds a command that archives a retired lane there, and lists the saved conversations of every folder of the window in the sidebar (docs/setup.md; `/patch-vs-claude`). Header comment: usage and exit codes |
 | `test.sh` | The test entry point (Tests) |
 
 ## The sessions
@@ -47,7 +47,7 @@ parent and a capability: none, lead or manager.
   (its row takes the name only once the rename has landed) and sets its model and effort, and sends the lead one
   notice that names any step that failed. Only your typed turn
   runs it. A file that does not parse, or names a built-in or callboard's own command (`callboard`, `rest`,
-  `unattended`), registers nothing. Any folder you start a session in can declare one, so read the file of a repo you
+  `unattended`, `lead`, `conductor`), registers nothing. Any folder you start a session in can declare one, so read the file of a repo you
   do not know before you type its command.
 - **Manager.** The one session that carries the name in `~/.claude/callboard/manager-name`, found by its registry name
   while it is live. It reaches every session on the Mac. Its role is in `docs/manager/README.md`.
@@ -57,7 +57,7 @@ else the manager if live, else you.
 
 Three kinds of stop, from least to most final: `lane_park` closes the tab and keeps the conversation (`lane_unpark`
 reopens it with its history); `lane_retire` ends a signed-done session and removes the lane (final); `lane_terminate`
-is the force stop and always asks you, and is refused while unattended mode is on.
+is the force stop: it always asks you and is refused while unattended mode is on, except for a lane no live session carries, which it removes with no dialog.
 
 ## A normal day
 
@@ -69,7 +69,11 @@ is the force stop and always asks you, and is refused while unattended mode is o
    parent sees the ask and must allow, deny, answer or escalate it by its rubric. With no choice it reaches the
    manager at 5 minutes of awake time (while unattended mode is on: 5 seconds and 30 seconds), and at 15 minutes an ask nobody answered is closed with a message that tells the
    session not to ask again. Your click always wins. By day an ask that reaches you is a dialog in the manager's
-   session, closed again once the ask is decided elsewhere, or you tell the manager in words (ADR 0012).
+   session, closed again once the ask is decided elsewhere, or you tell the manager in words (ADR 0012). A plain
+   Bash command is Claude Code's own Yes/No dialog for it, which runs nothing there; any other ask is a question.
+   That dialog's title reads "from the callboard plugin" and its description "Relayed from NAME", and it offers only Yes
+   and No; callboard refuses any other Bash whose description reads as "Relayed from" after normalising and folding
+   common look-alikes.
 4. A session that waits on a pull request registers it with `pr_watch` and is told when checks finish, reviews arrive
    or the PR is mergeable, merged or closed. A merge is still yours.
 5. A big session is asked to compact before it loses its notes, and compacts itself (`request_compact`). A lead that
@@ -98,7 +102,8 @@ that signed done, is gone, has waited on a prompt for 5 minutes or has been idle
 `/callboard help` prints the full table and is the authority.
 
 - **Look:** `status`, `lanes`, `help`.
-- **Roles and switches:** `lead [PATH…]`, `conductor [pick | PATH…]`, `lead off`, `off`, `on`.
+- **Roles and switches:** `lead [PATH…]`, `conductor [pick | reset | PATH…]`, `lead off`, `off`, `on`. `/lead` and `/conductor` type
+  the first two without the `/callboard` word; `conductor reset` forgets the repos saved for the folder.
 - **Settings:** `config [keepalive on|off | ping 30-55 | stop 1-8 | idle 150-800 | working 150-900 | reset]`,
   `rest` (or `/rest`), `go TEXT`, `go off [ID]`, `unattended Nm|Nh|HH:MM|off`.
 
@@ -174,11 +179,11 @@ docs/setup.md) one multi-folder window answers for every one of its folders.
 ### Manager setup: keep agents off the store (by hand)
 
 One `permissions.deny` line in your global `~/.claude/settings.json` keeps an agent's Edit and Write tools off
-callboard's store file (`~/.claude/plugins/store/callboard_*.json`, which holds this machine's callboard settings).
-`docs/setup.md` has the line. It stops the file tools, not a shell write. The rest of `~/.claude/callboard/` (the
-manager's name and rules files, the plugin's state under `v2/`) is kept from agents by ai-toolkit's protected-paths
-hook and its marker file (`docs/setup.md`, Keep agents off the live checkout), which stops the file tools and a shell
-line that names the path.
+callboard's state folder (`~/.claude/callboard/`, which holds this machine's callboard settings in `v2/config.json`, the
+session table and the go records). `docs/setup.md` has the line. It stops the file tools, not a shell write. The same
+folder is also kept from agents by ai-toolkit's protected-paths hook and its marker file (`docs/setup.md`, Keep agents
+off the live checkout), which stops the file tools and a shell line that names the path; the line holds when the hook
+does not run.
 
 ### Install check
 
@@ -215,7 +220,7 @@ Under `~/.claude/callboard/` (nothing in a repo is trusted):
 | `v2/` | The plugin's state: its session table (`v2/sessions.json`), the repos saved for each conductor folder (`v2/conductors.json`), and the requests for the panels extension (`v2/open/`) |
 | `OFF` | When this file exists, no tier's answers count; remove it to allow them again |
 
-The plugin's settings are in `~/.claude/plugins/store/callboard_*.json`. Lane briefs and reports stay in the repo
+The plugin's settings are in `~/.claude/callboard/v2/config.json`. Lane briefs and reports stay in the repo
 under `.archive/<LANE>/`.
 
 ## When something is refused

@@ -136,17 +136,19 @@ export type Config = { keepalive: boolean; pingAfterMin: number; stopAfterH: num
 
 // ---- events ----
 
-type EventKind = 'ask' | 'expired' | 'done' | 'gone' | 'waiting' | 'quiet' | 'report'
+type EventKind = 'ask' | 'expired' | 'done' | 'gone' | 'waiting' | 'quiet'
 // One event a parent is told, computed from its own observation of its children now. `key` keeps "once" per event and process and is spent when the turn
-// carrying it starts. `about` is the child; `ask` is the ask's id for the two ask kinds; `code` is the refusal or fallback code of a `report`.
-export type Notice = { kind: EventKind; key: string; about: Sid; ask?: string; code?: string }
+// carrying it starts. `about` is the child; `ask` is the ask's id for the two ask kinds.
+export type Notice = { kind: EventKind; key: string; about: Sid; ask?: string }
 // Whose events a capability receives: a lead its children's, the manager its descendants'. The table is `RECEIVES` in notices.ts.
 export type Receives = { [C in Exclude<Capability, 'none'>]: { from: 'children' | 'descendants'; kinds: readonly EventKind[] } }
 
 // ---- the model ----
 
 export const PERSON: Person = 'PERSON'
-export const NAME_RE = /^[A-Za-z0-9_-]{1,40}$/
+// Claude Code cuts a tab label over 25 characters, and the window's sweep matches a tab by its exact label, so a longer lane name could never be closed.
+export const NAME_MAX = 25
+export const NAME_RE = new RegExp(`^[A-Za-z0-9_-]{1,${NAME_MAX}}$`)
 const RESERVED_NAME = 'MANAGER'
 export const MAX_LIVE_CHILDREN = 8
 // The models a lead may give a lane at lane_create; the lane switches to it at its start.

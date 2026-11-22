@@ -4,12 +4,12 @@
 // The writer writes `.<id>.tmp` and renames it to <id>.req, uses a fresh random <id> per request, and gives the folder exactly as VS Code names a workspace folder.
 // Only a window that serves the folder takes it (`workspaceFolders()`: its first folder, or every folder when the Claude extension carries the cwd patch,
 // claude-patch.js), and a request older than MAX_AGE_MS (twice the writer's own wait) is dropped. The answer is <id>.result,
-// JSON: {ok:true,sid?} or {ok:false,code}; a close is answered too, and its answer is not read. The panel of a close goes to the extension's sweep (lanes.js).
+// JSON: {ok:true,sid?} or {ok:false,code}; a close is not answered (the writer does not wait for one). The panel of a close goes to the extension's sweep (lanes.js).
 // A pick shows the conductor's tick list (pick.js) and is answered {ok:true,folders} with what the person ticked. It waits for the person, so it is claimed like
 // any request and then runs beside the scan: the window goes on serving opens while the list is up. One list at a time; a second pick is answered `busy`.
 const fsp = require('node:fs/promises')
 const path = require('node:path')
-const { SID_RE, NAME_RE } = require('./reserved.js')
+const { SID_RE, LABEL_RE } = require('./reserved.js')
 const { CODES: PICK_CODES, PICK_MAX } = require('./pick.js')
 
 const MAX_AGE_MS = 60_000
@@ -32,7 +32,7 @@ function parse(text) {
   if (!r || typeof r.folder !== 'string' || r.folder === '') return undefined
   if (r.op === 'open') return { op: r.op, folder: r.folder }
   if (r.op === 'reopen' && isSid(r.sid)) return { op: r.op, sid: r.sid, folder: r.folder }
-  if (r.op === 'close' && isSid(r.sid) && Number.isInteger(r.pid) && r.pid >= 2 && r.pid <= PID_MAX && typeof r.name === 'string' && NAME_RE.test(r.name)) {
+  if (r.op === 'close' && isSid(r.sid) && Number.isInteger(r.pid) && r.pid >= 2 && r.pid <= PID_MAX && typeof r.name === 'string' && LABEL_RE.test(r.name)) {
     return { op: r.op, sid: r.sid, pid: r.pid, name: r.name, folder: r.folder }
   }
   // The ticked folders only choose which rows of the list start ticked, so a string is all each needs to be.
@@ -58,14 +58,8 @@ function createSpool({ dir, lanes, workspaceFolders, timeoutMs, pick, now = Date
     return code
   }
 
-  // What the window does for a request: the panel's session id for an open or a reopen, nothing for a close.
-  async function perform(r) {
-    if (r.op === 'close') {
-      if (!lanes.adopt(r.sid, r)) throw new Error('refused')
-      return undefined
-    }
-    return r.op === 'open' ? lanes.open(r.folder, { timeoutMs, refuseUnnamed: true }) : lanes.reopen(r.sid, { timeoutMs, folder: r.folder })
-  }
+  // What the window does for an open or a reopen: the panel's session id.
+  const perform = (r) => (r.op === 'open' ? lanes.open(r.folder, { timeoutMs, refuseUnnamed: true }) : lanes.reopen(r.sid, { timeoutMs, folder: r.folder }))
 
   // One request file. Returns what happened, for the tests; nothing is thrown for a bad request. A request for another window's folder stays where it is.
   async function handle(id) {
@@ -81,6 +75,7 @@ function createSpool({ dir, lanes, workspaceFolders, timeoutMs, pick, now = Date
     if (!(await fsp.rename(file, taken).then(() => true, () => false))) return 'claim-lost'
     await drop(taken)
     if (!r) return refuse(id, 'bad-request')
+    if (r.op === 'close') return !stale && lanes.adopt(r.sid, r) ? 'done' : 'dropped'
     if (stale) return refuse(id, 'stale')
     if (r.op === 'pick') {
       if (!pick) return refuse(id, 'failed')
@@ -96,8 +91,8 @@ function createSpool({ dir, lanes, workspaceFolders, timeoutMs, pick, now = Date
     }
     try {
       const sid = await perform(r)
-      if (r.op !== 'close' && !(r.op === 'reopen' ? sid === r.sid : isSid(sid))) throw new Error('no sid')
-      await answer(id, sid === undefined ? { ok: true } : { ok: true, sid })
+      if (!(r.op === 'reopen' ? sid === r.sid : isSid(sid))) throw new Error('no sid')
+      await answer(id, { ok: true, sid })
       return 'done'
     } catch (e) {
       const m = String((e && e.message) || '')

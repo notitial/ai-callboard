@@ -23,7 +23,7 @@ export type ConfigOp = 'show' | 'reset' | { key: 'keepalive'; value: boolean } |
 export type Cmd =
   | { op: 'status' | 'lanes' | 'help' | 'lead-off' | 'off' | 'on' | 'rest' | 'handover' }
   | { op: 'lead'; paths: string[] }
-  | { op: 'conductor'; paths: string[]; pick?: true }
+  | { op: 'conductor'; paths: string[]; pick?: true; reset?: true }
   | { op: 'go'; text: string }
   | { op: 'go-off'; id?: string }
   | { op: 'unattended'; span: Extract<SpanOp, { op: 'state' | 'off' | 'on' }> }
@@ -56,8 +56,8 @@ export function parseCommand(args: string, now: number): Cmd | Bad {
   if ((WORDS as readonly string[]).includes(w)) return a.length === 0 ? { op: w as (typeof WORDS)[number] } : bad
   const plainPaths = a.every((p) => /^~?\/[^\u0000-\u001f\u007f-\u009f]*$/.test(p))
   if (w === 'lead') return rest === 'off' ? { op: 'lead-off' } : plainPaths ? { op: 'lead', paths: a } : bad
-  // `conductor pick` asks the window for its tick list; `pick` is no path, so the two forms cannot be mixed up.
-  if (w === 'conductor') return rest === 'pick' ? { op: 'conductor', paths: [], pick: true } : plainPaths ? { op: 'conductor', paths: a } : bad
+  // `conductor pick` asks the window for its tick list and `conductor reset` forgets the saved one; neither word is a path, so the forms cannot be mixed up.
+  if (w === 'conductor') return rest === 'pick' ? { op: 'conductor', paths: [], pick: true } : rest === 'reset' ? { op: 'conductor', paths: [], reset: true } : plainPaths ? { op: 'conductor', paths: a } : bad
   if (w === 'go') {
     const g = goCommand(rest)
     return g === 'bad' ? bad : g.op === 'give' ? { op: 'go', text: g.text } : { op: 'go-off', ...(g.id === undefined ? {} : { id: g.id }) }
@@ -86,7 +86,7 @@ export function planCommand(args: string, origin: Origin, now: number): { act: '
 // A folder's lead preset (.claude/callboard-lead.json): the command that makes a session there a lead, and the name, model and effort it is given. A file that is not an
 // object with all four fields right, or whose command is one of callboard's own, is no preset. Whether the command is a built-in is the engine's to check.
 export type Preset = { command: string; name: string; model: LaneModel; effort: LaneEffort }
-const OWN_COMMANDS: readonly string[] = ['callboard', 'rest', 'unattended']
+const OWN_COMMANDS: readonly string[] = ['callboard', 'rest', 'unattended', 'lead', 'conductor']
 export function parsePreset(text: string | undefined): Preset | undefined {
   let r: Record<string, unknown> | null
   try {

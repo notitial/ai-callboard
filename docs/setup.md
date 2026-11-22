@@ -27,6 +27,7 @@ working tree or the checkout's git store. Callboard (step 1) and the rule link (
 - [ai-toolkit](https://github.com/notitial/ai-toolkit) installed as the base (`/setup-claude`). Its status line
   writes the meter the usage watcher reads.
 - node 22.18 or later, the `claude` CLI, `/usr/bin/python3` 3.9 or later (from the Command Line Tools) and `jq`.
+- Claude Code 2.1.330 or later: the relay needs `$.agent.call` and its abort.
 - The checkout sits outside the ai-toolkit checkout (see [ai-toolkit's setup and cleanup](#ai-toolkits-setup-and-cleanup)).
 
 ```
@@ -191,8 +192,6 @@ EXT_DIR="$(ls -d "$HOME"/.vscode/extensions/anthropic.claude-code-* | sort -V | 
   and any other group after them. A session moves into its tier's group from wherever it sits, and again whenever its
   tier changes; one you move by hand stays moved until then. An install with the older `callboard assign group` reads
   `outdated`, and grouping waits until `--update`.
-- The session command is another piece, optional in the same way (the marker's `session` field): `callboard active session`
-  returns the session id of the Claude panel in front, so the folder badge below finds an unnamed session too.
 - The archive command is another piece (the marker's `archive` field): `callboard archive sessions` archives the sessions it is
   given that sit in the group it is given, as the sidebar's Archive item does. The panels extension names a lane in Lanes
   only after it saw the lane running and then saw it with no table row and no process, on two clean ticks. So a lane the
@@ -220,10 +219,7 @@ EXT_DIR="$(ls -d "$HOME"/.vscode/extensions/anthropic.claude-code-* | sort -V | 
   several folders open VS Code's own folder list first and start the session in the folder you pick; Escape opens
   nothing. Callboard's own lane opens pass their folder and never ask. The palette's Open in New Tab, Open and an
   @-mention are bare calls that cannot be told from Claude Code's own internal ones: they never ask and start in the
-  first folder. The status bar shows the folder of the Claude panel in front, in a window with several folders: it finds
-  the session by its id through the session command; without that piece, only a session with a name it was given
-  (`/rename`, or a lane's own name, which callboard gives its panel), matched by the tab's label, since a tab still
-  showing the title Claude generated names no session.
+  first folder.
 - It serves the lanes of every folder of the window. A tab that Claude Code itself restores or reopens
   resumes in its conversation's folder through the restore fix; where that fix is not in or finds no transcript, it starts in
   the window's first folder.
@@ -364,11 +360,11 @@ Add this line to `permissions.deny` in your global `~/.claude/settings.json` (an
 too, so no `Write` line is needed; adding one only draws a warning):
 
 ```json
-"Edit(~/.claude/plugins/store/callboard_*.json)"
+"Edit(~/.claude/callboard/**)"
 ```
 
-It keeps an agent's Edit and Write tools off callboard's store file, which holds this machine's callboard settings;
-it does not stop a shell write.
+It keeps an agent's Edit and Write tools off callboard's state folder, which holds this machine's callboard settings
+(`v2/config.json`), its session table and the go records; it does not stop a shell write.
 
 ### Keep agents off the live checkout
 
@@ -393,11 +389,12 @@ left for an agent to answer. Until the hook is in place:
 
 1. ai-toolkit carries the hook and your toolkit checkout is up to date. Run `/setup-claude` yourself: it links the
    hook into `~/.claude/hooks/` and wires it in `~/.claude/settings.json`, as `/bin/bash -p "$HOME/.claude/hooks/protected-paths-guard.sh" || exit 2`.
-   Callboard counts that command as wired, with `$HOME`, `${HOME}` or the absolute path of the linked hook inside the quotes
-   (a `~` inside the quotes does not count). Nothing else counts: not the bare link path (it lets a call through when the
-   hook cannot start; an install from before the wrapper needs `/setup-claude` again), not another command (another
-   interpreter, no `|| exit 2`, extra commands), not an entry with `async`, `if`, `args` or another field beyond `type`,
-   `command`, `timeout`, `statusMessage` and `onFailure`, not a `timeout` under 10, and not a settings `env` that sets `HOME`. An agent never edits settings.
+   Callboard counts any `PreToolUse` entry of type `command` whose command contains `protected-paths-guard.sh` as the
+   guard, with hooks not disabled. It does not judge the rest of the command or the entry, so keep the wrapper the toolkit
+   writes: the bare link path lets a call through when the hook cannot start (an install from before the wrapper needs
+   `/setup-claude` again), and a `~` inside the quotes, an entry with `async`, `if` or `args`, a `timeout` under 10, a
+   settings `env` that sets `HOME` or a matcher that leaves out Edit, Write or Bash weaken the hook without callboard
+   noticing. An agent never edits settings.
 2. The hook protects a folder only when it holds a `.protected-checkout` file. The file is untracked, so only you
    make it. Run these once, with `<checkout>` your ai-manager checkout and `<toolkit>` your ai-toolkit checkout:
 

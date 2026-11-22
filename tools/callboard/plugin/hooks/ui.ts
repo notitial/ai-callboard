@@ -21,7 +21,7 @@ export const statusPage = (rows: readonly StatusRow[]): string => `${T['ui.statu
 
 // ---- the lane table: /callboard lanes and lane_list ----
 // sid and parentSid (a session id, PERSON, or null) order the table (see `tree`); the name is for display and is not unique. Neither is a column. The usage figures are the engine's own; a figure that is absent or not a number reads `-`.
-export type LaneRow = { sid: Sid; name: string; role: Capability; state: UiState; parentSid: Sid | null; folder: string; context?: number; fiveHour?: number; sevenDay?: number; cost?: number; readAgeMin?: number }
+export type LaneRow = { sid: Sid; name: string; role: Capability | 'conductor'; label?: string; state: UiState; parentSid: Sid | null; folder: string; context?: number; fiveHour?: number; sevenDay?: number; cost?: number; readAgeMin?: number }
 const COLS: readonly UiColumn[] = ['name', 'role', 'state', 'folder', 'context', 'fiveHour', 'sevenDay', 'cost', 'read']
 const line = (v: readonly string[]): string => `| ${v.map(escCell).join(' | ')} |`
 const num = (n: number | undefined, f: (n: number) => string): string => (n !== undefined && Number.isFinite(n) ? f(n) : '-')
@@ -46,7 +46,7 @@ const folderName = (f: string): string => ((n) => (n === undefined ? '-' : `../$
 export function lanesTable(rows: readonly LaneRow[]): string {
   if (rows.length === 0) return T['ui.lanes.none']({})
   const cells = ({ row: r, depth }: { row: LaneRow; depth: number }): Record<UiColumn, string> => ({
-    name: depth === 0 ? r.name : `${'↳'.repeat(depth)} ${r.name}`, role: T[`ui.role.${r.role}`](), state: T[`ui.state.${r.state}`](), folder: folderName(r.folder),
+    name: depth === 0 ? r.name : `${'↳'.repeat(depth)} ${r.name}`, role: r.label ?? T[`ui.role.${r.role}`](), state: T[`ui.state.${r.state}`](), folder: folderName(r.folder),
     context: num(r.context, (n) => `${Math.round(n / 1000)}k`), fiveHour: num(r.fiveHour, (n) => `${Math.round(n)}%`), sevenDay: num(r.sevenDay, (n) => `${Math.round(n)}%`),
     cost: num(r.cost, (n) => `$${n.toFixed(2)}`), read: num(r.readAgeMin, (n) => `${Math.round(n)}m`),
   })
@@ -93,6 +93,21 @@ export function relayDialog(asker: string, tool: string, input: string, cut: boo
 export function relayNote(asker: string, tool: string, note: string, input: string, by?: string): DialogSpec {
   const whole = shownWhole(input, false)
   return { header: T['dialog.relay.header']({}), question: T['dialog.relay.note']({ asker, tool, note: printed(note, DIALOG_CAP).text, ...(by === undefined ? {} : { by }) }), options: [...(whole ? [{ label: T['dialog.allow']({}) }] : []), { label: T['dialog.show']({}) }, { label: T['dialog.deny']({}) }] }
+}
+
+// A Bash ask put to the person as the engine's own dialog for that command (engine/relay.ts), which runs nothing in the manager's session. It is sent the command as the ask
+// shows it and a description line that names the asker, never the asker's own description, which that dialog would show as its own; the manager's note goes on the dialog's
+// reason line. An ask not shown whole, an input with a key that could change what runs and that dialog would not show, or a command that dialog may not show as it is (a
+// character that could hide text, a blank line or more than 20 lines that could push some of it out of sight, a redaction) keeps the question form (undefined).
+const NATIVE_KEYS = ['command', 'description', 'timeout', 'run_in_background']
+const visible = (s: string): boolean => escBlock(s.replaceAll('<', '')) === s.replaceAll('<', '') && !/\n\s*\n/.test(s) && s.split('\n').length <= 20 && !s.includes('[REDACTED')
+export type NativePlan = { input: { command: string; description: string }; reason: string }
+export function nativeOf(ask: Ask, asker: string, note: string | undefined, by: string | undefined): NativePlan | undefined {
+  if (ask.tool !== 'Bash' || !shownWhole(ask.input, ask.cut)) return undefined
+  const i = JSON.parse(ask.input)
+  if (i === null || typeof i !== 'object' || typeof i.command !== 'string' || !visible(i.command) || Object.keys(i).some((k) => !NATIVE_KEYS.includes(k))) return undefined
+  const reason = T['dialog.relay.reason']({ ...(note === undefined ? {} : { note: printed(note, DIALOG_CAP).text }), ...(by === undefined ? {} : { by }) })
+  return { input: { command: i.command, description: T['dialog.relay.native']({ asker }) }, reason }
 }
 
 // ---- what the relay puts to the person: the input of an AskUserQuestion it calls in the manager's session (engine/relay.ts) ----

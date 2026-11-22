@@ -141,11 +141,6 @@ export async function log($: any, sid: Sid, event: string, reason = ''): Promise
   await ensureDir($, p.slice(0, p.lastIndexOf('/'))).catch(() => undefined)
   await run($, ['/usr/bin/tee', '-a', '--', p], { stdin: `${JSON.stringify({ t: new Date(await $.clock.now()).toISOString(), event, reason })}\n` }).catch(() => undefined)
 }
-// A refusal or fallback about a session: logged and queued as a `report` event for the session above it (RECEIVES gives it to a lead).
-export async function report($: any, me: Sid, about: Sid, code: string): Promise<void> {
-  mem.reports = [...mem.reports, { about, code, at: await $.clock.now() }].slice(-50)
-  await log($, me, 'report', `${code}:${about}`)
-}
 
 // ---- the plugin's own turns ----
 export function countDown(text: string): void {

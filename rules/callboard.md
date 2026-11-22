@@ -154,7 +154,9 @@ check-ins and notices. Every one starts with `[callboard]` or `[compact-cue]`. T
   click on a go dialog that the session's `go_request` opened, the turn opens
   `[callboard] The person clicked Yes on your go request`, `[callboard] The person declined the go you asked for` or
   `[callboard] The person said yes to the go you asked for, but it could not be saved`: then there is no go, and
-  `go_status` says so.
+  `go_status` says so. A go dialog that ends with no answer (closed,
+  or left unanswered past its time) sends `[callboard] The go dialog you opened ended with no answer from the person`:
+  there is no go either, and a click on it later records none.
 - After the person typed `/callboard handover` in a session, the plugin sends that session one turn that opens
   `[callboard] The person ran /callboard handover in this session:`. It asks the session to write its state to a file
   under its own `.archive/` and call `request_handover`; it carries no approval, go or answer.

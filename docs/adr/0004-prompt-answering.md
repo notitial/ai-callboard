@@ -220,6 +220,12 @@ Because a mod's `tool.check` can pierce a deny rule, **callboard's returns the e
 time**, and a mutation test pins that. Deny rules and guards stay in force because of this line, not because the
 engine forces it. Any later change that lets callboard's `tool.check` alter a verdict needs a new ADR.
 
+*2026-11-22: two exceptions, recorded in [ADR 0012](0012-callboard-plugin.md) (native Bash dialog). Callboard's own
+Bash calls in the manager's session (the relay's self-test and its command in the engine's dialog) get its own
+verdict, and any other Bash whose description reads as the relay's is denied. Neither lifts a deny: an engine deny
+of callboard's own call stands, and the self-test's allow is for the no-op command `true` that callboard itself sent.
+Every other call keeps the engine's verdict unchanged.*
+
 ### What agents may judge
 
 *Amended 2026-11-16 ([ADR 0011](0011-all-prompts-rise.md), proposed): every ask becomes a request, whatever raised it. A hook's ask outside the
@@ -337,7 +343,8 @@ Merges and force pushes were once an optional floor item, lifted per machine thr
 choice. The choice was never built, and on 2026-11-13 merges and force pushes left the floor altogether (see The floor),
 so nothing is left to lift: `mcp__machine-ops__pr_merge` and `mcp__machine-ops__force_push` reach the tiers like any call.
 ai-toolkit's deny rules, guards and the server's own `--tools` still decide whether such a prompt exists at all. The mod
-does not lift them, and `tool.check` still returns the engine's verdict unchanged.
+does not lift them, and `tool.check` still returns the engine's verdict unchanged (its two exceptions, above, lift
+no deny).
 
 ### Generic judgment
 
@@ -462,7 +469,7 @@ race from a click, record the design before this note.
 *Amended 2026-11-14: on by default, behind a guard.* With no stored switch, escalation is on for all lanes and leads, permission prompts
 and questions alike (scope `all`, asks scope `all`), but only while the hook and the markers that docs/setup.md asks for are
 in place: ai-toolkit's protected-paths hook wired in `~/.claude/settings.json` (ai-toolkit's fail-closed wrapper of the linked hook, exactly `/bin/bash -p "$HOME/.claude/hooks/protected-paths-guard.sh" || exit 2`, with `$HOME`, `${HOME}` or the absolute path of the link inside the quotes; the bare path does not count, because it lets a call through when the hook cannot start; the entry has type `command`, only the keys `type`, `command`, `timeout`, `statusMessage` and `onFailure`, and a `timeout` of at least 10 when one is set; on a matcher that covers Edit, Write and Bash, hooks not disabled, and no `HOME` in the settings `env`), and `.protected-checkout` in the callboard folder,
-the toolkit and the checkout the mod loads from. The mod checks this at run time, at most once a minute; any read that fails
+the toolkit and the checkout the mod loads from. *Amended 2026-11-22: the check counts any `PreToolUse` command hook whose command contains `protected-paths-guard.sh`, with hooks not disabled; the wrapper, field, matcher and `env` conditions above are what the setup guide advises, no longer what the plugin tests, and of the markers it checks only the callboard folder's `.protected-checkout`.* The mod checks this at run time, at most once a minute; any read that fails
 counts as missing, and then escalation is off, a waiting request ends as `off` and goes back to the person, and `/callboard status`
 says what is missing. The OFF file and `/callboard escalation off` win at once: `off` now stores `{ off: true }` in place of
 deleting the value, because nothing stored means the default. A value the person's dialog or an earlier version stored rules
@@ -516,7 +523,7 @@ What remains as the guard:
 - expiry and nonce;
 - a live tier in reach, by the presence checks, which filter rather than prove;
 - the 30-second minimum with the dialog open, counted in awake time, which helps only if the person is looking;
-- `next(e)` first and an observing `tool.check`, so deny rules and guards stand;
+- `next(e)` first and an observing `tool.check` (whose two exceptions lift no deny), so deny rules and guards stand;
 - the ledger, with its "decision with no log row" report, and the audit's check of transcripts, which catch this after
   the fact unless the forger rewrites those as well. A forger who writes both the ledger rows and a matching
   `prompt_answer` call into the lead's transcript still passes the audit;

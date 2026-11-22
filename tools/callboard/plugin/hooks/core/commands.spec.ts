@@ -7,7 +7,7 @@ import { NOW } from '../../test/gen.ts'
 test('every form parses to its command', () => {
   const cases: [string, Cmd][] = [
     ['status', { op: 'status' }], ['  lanes ', { op: 'lanes' }], ['help', { op: 'help' }], ['off', { op: 'off' }], ['on', { op: 'on' }], ['rest', { op: 'rest' }], ['lead off', { op: 'lead-off' }], ['lead', { op: 'lead', paths: [] }],
-    ['lead /Users/x/a ~/b', { op: 'lead', paths: ['/Users/x/a', '~/b'] }], ['go ship the thing', { op: 'go', text: 'ship the thing' }], ['go off', { op: 'go-off' }], ['go off abc', { op: 'go-off', id: 'abc' }],
+    ['lead /Users/x/a ~/b', { op: 'lead', paths: ['/Users/x/a', '~/b'] }], ['conductor reset', { op: 'conductor', paths: [], reset: true }], ['conductor pick', { op: 'conductor', paths: [], pick: true }], ['go ship the thing', { op: 'go', text: 'ship the thing' }], ['go off', { op: 'go-off' }], ['go off abc', { op: 'go-off', id: 'abc' }],
     ['unattended', { op: 'unattended', span: { op: 'state' } }], ['unattended off', { op: 'unattended', span: { op: 'off' } }], ['unattended 2h', { op: 'unattended', span: { op: 'on', end: NOW + 2 * 3_600_000 } }],
     ['config', { op: 'config', config: 'show' }], ['config reset', { op: 'config', config: 'reset' }], ['config keepalive off', { op: 'config', config: { key: 'keepalive', value: false } }],
     ['config ping 45', { op: 'config', config: { key: 'pingAfterMin', value: 45 } }], ['config idle 250k', { op: 'config', config: { key: 'idleK', value: 250 } }], ['config working 500', { op: 'config', config: { key: 'workingK', value: 500 } }],
@@ -26,7 +26,7 @@ test('a form that does not fit is bad; a window length that does not fit says so
 const FORMS: [string, boolean][] = [
   ['status', true], ['lanes', true], ['help', true], ['rest', true], ['config', true], ['unattended', true],
   ['off', false], ['on', false], ['lead /Users/x/a', false], ['lead off', false], ['go do the thing', false], ['go off', false], ['unattended 2h', false], ['unattended off', false],
-  ['config reset', false], ['config keepalive on', false], ['config ping 40', false], ['handover', false],
+  ['conductor reset', false], ['config reset', false], ['config keepalive on', false], ['config ping 40', false], ['handover', false],
 ]
 test('origin: only the read-only forms and rest run from anywhere; every other form needs exactly the typed turn', () => {
   for (const [args, open] of FORMS) {
@@ -67,7 +67,7 @@ test('a lead preset file: all four fields right, else no preset; callboard\'s ow
   assert.deepEqual(parsePreset(JSON.stringify({ ...ok, extra: 1 })), ok)
   assert.deepEqual(parsePreset(JSON.stringify({ ...ok, command: 'my-lead2', model: 'fable', effort: 'max' })), { ...ok, command: 'my-lead2', model: 'fable', effort: 'max' })
   const bad: unknown[] = [undefined, '', '{', 'null', '3', '[]', '"x"', {}, ...(['command', 'name', 'model', 'effort'] as const).map((k) => ({ ...ok, [k]: undefined })),
-    { ...ok, command: 'callboard' }, { ...ok, command: 'rest' }, { ...ok, command: 'unattended' }, { ...ok, command: 'Sentinel' }, { ...ok, command: '/sentinel' }, { ...ok, command: '1a' }, { ...ok, command: 'a'.repeat(25) },
-    { ...ok, name: 'two words' }, { ...ok, name: '' }, { ...ok, name: 'x'.repeat(41) }, { ...ok, model: 'gpt' }, { ...ok, effort: 'extreme' }, { ...ok, model: 3 }]
+    { ...ok, command: 'callboard' }, { ...ok, command: 'rest' }, { ...ok, command: 'unattended' }, { ...ok, command: 'lead' }, { ...ok, command: 'conductor' }, { ...ok, command: 'Sentinel' }, { ...ok, command: '/sentinel' }, { ...ok, command: '1a' }, { ...ok, command: 'a'.repeat(25) },
+    { ...ok, name: 'two words' }, { ...ok, name: '' }, { ...ok, name: 'x'.repeat(26) }, { ...ok, model: 'gpt' }, { ...ok, effort: 'extreme' }, { ...ok, model: 3 }]
   for (const b of bad) assert.equal(parsePreset(typeof b === 'string' || b === undefined ? b : JSON.stringify(b)), undefined, JSON.stringify(b))
 })

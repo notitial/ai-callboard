@@ -49,7 +49,7 @@ export type Verb = CueVerb | StopVerb | 'unpark'
 export type VerbPlan = Decision<'cue' | 'stop' | 'remove' | 'reopen' | 'refuse'> & { dialog?: true }
 export function verbPlan(verb: Verb, v: View, actor: Sid, key: string, x: { signed: boolean; win: WindowReading; now: number; name?: string }): VerbPlan {
   const name = nameOf(v, key)
-  const no = (code: RefuseCode): VerbPlan => refusal('refuse', code, { tool: `lane_${verb}`, target: name })
+  const no = (code: RefuseCode, detail?: string): VerbPlan => refusal('refuse', code, { tool: `lane_${verb}`, target: name, ...(detail === undefined ? {} : { detail }) })
   const stopped = (act: 'stop' | 'remove', dialog?: true): VerbPlan => ({ act, ...(dialog ? { dialog } : {}), msg: 'lane.stopped', p: { verb: verb as StopVerb, name, outcome: 'done' } })
   if (v.table[key]?.off) return no('is-off')
   if (!mayActOn(v, actor, key)) return no('not-a-parent')
@@ -63,7 +63,8 @@ export function verbPlan(verb: Verb, v: View, actor: Sid, key: string, x: { sign
   }
   if (verb === 'unpark') return no('has-live-session')
   if (verb === 'rename') {
-    const bad = x.name === undefined ? 'bad-input' : nameRefusal(v, x.name, key)
+    if (x.name === undefined) return no('bad-input', 'name')
+    const bad = nameRefusal(v, x.name, key)
     if (bad !== undefined) return no(bad)
   }
   if ((CUE_VERBS as readonly string[]).includes(verb)) return { act: 'cue', msg: 'lane.cued', p: { verb: verb as CueVerb, name } }
