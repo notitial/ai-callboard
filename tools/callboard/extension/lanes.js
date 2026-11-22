@@ -2,11 +2,10 @@
 // Panel control for callboard. All vscode and filesystem access is injected so the
 // registry-diff race can be tested with a fake registry.
 
-const { SID_RE, NAME_RE, pidAlive } = require('./reserved.js')
+const { SID_RE, pidAlive } = require('./reserved.js')
 const { psStart, procStateWith } = require('./proc.js')
 
 const ADOPT_MAX = 64
-const PID_MAX = 2 ** 22
 // An adopted panel is dropped when its process is still alive this long after the request and no registry entry ever showed it: a close request for an unrelated live process.
 const ADOPT_TTL_MS = 5 * 60_000
 // How long a new panel's registry row must keep its session id before an open answers with it.
@@ -373,8 +372,7 @@ function createLanes({ vscode, registry, sleep, now, workspaceFolders = () => un
   // A close request the plugin writes after it stopped a session (the spool hands it over): the panel was not opened by this extension, but the sweep may
   // close its tab under the same rules, so the request adds nothing a forged file could use: the pid must be dead, no live session may carry the name,
   // and only the one Claude tab with that label goes. The number of adopted panels is bounded.
-  function adopt(sid, { name, pid } = {}) {
-    if (!SID_RE.test(String(sid)) || !Number.isInteger(pid) || pid < 2 || pid > PID_MAX || typeof name !== 'string' || !NAME_RE.test(name)) return false
+  function adopt(sid, { name, pid }) {
     if (!opened.has(sid) && opened.size >= ADOPT_MAX) return false
     const prev = lastSeen.get(sid)
     if (!opened.has(sid)) adoptedAt.set(sid, now())

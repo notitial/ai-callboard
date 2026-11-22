@@ -2,7 +2,7 @@
 // only when its sender is above the child now and it is fresh (`cueAnswer`), and is taken off the disk before it is acted on, so a failed act is never repeated; a busy child answers `held` and leaves the cue for its sender to take away; a doubtful
 // registry read does nothing; the brief a `start` points at is the child's own row's, never the cue's; every file name is built from an id this file checks first.
 // The spool: `open/<id>.req` is written as a dot-file and renamed, with a fresh random id, and the folder is named exactly as the lane's row holds it; the window that serves it answers
-// `open/<id>.result` within its own 20 s, so the writer waits one budget (SPOOL_WAIT_S) and, with no answer, takes its own request back so a window that wakes later opens nothing.
+// `open/<id>.result` (a close is answered by nothing) within its own 20 s, so the writer waits one budget (SPOOL_WAIT_S) and, with no answer, takes its own request back so a window that wakes later opens nothing.
 // A `pick` is the one request that waits for the person: once a window has taken it, the window shows its tick list for up to 80 s and the writer waits PICK_WAIT_S; the answer's folders are checked here (absolute, plain, at most 32) before the caller resolves them.
 // Bounds that hold for the same user (ADR 0002): the window opens only a folder of its own workspace, drops a request older than 60 s, reads plain files up to 40 000 bytes and takes one
 // request at a time (a tick list is shown beside that); the plugin checks capability, allowlist, name and the cap of live children before it writes. No rate limit and no lane store are checked beyond that.

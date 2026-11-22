@@ -108,7 +108,8 @@ test('decide: the answer must name this ask and come from the person or an eligi
   const q = ask({ tool: 'AskUserQuestion' })
   assert.deepEqual(decide(a({ decision: 'answer', option: 1 }), q, s, all, live), { act: 'answer', by: 'A', picks: [{ question: 'Which?', label: 'Yes' }] })
   assert.equal(decide(a({ decision: 'answer', option: 3 }), q, s, all, live).act, 'ignore')
-  assert.equal(decide(a({}), q, s, all, live).act, 'ignore')
+  assert.equal(decide(a({}), q, s, all, live).p.detail, 'question')
+  assert.equal(decide(a({ decision: 'answer', option: 3 }), q, s, all, live).p.detail, 'pick')
   // Several questions: the person picks one option for each; a session's pick is refused, and so is a count or an option that does not fit.
   const two = { questions: [live.questions[0], { question: 'Where?', header: 'Place', options: [{ label: 'Here' }, { label: 'There' }] }] }
   assert.deepEqual(decide(a({ by: PERSON, decision: 'answer', picks: [1, 2] }), q, mine, all, two), { act: 'answer', by: PERSON, picks: [{ question: 'Which?', label: 'Yes' }, { question: 'Where?', label: 'There' }] })

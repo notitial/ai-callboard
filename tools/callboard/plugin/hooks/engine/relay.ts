@@ -6,7 +6,7 @@
 // is theirs, so a result or a refusal that came before it writes nothing, and a dismissal after it is their deny; a dialog that was cut or closed by itself writes nothing and is
 // put again; a Yes on a command changed in the dialog writes nothing; nothing is raised unless the window reads off; the dialogs and the OS notification name the asker by a plain name or its id, and the notification names the tool, never the command.
 import type { Ask, Question, Sid, View } from '../core/model.ts'
-import { NAME_RE, PERSON, nameOf } from '../core/model.ts'
+import { PERSON, nameOf } from '../core/model.ts'
 import type { Picked } from '../core/asks.ts'
 import { QUESTION_TOOL, readAnswers, rejectionOf } from '../core/asks.ts'
 import { T } from '../texts.ts'
@@ -107,7 +107,7 @@ async function relayRun($: any, me: Sid, ask: Ask, v: View): Promise<void> {
   mem.proxy = p
   try {
     // Names as the person reads them, in plain text: a plain session name, else the asker's id and no name for the manager.
-    const plain = (s: string): string | undefined => (NAME_RE.test(s) ? s : undefined)
+    const plain = (s: string): string | undefined => (/^[A-Za-z0-9_-]{1,40}$/.test(s) ? s : undefined)
     const name = plain(nameOf(v, ask.asker)) ?? ask.asker
     notify($, ask.id, T['notify.relay']({ name, tool: ask.tool }))
     const qs = ask.questions ?? (ask.question === undefined ? undefined : [ask.question])

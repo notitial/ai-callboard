@@ -21,7 +21,7 @@ export const statusPage = (rows: readonly StatusRow[]): string => `${T['ui.statu
 
 // ---- the lane table: /callboard lanes and lane_list ----
 // sid and parentSid (a session id, PERSON, or null) order the table (see `tree`); the name is for display and is not unique. Neither is a column. The usage figures are the engine's own; a figure that is absent or not a number reads `-`.
-export type LaneRow = { sid: Sid; name: string; role: Capability; state: UiState; parentSid: Sid | null; folder: string; context?: number; fiveHour?: number; sevenDay?: number; cost?: number; readAgeMin?: number }
+export type LaneRow = { sid: Sid; name: string; role: Capability | 'conductor'; label?: string; state: UiState; parentSid: Sid | null; folder: string; context?: number; fiveHour?: number; sevenDay?: number; cost?: number; readAgeMin?: number }
 const COLS: readonly UiColumn[] = ['name', 'role', 'state', 'folder', 'context', 'fiveHour', 'sevenDay', 'cost', 'read']
 const line = (v: readonly string[]): string => `| ${v.map(escCell).join(' | ')} |`
 const num = (n: number | undefined, f: (n: number) => string): string => (n !== undefined && Number.isFinite(n) ? f(n) : '-')
@@ -46,7 +46,7 @@ const folderName = (f: string): string => ((n) => (n === undefined ? '-' : `../$
 export function lanesTable(rows: readonly LaneRow[]): string {
   if (rows.length === 0) return T['ui.lanes.none']({})
   const cells = ({ row: r, depth }: { row: LaneRow; depth: number }): Record<UiColumn, string> => ({
-    name: depth === 0 ? r.name : `${'↳'.repeat(depth)} ${r.name}`, role: T[`ui.role.${r.role}`](), state: T[`ui.state.${r.state}`](), folder: folderName(r.folder),
+    name: depth === 0 ? r.name : `${'↳'.repeat(depth)} ${r.name}`, role: r.label ?? T[`ui.role.${r.role}`](), state: T[`ui.state.${r.state}`](), folder: folderName(r.folder),
     context: num(r.context, (n) => `${Math.round(n / 1000)}k`), fiveHour: num(r.fiveHour, (n) => `${Math.round(n)}%`), sevenDay: num(r.sevenDay, (n) => `${Math.round(n)}%`),
     cost: num(r.cost, (n) => `$${n.toFixed(2)}`), read: num(r.readAgeMin, (n) => `${Math.round(n)}m`),
   })

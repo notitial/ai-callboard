@@ -192,8 +192,6 @@ EXT_DIR="$(ls -d "$HOME"/.vscode/extensions/anthropic.claude-code-* | sort -V | 
   and any other group after them. A session moves into its tier's group from wherever it sits, and again whenever its
   tier changes; one you move by hand stays moved until then. An install with the older `callboard assign group` reads
   `outdated`, and grouping waits until `--update`.
-- The session command is another piece, optional in the same way (the marker's `session` field): `callboard active session`
-  returns the session id of the Claude panel in front, so the folder badge below finds an unnamed session too.
 - The archive command is another piece (the marker's `archive` field): `callboard archive sessions` archives the sessions it is
   given that sit in the group it is given, as the sidebar's Archive item does. The panels extension names a lane in Lanes
   only after it saw the lane running and then saw it with no table row and no process, on two clean ticks. So a lane the
@@ -221,10 +219,7 @@ EXT_DIR="$(ls -d "$HOME"/.vscode/extensions/anthropic.claude-code-* | sort -V | 
   several folders open VS Code's own folder list first and start the session in the folder you pick; Escape opens
   nothing. Callboard's own lane opens pass their folder and never ask. The palette's Open in New Tab, Open and an
   @-mention are bare calls that cannot be told from Claude Code's own internal ones: they never ask and start in the
-  first folder. The status bar shows the folder of the Claude panel in front, in a window with several folders: it finds
-  the session by its id through the session command; without that piece, only a session with a name it was given
-  (`/rename`, or a lane's own name, which callboard gives its panel), matched by the tab's label, since a tab still
-  showing the title Claude generated names no session.
+  first folder.
 - It serves the lanes of every folder of the window. A tab that Claude Code itself restores or reopens
   resumes in its conversation's folder through the restore fix; where that fix is not in or finds no transcript, it starts in
   the window's first folder.

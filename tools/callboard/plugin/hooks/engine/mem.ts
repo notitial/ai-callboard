@@ -46,10 +46,9 @@ const fresh = () => ({
   win: undefined as { at: number; w: WindowReading } | undefined,
   noSince: new Map<string, number>(),
   tableAt: 0,
-  // Events: the ones in a submitted text not yet started, the keys spent, the reports queued about sessions, the sessions whose report reads signed.
+  // Events: the ones in a submitted text not yet started, the keys spent, the sessions whose report reads signed.
   pending: new Map<string, { keys: string[]; at: number }>(),
   spent: new Set<string>(),
-  reports: [] as { about: Sid; code: string; at: number }[],
   signed: { at: 0, set: new Set<Sid>() },
   since: 0,
   prNotes: [] as PrNote[],

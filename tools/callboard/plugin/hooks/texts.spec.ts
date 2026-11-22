@@ -66,11 +66,11 @@ const refusal = (id: string, p: { tool?: string; target?: string; detail?: strin
 test('a refusal says what failed: a save names what could not be written, a bare detail reads as a sentence, a stale cue, a busy dialog and an away person each have their own text', () => {
   const bare = refusal('refuse.bad-input', { detail: 'not-a-detail' })
   assert.match(bare, /refused: the input is not valid\. Retry/)
-  const details = ['path', 'idle-over-working', 'decision', 'subagent', 'not-interactive', 'too-many', 'no-answer', 'input', 'full', 'write']
+  const details = ['path', 'idle-over-working', 'decision', 'question', 'pick', 'name', 'subagent', 'not-interactive', 'too-many', 'no-answer', 'input', 'full', 'write']
   const texts = details.map((d) => refusal('refuse.bad-input', { detail: d }))
   assert.ok(!texts.includes(bare))
   assert.equal(new Set(texts).size, details.length)
-  const saves = ['lane', 'repos', 'repos-row', 'go', 'go-off', 'window', 'config', 'rest'].map((d) => refusal('refuse.not-saved', { detail: d }))
+  const saves = ['lane', 'repos', 'repos-row', 'go', 'go-off', 'window', 'config', 'rest', 'answer', 'escalate'].map((d) => refusal('refuse.not-saved', { detail: d }))
   assert.equal(new Set(saves).size, saves.length)
   assert.match(refusal('refuse.not-saved', { detail: 'other' }), /could not be saved, so nothing changed/)
   assert.match(refusal('refuse.cue-refused', { detail: 'cue-stale' }), /the cue was too old\. Send it again\./)

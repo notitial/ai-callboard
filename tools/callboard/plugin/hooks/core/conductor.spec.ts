@@ -125,10 +125,10 @@ test('a minted lead\'s row goes like a lane\'s: a verb removes it once no sessio
 })
 
 test('a conductor is told of asks and expired asks from everything under it, and of the other events from its children only', () => {
-  const x = { v, now: NOW, since: NOW - 3_600_000, asks: [{ id: 'q', asker: L1 }], log: [{ t: NOW, ev: 'expired' as const, ask: 'e', asker: L1 }], reports: [{ about: L1, code: 'cap', at: 1 }], signed: new Set([L1, ML]), asking: new Set<string>() }
+  const x = { v, now: NOW, since: NOW - 3_600_000, asks: [{ id: 'q', asker: L1 }], log: [{ t: NOW, ev: 'expired' as const, ask: 'e', asker: L1 }], signed: new Set([L1, ML]), asking: new Set<string>() }
   const kinds = (me: string) => notices({ ...x, me }).map((n) => `${n.kind}:${n.about}`).sort()
   assert.deepEqual(kinds(C), [`ask:${L1}`, `done:${ML}`, `expired:${L1}`])
-  assert.deepEqual(kinds(ML), [`ask:${L1}`, `done:${L1}`, `expired:${L1}`, `report:${L1}`])
+  assert.deepEqual(kinds(ML), [`ask:${L1}`, `done:${L1}`, `expired:${L1}`])
   assert.deepEqual(kinds(M), [`ask:${L1}`, `expired:${L1}`])
   assert.deepEqual(kinds(A), [])
 })

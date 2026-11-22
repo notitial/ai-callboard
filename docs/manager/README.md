@@ -69,7 +69,7 @@ enforces.
 - **H1** Never decide an approval.
 - **H2** Never dispatch, cancel, `kill_all` or restart anything. One exception: a callboard `lane_park`, `lane_unpark`,
   `lane_retire` or `lane_terminate` at manager reach (ADR 0012: a parent parks, unparks and retires with no dialog, and a force stop,
-  `lane_terminate`, opens the person's dialog, which they answer themselves every time and which is refused while
+  `lane_terminate`, opens the person's dialog (for a lane with a live session), which they answer themselves every time and which is refused while
   unattended mode is on).
 - **H3** Reach lanes only through the `lane_*` tools; never type into a lane's session. Message only leads and the
   plain sessions the person names. The one exception: the runaway stop message

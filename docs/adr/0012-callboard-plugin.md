@@ -57,7 +57,7 @@ The manager is the one session found by registry name (a residual, in [ADR 0002]
 **Tools follow capability.** Five tools go to every session (`go_request`, `go_status`, `pr_watch`,
 `request_compact`, `rest`); the thirteen that open, stop and list children and answer asks go only to a lead or the
 manager, and each body checks the capability again. There is one cap on live children. A parent parks, resumes,
-retires and opens its children with no dialog; only a force stop keeps one. A session compacts itself; a lead that
+retires and opens its children with no dialog; only a force stop of a live lane keeps one. A session compacts itself; a lead that
 wants a lane compacted says so in an ordinary message. A lead takes a loose session by name with one tool, and any
 ancestor acts on any descendant.
 

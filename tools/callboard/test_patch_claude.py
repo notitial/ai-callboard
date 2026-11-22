@@ -497,12 +497,12 @@ const code = fs.readFileSync(process.argv[1], 'utf8')
 const start = JSON.parse(process.argv[2])
 async function run(groups, sid, name, order) {
   const H = {}, saved = []
-  const provider = { settings: { getSessionGroups: () => groups, getArchivedSessionIds: () => start.archived || [] }, persistGroupsFromHost: (g) => saved.push(g), addActiveSessionTabToGroup: async () => true, activePanelSessionId: () => 'sid-front' }
+  const provider = { settings: { getSessionGroups: () => groups, getArchivedSessionIds: () => start.archived || [] }, persistGroupsFromHost: (g) => saved.push(g), addActiveSessionTabToGroup: async () => true }
   const fake = { workspace: {}, window: {}, commands: { registerCommand: (id, fn) => { H[id] = fn; return {} } } }
   const ctx = vm.createContext({ x: [], Wp: () => {}, F: () => ({}), G: provider, Gq: provider, $e: fake, Pe: fake, require: (m) => (m === 'crypto' ? { randomUUID: () => 'new-id' } : fake) })
   vm.runInContext(code, ctx)
   const result = await H['callboard file session'](sid, name, order)
-  return { result, saved, front: H['callboard active session'](), stock: typeof H['claude-vscode.addSessionTabToGroup'], other: typeof H['claude-vscode.toggleFocusView'] }
+  return { result, saved, stock: typeof H['claude-vscode.addSessionTabToGroup'], other: typeof H['claude-vscode.toggleFocusView'] }
 }
 ;(async () => {
   const out = []
@@ -531,9 +531,9 @@ class Groups(Case):
             self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "patched 2.1.328"))
             self.assertEqual(self.out.count("warning"), 0)
             marker = self.marker(ext)
-            self.assertEqual((marker["patch"], marker["width"], marker["pie"], marker["groups"], marker["session"], marker["archive"], marker["list"]), (1, True, True, True, True, True, True))
+            self.assertEqual((marker["patch"], marker["width"], marker["pie"], marker["groups"], marker["archive"], marker["list"]), (1, True, True, True, True, True))
             new = self.js(ext)
-            self.assertEqual((new.count(b"callboard file session"), new.count(b"callboard active session"), new.count(b"callboard archive sessions"), new.count(b"cbListOne(e){")), (1, 1, 1, 1))
+            self.assertEqual((new.count(b"callboard file session"), new.count(b"callboard archive sessions"), new.count(b"cbListOne(e){")), (1, 1, 1))
             self.assertEqual(new.count(b"cbCwd"), 6)
 
     def test_the_command_goes_in_front_of_the_stock_one_inside_its_push_call(self):
@@ -541,9 +541,9 @@ class Groups(Case):
         new = self.js(ext).decode("utf-8")
         i, j = new.index("Pe.commands.registerCommand(\"callboard file session\""), new.index("Pe.commands.registerCommand(\"claude-vscode.addSessionTabToGroup\"")
         self.assertLess(i, j)
-        self.assertEqual(new[i:j].count("registerCommand"), 3, "the group command, the session command, then the archive command")
+        self.assertEqual(new[i:j].count("registerCommand"), 2, "the group command, then the archive command")
         self.assertTrue(new[:i].endswith("x.push("))
-        self.assertIn('Pe.commands.registerCommand("callboard active session",()=>Gq.activePanelSessionId()),Pe.commands.registerCommand("callboard archive sessions",async(', new[i:j])
+        self.assertIn('Pe.commands.registerCommand("callboard archive sessions",async(', new[i:j])
         self.assertTrue(new[i:j].endswith("return cbqD}),"))
 
     @unittest.skipUnless(shutil.which("node"), "needs node")
@@ -561,7 +561,6 @@ class Groups(Case):
             self.assertEqual(r[6]["saved"], [[G1, joined(G2, "s1")]])
             self.assertEqual([x["result"] for x in (r[0], r[1], r[2], r[6])], [True, True, True, True])
             self.assertEqual((r[0]["stock"], r[0]["other"]), ("function", "function"), "the stock commands are still registered")
-            self.assertEqual(r[0]["front"], "sid-front", "the session command returns the provider's panel in front")
 
     @unittest.skipUnless(shutil.which("node"), "needs node")
     def test_the_order_puts_the_named_groups_first_in_its_order_and_the_others_after_in_theirs(self):
@@ -669,8 +668,6 @@ class Groups(Case):
                 self.assertEqual(self.js(ext).count(b"callboard file session"), 1, d)
                 for member in (b".settings.getSessionGroups()", b".settings.getArchivedSessionIds()", b"persistGroupsFromHost("):
                     self.assertIn(member, raw, "%s: the members the command uses" % d)
-            if marker["session"]:
-                self.assertIn(b"activePanelSessionId(){", raw, "%s: the member the session command uses" % d)
             if marker["archive"]:
                 for member in (b"archiveSessions(", b"broadcastSessionArchiveChanged(", b"getArchivedSessionIds()"):
                     self.assertIn(member, raw, "%s: the members the archive command uses" % d)
@@ -794,9 +791,9 @@ class ListAndArchive(Case):
 
     def test_a_missing_list_anchor_costs_only_the_list_and_a_missing_group_anchor_costs_only_the_two_commands_there(self):
         for label, raw, left, kept in (
-            ("renamed method", build(V327).replace(b"async listSdkSessions", b"async listSessionsFromSdk"), ("list", "session list"), ("groups", "session", "archive")),
-            ("doubled method", build(V327).replace(b"function Act(", b"class Z{async listSdkSessions(e=this.sessionListOptions()){let t=gd();return t===void 0?await c$e(e):await RHe(e,void 0,t)}}function Act("), ("list", "session list"), ("groups", "session", "archive")),
-            ("no group registration", build(V327, grp=""), ("groups", "group command", "session", "archive"), ("list",)),
+            ("renamed method", build(V327).replace(b"async listSdkSessions", b"async listSessionsFromSdk"), ("list", "session list"), ("groups", "archive")),
+            ("doubled method", build(V327).replace(b"function Act(", b"class Z{async listSdkSessions(e=this.sessionListOptions()){let t=gd();return t===void 0?await c$e(e):await RHe(e,void 0,t)}}function Act("), ("list", "session list"), ("groups", "archive")),
+            ("no group registration", build(V327, grp=""), ("groups", "group command", "archive"), ("list",)),
         ):
             ext = self.make(V327, name="miss%d" % len(os.listdir(self.t)), raw=raw)
             self.run_script(ext, "--apply")

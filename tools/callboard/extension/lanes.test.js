@@ -624,14 +624,8 @@ test('an adopted panel keeps its tab while a live session carries the name, or w
   assert.deepEqual(closed, [tab])
 })
 
-test('adopt ignores a bad session id, pid or name, and more than 64 panels; the sweep closes nothing for them', async () => {
+test('adopt takes at most 64 panels', async () => {
   const w = world({ alive: () => false })
-  const closed = trackTabs(w, claudeTab('ATT'))
-  for (const [id, r] of [['nope', { name: 'ATT', pid: 4242 }], [VALID_SID, { name: 'ATT', pid: 1 }], [VALID_SID, { name: 'ATT', pid: 12.5 }], [VALID_SID, { name: 'ATT', pid: '4242' }], [VALID_SID, { name: 'a b', pid: 4242 }], [VALID_SID, {}], [VALID_SID, undefined]]) {
-    assert.equal(w.lanes.adopt(id, r), false, JSON.stringify([id, r]))
-  }
-  await w.lanes.sweep()
-  assert.deepEqual(closed, [])
   let ok = 0
   for (let i = 0; i < 70; i++) if (w.lanes.adopt(`c${String(i).padStart(7, '0')}-0000-4000-8000-000000000000`, { name: 'ATT', pid: 5000 + i })) ok++
   assert.equal(ok, 64)
@@ -648,13 +642,6 @@ test('an adopted panel with two tabs of that label, or a tab that is not a Claud
   w.lanes.adopt('d0000000-0000-4000-8000-00000000000d', { name: 'BBB', pid: 4243 })
   await w.lanes.sweep()
   assert.deepEqual(closed, [])
-})
-
-test('adopt caps the pid at 2^22', async () => {
-  const w = world({ alive: () => false })
-  assert.equal(w.lanes.adopt(VALID_SID, { name: 'ATT', pid: 2 ** 22 }), true)
-  assert.equal(w.lanes.adopt('e0000000-0000-4000-8000-00000000000e', { name: 'ATT', pid: 2 ** 22 + 1 }), false)
-  assert.equal(w.lanes.adopt('e0000000-0000-4000-8000-00000000000e', { name: 'ATT', pid: 99999999999 }), false)
 })
 
 test('an adopted panel whose process is still alive and that no registry entry ever showed is dropped after five minutes; a dead pid before that still closes', async () => {
