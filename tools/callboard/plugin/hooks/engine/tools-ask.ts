@@ -93,7 +93,7 @@ export async function promptAnswerCall($: any, e: any, _next: any) {
     const ask = await readAsk($, id)
     const { ups, answered } = await askState($, id)
     const now = await $.clock.now()
-    const st = ask === undefined ? undefined : answered ? undefined : stage({ ask, now, ups, v, away: await awayNow($) })
+    const st = ask === undefined || answered ? undefined : stage({ ask, now, ups, v, away: await awayNow($) })
     if (ask === undefined) return no('no-such-ask')
     if (st?.open !== true) return no('ask-closed')
     if (!st.eligible.includes(c.me)) return no('not-eligible')

@@ -91,8 +91,9 @@ the manager in words: either is the person's own act on that one ask.
 30-second head start and a 5-minute wait only delay a decision the tiers can make. The two steps shorten to 5 seconds
 (wall time) for the parent and 30 seconds of awake time for the manager. The 15-minute close, an escalation moving the
 ask on at once and the daytime times are unchanged. The engine reads the window and passes one flag to the timeline
-(`StageIn.away`); the timeline itself stays pure. A window read that fails counts as not on, so the daytime times
-apply. The check-in turn that tells a parent of a new ask comes from a list kept 10 seconds, so it can arrive some
+(`StageIn.away`); the timeline itself stays pure. A window never read successfully counts as not on, so the
+daytime times apply; a read that fails after a good one keeps that reading until its window ends, and a missing file
+means off. The check-in turn that tells a parent of a new ask comes from a list kept 10 seconds, so it can arrive some
 seconds after the 5; `prompt_list` and `prompt_answer` read the ask fresh and are exact.
 
 *Amended 2026-11-20 (escalation round).* The relay offers a call of 2 to 4 questions too, with one combined answer;
