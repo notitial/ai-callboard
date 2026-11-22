@@ -20,7 +20,7 @@ export async function presetRegister($: any): Promise<void> {
   const root = await $.session.root().catch(() => undefined)
   const p = typeof root === 'string' ? parsePreset(await readText($, `${root}/.claude/callboard-lead.json`, 2048)) : undefined
   if (p === undefined) return
-  if (await registerFree($, p.command, T['cmd.presetHelp'](p), (d) => d.endsWith(PRESET_TAIL))) mem.preset = p
+  if (await registerFree($, p.command, T['cmd.presetHelp'](p), (c) => c.description?.endsWith(PRESET_TAIL) === true)) mem.preset = p
 }
 
 // The command's run: every other command passes on, and a failure of the run itself is answered here, so `next` is called at most once.

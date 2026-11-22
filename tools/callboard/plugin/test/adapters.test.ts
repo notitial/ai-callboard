@@ -82,6 +82,16 @@ test('a command another source holds is not registered, and its run passes on to
   expect((await $.command.run({ command: 'conductor', args: '/w/repo', origin: { kind: 'composer' } } as any)).text).toContain('This session is a conductor')
   expect((await $.command.run({ command: 'callboard', args: 'status', origin: { kind: 'composer' } } as any)).text).toMatch(/Held by another command \| \/lead:/)
 })
+test('a held /callboard, /rest or /unattended passes on as typed', async ($, on) => {
+  const f = fake()
+  own(f)
+  engine(on, f)
+  f.h.listed = ['callboard', 'rest', 'unattended'].map((name) => ({ name, source: 'builtin' }))
+  await start($)
+  expect(f.h.commands.sort()).toEqual(['conductor', 'lead'])
+  for (const [command, args] of [['callboard', 'status'], ['rest', ''], ['unattended', '30m']]) await $.command.run({ command, args, origin: { kind: 'composer' } } as any)
+  expect(f.h.compactRuns).toEqual(['callboard status', 'rest ', 'unattended 30m'])
+})
 test('the keepalive: at the configured 30 minutes after a turn ends, one ping is submitted, and not another in the same gap', async ($, on) => {
   const f = fake()
   own(f)

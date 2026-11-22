@@ -47,7 +47,7 @@ export async function sessionStart($: any, e: any, next: any) {
   await registerTools($, 'any')
   mem.taken.clear()
   for (const [name, help] of [['callboard', 'help.status'], ['rest', 'help.rest'], ['unattended', 'help.unattended'], ['lead', 'help.lead'], ['conductor', 'help.conductor']] as const) {
-    await registerFree($, name, T[help](), (d) => d === T[help]())
+    await registerFree($, name, T[help](), (c) => c.plugin === 'callboard' || c.description === T[help]())
   }
   await presetRegister($).catch(() => undefined)
   return next(e)

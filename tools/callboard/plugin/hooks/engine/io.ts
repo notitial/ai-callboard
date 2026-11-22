@@ -143,11 +143,11 @@ export async function log($: any, sid: Sid, event: string, reason = ''): Promise
 }
 
 // Registers a slash command unless another source already holds its name: the engine refuses a built-in's, and a user's, a skill's or another plugin's would also be answered by this plugin's
-// hook, which hears a command by name. A line of this plugin's own from before a reload (`mine` says which) is registered again. A name not registered is kept in mem.taken, which the hooks
+// hook, which hears a command by name. A line of this plugin's own from before a reload (`mine` says which, from the listed line) is registered again. A name not registered is kept in mem.taken, which the hooks
 // read to pass that command on and /callboard status shows, and is logged. A list that fails counts as no clash: the engine's refusal is caught here.
-export async function registerFree($: any, name: string, description: string, mine: (description: string) => boolean): Promise<boolean> {
-  const listed: { name: string; source: string; description?: string }[] = await $.command.list().catch(() => [])
-  const held = listed.some((c) => c.name === name && !(c.source === 'plugin' && mine(c.description ?? '')))
+export async function registerFree($: any, name: string, description: string, mine: (line: { description?: string; plugin?: string }) => boolean): Promise<boolean> {
+  const listed: { name: string; source: string; description?: string; plugin?: string }[] = await $.command.list().catch(() => [])
+  const held = listed.some((c) => c.name === name && !(c.source === 'plugin' && mine(c)))
   const ok = !held && (await $.command.register({ name, description }).then(() => true, () => false))
   if (!ok) {
     mem.taken.add(name)

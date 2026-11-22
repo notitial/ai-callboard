@@ -48,11 +48,11 @@ test('a name another source holds, or that the engine refuses, is skipped and lo
   const f = fake()
   f.seed({ sid: 'sid-me', pid: 10, name: 'me', cwd: '/w/me', kind: 'interactive' })
   f.h.files.set(FILE, JSON.stringify(PRESET))
-  f.h.listed = [{ name: 'lead', source: 'builtin' }, { name: 'conductor', source: 'plugin', description: 'Another plugin\'s.' }, { name: 'rest', source: 'plugin', description: T['help.rest']() }]
+  f.h.listed = [{ name: 'lead', source: 'builtin' }, { name: 'conductor', source: 'plugin', description: 'Another plugin\'s.' }, { name: 'rest', source: 'plugin', description: 'An earlier text of the help line.', plugin: 'callboard' }]
   const refuse = f.$.command.register
   f.$.command.register = async (c: { name: string }) => (c.name === 'unattended' ? Promise.reject(new Error('refused')) : refuse(c))
   await sessionStart(f.$, {}, async (e: unknown) => e)
-  assert.deepEqual(f.h.commands.sort(), ['callboard', 'rest', 'sentinel'], 'its own earlier line (a reload) is registered again')
+  assert.deepEqual(f.h.commands.sort(), ['callboard', 'rest', 'sentinel'], 'its own earlier line (a reload, even with an older text) is registered again')
   assert.deepEqual([...mem.taken].sort(), ['conductor', 'lead', 'unattended'])
   assert.match([...f.h.files].filter(([p]) => p.includes('/log/')).map(([, t]) => t).join(''), /"event":"command-taken","reason":"lead"/)
   const g = fake()
