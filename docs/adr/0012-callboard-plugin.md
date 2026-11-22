@@ -87,6 +87,12 @@ never from a file, and the protected-paths guard and its markers are in place; t
 an ask that reaches the person is put to them as a dialog callboard raises in the manager's session, or the person tells
 the manager in words: either is the person's own act on that one ask.
 
+*Amended 2026-11-22 (faster asks while away).* While an unattended window is on, nobody is at the person's panel, so a
+30-second head start and a 5-minute wait only delay a decision the tiers can make. The two steps shorten to 5 seconds
+(wall time) for the parent and 30 seconds of awake time for the manager. The 15-minute close, an escalation moving the
+ask on at once and the daytime times are unchanged. The engine reads the window and passes one flag to the timeline
+(`StageIn.away`); the timeline itself stays pure.
+
 *Amended 2026-11-20 (escalation round).* The relay offers a call of 2 to 4 questions too, with one combined answer;
 a session still answers only a single question. How the dialog is shown and closed is the 2026-11-21 amendment below. The person's pick reaches the asker with a plugin note that it is their settled choice
 (only a pick made in the dialog carries it: the plugin cannot tell the manager's own `prompt_answer` after a typed turn

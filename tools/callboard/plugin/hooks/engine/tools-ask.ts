@@ -9,7 +9,7 @@ import { GO_HOURS, covers, goTextOk } from '../core/go.ts'
 import type { RefuseCode } from '../core/msg.ts'
 import { T } from '../texts.ts'
 import { goDialog, promptList, stamp } from '../ui.ts'
-import { newId, personDialog, windowNow } from './io.ts'
+import { awayNow, newId, personDialog, windowNow } from './io.ts'
 import { mem } from './mem.ts'
 import { askState, getView, guardOk, listGoes, logAsk, offFile, readAsk, readAskLog, readAsks, readRules, writeAnswer, writeGo, writeUp } from './store.ts'
 import { deny, isSub, say } from './tools-any.ts'
@@ -23,9 +23,10 @@ const GO_DIALOG_MS = 15 * 60_000
 export async function openAsks($: any, me: Sid, v: View, now: number, fresh = false): Promise<NonNullable<typeof mem.asks>> {
   if (!fresh && mem.asks !== undefined && now - mem.asks.at < ASKS_MS) return mem.asks
   const { asks, ups, answered } = await readAsks($)
+  const away = await awayNow($)
   const open: { ask: Ask; st: Open }[] = []
   for (const ask of asks) {
-    const st = answered.has(ask.id) ? undefined : stage({ ask, now, ups: ups.get(ask.id) ?? [], v })
+    const st = answered.has(ask.id) ? undefined : stage({ ask, now, ups: ups.get(ask.id) ?? [], v, away })
     if (st?.open !== true) continue
     open.push({ ask, st })
     if (!st.eligible.includes(me) || isOff(v, me) || mem.told.has(ask.id) || (ups.get(ask.id) ?? []).some((u) => u.by === me)) continue
@@ -50,7 +51,7 @@ export async function answerAsk($: any, v: View, id: string, a: { decision: 'all
   if (ask === undefined) return no('no-such-ask')
   const { ups, answered } = await askState($, id)
   const now = await $.clock.now()
-  const st = answered ? undefined : stage({ ask, now, ups, v })
+  const st = answered ? undefined : stage({ ask, now, ups, v, away: await awayNow($) })
   if (st?.open !== true) return no('ask-closed')
   const answer = { ask: id, by, decision: a.decision, at: now, ...(a.note === undefined ? {} : { note: capBytes(a.note, NOTE_MAX).text }), ...(a.option === undefined ? {} : { option: a.option }), ...(a.picks === undefined ? {} : { picks: a.picks }) }
   const d = decide(answer, ask, st, v, liveOf(ask))
@@ -92,7 +93,7 @@ export async function promptAnswerCall($: any, e: any, _next: any) {
     const ask = await readAsk($, id)
     const { ups, answered } = await askState($, id)
     const now = await $.clock.now()
-    const st = ask === undefined ? undefined : answered ? undefined : stage({ ask, now, ups, v })
+    const st = ask === undefined ? undefined : answered ? undefined : stage({ ask, now, ups, v, away: await awayNow($) })
     if (ask === undefined) return no('no-such-ask')
     if (st?.open !== true) return no('ask-closed')
     if (!st.eligible.includes(c.me)) return no('not-eligible')

@@ -136,7 +136,7 @@ test('a conductor is told of asks and expired asks from everything under it, and
 test('the ask chain through a conductor: the minted lead first, the conductor when the lead passes it up or with the manager at 5 minutes, then the person', () => {
   const a = (x: Partial<Ask> = {}): Ask => ({ id: 'ask-1', asker: L1, t0: NOW, awake: 0, tool: 'Bash', raisedBy: 'mode', input: '{}', cut: false, beat: NOW, ...x })
   const s = (ask: Ask, ups: { kind: 'escalated' | 'told'; by: string }[] = []) => {
-    const st = stage({ ask, now: NOW + HEAD_START_MS, ups: ups.map((u) => ({ ...u, at: NOW })), v })
+    const st = stage({ ask, now: NOW + HEAD_START_MS, ups: ups.map((u) => ({ ...u, at: NOW })), v, away: false })
     assert.ok(st.open)
     return st
   }
@@ -147,9 +147,9 @@ test('the ask chain through a conductor: the minted lead first, the conductor wh
   assert.equal(late.toPerson, false)
   assert.deepEqual(s(a(), [{ kind: 'escalated', by: ML }, { kind: 'escalated', by: C }]).eligible, [M])
   assert.equal(s(a(), [{ kind: 'escalated', by: ML }, { kind: 'escalated', by: C }, { kind: 'escalated', by: M }]).toPerson, true)
-  assert.equal(stage({ ask: a({ awake: EXPIRE_MS }), now: NOW, ups: [], v }).open, false)
+  assert.equal(stage({ ask: a({ awake: EXPIRE_MS }), now: NOW, ups: [], v, away: false }).open, false)
   // A minted lead's own ask: the conductor above it, then the manager.
-  assert.deepEqual(stage({ ask: a({ asker: ML }), now: NOW + HEAD_START_MS, ups: [], v }).open && s(a({ asker: ML })).eligible, [C])
+  assert.deepEqual(stage({ ask: a({ asker: ML }), now: NOW + HEAD_START_MS, ups: [], v, away: false }).open && s(a({ asker: ML })).eligible, [C])
   // The conductor decides an ask of a lane two levels down; a plain lead may not.
   const ans = (by: string): Answer => ({ ask: 'ask-1', by, decision: 'deny', at: NOW })
   const open = s(a(), [{ kind: 'escalated', by: ML }])

@@ -184,6 +184,10 @@ export async function windowNow($: any, fresh = false): Promise<WindowReading> {
   mem.win = { at: now, w }
   return w
 }
+// Whether an unattended window is on now, as the ask timeline takes it: a window that cannot be read is not on.
+export async function awayNow($: any): Promise<boolean> {
+  return (await windowNow($)).state === 'on'
+}
 // The dialog helper of the go and force-stop dialogs: it opens only while the window reads off, one at a time in this session, and records the open dialog's header and question until it ends (a dialog
 // left on screen after its time limit stays recorded). Only the label a dialog offered is an answer; any other result is a reason.
 export async function personDialog($: any, spec: DialogSpec, ms = 90_000): Promise<{ label: string } | { no: 'unattended' | 'busy' | 'timeout' | 'error' }> {
