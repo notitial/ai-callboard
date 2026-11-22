@@ -148,6 +148,11 @@ test('the wait for the tick list: 30 s for a window to take the request, then 90
   const b = slowWindow(late, 20, 105)
   await run(late, 'conductor', 'composer')
   assert.deepEqual([await conductorRepos(late.$, '/w/me'), b.n], [['/w/repo'], 105])
+  // Taken in the last second of the 30: the request cannot be taken back, so the window is waited for and its answer saved.
+  const edge = world()
+  const e = slowWindow(edge, 30, 60)
+  await run(edge, 'conductor', 'composer')
+  assert.deepEqual([await conductorRepos(edge.$, '/w/me'), e.n], [['/w/repo'], 60])
   // Taken and never answered: 90 s after the taking.
   const mute = world()
   const c = slowWindow(mute, 20, undefined)
