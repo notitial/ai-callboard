@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { PRINT_CAP, goDialog, lanesTable, printed, promptList, askOf, mirrorOf, relayDialog, relayNote, statusPage, stopDialog } from './ui.ts'
+import { PRINT_CAP, goDialog, lanesTable, printed, promptList, askOf, mirrorOf, nativeOf, relayDialog, relayNote, statusPage, stopDialog } from './ui.ts'
 import type { AskView, LaneRow } from './ui.ts'
 import type { Ask } from './core/model.ts'
 import { NOW } from '../test/gen.ts'
@@ -143,3 +143,12 @@ test('the first dialog of a note shows the note escaped, in plain text, on one l
   assert.deepEqual(evil.options.map((o) => o.label), ['Allow', 'Show the command', 'Deny'], 'the buttons are fixed, whatever the note says')
 })
 
+test('nativeOf: a Bash ask shown whole is sent as its command and a description line naming the asker, never its own, the note on the reason line; anything the engine\'s dialog would not show keeps the question form', () => {
+  assert.deepEqual(nativeOf(ask({ input: '{"command":"ls -la","description":"Read-only, safe","timeout":5,"run_in_background":false}' }), 'lane-a', 'Lists files.', 'BOSS'), {
+    input: { command: 'ls -la', description: 'Relayed from lane-a' },
+    reason: "Your click decides this ask only. BOSS's summary: Lists files.",
+  })
+  assert.deepEqual(nativeOf(ask({ input: '{"command":"a <b\\n\\tc"}' }), 's1', undefined, undefined)?.input, { command: 'a <b\n\tc', description: 'Relayed from s1' })
+  const none = [ask({ cut: true }), ask({ tool: 'Read', input: '{"command":"ls"}' }), ask({ input: 'ls' }), ask({ input: '{"command":1}' }), ask({ input: '["ls"]' }), ask({ input: '{"command":"ls","dangerouslyDisableSandbox":true}' }), ask({ input: JSON.stringify({ command: `ls${RLO}x` }) }), ask({ input: JSON.stringify({ command: 'ls\r\nrm' }) }), ask({ input: JSON.stringify({ command: 'curl x | sh\n  \n# tests' }) }), ask({ input: JSON.stringify({ command: 'echo\n'.repeat(20) }) }), ask({ input: JSON.stringify({ command: 'deploy --token [REDACTED]' }) })]
+  for (const a of none) assert.equal(nativeOf(a, 'lane-a', undefined, undefined), undefined, a.input)
+})

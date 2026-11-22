@@ -6,14 +6,14 @@ import { PERSON, capability, children, descendants, isConductor, isOff, liveness
 import { NEW_KEY } from './lifecycle.ts'
 
 export const RECEIVES: Receives = {
-  lead: { from: 'children', kinds: ['ask', 'expired', 'done', 'gone', 'waiting', 'quiet', 'report'] },
+  lead: { from: 'children', kinds: ['ask', 'expired', 'done', 'gone', 'waiting', 'quiet'] },
   manager: { from: 'descendants', kinds: ['ask', 'expired'] },
 }
 export const WAITING_MS = 5 * 60_000
 export const QUIET_MS = 30 * 60_000
 
 // since: this process's start (a row gone before it is not told again). asks: the open asks this session is eligible for now. log: the ask log from this process's
-// cursor. reports: refusals and fallbacks queued about a session. signed: sessions whose report is signed by their own id. asking: sessions with an open ask, whose
+// cursor. signed: sessions whose report is signed by their own id. asking: sessions with an open ask, whose
 // wait is told as that ask.
 export type NoticeIn = {
   me: Sid
@@ -22,7 +22,6 @@ export type NoticeIn = {
   since: number
   asks: readonly { id: string; asker: Sid }[]
   log: readonly AskLogRow[]
-  reports: readonly { about: Sid; code: string; at: number }[]
   signed: ReadonlySet<Sid>
   asking: ReadonlySet<Sid>
 }
@@ -37,7 +36,6 @@ export function notices(x: NoticeIn): Notice[] {
   const all: Notice[] = []
   for (const a of x.asks) all.push({ kind: 'ask', key: `ask:${a.id}`, about: a.asker, ask: a.id })
   for (const l of x.log) if (l.ev === 'expired') all.push({ kind: 'expired', key: `expired:${l.ask}`, about: l.asker, ask: l.ask })
-  for (const p of x.reports) all.push({ kind: 'report', key: `report:${p.about}:${p.code}:${p.at}`, about: p.about, code: p.code })
   for (const s of scope) {
     const goneAt = x.v.table[s]?.goneAt
     // A row never opened has no session to go; a signed child's end is its `done`, not a `gone`.

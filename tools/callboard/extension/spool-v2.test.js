@@ -65,16 +65,29 @@ test('a reopen reopens that session; an answer for another session id fails', as
   assert.deepEqual(x.result('r2'), { ok: false, code: 'failed' })
 })
 
-test('a close hands the panel to the sweep and answers ok; a refused one answers refused', async () => {
+test('a close hands the panel to the sweep and answers nothing; a refused or stale one is dropped', async () => {
   const w = world()
-  w.put('c1', CLOSE)
-  await w.spool.scan()
+  const file = w.put('c1', CLOSE)
+  assert.deepEqual(await w.spool.scan(), [['c1', 'done']])
   assert.deepEqual(w.calls, [['adopt', SID, CLOSE]])
-  assert.deepEqual(w.result('c1'), { ok: true })
+  assert.equal(w.result('c1'), undefined)
+  assert.equal(fs.existsSync(file), false)
   const x = world({ lanes: { adopt: () => false } })
   x.put('c2', CLOSE)
-  await x.spool.scan()
-  assert.deepEqual(x.result('c2'), { ok: false, code: 'refused' })
+  assert.deepEqual(await x.spool.scan(), [['c2', 'dropped']])
+  assert.equal(x.result('c2'), undefined)
+  const y = world()
+  y.put('c3', CLOSE)
+  y.tick(61_000)
+  assert.deepEqual(await y.spool.scan(), [['c3', 'dropped']])
+  assert.deepEqual(y.calls, [])
+  assert.equal(y.result('c3'), undefined)
+})
+
+test('a close names the tab by its label: a name with a space is taken, one over 25 characters or with a control character is not', async () => {
+  assert.deepEqual(parse(JSON.stringify({ ...CLOSE, name: 'Fix login bug' })), { ...CLOSE, name: 'Fix login bug' })
+  assert.deepEqual(parse(JSON.stringify({ ...CLOSE, name: 'x'.repeat(25) })), { ...CLOSE, name: 'x'.repeat(25) })
+  for (const name of ['x'.repeat(26), '', 'a\nb', 'a\u007fb']) assert.equal(parse(JSON.stringify({ ...CLOSE, name })), undefined, JSON.stringify(name))
 })
 
 test('a request for another window\'s folder is left alone and answers nothing; that window takes it', async () => {
@@ -129,7 +142,7 @@ test('what is not a request is dropped with bad-request and does nothing', async
   const bad = [
     'not json', '[]', 'null', '{}', '{"op":"open"}', '{"op":"open","folder":""}', '{"op":"open","folder":7}', '{"op":"launch","folder":"/work/repo/lab"}',
     JSON.stringify({ op: 'reopen', folder: FOLDER }), JSON.stringify({ op: 'reopen', sid: 'x', folder: FOLDER }), JSON.stringify({ op: 'reopen', sid: [SID], folder: FOLDER }),
-    JSON.stringify({ ...CLOSE, pid: 1 }), JSON.stringify({ ...CLOSE, pid: 2 ** 22 + 1 }), JSON.stringify({ ...CLOSE, pid: '4242' }), JSON.stringify({ ...CLOSE, name: 'a b' }),
+    JSON.stringify({ ...CLOSE, pid: 1 }), JSON.stringify({ ...CLOSE, pid: 2 ** 22 + 1 }), JSON.stringify({ ...CLOSE, pid: '4242' }), JSON.stringify({ ...CLOSE, sid: 'nope' }),
     JSON.stringify({ ...CLOSE, name: undefined }), JSON.stringify({ op: 'open', folder: FOLDER, pad: 'x'.repeat(40_000) }),
     JSON.stringify({ op: 'pick', folder: FOLDER }), JSON.stringify({ op: 'pick', folder: FOLDER, ticked: [7] }), JSON.stringify({ op: 'pick', folder: FOLDER, ticked: Array(33).fill('/r') }),
   ]
@@ -248,8 +261,7 @@ test('with the real lanes.js: a close is taken', async () => {
   const lanes = createLanes({ vscode: {}, registry: {}, sleep: async () => undefined, now: Date.now })
   const w = world({ lanes: { adopt: lanes.adopt } })
   w.put('c1', CLOSE)
-  await w.spool.scan()
-  assert.deepEqual(w.result('c1'), { ok: true })
+  assert.deepEqual(await w.spool.scan(), [['c1', 'done']])
 })
 
 test('a request whose answer cannot be written is reported and does not stop the scan', async () => {

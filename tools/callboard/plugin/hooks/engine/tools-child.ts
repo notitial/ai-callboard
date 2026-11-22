@@ -1,7 +1,7 @@
 // The child tools: one cue path (rename, start, resume), one stop body (park, retire, terminate), create, open, unpark, adopt, list. Trust rules held here: every body re-checks at call time
 // (the tools stay registered after `lead off`): the main agent only, a fresh reading of the machine, the lead capability or the manager; a lane is named by `lane` and a name more than one
 // session carries is refused, never guessed; the core's gates (`verbPlan`, `mayCreate`, `mayAdopt`) decide, and a stop is decided again after the person's dialog and just before the signal;
-// a force stop always opens the person's dialog; a reply that makes or takes a lane names its lead.
+// a force stop of a live lane always opens the person's dialog (a row no live session carries is removed with none); a reply that makes or takes a lane names its lead.
 import type { Decision, LaneEffort, LaneModel, Row, Sid, StopVerb, View } from '../core/model.ts'
 import { LANE_EFFORTS, LANE_MODELS, MAX_LIVE_CHILDREN, capRefusal, capability, liveChildren, liveness, mayActOn, mayAdopt, mayCreate, nameOf, parent, refusal } from '../core/model.ts'
 import type { CueVerb } from '../core/model.ts'
@@ -87,7 +87,7 @@ export async function stopVerbCall($: any, e: any, _next: any, verb: StopVerb) {
   let plan = await planOf($, verb, v, me, key)
   const name = nameOf(v, key)
   if (plan.act === 'refuse') return deny(plan)
-  if (plan.dialog || verb === 'terminate') {
+  if (plan.dialog) {
     const a = await personDialog($, stopDialog(name))
     if (!('label' in a) || a.label !== T['dialog.yes']({})) {
       const why = 'no' in a ? a.no : undefined
@@ -183,10 +183,10 @@ export async function laneCreateCall($: any, e: any, _next: any) {
   const brief = `${dir}/BRIEF.md`
   let taken = false
   const row: Row = { name, folder, report: reportPath(folder, name), under: me, brief, model, ...(effort === undefined ? {} : { effort }), ...(role === 'lead' ? { lead: { repos: [], minted: true as const } } : {}) }
-  const written = await updateTable($, (t) => ((taken = Object.values(t).some((r) => r.name === name)) ? t : { ...t, [key]: row }))
+  const written = await updateTable($, (t) => ((taken = Object.values(t).some((r) => r.name === name || r.brief === brief || r.report === row.report)) ? t : { ...t, [key]: row }))
   if (taken || !written) return deny(refusal('refuse', taken ? 'name-taken' : 'table-unwritten', { tool, target: name }))
   const linked = !(await plainPath($, `${folder}/.archive`)) || !(await plainPath($, dir))
-  const why = linked ? 'link' : (await $.fs.exists(brief).catch(() => false)) ? 'exists' : !(await writeFile($, brief, T['lane.brief']({ name, lead: nameOf(v, me), text }))) ? 'unwritten' : undefined
+  const why = linked ? 'link' : !(await writeFile($, brief, T['lane.brief']({ name, lead: nameOf(v, me), text }))) ? 'unwritten' : undefined
   if (why !== undefined) {
     await dropRow($, key)
     return bad(why)

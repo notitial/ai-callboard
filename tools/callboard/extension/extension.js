@@ -9,7 +9,6 @@ const { createSpool } = require('./spool-v2.js')
 const { createPick } = require('./pick.js')
 const { createRegistry } = require('./registry.js')
 const { claudePatched } = require('./claude-patch.js')
-const { createFolderBadge } = require('./folder-badge.js')
 const { createRunBlock } = require('./run-block.js')
 const { createGroups, readManagerName, readSessionTable } = require('./groups.js')
 const { showClaudeView } = require('./claude-view.js')
@@ -52,11 +51,6 @@ function activate(context) {
   // The conductor's tick list offers every folder of the window, patched or not: it only saves a list, and a lead is opened later through `windowFolders`.
   const pick = createPick({ vscode, windowFolders: allFolders })
   context.subscriptions.push(createSpool({ dir: path.join(CLAUDE, 'callboard', 'v2', 'open'), lanes, workspaceFolders: windowFolders, timeoutMs: SPOOL_OPEN_MS, pick }).start())
-  try {
-    context.subscriptions.push(createFolderBadge({ vscode, registry }))
-  } catch {
-    // no folder item
-  }
   try {
     // The Run button the Claude patch adds to shell code blocks calls this; it always asks in a modal first (run-block.js).
     const runBlock = createRunBlock({ vscode, spawn: require('node:child_process').spawn })

@@ -23,9 +23,9 @@ const typed = (f: F, command = 'sentinel') => presetRun(f.$, { command, args: ''
 const table = (f: F) => JSON.parse(f.h.files.get(`${V2}/sessions.json`) ?? 'null')
 
 test('the start registers the preset\'s command beside callboard\'s; a missing or bad file, a name already a built-in\'s and callboard\'s own commands register nothing', async () => {
-  assert.deepEqual((await started()).h.commands.sort(), ['callboard', 'rest', 'sentinel', 'unattended'])
+  assert.deepEqual((await started()).h.commands.sort(), ['callboard', 'conductor', 'lead', 'rest', 'sentinel', 'unattended'])
   for (const file of [false, '{"command":', 'null', '[]', { ...PRESET, command: 'rest' }, { ...PRESET, command: 'callboard' }, { ...PRESET, model: 'gpt' }]) {
-    assert.deepEqual((await started(file)).h.commands.sort(), ['callboard', 'rest', 'unattended'], JSON.stringify(file))
+    assert.deepEqual((await started(file)).h.commands.sort(), ['callboard', 'conductor', 'lead', 'rest', 'unattended'], JSON.stringify(file))
     assert.equal(mem.preset, undefined)
   }
   const f = fake()

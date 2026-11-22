@@ -46,7 +46,7 @@ const liveOf = (a: Ask): unknown => {
 
 // One answer, from a session or the person: the ask is read and staged again, the answer is checked with decide, and it is written exclusively.
 export async function answerAsk($: any, v: View, id: string, a: { decision: 'allow' | 'deny' | 'answer'; note?: string; option?: number; picks?: number[] }, by: Owner): Promise<Decision> {
-  const no = (code: RefuseCode): Decision => refusal('refuse', code, { tool: 'prompt_answer', target: id })
+  const no = (code: RefuseCode, detail?: string): Decision => refusal('refuse', code, { tool: 'prompt_answer', target: id, ...(detail === undefined ? {} : { detail }) })
   const ask = await readAsk($, id)
   if (ask === undefined) return no('no-such-ask')
   const { ups, answered } = await askState($, id)
@@ -58,7 +58,7 @@ export async function answerAsk($: any, v: View, id: string, a: { decision: 'all
   if (d.act === 'ignore') return d
   if (!(await guardOk($))) return no('no-guard')
   const w = await writeAnswer($, answer)
-  return w === 'ok' ? { act: 'ok', msg: d.act === 'allow' ? 'ask.allowed' : d.act === 'deny' ? 'ask.denied' : 'ask.answered', p: { ask: id } } : no(w === 'exists' ? 'ask-closed' : 'unknown-liveness')
+  return w === 'ok' ? { act: 'ok', msg: d.act === 'allow' ? 'ask.allowed' : d.act === 'deny' ? 'ask.denied' : 'ask.answered', p: { ask: id } } : w === 'exists' ? no('ask-closed') : no('not-saved', 'answer')
 }
 
 // The caller of an ask tool: a main agent that is on, or the refusal.
@@ -97,7 +97,7 @@ export async function promptAnswerCall($: any, e: any, _next: any) {
     if (ask === undefined) return no('no-such-ask')
     if (st?.open !== true) return no('ask-closed')
     if (!st.eligible.includes(c.me)) return no('not-eligible')
-    if (!(await writeUp($, id, c.me, 'escalated', now, c.me === v.manager ? noteOf(e.note) : undefined))) return no('unknown-liveness')
+    if (!(await writeUp($, id, c.me, 'escalated', now, c.me === v.manager ? noteOf(e.note) : undefined))) return no('not-saved', 'escalate')
     await logAsk($, { ev: 'escalated', ask: id, asker: ask.asker, by: c.me })
     const up = chain(v, ask.asker)
     const next = up.up[up.up.indexOf(c.me) + 1]
@@ -113,8 +113,8 @@ async function goDialogRun($: any, me: Sid, name: string, text: string): Promise
   try {
     const end = (await $.clock.now()) + GO_HOURS * 3_600_000
     const r = await personDialog($, goDialog(name, text, stamp(end)), GO_DIALOG_MS)
-    if (!('label' in r)) return
-    const outcome = r.label !== T['dialog.yes']({}) ? 'declined' : (await writeGo($, { id: newId(), giver: me, text, end })) ? 'given' : 'unsaved'
+    if (!('label' in r) && r.no !== 'error' && r.no !== 'timeout') return
+    const outcome = !('label' in r) ? 'closed' : r.label !== T['dialog.yes']({}) ? 'declined' : (await writeGo($, { id: newId(), giver: me, text, end })) ? 'given' : 'unsaved'
     mem.owed.push(T['go.clicked']({ outcome }))
   } catch {}
 }

@@ -52,17 +52,17 @@ export function stage(x: StageIn): Stage {
 // the ask: deny for either kind; allow for a permission ask and answer for a question, each only on an input that was not cut (the person may also allow from the manager's note, when the command prints whole). The label comes from the live input.
 export type Verdict = Decision<'allow' | 'deny' | 'ignore'> | { act: 'answer'; by: string; picks: { question: string; label: string }[] }
 export function decide(a: Answer, ask: Ask, s: Open, v: View, liveInput: unknown): Verdict {
-  const no = (code: RefuseCode): Verdict => refusal('ignore', code, { tool: 'prompt_answer', target: ask.id })
+  const no = (code: RefuseCode, detail?: string): Verdict => refusal('ignore', code, { tool: 'prompt_answer', target: ask.id, ...(detail === undefined ? {} : { detail }) })
   if (a.ask !== ask.id) return no('no-such-ask')
   const by = a.by === PERSON ? PERSON : nameOf(v, a.by)
   if (a.by === PERSON ? !s.toPerson : !s.eligible.includes(a.by)) return no('not-eligible')
   if (a.decision === 'deny') return { act: 'deny', msg: 'ask.denyText', p: { by, note: a.note ?? '' } }
   if (ask.cut) return no('input-cut')
   const isQuestion = ask.tool === QUESTION_TOOL
-  if (a.decision === 'allow') return isQuestion ? no('bad-input') : { act: 'allow', msg: 'ask.allowed', p: { ask: ask.id } }
+  if (a.decision === 'allow') return isQuestion ? no('bad-input', 'question') : { act: 'allow', msg: 'ask.allowed', p: { ask: ask.id } }
   // Several questions are answered by the person's relay dialog only, one pick for each; a session answers one question.
   const picks = !isQuestion ? undefined : a.picks !== undefined ? (a.by === PERSON ? picksOf(liveInput, a.picks) : undefined) : a.option !== undefined ? [answerOf(liveInput, a.option)] : undefined
-  return picks === undefined || picks.some((x) => x === undefined) ? no('bad-input') : { act: 'answer', by, picks: picks as { question: string; label: string }[] }
+  return picks === undefined || picks.some((x) => x === undefined) ? no('bad-input', 'pick') : { act: 'answer', by, picks: picks as { question: string; label: string }[] }
 }
 
 // The sweep of one ask file by any session's tick: a dead asker's ask ends; a live asker's beat is judged only once the sweeper itself has been awake long enough
@@ -159,6 +159,15 @@ export function readAnswers(sent: readonly { question: string; options: readonly
   if (typed === '' && sent.length > 0 && picks.every((p) => p > 0)) return { picks }
   const note = [...got, typed].filter((s) => s !== '').join('\n')
   return note === '' ? undefined : { note }
+}
+// The person's No (or Esc) in the engine's own permission dialog, read from the call's deny, with what they typed under it as the note: the text after "the user said:",
+// without the line the engine may add after it. A deny of any other wording is no answer of theirs (undefined).
+const NO_RE = /^The user doesn't want to proceed with this tool use\./
+const SAID_RE = / the user said:\n([\s\S]*?)(?:\n\nNote: The user's next message[\s\S]*)?$/
+export function rejectionOf(deny: unknown): { note?: string } | undefined {
+  if (typeof deny !== 'string' || !NO_RE.test(deny)) return undefined
+  const note = SAID_RE.exec(deny)?.[1]?.trim()
+  return note ? { note } : {}
 }
 
 // ---- redaction and capping: what a parent sees of the input. A copy of the toolkit's audit-logger.sh rules, best effort (that script says the same) ----

@@ -12,14 +12,14 @@ const B = 'sid-lead-b'
 const L1 = 'sid-lane-1'
 const LOOSE = 'sid-loose'
 const lanes: Table = { [A]: { name: 'A', folder: '/', lead: { repos: [] } }, [B]: { name: 'B', folder: '/', lead: { repos: [] } }, [L1]: { name: 'L1', folder: '/', under: A } }
-const base = (x: Partial<NoticeIn>): NoticeIn => ({ me: A, v: liveView([reg(M, MANAGER), reg(A, 'A'), reg(B, 'B'), reg(L1, 'L1', { statusAt: NOW }), reg(LOOSE, 'x')], lanes, MANAGER), now: NOW, since: NOW - 3_600_000, asks: [], log: [], reports: [], signed: new Set(), asking: new Set(), ...x })
+const base = (x: Partial<NoticeIn>): NoticeIn => ({ me: A, v: liveView([reg(M, MANAGER), reg(A, 'A'), reg(B, 'B'), reg(L1, 'L1', { statusAt: NOW }), reg(LOOSE, 'x')], lanes, MANAGER), now: NOW, since: NOW - 3_600_000, asks: [], log: [], signed: new Set(), asking: new Set(), ...x })
 const kinds = (x: Partial<NoticeIn>) => notices(base(x)).map((n) => n.kind).sort()
 
 test('RECEIVES is the only source of event kinds, about sessions in scope now; a gone row routes nothing but its gone; no capability, no events', () => {
   forAll(400, (r, w) => {
     const me = pick(r, w.sids)
     const about = () => pick(r, w.sids)
-    const ns = notices({ me, v: w.v, now: NOW, since: 0, asks: [{ id: 'q', asker: about() }], log: [{ t: NOW, ev: 'expired', ask: 'e', asker: about() }], reports: [{ about: about(), code: 'cap', at: 1 }], signed: new Set([about()]), asking: new Set() })
+    const ns = notices({ me, v: w.v, now: NOW, since: 0, asks: [{ id: 'q', asker: about() }], log: [{ t: NOW, ev: 'expired', ask: 'e', asker: about() }], signed: new Set([about()]), asking: new Set() })
     const cap = capability(w.v, me)
     if (cap === 'none') return assert.deepEqual(ns, [])
     const scope = RECEIVES[cap].from === 'children' ? children(w.v, me) : descendants(w.v, me)
@@ -31,10 +31,10 @@ test('RECEIVES is the only source of event kinds, about sessions in scope now; a
   })
 })
 
-test('the manager is woken only by asks and expired asks; a lead hears every event about its lanes, refusals included', () => {
-  const busy = { asks: [{ id: 'q', asker: L1 }], log: [{ t: NOW, ev: 'expired' as const, ask: 'e', asker: L1 }], reports: [{ about: L1, code: 'cap', at: 1 }], signed: new Set([L1]) }
+test('the manager is woken only by asks and expired asks; a lead hears every event about its lanes', () => {
+  const busy = { asks: [{ id: 'q', asker: L1 }], log: [{ t: NOW, ev: 'expired' as const, ask: 'e', asker: L1 }], signed: new Set([L1]) }
   assert.deepEqual(kinds({ ...busy, me: M }), ['ask', 'expired'])
-  assert.deepEqual(kinds({ ...busy, me: A }), ['ask', 'done', 'expired', 'report'])
+  assert.deepEqual(kinds({ ...busy, me: A }), ['ask', 'done', 'expired'])
   assert.deepEqual(kinds({ ...busy, me: LOOSE }), [])
   // A loose session's expired ask reaches the manager, not a lead.
   assert.deepEqual(kinds({ me: M, log: [{ t: NOW, ev: 'expired', ask: 'e', asker: LOOSE }] }), ['expired'])

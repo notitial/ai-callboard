@@ -32,13 +32,13 @@ function engine(on: any, f: ReturnType<typeof fake>) {
 const start = ($: any) => $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
 const own = (f: ReturnType<typeof fake>) => f.seed({ sid: 'sid-me', pid: 10, name: 'me', cwd: '/w/me', kind: 'interactive' })
 
-test('a session starts with the five tools every session has and the three commands; a lead row adds the thirteen at the next tick', async ($, on) => {
+test('a session starts with the five tools every session has and the five commands; a lead row adds the thirteen at the next tick', async ($, on) => {
   const f = fake()
   own(f)
   const clock = engine(on, f)
   await start($)
   expect(f.h.tools.sort()).toEqual(['go_request', 'go_status', 'pr_watch', 'request_compact', 'rest'])
-  expect(f.h.commands.sort()).toEqual(['callboard', 'rest', 'unattended'])
+  expect(f.h.commands.sort()).toEqual(['callboard', 'conductor', 'lead', 'rest', 'unattended'])
   f.table({ 'sid-me': { name: 'me', folder: '/w/me', lead: { repos: [] } } })
   await clock.advance(12_000)
   expect(f.h.tools.length).toBe(18)
@@ -55,6 +55,17 @@ test('only his typed turn runs a form that widens what a session may do; the eng
   expect((await off('composer')).text).toContain('Callboard is off for this session')
   expect((await $.command.run({ command: 'callboard', args: 'on', origin: { kind: 'bridge' } } as any)).text).toContain('Callboard is on for this session')
   expect((await $.command.run({ command: 'rest', args: '', origin: { kind: 'plugin' } } as any)).text).toContain('Rest set')
+})
+test('/lead and /conductor run the /callboard forms of the same names, and only his typed turn runs them', async ($, on) => {
+  const f = fake()
+  own(f)
+  engine(on, f)
+  await start($)
+  f.h.dirs.add('/w/repo')
+  expect((await $.command.run({ command: 'lead', args: '/w/repo', origin: { kind: 'plugin' } } as any)).text).toContain('only when the person types it themselves')
+  expect((await $.command.run({ command: 'lead', args: '/w/repo', origin: { kind: 'composer' } } as any)).text).toContain('This session is a lead')
+  expect((await $.command.run({ command: 'conductor', args: '/w/repo', origin: { kind: 'composer' } } as any)).text).toContain('This session is a conductor')
+  expect((await $.command.run({ command: 'conductor', args: 'reset', origin: { kind: 'composer' } } as any)).text).toContain('forgotten')
 })
 test('the keepalive: at the configured 30 minutes after a turn ends, one ping is submitted, and not another in the same gap', async ($, on) => {
   const f = fake()
@@ -94,7 +105,8 @@ test('the relay puts an ask to the person as a call of its own in the manager\'s
   await writeUp(f.$, id, 'sid-boss', 'escalated', T0)
   const clock = engine(on, boss)
   const calls: { e: any; signal?: AbortSignal }[] = []
-  on('agent.call', (_: any, e: any, next: any) => new Promise((done) => {
+  // The self-test's command is refused here, so the ask is put as a question.
+  on('agent.call', (_: any, e: any, next: any) => e.tool === 'Bash' ? { deny: 'refused' } : new Promise((done) => {
     calls.push({ e, signal: next.signal })
     next.signal?.addEventListener('abort', () => done({ deny: 'cut' }), { once: true })
   }))

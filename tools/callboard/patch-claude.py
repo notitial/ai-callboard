@@ -11,7 +11,7 @@
         anchors-missing <names>  an update moved the code the patch hooks into (a name is missing or matches twice): --apply refuses
         leftovers <files>        a backup or the marker from an earlier run is here and does not match the file: --undo first
       --apply: patch extension.js, keep the original beside it as extension.js.callboard-orig and write callboard-cwd-patch.json
-      (the marker callboard's panels extension reads; its "width", "pie", "pill", "restore", "groups", "session", "archive", "list" and "run" fields say whether the panel width, the context pie, the folder pill, the restore fix, the group command, the session command, the archive command, the session list and the run button below went in). Patched already: says so and stops; outdated: refuses and names --update. A window reload (Developer: Reload
+      (the marker callboard's panels extension reads; its "width", "pie", "pill", "restore", "groups", "archive", "list" and "run" fields say whether the panel width, the context pie, the folder pill, the restore fix, the group command, the archive command, the session list and the run button below went in). Patched already: says so and stops; outdated: refuses and names --update. A window reload (Developer: Reload
       Window) loads it.
       --update: for an `outdated` install, build the patch again from the backup original and swap it in: extension.js and the marker are
       replaced (and webview/index.js, when the context pie, the folder pill or the run button is or goes in or out), the backups are not touched. The new bytes are built before anything is written (a refusal changes nothing), and a failed write puts the
@@ -29,8 +29,7 @@ against the autocompact level of the settings, in webview/index.js, kept as webv
 matches once, the run button (RUN_CODE_ANCHOR: a button before Copy on shell code blocks, with its app handle in index.js and a case in extension.js, which ask the panels extension's `callboard run block` command: a modal first, then the run, then the output goes back into the chat as the person's message; see the comment above RUN_CODE_ANCHOR) goes in when its three anchors and its style tokens match, the restore fix
 (RESTORE_ANCHORS below: a panel that VS Code restores or Claude reopens keeps the folder of its conversation, found from the session's transcript) goes in
 when its two anchors do, and the group command (GROUPS_ANCHOR below) registers `callboard file session` (session id, group name, order), so callboard's panels
-extension can put the manager, a conductor, a lead or a lane in the sidebar's Manager, Conductor, Lead or Lanes group, with those groups first in that order, when its one anchor matches exactly once, and the session command (at the same anchor) registers `callboard active session`, which
-returns the session id of the Claude panel in front, for the panels extension's folder badge, and the archive command (at the same anchor) registers `callboard archive sessions` (group name, session ids), which archives the listed sessions of that group and no other, and the session list (LIST_ANCHOR below: the sidebar lists the saved conversations of every folder of the window, not only the first, so a closed lead of another folder stays listed and a click reopens it) goes in when its one anchor matches exactly once; when one does not, a warning line says so and the folder patch still applies. There is no half patch: a failure after the file was replaced puts the backup back. An update of the extension is a new
+extension can put the manager, a conductor, a lead or a lane in the sidebar's Manager, Conductor, Lead or Lanes group, with those groups first in that order, when its one anchor matches exactly once, and the archive command (at the same anchor) registers `callboard archive sessions` (group name, session ids), which archives the listed sessions of that group and no other, and the session list (LIST_ANCHOR below: the sidebar lists the saved conversations of every folder of the window, not only the first, so a closed lead of another folder stays listed and a click reopens it) goes in when its one anchor matches exactly once; when one does not, a warning line says so and the folder patch still applies. There is no half patch: a failure after the file was replaced puts the backup back. An update of the extension is a new
 folder, so it starts unpatched and this runs again. It never uses the network, runs nothing else, works only inside EXTENSION_DIR
 and changes no setting. Run it as your user: it refuses root. Tests: /usr/bin/python3 -I tools/callboard/test_patch_claude.py
 Exit codes: 0 done or nothing to do (patched, patchable), 1 refused, outdated or anchors missing, 2 usage.
@@ -400,14 +399,6 @@ def groups_in(raw):
     return re.sub(GROUPS_ANCHOR, groups_command, raw)
 
 
-SESSION_COMMAND = "callboard active session"
-
-
-def session_in(raw):
-    """`callboard active session`: the session id of the Claude panel in front, from the provider's own lookup that the stock tab commands use, or undefined."""
-    return re.sub(GROUPS_ANCHOR, lambda m: m.group("vs") + b'.commands.registerCommand("' + SESSION_COMMAND.encode() + b'",()=>' + m.group("prov") + b".activePanelSessionId())," + m.group(0), raw)
-
-
 # The list piece: the sidebar lists the saved conversations of one folder, the window's first (the provider's `sessionListOptions` names it as `dir`), so a conversation
 # of another folder is there only while its panel is open. This one makes the provider's list method scan every folder of the window and join the results, newest first,
 # each session once. The stock body stays as `cbListOne`. A call that names another folder (the stock lookup of one session), a limit or an offset, and a window with
@@ -466,7 +457,6 @@ PIECES = (
     ("pill", "folder pill", pill_problem, pill_in),  # its page side is in webview/index.js (pill_web)
     ("restore", "restore fix", restore_problem, restore_in),
     ("groups", "group command", lambda raw, _: command_problem(raw, GROUPS_COMMAND), groups_in),
-    ("session", "session command", lambda raw, _: command_problem(raw, SESSION_COMMAND), session_in),
     ("archive", "archive command", lambda raw, _: command_problem(raw, ARCHIVE_COMMAND), archive_in),
     ("list", "session list", list_problem, list_in),
     ("run", "run button", run_problem, run_in),  # its page side is in webview/index.js (run_web)
