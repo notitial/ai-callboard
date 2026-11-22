@@ -12,7 +12,7 @@ const OTHER = '2b2c3d4e-0000-4000-8000-123456789abc'
 const FOLDER = '/work/repo/lab'
 
 // `lanes` stands in for lanes.js: open and reopen answer a session id, adopt answers whether it took the panel.
-function world({ ws = [FOLDER], lanes = {}, dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cb-spool2-')), now, pick } = {}) {
+function world({ ws = [FOLDER], lanes = {}, dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cb-spool2-')), now, pick, remote } = {}) {
   const calls = []
   let shift = 0
   const fake = {
@@ -21,7 +21,7 @@ function world({ ws = [FOLDER], lanes = {}, dir = fs.mkdtempSync(path.join(os.tm
     adopt: (...a) => (calls.push(['adopt', ...a]), true),
     ...lanes,
   }
-  const spool = createSpool({ dir, lanes: fake, workspaceFolders: () => ws, timeoutMs: 20000, pick, now: now ?? (() => Date.now() + shift) })
+  const spool = createSpool({ dir, lanes: fake, workspaceFolders: () => ws, timeoutMs: 20000, pick, remote: remote && ((...a) => (calls.push(['remote', ...a]), remote(...a))), now: now ?? (() => Date.now() + shift) })
   const put = (id, req, text = typeof req === 'string' ? req : JSON.stringify(req)) => {
     const f = path.join(dir, `${id}.req`)
     fs.writeFileSync(f, text)
@@ -137,6 +137,56 @@ test('a request older than a minute is dropped with stale, whichever window find
   assert.equal(w.calls.length, 0)
 })
 
+test('a remote runs the Claude extension\'s command for the session and answers ok, or the code it gave', async () => {
+  const answers = { a: 'ok', b: 'no-channel', c: 'ambiguous', d: 'busy', e: 'failed', f: 'bad-request', g: 'something else', h: undefined }
+  for (const [id, code] of Object.entries(answers)) {
+    const w = world({ remote: async () => code })
+    w.put(id, { op: 'remote', sid: SID, on: true, folder: FOLDER })
+    assert.deepEqual(await w.spool.scan(), [[id, code === 'ok' ? 'done' : code === undefined || code === 'something else' ? 'failed' : code]])
+    assert.deepEqual(w.calls, [['remote', SID, true]])
+    assert.deepEqual(w.result(id), code === 'ok' ? { ok: true } : { ok: false, code: ['no-channel', 'ambiguous', 'busy', 'failed', 'bad-request'].includes(code) ? code : 'failed' })
+  }
+  const off = world({ remote: async () => 'ok' })
+  off.put('o1', { op: 'remote', sid: SID, on: false, folder: FOLDER })
+  await off.spool.scan()
+  assert.deepEqual(off.calls, [['remote', SID, false]])
+})
+
+test('a remote answers patch-missing when the command is not registered or no command was given, and failed when the command throws', async () => {
+  const missing = world({ remote: async () => { throw new Error("command 'callboard remote session' not found") } })
+  missing.put('m1', { op: 'remote', sid: SID, on: true, folder: FOLDER })
+  await missing.spool.scan()
+  assert.deepEqual(missing.result('m1'), { ok: false, code: 'patch-missing' })
+  const none = world()
+  none.put('m2', { op: 'remote', sid: SID, on: true, folder: FOLDER })
+  await none.spool.scan()
+  assert.deepEqual(none.result('m2'), { ok: false, code: 'patch-missing' })
+  const boom = world({ remote: async () => { throw new Error('boom') } })
+  boom.put('m3', { op: 'remote', sid: SID, on: true, folder: FOLDER })
+  await boom.spool.scan()
+  assert.deepEqual(boom.result('m3'), { ok: false, code: 'failed' })
+})
+
+test('a remote whose command never settles is answered busy after the open wait, and the scan goes on', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cb-spool2-'))
+  const spool = createSpool({ dir, lanes: { open: async () => SID, reopen: async (s) => s, adopt: () => true }, workspaceFolders: () => [FOLDER], timeoutMs: 20, remote: () => new Promise(() => {}) })
+  fs.writeFileSync(path.join(dir, 'h1.req'), JSON.stringify({ op: 'remote', sid: SID, on: true, folder: FOLDER }))
+  assert.deepEqual(await spool.scan(), [['h1', 'busy']])
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir, 'h1.result'), 'utf8')), { ok: false, code: 'busy' })
+})
+
+test('a remote for another window\'s folder stays, and a stale one is refused without running the command', async () => {
+  const w = world({ remote: async () => 'ok' })
+  const file = w.put('x1', { op: 'remote', sid: SID, on: true, folder: '/work/repo/other' })
+  assert.deepEqual(await w.spool.scan(), [['x1', 'not-mine']])
+  assert.equal(fs.existsSync(file), true)
+  w.put('x2', { op: 'remote', sid: SID, on: true, folder: FOLDER })
+  w.tick(61_000)
+  await w.spool.scan()
+  assert.deepEqual(w.result('x2'), { ok: false, code: 'stale' })
+  assert.equal(w.calls.length, 0)
+})
+
 test('what is not a request is dropped with bad-request and does nothing', async () => {
   const w = world()
   const bad = [
@@ -144,6 +194,7 @@ test('what is not a request is dropped with bad-request and does nothing', async
     JSON.stringify({ op: 'reopen', folder: FOLDER }), JSON.stringify({ op: 'reopen', sid: 'x', folder: FOLDER }), JSON.stringify({ op: 'reopen', sid: [SID], folder: FOLDER }),
     JSON.stringify({ ...CLOSE, pid: 1 }), JSON.stringify({ ...CLOSE, pid: 2 ** 22 + 1 }), JSON.stringify({ ...CLOSE, pid: '4242' }), JSON.stringify({ ...CLOSE, sid: 'nope' }),
     JSON.stringify({ ...CLOSE, name: undefined }), JSON.stringify({ op: 'open', folder: FOLDER, pad: 'x'.repeat(40_000) }),
+    JSON.stringify({ op: 'remote', folder: FOLDER, on: true }), JSON.stringify({ op: 'remote', sid: 'x', on: true, folder: FOLDER }), JSON.stringify({ op: 'remote', sid: SID, on: 'yes', folder: FOLDER }), JSON.stringify({ op: 'remote', sid: SID, folder: FOLDER }),
     JSON.stringify({ op: 'pick', folder: FOLDER }), JSON.stringify({ op: 'pick', folder: FOLDER, ticked: [7] }), JSON.stringify({ op: 'pick', folder: FOLDER, ticked: Array(33).fill('/r') }),
   ]
   bad.forEach((t, i) => w.put(`b${i}`, t))

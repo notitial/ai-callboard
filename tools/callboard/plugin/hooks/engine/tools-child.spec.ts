@@ -9,7 +9,7 @@ import { prClaim, prTick, prWatchCall } from './pr.ts'
 import { getView } from './store.ts'
 import { sessionStart } from './tick.ts'
 import { turnComplete } from './upkeep.ts'
-import { cueVerbCall, laneAdoptCall, laneCreateCall, laneListCall, laneOpenCall, laneUnparkCall, stopVerbCall } from './tools-child.ts'
+import { cueVerbCall, laneAdoptCall, laneCreateCall, laneListCall, laneOpenCall, laneRemoteCall, laneUnparkCall, stopVerbCall } from './tools-child.ts'
 
 type F = ReturnType<typeof fake>
 const next = async (e: unknown) => e
@@ -78,7 +78,7 @@ test('every body re-checks at call time: a session with no capability, a subagen
   assert.match(text(await laneListCall(f.$, {}, next)), /\| kid \|/)
   assert.match(text(await laneListCall(f.$, { agentId: 'a1' }, next)), /a subagent may not call this/)
   f.table({ 'sid-me': { name: 'lead', folder: '/w/me' } })
-  for (const r of [await laneListCall(f.$, {}, next), await laneCreateCall(f.$, { name: 'x', folder: '/w/repo/new', brief: 'b' }, next), await laneAdoptCall(f.$, { name: 'kid' }, next), await laneOpenCall(f.$, { lane: 'kid' }, next), await cueVerbCall(f.$, { lane: 'kid' }, next, 'resume')]) assert.match(text(r), /only a lead or the manager/)
+  for (const r of [await laneListCall(f.$, {}, next), await laneCreateCall(f.$, { name: 'x', folder: '/w/repo/new', brief: 'b' }, next), await laneAdoptCall(f.$, { name: 'kid' }, next), await laneOpenCall(f.$, { lane: 'kid' }, next), await cueVerbCall(f.$, { lane: 'kid' }, next, 'resume'), await laneRemoteCall(f.$, { lane: 'kid', on: true }, next)]) assert.match(text(r), /only a lead or the manager/)
   f.table({ 'sid-me': { name: 'lead', folder: '/w/me', lead: { repos: [] } } })
   f.h.psFails = true
   assert.match(text(await laneListCall(f.$, {}, next)), /could not read which sessions are live/)
@@ -526,4 +526,30 @@ test('the self-rename touches only a lane\'s panel that still has its generated 
     await cueTick(f.$, sid, await getView(f.$, true), T0)
   }
   assert.deepEqual(f.h.compactRuns, [])
+})
+
+test('lane_remote: a lead sets the wish of its own lane, on and off, and the row says so; the reply says the lane applies it', async () => {
+  const f = world()
+  assert.match(text(await laneRemoteCall(f.$, { lane: 'kid', on: true }, next)), /Remote Control is wanted ON for `kid`. The lane applies it once, within seconds/)
+  assert.deepEqual(table(f)['sid-kid'].remote, { on: true, at: f.h.now })
+  assert.equal(table(f)['sid-kid'].under, 'sid-me', 'the rest of the row is kept')
+  assert.match(text(await laneRemoteCall(f.$, { lane: 'kid', on: false }, next)), /wanted OFF/)
+  assert.deepEqual(table(f)['sid-kid'].remote, { on: false, at: f.h.now })
+})
+test('lane_remote: a lane of another lead, a lead, an off lane, an unknown name, a bad `on` and a subagent are refused and write nothing', async () => {
+  const f = world()
+  f.seed({ sid: 'sid-b', pid: 30, name: 'other-lead', cwd: '/w/b' })
+  f.seed({ sid: 'sid-held', pid: 31, name: 'held', cwd: '/w/repo/held' })
+  f.seed({ sid: 'sid-off', pid: 32, name: 'sleeper', cwd: '/w/repo/off' })
+  f.table({ ...table(f), 'sid-b': { name: 'other-lead', folder: '/w/b', lead: { repos: [] } }, 'sid-held': { name: 'held', folder: '/w/repo/held', under: 'sid-b' }, 'sid-off': { name: 'sleeper', folder: '/w/repo/off', under: 'sid-me', off: true } })
+  const before = JSON.stringify(table(f))
+  const call = async (e: object) => text(await laneRemoteCall(f.$, e, next))
+  assert.match(await call({ lane: 'held', on: true }), /not under you now/)
+  assert.match(await call({ lane: 'other-lead', on: true }), /not under you now/)
+  assert.match(await call({ lane: 'sleeper', on: true }), /not under you now/)
+  assert.match(await call({ lane: 'nobody', on: true }), /no lane of yours has that name/)
+  assert.match(await call({ lane: 'kid', on: 'yes' }), /on must be true or false/)
+  assert.match(await call({ lane: 'kid' }), /on must be true or false/)
+  assert.match(await call({ lane: 'kid', on: true, agentId: 'a1' }), /a subagent may not call this/)
+  assert.equal(JSON.stringify(table(f)), before)
 })

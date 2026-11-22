@@ -8,7 +8,7 @@ export const T0 = 1_700_000_000_000
 export const START = 'Tue Oct 27 20:37:50 2026'
 export const MIN = 60_000
 
-export type Row = { sid: string; pid: number; name?: string; nameSource?: string; cwd?: string; status?: string; waitingFor?: string; kind?: string; statusUpdatedAt?: number; procStart?: string; alive?: boolean }
+export type Row = { sid: string; pid: number; name?: string; nameSource?: string; cwd?: string; status?: string; waitingFor?: string; kind?: string; statusUpdatedAt?: number; procStart?: string; alive?: boolean; bridge?: boolean }
 export function fake(o: { sid?: string } = {}) {
   const h = {
     now: T0,
@@ -238,7 +238,7 @@ export function fake(o: { sid?: string } = {}) {
   h.dirs.add(`${HOME}/.claude/sessions`)
   // A live registry row: its file and its `ps` line. A row with `alive: false` has a file and no process.
   const seed = (r: Row) => {
-    h.files.set(`${HOME}/.claude/sessions/${r.pid}.json`, JSON.stringify({ sessionId: r.sid, pid: r.pid, procStart: r.procStart ?? START, cwd: r.cwd ?? '/w/x', name: r.name, nameSource: r.nameSource, status: r.status ?? 'idle', waitingFor: r.waitingFor, kind: r.kind, statusUpdatedAt: r.statusUpdatedAt }))
+    h.files.set(`${HOME}/.claude/sessions/${r.pid}.json`, JSON.stringify({ sessionId: r.sid, pid: r.pid, procStart: r.procStart ?? START, cwd: r.cwd ?? '/w/x', name: r.name, nameSource: r.nameSource, status: r.status ?? 'idle', waitingFor: r.waitingFor, kind: r.kind, statusUpdatedAt: r.statusUpdatedAt, bridgeSessionId: r.bridge ? 'bridge-1' : undefined }))
     if (r.alive !== false) h.ps += `  ${r.pid} ${START}\n`
   }
   // The own row's status in the registry: a submitted text makes the session busy, as the engine does.

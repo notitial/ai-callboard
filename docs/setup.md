@@ -201,6 +201,20 @@ EXT_DIR="$(ls -d "$HOME"/.vscode/extensions/anthropic.claude-code-* | sort -V | 
   The plugin drops a row on a retire, 24 hours after a lane died without one and 28 days after a park, so a lane in
   either of the last two cases is archived once its row goes; so is the old conversation of a lane whose session id
   changed (`/clear`). Unarchive in the sidebar brings any of them back.
+- The remote command is another piece (the marker's `remote` field): `callboard remote session` turns Remote Control of a
+  session's panel on or off, as the panel's own toggle does. Remote Control sends your phone a push for every ask of every
+  connected session, so a lane starts with it off. A lane's row holds the wish (off unless a lead's `lane_remote` or your
+  typed `/callboard remote NAME on` turned it on), and each lane's own 2-second tick makes its panel match once, through the
+  panels extension, and then marks the wish met in its row. **Your own switch sticks:** after that the lane never enforces
+  the wish again, so a chip click you make in a lane's panel stays until a lead or you set the wish again (setting the same
+  value again applies it again), and a restart does not redo a wish that was met. So a lane that was met off and is later
+  resumed (an unpark, a restart of the same conversation) while `remoteControlAtStartup` is on comes back with Remote
+  Control on: `/callboard remote NAME off` turns it off again. A panel found already matching its wish is marked met only
+  after it has matched for 30 seconds, since Remote Control connects a moment after a panel starts. A lead, the manager and a session with no
+  lane row are left as you set them (your `remoteControlAtStartup` setting and the chip); callboard writes no settings file. A new panel's session id exists only
+  after its first message, so a lane's wish is applied from then. A window whose Claude Code lacks this piece (an older
+  install reads `outdated`: run `--update` and reload the window) cannot apply a wish: the lane stops asking, writes one
+  log line and shows a Remote Control row in its `/callboard status` until the wish changes.
 - The list piece (the marker's `list` field): the sidebar lists the saved conversations of every folder of the window, not
   only the first, so a lead that runs in another repo stays listed after its tab is closed and a click reopens it there. The
   history of the window's other folders is listed too, as the first folder's already is. Each refresh scans those folders

@@ -49,7 +49,7 @@ export type RefuseCode =
   | 'cue-refused'
 
 // The command forms. One help row each: `help.<name>`.
-export type CommandName = 'status' | 'lanes' | 'help' | 'lead' | 'lead-off' | 'conductor' | 'off' | 'on' | 'go' | 'go-off' | 'unattended' | 'config' | 'rest' | 'handover'
+export type CommandName = 'status' | 'lanes' | 'help' | 'lead' | 'lead-off' | 'conductor' | 'off' | 'on' | 'go' | 'go-off' | 'unattended' | 'config' | 'rest' | 'handover' | 'remote'
 
 // The lane list's columns and states (`/callboard lanes`, `lane_list`).
 export type UiColumn = 'name' | 'role' | 'state' | 'folder' | 'context' | 'fiveHour' | 'sevenDay' | 'cost' | 'read'
@@ -62,6 +62,8 @@ export type StatusRow =
   | { field: 'off' | 'keepalive'; value: boolean }
   | { field: 'unattended'; value: number | null }
   | { field: 'goes'; value: number }
+  // A lane's Remote Control wish that could not be applied: the wish, and the code the lane gave up on (core/remote.ts).
+  | { field: 'remote'; value: { on: boolean; code: string } }
   | { field: 'taken'; value: string[] }
 
 type E = Record<never, never>
@@ -136,6 +138,8 @@ export type Fixed = {
   'lane.opened': { name: string; sid: string }
   'lane.notOpened': Names
   'lane.adopted': { name: string; lead: string }
+  // The wish a lead set; the lane applies it within seconds.
+  'lane.remote': { name: string; on: boolean }
   // The file a lane's brief is written to: the lead's name and the task.
   'lane.brief': { name: string; lead: string; text: string }
 
@@ -158,6 +162,7 @@ export type Fixed = {
   'cmd.configSet': { key: keyof Config; value: string }
   'cmd.configReset': E
   'cmd.rest': E
+  'cmd.remote': { name: string; on: boolean }
   // His typed /callboard handover: the turn that asks the session to write its state and call request_handover (also the command's own answer).
   'cmd.handover': E
   // The notice turn after his own step in this session: a typed /callboard command that changed something, or his click on the go dialog.
