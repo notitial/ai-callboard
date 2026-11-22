@@ -101,7 +101,7 @@ test('a tick list that picks nothing changes nothing, and says why: cancelled, t
     [{ ok: true }, /could not show the list of repos/],
     [{ ok: true, folders: [] }, /could not show the list of repos/],
     [{ ok: true, folders: ['/w/me'] }, /could not show the list of repos/],
-    [{ ok: true, folders: ['/no/such/dir'] }, /input is not valid/],
+    [{ ok: true, folders: ['/no/such/dir'] }, /does not resolve to a real folder/],
   ]
   for (const [reply, want] of cases) {
     const f = world()
@@ -188,10 +188,20 @@ test('the tick list is asked for only from his typed turn, and takes up to 32 re
 
 test('/callboard conductor with a path that does not exist, or only its own folder, changes nothing', async () => {
   const f = world()
-  assert.match((await run(f, 'conductor /no/such/dir', 'composer')).text, /input is not valid/)
+  assert.match((await run(f, 'conductor /no/such/dir', 'composer')).text, /does not resolve to a real folder/)
   assert.match((await run(f, 'conductor /w/me', 'composer')).text, /only path typed is this session's own folder/)
   assert.equal(f.file('sessions.json'), undefined)
   assert.equal(f.file('conductors.json'), undefined)
+})
+
+test('/callboard conductor: a row that cannot be written says the typed list was saved; with the saved list reused it says only the row failed', async () => {
+  const f = world()
+  f.h.files.set(`${V2}/sessions.json`, '{"broken": ')
+  assert.match((await run(f, 'conductor /w/repo', 'composer')).text, /repo list was saved, but this session's row.*Run \/callboard conductor again/)
+  assert.deepEqual(await conductorRepos(f.$, '/w/me'), ['/w/repo'])
+  const text = (await run(f, 'conductor', 'composer')).text
+  assert.match(text, /this session's row in the lane table could not be written, so nothing changed/)
+  assert.doesNotMatch(text, /repo list was saved/)
 })
 
 test('/callboard conductor runs only from his typed turn: another origin, or none, changes neither the row nor the saved list', async () => {

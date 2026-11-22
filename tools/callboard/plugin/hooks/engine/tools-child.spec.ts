@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { MIN, T0, V2, fake } from '../../test/fake.ts'
-import { parent, PERSON } from '../core/model.ts'
+import { parent } from '../core/model.ts'
 import { notices } from '../core/notices.ts'
 import { cueTick } from './cue.ts'
 import { mem } from './mem.ts'
@@ -76,7 +76,7 @@ const reqs = (f: F) => [...f.h.files].filter(([p]) => p.startsWith(`${V2}/open/`
 test('every body re-checks at call time: a session with no capability, a subagent, a lead that turned lead off, an unreadable registry', async () => {
   const f = world()
   assert.match(text(await laneListCall(f.$, {}, next)), /\| kid \|/)
-  assert.match(text(await laneListCall(f.$, { agentId: 'a1' }, next)), /input is not valid/)
+  assert.match(text(await laneListCall(f.$, { agentId: 'a1' }, next)), /a subagent may not call this/)
   f.table({ 'sid-me': { name: 'lead', folder: '/w/me' } })
   for (const r of [await laneListCall(f.$, {}, next), await laneCreateCall(f.$, { name: 'x', folder: '/w/repo/new', brief: 'b' }, next), await laneAdoptCall(f.$, { name: 'kid' }, next), await laneOpenCall(f.$, { lane: 'kid' }, next), await cueVerbCall(f.$, { lane: 'kid' }, next, 'resume')]) assert.match(text(r), /only a lead or the manager/)
   f.table({ 'sid-me': { name: 'lead', folder: '/w/me', lead: { repos: [] } } })
@@ -244,6 +244,12 @@ test('a force stop always opens the person\'s dialog and needs his Yes; it is re
   assert.equal(f.h.asked.length, 1)
   assert.match(f.h.asked[0]!.question, /kid/)
   assert.deepEqual(kills, [])
+  mem.dialogs.add('go')
+  const busy = text(await stopVerbCall(f.$, { lane: 'kid' }, next, 'terminate'))
+  assert.match(busy, /another dialog is open.*not asked/)
+  assert.doesNotMatch(busy, /did not confirm/)
+  assert.equal(f.h.asked.length, 1)
+  mem.dialogs.clear()
   f.h.askAnswer = async () => 'Yes'
   assert.match(text(await stopVerbCall(f.$, { lane: 'kid' }, next, 'terminate')), /force stopped and its row removed/)
   assert.equal(f.h.asked.length, 2)
@@ -284,7 +290,6 @@ test('a lane of a gone lead is loose; another lead adopts it; the old lead, back
   mem.view = undefined
   const dead = await getView(f.$, true)
   assert.equal(parent(dead, 'sid-l1'), 'sid-b')
-  assert.notEqual(parent(dead, 'sid-l1'), PERSON)
 })
 
 test('a renamed lane keeps its lead: the lead still lists it, now by the new name, and is told when it signs its report at the path its row holds, and can retire it', async () => {

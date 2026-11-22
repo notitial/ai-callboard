@@ -68,7 +68,7 @@ function setRow($: any, v: View, me: Sid, folder: string, f: (r: Row) => Row): P
 
 export async function perform($: any, cmd: Cmd, me: Sid, v: View, now: number, savedOk: () => void): Promise<string> {
   const fail = (detail: string) => say(refusal('refuse', 'bad-input', { tool: 'callboard', target: cmd.op, detail }))
-  const saved = (ok: boolean, text: string) => (ok ? (savedOk(), text) : say(refusal('refuse', 'unknown-liveness', { tool: 'callboard', target: cmd.op })))
+  const saved = (ok: boolean, text: string, what: string) => (ok ? (savedOk(), text) : say(refusal('refuse', 'not-saved', { tool: 'callboard', target: cmd.op, detail: what })))
   const folder = v.rows === 'unknown' ? undefined : v.rows.get(me)?.folder
   const w = await windowNow($)
   switch (cmd.op) {
@@ -79,13 +79,13 @@ export async function perform($: any, cmd: Cmd, me: Sid, v: View, now: number, s
     }
     case 'lanes': return lanesTable(await laneRows($, v, me))
     case 'help': return help()
-    case 'rest': return saved(await restSet($, me, 'command'), T['cmd.rest']({}))
+    case 'rest': return saved(await restSet($, me, 'command'), T['cmd.rest']({}), 'rest')
     case 'lead': {
       const [own, ...repos] = (await realPaths($, cmd.paths)) ?? []
       if (own === undefined) return fail('path')
       const ok = await setRow($, v, me, own, (r) => ({ ...r, folder: own, lead: { repos: [...new Set([...(r.lead?.repos ?? []), ...repos])] } }))
       if (ok) await giveParentTools($, await getView($, true), me)
-      return saved(ok, T['cmd.lead']({ repos }))
+      return saved(ok, T['cmd.lead']({ repos }), 'lane')
     }
     case 'conductor': {
       const [own, ...typed] = (await realPaths($, cmd.paths)) ?? []
@@ -106,28 +106,28 @@ export async function perform($: any, cmd: Cmd, me: Sid, v: View, now: number, s
         if (chosen.length === 0) return fail('pick-failed')
       }
       const repos = chosen.length > 0 ? chosen : kept
-      if (chosen.length > 0 && !(await saveConductorRepos($, own, chosen))) return saved(false, '')
+      if (chosen.length > 0 && !(await saveConductorRepos($, own, chosen))) return saved(false, '', 'repos')
       const ok = await setRow($, v, me, own, (r) => ({ ...r, folder: own, lead: { repos, conductor: true } }))
       if (ok) await giveParentTools($, await getView($, true), me)
-      return saved(ok, T['cmd.conductor']({ repos }))
+      return saved(ok, T['cmd.conductor']({ repos }), chosen.length > 0 ? 'repos-row' : 'lane')
     }
-    case 'lead-off': return saved(await setRow($, v, me, folder ?? '', ({ lead: _, ...r }) => r), T['cmd.leadOff']({}))
-    case 'off': return saved(await setRow($, v, me, folder ?? '', (r) => ({ ...r, off: true })), T['cmd.off']({}))
-    case 'on': return saved(await setRow($, v, me, folder ?? '', ({ off: _, ...r }) => r), T['cmd.on']({}))
+    case 'lead-off': return saved(await setRow($, v, me, folder ?? '', ({ lead: _, ...r }) => r), T['cmd.leadOff']({}), 'lane')
+    case 'off': return saved(await setRow($, v, me, folder ?? '', (r) => ({ ...r, off: true })), T['cmd.off']({}), 'lane')
+    case 'on': return saved(await setRow($, v, me, folder ?? '', ({ off: _, ...r }) => r), T['cmd.on']({}), 'lane')
     case 'go': {
       const g = { id: newId(), giver: me, text: cmd.text, end: now + GO_HOURS * 3_600_000 }
-      return saved(await writeGo($, g), T['cmd.go']({ id: g.id, end: stamp(g.end) }))
+      return saved(await writeGo($, g), T['cmd.go']({ id: g.id, end: stamp(g.end) }), 'go')
     }
     case 'go-off': {
       const live = (await listGoes($)).filter((g) => now < g.end && (cmd.id === undefined || g.id === cmd.id))
       await Promise.all(live.map((g) => rmGo($, g.id)))
       const left = (await listGoes($)).filter((g) => live.some((l) => l.id === g.id)).length
-      return saved(left === 0, T['cmd.goOff']({ n: live.length }))
+      return saved(left === 0, T['cmd.goOff']({ n: live.length }), 'go-off')
     }
     case 'unattended': {
       if (cmd.span.op === 'state') return w.state === 'unknown' ? say(refusal('refuse', 'unknown-liveness', { tool: 'callboard', target: 'unattended' })) : w.state === 'on' ? T['cmd.unattendedOn']({ end: stamp(w.window.end) }) : T['cmd.unattendedOff']({})
-      if (cmd.span.op === 'off') return saved(await writeWindow($, null), T['cmd.unattendedOff']({}))
-      return saved(await writeWindow($, { start: now, end: cmd.span.end, readAt: now }), T['cmd.unattendedOn']({ end: stamp(cmd.span.end) }))
+      if (cmd.span.op === 'off') return saved(await writeWindow($, null), T['cmd.unattendedOff']({}), 'window')
+      return saved(await writeWindow($, { start: now, end: cmd.span.end, readAt: now }), T['cmd.unattendedOn']({ end: stamp(cmd.span.end) }), 'window')
     }
     case 'config': {
       mem.cfg = undefined
@@ -136,7 +136,7 @@ export async function perform($: any, cmd: Cmd, me: Sid, v: View, now: number, s
       const next = configNext(cur, cmd.config)
       if (next === undefined) return fail('idle-over-working')
       const text = cmd.config === 'reset' ? T['cmd.configReset']({}) : T['cmd.configSet']({ key: cmd.config.key, value: String(cmd.config.value) })
-      return saved(await writeConfig($, next), text)
+      return saved(await writeConfig($, next), text, 'config')
     }
   }
 }

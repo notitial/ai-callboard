@@ -89,7 +89,10 @@ export async function stopVerbCall($: any, e: any, _next: any, verb: StopVerb) {
   if (plan.act === 'refuse') return deny(plan)
   if (plan.dialog || verb === 'terminate') {
     const a = await personDialog($, stopDialog(name))
-    if (!('label' in a) || a.label !== T['dialog.yes']({})) return deny(refusal('refuse', 'no' in a && a.no === 'unattended' ? 'unattended' : 'stop-declined', { tool, target: name }))
+    if (!('label' in a) || a.label !== T['dialog.yes']({})) {
+      const why = 'no' in a ? a.no : undefined
+      return deny(refusal('refuse', why === 'unattended' ? 'unattended' : why === 'busy' ? 'dialog-open' : 'stop-declined', { tool, target: name }))
+    }
     v = await getView($, true)
     plan = await planOf($, verb, v, me, key)
   }

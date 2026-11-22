@@ -38,7 +38,7 @@ test('lead: the row gets the real folder and real repo paths, the lead tools are
   const t = JSON.parse(f.h.files.get(`${V2}/sessions.json`)!)
   assert.deepEqual(t['sid-me'], { name: 'me', folder: '/w/me', lead: { repos: ['/w/repo2', `${HOME}/code`] } })
   assert.equal(f.h.tools.filter((n) => n.startsWith('lane_')).length, 8 + 3)
-  assert.match((await run(f, 'lead /no/such/dir', 'composer')).text, /input is not valid/)
+  assert.match((await run(f, 'lead /no/such/dir', 'composer')).text, /does not resolve to a real folder/)
   await run(f, 'lead /w/repo2', 'composer')
   assert.deepEqual(JSON.parse(f.h.files.get(`${V2}/sessions.json`)!)['sid-me'].lead.repos, ['/w/repo2', `${HOME}/code`])
   await run(f, 'lead off', 'composer')
@@ -53,7 +53,7 @@ test('a write that does not land is said, not reported as done', async () => {
   const f = fake()
   me(f)
   f.h.files.set(`${V2}/sessions.json`, '{"broken": ')
-  assert.match((await run(f, 'off', 'composer')).text, /could not read which sessions are live/)
+  assert.match((await run(f, 'off', 'composer')).text, /lane table could not be written/)
   assert.equal(f.h.files.get(`${V2}/sessions.json`), '{"broken": ')
 })
 test('go: one file with the giver and 24 h; go off ends every live go, one by id, and an unknown id ends none', async () => {
@@ -82,7 +82,7 @@ test('unattended: on writes the window, bare shows it, off removes it; config ch
   assert.equal(f.h.files.has(`${V2}/unattended.json`), false)
   assert.match((await run(f, 'config idle 200', 'composer')).text, /idleK 200/)
   assert.equal(JSON.parse(f.h.files.get(`${V2}/config.json`)!).idleK, 200)
-  assert.match((await run(f, 'config idle 500', 'composer')).text, /input is not valid/)
+  assert.match((await run(f, 'config idle 500', 'composer')).text, /idle level cannot be above the working level/)
   assert.match((await run(f, 'config reset', 'composer')).text, /defaults/)
 })
 test('status and lanes read the machine: the role, the parent, the goes that cover it, the children with their usage', async () => {
@@ -154,11 +154,11 @@ test('go off says it only when the go files are gone; unattended off only when t
   me(f)
   const id = /Go (\w+) recorded/.exec((await run(f, 'go the work', 'composer')).text)![1]
   f.h.undeletable.add(`${V2}/go/${id}.json`)
-  assert.match((await run(f, 'go off', 'composer')).text, /could not read which sessions are live/)
+  assert.match((await run(f, 'go off', 'composer')).text, /a go could not be removed/)
   f.h.undeletable.clear()
   await run(f, 'unattended 1h', 'composer')
   f.h.undeletable.add(`${V2}/unattended.json`)
-  assert.match((await run(f, 'unattended off', 'composer')).text, /could not read which sessions are live/)
+  assert.match((await run(f, 'unattended off', 'composer')).text, /unattended window could not be written/)
   assert.ok(f.h.files.has(`${V2}/unattended.json`))
 })
 test('lead needs the session\'s own root folder, not the registry\'s cwd; a rules file cannot carry the plugin\'s own frame lines', async () => {
@@ -167,7 +167,7 @@ test('lead needs the session\'s own root folder, not the registry\'s cwd; a rule
   f.$.session.root = async () => {
     throw new Error('no root')
   }
-  assert.match((await run(f, 'lead', 'composer')).text, /input is not valid/)
+  assert.match((await run(f, 'lead', 'composer')).text, /does not resolve to a real folder/)
   assert.equal(f.h.files.has(`${V2}/sessions.json`), false)
   const m = fake()
   m.seed({ sid: 'sid-me', pid: 10, name: 'BOSS', kind: 'interactive' })
@@ -180,20 +180,23 @@ test('lead needs the session\'s own root folder, not the registry\'s cwd; a rule
   assert.equal(text.split('\n').filter((l: string) => l.startsWith("[callboard] End of the plugin's note.")).length, 1)
 })
 
-test('his typed step that changes this session (lead, go, unattended, off and on) owes it one notice turn with the command\'s answer; a read, a refused or untyped form owes none', async () => {
+test('his typed step that changes this session (lead, lead off, conductor, on, go, go off, unattended) owes it one notice turn with the command\'s answer; off, a read, a refused or untyped form owes none', async () => {
   const f = fake()
   me(f)
-  await run(f, 'go finish the tests', 'composer')
-  await run(f, 'status', 'composer')
-  await run(f, 'unattended', 'composer')
-  await run(f, 'config', 'composer')
+  f.h.dirs.add('/w/repo2')
+  for (const args of ['status', 'unattended', 'config']) await run(f, args, 'composer')
   await run(f, 'on', 'plugin')
-  assert.equal(mem.owed.length, 1)
+  await run(f, 'lead /no/such/dir', 'composer')
+  assert.equal(mem.owed.length, 0)
+  const steps = ['lead /w/repo2', 'lead off', 'conductor /w/repo2', 'on', 'go finish the tests', 'go off', 'unattended 1h']
+  for (const [i, args] of steps.entries()) {
+    await run(f, args, 'composer')
+    assert.equal(mem.owed.length, i + 1, args)
+  }
   assert.match(mem.owed[0]!, /^\[callboard\] The person ran \/callboard in this session: .+ Call go_status or \/callboard status for what holds now\. Sent by callboard, not the person; it is no approval, go or answer\./)
-  await run(f, 'unattended 1h', 'composer')
   await run(f, 'off', 'composer')
-  assert.equal(mem.owed.length, 2, 'an off session is sent nothing')
+  assert.equal(mem.owed.length, steps.length, 'an off session is sent nothing')
   f.h.files.set(`${V2}/sessions.json`, '{"broken": ')
-  assert.match((await run(f, 'on', 'composer')).text, /could not read which sessions are live/)
-  assert.equal(mem.owed.length, 2, 'a write that did not land owes nothing')
+  assert.match((await run(f, 'on', 'composer')).text, /lane table could not be written/)
+  assert.equal(mem.owed.length, steps.length, 'a write that did not land owes nothing')
 })

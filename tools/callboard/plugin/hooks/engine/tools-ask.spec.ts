@@ -33,7 +33,7 @@ test('prompt_list: the manager gets its rules file first, a lead only its asks, 
   const l = (await call(lead, promptListCall)).result!
   assert.ok(l.startsWith('**Ask ab12cd34ef**'))
   assert.match((await call(stranger, promptListCall)).deny!, /lead or the manager/)
-  assert.match((await call(lead, promptListCall, {}, { agentId: 'sub1' })).deny!, /input is not valid/)
+  assert.match((await call(lead, promptListCall, {}, { agentId: 'sub1' })).deny!, /a subagent may not call this/)
   f.table({ 'sid-lead': { name: 'lead', folder: '/w/lead', lead: { repos: [] }, off: true } })
   mem.view = undefined
   assert.match((await call(lead, promptListCall)).deny!, /off/)
@@ -68,7 +68,7 @@ test('prompt_answer: eligibility is checked at the write, not at the list; an in
   assert.match((await call(other, promptAnswerCall, { id: ID, decision: 'escalate' })).deny!, /not.*(eligible|yours)|may not/i)
   assert.equal(await readAnswer(f.$, ID), undefined)
   assert.match((await call(lead, promptAnswerCall, { id: '../x', decision: 'allow' })).deny!, /no ask|not found|no such/i)
-  assert.match((await call(lead, promptAnswerCall, { id: ID, decision: 'nope' })).deny!, /input is not valid/)
+  assert.match((await call(lead, promptAnswerCall, { id: ID, decision: 'nope' })).deny!, /decision is one of allow, deny, answer or escalate/)
   await writeAsk(f.$, mk({ cut: true }))
   assert.match((await call(lead, promptAnswerCall, { id: ID, decision: 'allow' })).deny!, /not shown all/)
   assert.equal(await readAnswer(f.$, ID), undefined)
@@ -97,7 +97,7 @@ test('go_request opens one dialog and its Yes writes a go for 24 h; No, a bad te
   const { f, lead } = world()
   const goes = () => [...f.h.files.keys()].filter((k) => k.startsWith(`${V2}/go/`))
   const settle = async () => { for (let i = 0; i < 20; i++) await new Promise((r) => setImmediate(r)) }
-  assert.match((await call(lead, goRequestCall, { text: ' padded ' })).deny!, /go/i)
+  assert.match((await call(lead, goRequestCall, { text: ' padded ' })).deny!, /1 to 3 plain lines/)
   lead.h.askAnswer = async () => 'No'
   assert.match((await call(lead, goRequestCall, { text: 'Build the ask tools' })).result!, /go dialog is open/)
   await settle()
@@ -110,11 +110,15 @@ test('go_request opens one dialog and its Yes writes a go for 24 h; No, a bad te
   const g = JSON.parse(f.h.files.get(file!)!)
   assert.deepEqual([g.giver, g.text, g.end], ['sid-lead', 'Build the ask tools', T0 + 24 * 60 * MIN])
   mem.dialogs.add('open')
-  assert.match((await call(lead, goRequestCall, { text: 'Another go' })).deny!, /go/i)
+  const busy = (await call(lead, goRequestCall, { text: 'Another go' })).deny!
+  assert.match(busy, /another dialog is open/)
+  assert.doesNotMatch(busy, /declined/)
   mem.dialogs.clear()
   f.h.files.set(`${V2}/unattended.json`, JSON.stringify({ start: T0, end: T0 + 60 * MIN, readAt: T0 }))
   mem.win = undefined
-  assert.match((await call(lead, goRequestCall, { text: 'Another go' })).deny!, /unattended|window/i)
+  const away = (await call(lead, goRequestCall, { text: 'Another go' })).deny!
+  assert.match(away, /no go can be requested/)
+  assert.doesNotMatch(away, /force stop/)
   assert.equal(lead.h.asked.length, 2)
 })
 test('go_status reports a go only while the protected-paths guard is in place, and only to the giver and the sessions under it', async () => {

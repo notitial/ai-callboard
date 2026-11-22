@@ -27,5 +27,5 @@ export async function restSet($: any, sid: string, via: 'command' | 'tool'): Pro
 export async function restCall($: any, e: any, _next: any) {
   const sid = await $.session.id()
   if (isSub(e)) return deny(refusal('refuse', 'bad-input', { tool: 'rest', detail: 'subagent' }))
-  return (await restSet($, sid, 'tool')) ? { result: T['cmd.rest']({}) } : deny(refusal('refuse', 'bad-input', { tool: 'rest', detail: 'unsaved' }))
+  return (await restSet($, sid, 'tool')) ? { result: T['cmd.rest']({}) } : deny(refusal('refuse', 'not-saved', { tool: 'rest', detail: 'rest' }))
 }
