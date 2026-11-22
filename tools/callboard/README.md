@@ -13,7 +13,7 @@ exact texts are in the code, and `/callboard help` lists every command. Nothing 
 | `plugin/` | The Claude Code plugin. A pure core in `plugin/hooks/core/` (no I/O, no text), adapters in `plugin/hooks/engine/` that feed it and act on what it returns, the texts table `plugin/hooks/texts.ts` and the one UI module `plugin/hooks/ui.ts` |
 | `extension/` | The VS Code extension that opens, reopens and closes lane panels. Its one command, `callboard run block`, is the host side of the Run button. What it does: [`extension/README.md`](extension/README.md) |
 | `link-extension.py` | Links that extension into VS Code from this checkout, once per machine (Install) |
-| `patch-claude.py` | Patches the installed Claude Code extension so a lane of any folder of a multi-folder window opens there, widens the composer, shows the composer's context pie always against your autocompact level, puts the session's folder name next to the model name, adds a Run button on shell code blocks that runs the block on your click (after a modal) and sends the output into the chat, makes a restored or reopened panel resume in its conversation's folder, adds a command (`callboard active session`) that names the panel in front, adds a command that files callboard sessions in the sidebar's Manager, Conductor, Lead and Lanes groups, in that order, adds a command that archives a retired lane there, and lists the saved conversations of every folder of the window in the sidebar (docs/setup.md; `/patch-vs-claude`). Header comment: usage and exit codes |
+| `patch-claude.py` | Patches the installed Claude Code extension so a lane of any folder of a multi-folder window opens there, widens the composer, shows the composer's context pie always against your autocompact level, puts the session's folder name next to the model name, adds a Run button on shell code blocks that runs the block on your click (after a modal) and sends the output into the chat, makes a restored or reopened panel resume in its conversation's folder, adds a command that files callboard sessions in the sidebar's Manager, Conductor, Lead and Lanes groups, in that order, adds a command that archives a retired lane there, and lists the saved conversations of every folder of the window in the sidebar (docs/setup.md; `/patch-vs-claude`). Header comment: usage and exit codes |
 | `test.sh` | The test entry point (Tests) |
 
 ## The sessions
@@ -47,7 +47,7 @@ parent and a capability: none, lead or manager.
   (its row takes the name only once the rename has landed) and sets its model and effort, and sends the lead one
   notice that names any step that failed. Only your typed turn
   runs it. A file that does not parse, or names a built-in or callboard's own command (`callboard`, `rest`,
-  `unattended`), registers nothing. Any folder you start a session in can declare one, so read the file of a repo you
+  `unattended`, `lead`, `conductor`), registers nothing. Any folder you start a session in can declare one, so read the file of a repo you
   do not know before you type its command.
 - **Manager.** The one session that carries the name in `~/.claude/callboard/manager-name`, found by its registry name
   while it is live. It reaches every session on the Mac. Its role is in `docs/manager/README.md`.
@@ -57,7 +57,7 @@ else the manager if live, else you.
 
 Three kinds of stop, from least to most final: `lane_park` closes the tab and keeps the conversation (`lane_unpark`
 reopens it with its history); `lane_retire` ends a signed-done session and removes the lane (final); `lane_terminate`
-is the force stop and always asks you, and is refused while unattended mode is on.
+is the force stop: it always asks you and is refused while unattended mode is on, except for a lane no live session carries, which it removes with no dialog.
 
 ## A normal day
 
@@ -96,7 +96,8 @@ that signed done, is gone, has waited on a prompt for 5 minutes or has been idle
 `/callboard help` prints the full table and is the authority.
 
 - **Look:** `status`, `lanes`, `help`.
-- **Roles and switches:** `lead [PATH…]`, `conductor [pick | PATH…]`, `lead off`, `off`, `on`.
+- **Roles and switches:** `lead [PATH…]`, `conductor [pick | reset | PATH…]`, `lead off`, `off`, `on`. `/lead` and `/conductor` type
+  the first two without the `/callboard` word; `conductor reset` forgets the repos saved for the folder.
 - **Settings:** `config [keepalive on|off | ping 30-55 | stop 1-8 | idle 150-800 | working 150-900 | reset]`,
   `rest` (or `/rest`), `go TEXT`, `go off [ID]`, `unattended Nm|Nh|HH:MM|off`.
 

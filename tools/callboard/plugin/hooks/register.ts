@@ -14,6 +14,8 @@ import { prWatchCall } from './engine/pr.ts'
 import { usageMeasure } from './engine/usage.ts'
 
 
+const argsOf = (e: { args?: unknown }): string => (typeof e.args === 'string' ? e.args : '')
+
 export const register: Register = (on) => {
   on('session.start', sessionStart).catch(($, e, next) => next(e))
   on('session.end', sessionEnd).catch(($, e, next) => next(e))
@@ -22,6 +24,9 @@ export const register: Register = (on) => {
   on('command.run', { command: 'callboard' }, ($, e) => commandRun($, e)).catch(() => ({ text: 'Callboard hit an error. Run /callboard status.' }))
   on('command.run', { command: 'rest' }, ($, e) => commandRun($, { ...e, args: 'rest' })).catch(() => ({ text: 'Callboard hit an error. Run /callboard status.' }))
   on('command.run', { command: 'unattended' }, ($, e) => commandRun($, { ...e, args: `unattended ${typeof (e as { args?: unknown }).args === 'string' ? (e as { args: string }).args : ''}` })).catch(() => ({ text: 'Callboard hit an error. Run /callboard status.' }))
+  // `/lead` and `/conductor` are `/callboard lead` and `/callboard conductor`: the same run, so the same origin check.
+  on('command.run', { command: 'lead' }, ($, e) => commandRun($, { ...e, args: `lead ${argsOf(e)}` })).catch(() => ({ text: 'Callboard hit an error. Run /callboard status.' }))
+  on('command.run', { command: 'conductor' }, ($, e) => commandRun($, { ...e, args: `conductor ${argsOf(e)}` })).catch(() => ({ text: 'Callboard hit an error. Run /callboard status.' }))
   on('command.run', presetRun)
   on('prompt.autocomplete', commandComplete).catch(($, e, next) => next(e))
   on('prompt.compose', promptCompose).catch(($, e, next) => next(e))

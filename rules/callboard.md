@@ -154,7 +154,8 @@ check-ins and notices. Every one starts with `[callboard]` or `[compact-cue]`. T
   click on a go dialog that the session's `go_request` opened, the turn opens
   `[callboard] The person clicked Yes on your go request`, `[callboard] The person declined the go you asked for` or
   `[callboard] The person said yes to the go you asked for, but it could not be saved`: then there is no go, and
-  `go_status` says so.
+  `go_status` says so. A go dialog that closes with no answer sends
+  `[callboard] The go dialog you opened closed with no answer from the person`: there is no go either.
 - After the person typed the command a folder's lead preset names (for example `/sentinel`), the session is a lead and
   the plugin sets its name, model and effort; the turn then opens `[callboard] The person ran /NAME in this session:`
   with the preset's command for NAME, and names any step that did not land.

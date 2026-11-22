@@ -104,7 +104,7 @@ test('lane_create writes the brief with the lead named and the row `new:NAME`; t
   assert.deepEqual(table(f)['new:NEW'], { name: 'NEW', folder: '/w/repo/new', report: '/w/repo/new/.archive/NEW/REPORT.md', under: 'sid-me', brief: '/w/repo/new/.archive/NEW/BRIEF.md', model: 'sonnet' })
   assert.match(text(await laneCreateCall(f.$, { name: 'NEW', folder: '/w/repo/new', brief: 'again' }, next)), /already has that name/)
   assert.match(text(await laneCreateCall(f.$, { name: 'OUT', folder: '/w/other', brief: 'b' }, next)), /not inside your allowlist/)
-  assert.match(text(await laneCreateCall(f.$, { name: '../x', folder: '/w/repo/new', brief: 'b' }, next)), /a name is 1 to 40/)
+  assert.match(text(await laneCreateCall(f.$, { name: '../x', folder: '/w/repo/new', brief: 'b' }, next)), /a name is 1 to 25/)
   assert.match(text(await laneCreateCall(f.$, { name: 'Y', folder: 'repo/new', brief: 'b' }, next)), /input is not valid/)
   assert.equal(f.h.files.has('/w/other/.archive/OUT/BRIEF.md'), false)
 })
@@ -276,7 +276,7 @@ test('a lane of a gone lead is loose; another lead adopts it; the old lead, back
     f.h.sid = sid
     mem.view = undefined
     const v = await getView(f.$, true)
-    return notices({ me: sid, v, now: T0, since: 0, asks: [], log: [], reports: [], signed, asking: new Set() }).map((n) => `${n.kind}:${n.about}`)
+    return notices({ me: sid, v, now: T0, since: 0, asks: [], log: [], signed, asking: new Set() }).map((n) => `${n.kind}:${n.about}`)
   }
   assert.deepEqual(await owed('sid-b'), ['done:sid-l1'])
   assert.deepEqual(await owed('sid-a'), [])
@@ -328,7 +328,7 @@ test('a lead row gone three days keeps its capability and allowlist, a plain lan
   assert.match(text(await laneListCall(f.$, {}, next)), /No sessions are under you/)
 })
 
-test('lane_create refuses a link on the way to the brief, an existing brief and a full house of lanes and rows to open, and leaves no row behind', async () => {
+test('lane_create refuses a link on the way to the brief and a full house of lanes and rows to open, replaces the brief a finished lane left, and leaves no row behind', async () => {
   const f = world()
   f.h.real.set('/w/repo/new/.archive', '/w/elsewhere/.archive')
   assert.match(text(await laneCreateCall(f.$, { name: 'LINK', folder: '/w/repo/new', brief: 'b' }, next)), /input is not valid/)
@@ -336,9 +336,9 @@ test('lane_create refuses a link on the way to the brief, an existing brief and 
   assert.equal(f.h.files.has('/w/repo/new/.archive/LINK/BRIEF.md'), false)
   f.h.real.delete('/w/repo/new/.archive')
   f.h.files.set('/w/repo/new/.archive/OLD/BRIEF.md', 'older work')
-  assert.match(text(await laneCreateCall(f.$, { name: 'OLD', folder: '/w/repo/new', brief: 'b' }, next)), /input is not valid/)
-  assert.equal(f.h.files.get('/w/repo/new/.archive/OLD/BRIEF.md'), 'older work')
-  assert.equal(table(f)['new:OLD'], undefined)
+  assert.match(text(await laneCreateCall(f.$, { name: 'OLD', folder: '/w/repo/new', brief: 'b' }, next)), /is now a lane of/)
+  assert.doesNotMatch(f.h.files.get('/w/repo/new/.archive/OLD/BRIEF.md')!, /older work/)
+  assert.ok(table(f)['new:OLD'])
   const g = world()
   for (let i = 1; i <= 7; i++) assert.match((await laneCreateCall(g.$, { name: `P${i}`, folder: '/w/repo/new', brief: 'b' }, next)).result, /is now a lane of/)
   assert.match(text(await laneCreateCall(g.$, { name: 'P8', folder: '/w/repo/new', brief: 'b' }, next)), /already have 8 live lanes/)
@@ -382,7 +382,7 @@ test('one tick submits one text: a start cue taken in a tick leaves a due compac
   assert.match(f.h.submitted[1]!, /300k/)
 })
 
-test('adopting a lane of a gone lead keeps its report path and brief; a force stop of a row with no live session still asks the person', async () => {
+test('adopting a lane of a gone lead keeps its report path and brief; a force stop of a row with no live session removes it with no dialog, also in unattended mode', async () => {
   const f = world()
   f.seed({ sid: 'sid-l2', pid: 21, name: 'L2', cwd: '/w/repo/l2', kind: 'interactive' })
   f.table({ ...table(f), 'sid-a': { name: 'A', folder: '/w/a', lead: { repos: ['/w/repo'] } }, 'sid-l2': { name: 'L1', folder: '/w/repo/l2', under: 'sid-a', report: '/w/repo/l2/.archive/L1/REPORT.md', brief: '/w/repo/l2/.archive/L1/BRIEF.md' } })
@@ -390,10 +390,10 @@ test('adopting a lane of a gone lead keeps its report path and brief; a force st
   assert.deepEqual(table(f)['sid-l2'], { name: 'L2', folder: '/w/repo/l2', report: '/w/repo/l2/.archive/L1/REPORT.md', brief: '/w/repo/l2/.archive/L1/BRIEF.md', under: 'sid-me' })
   const g = world()
   g.table({ ...table(g), 'sid-gone': { name: 'gone', folder: '/w/repo/gone', under: 'sid-me' } })
-  g.h.askAnswer = async () => 'No'
-  assert.match(text(await stopVerbCall(g.$, { lane: 'gone' }, next, 'terminate')), /did not confirm/)
-  assert.equal(g.h.asked.length, 1)
-  assert.ok(table(g)['sid-gone'])
+  g.h.files.set(`${V2}/unattended.json`, JSON.stringify({ start: T0 - 1000, end: T0 + 3_600_000, readAt: T0 }))
+  assert.match(text(await stopVerbCall(g.$, { lane: 'gone' }, next, 'terminate')), /its row removed/)
+  assert.deepEqual(g.h.asked, [])
+  assert.equal(table(g)['sid-gone'], undefined)
 })
 
 test('a loose session\'s pr_watch works; a lead polling a lane whose row is gone routes nothing and the tracker is removed', async () => {
@@ -493,10 +493,8 @@ test('lane_create takes an optional effort, set with /effort after the model at 
   assert.equal(g.h.submitted.length, 0)
 })
 
-test('lane_create names why it refuses: an existing brief, a link on the way, a folder that is not absolute, an empty brief', async () => {
+test('lane_create names why it refuses: a link on the way, a folder that is not absolute, an empty brief', async () => {
   const f = world()
-  f.h.files.set('/w/repo/new/.archive/OLD/BRIEF.md', 'older work')
-  assert.match(text(await laneCreateCall(f.$, { name: 'OLD', folder: '/w/repo/new', brief: 'b' }, next)), /\.archive\/OLD\/BRIEF\.md exists already in that folder\. Pick another name\./)
   f.h.real.set('/w/repo/new/.archive', '/w/elsewhere/.archive')
   assert.match(text(await laneCreateCall(f.$, { name: 'LINK', folder: '/w/repo/new', brief: 'b' }, next)), /is a link, which callboard does not follow/)
   assert.match(text(await laneCreateCall(f.$, { name: 'Y', folder: 'repo/new', brief: 'b' }, next)), /folder must be an absolute path that exists/)

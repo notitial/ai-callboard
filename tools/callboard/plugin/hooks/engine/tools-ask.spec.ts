@@ -149,7 +149,7 @@ test('go_status reports a go only while the protected-paths guard is in place, a
   assert.match((await call(lead, goStatusCall)).result!, /guard/)
 })
 
-test('his click on the go dialog owes the session that asked one notice: given (read go_status) or declined', async () => {
+test('his click on the go dialog owes the session that asked one notice: given (read go_status) or declined; a dialog closed with no answer owes one too', async () => {
   const { lead } = world()
   const settle = async () => { for (let i = 0; i < 20; i++) await new Promise((r) => setImmediate(r)) }
   lead.h.askAnswer = async () => 'No'
@@ -161,6 +161,11 @@ test('his click on the go dialog owes the session that asked one notice: given (
   assert.equal(mem.owed.length, 2)
   assert.match(mem.owed[0]!, /^\[callboard\] The person declined the go you asked for\. Sent by callboard/)
   assert.match(mem.owed[1]!, /^\[callboard\] The person clicked Yes on your go request; the go is what go_status lists\./)
+  lead.h.askAnswer = async () => undefined
+  await call(lead, goRequestCall, { text: 'Build the ask tools' })
+  await settle()
+  assert.equal(mem.owed.length, 3)
+  assert.match(mem.owed[2]!, /^\[callboard\] The go dialog you opened closed with no answer from the person, so there is no go; ask again only if the work still needs one\. Sent by callboard/)
 })
 
 test('prompt_answer escalate: the manager\'s note is stored on its own mark, cut at 300 characters, kept out of the log; a lead\'s is not stored; no note, a blank or a non-string one stores nothing', async () => {

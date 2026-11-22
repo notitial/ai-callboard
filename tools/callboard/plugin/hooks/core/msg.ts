@@ -105,7 +105,6 @@ export type Fixed = {
   'event.gone': Names
   'event.waiting': Names & { why: string }
   'event.quiet': Names & { minutes: number }
-  'event.report': Names & { code: string }
   'pr.turn': { lines: string[] }
   'pr.watching': { pr: string }
   'pr.note': Omit<PrNote, 'at'>
@@ -141,6 +140,7 @@ export type Fixed = {
   'cmd.usage': E
   'cmd.lead': { repos: string[] }
   'cmd.leadOff': E
+  'cmd.conductorReset': E
   'cmd.conductor': { repos: string[] }
   'cmd.off': E
   'cmd.on': E
@@ -158,7 +158,7 @@ export type Fixed = {
   'cmd.toldPreset': { command: string; result: string; failed: string[] }
   // The typeahead line of a preset's command.
   'cmd.presetHelp': { name: string; model: string; effort: string }
-  'go.clicked': { outcome: 'given' | 'declined' | 'unsaved' }
+  'go.clicked': { outcome: 'given' | 'declined' | 'unsaved' | 'closed' }
 
   // Dialogs: the go, the force stop and the relay dialog, each as header and question, and their buttons.
   'dialog.go.header': E
@@ -190,7 +190,6 @@ export type Fixed = {
   'toast.askStuck': AskRef & Names // the sweep found an ask no process answers
   'toast.twoManagers': { a: string; b: string }
   'toast.noManager': E // the manager is off, renamed away from the file's name, or gone
-  'toast.report': Names & { code: string } // a refusal or fallback `report()`, where the parent is the person
 
   // UI: the status page, the lane list, prompt_list (the rules file first), the go list. A status row is its label and its value in one text.
   'ui.status.head': E

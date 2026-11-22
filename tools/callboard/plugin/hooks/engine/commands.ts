@@ -4,7 +4,7 @@
 import type { Row, Sid, View } from '../core/model.ts'
 import { PERSON, capability, children, descendants, isConductor, isMinted, isOff, nameOf, parent, refusal } from '../core/model.ts'
 import type { Cmd, Origin } from '../core/commands.ts'
-import { configNext, planCommand } from '../core/commands.ts'
+import { configNext, parsePreset, planCommand } from '../core/commands.ts'
 import { GO_HOURS, covers } from '../core/go.ts'
 import { CONDUCTOR_REPOS_MAX, PICK_WAIT_S, childState } from '../core/lifecycle.ts'
 import type { StatusRow } from '../core/msg.ts'
@@ -12,7 +12,7 @@ import { T } from '../texts.ts'
 import type { LaneRow } from '../ui.ts'
 import { RULES_CAP, lanesTable, printed, stamp, statusPage } from '../ui.ts'
 import { spool } from './cue.ts'
-import { home, newId, run, windowNow } from './io.ts'
+import { home, newId, readText, run, windowNow } from './io.ts'
 import { mem } from './mem.ts'
 import { cfgNow, conductorRepos, getView, listGoes, readRules, rmGo, saveConductorRepos, updateTable, writeConfig, writeGo, writeWindow } from './store.ts'
 import { restSet, say } from './tools-any.ts'
@@ -43,7 +43,10 @@ export async function laneRows($: any, v: View, me: Sid): Promise<LaneRow[]> {
     under.map(async (k) => {
       const u = await usageRead($, k, now)
       const reg = v.rows === 'unknown' ? undefined : v.rows.get(k)
-      return { sid: k, name: nameOf(v, k), role: capability(v, k), state: childState(v, k, mem.signed.set.has(k), now), parentSid: parent(v, k) === 'unknown' ? null : parent(v, k), folder: reg?.folder ?? v.table[k]?.folder ?? '', context: u?.tokens, fiveHour: u?.fiveHour, sevenDay: u?.sevenDay, cost: u?.cost, readAgeMin: u === undefined ? undefined : (now - u.at) / 60_000 }
+      const folder = reg?.folder ?? v.table[k]?.folder ?? ''
+      // A lead its folder's preset named reads as the preset's command.
+      const preset = capability(v, k) === 'lead' && !isConductor(v, k) && folder !== '' ? parsePreset(await readText($, `${folder}/.claude/callboard-lead.json`, 2048)) : undefined
+      return { sid: k, name: nameOf(v, k), role: isConductor(v, k) ? 'conductor' : capability(v, k), ...(preset?.name === nameOf(v, k) ? { label: preset.command } : {}), state: childState(v, k, mem.signed.set.has(k), now), parentSid: parent(v, k) === 'unknown' ? null : parent(v, k), folder, context: u?.tokens, fiveHour: u?.fiveHour, sevenDay: u?.sevenDay, cost: u?.cost, readAgeMin: u === undefined ? undefined : (now - u.at) / 60_000 }
     }),
   )
 }
@@ -90,6 +93,8 @@ export async function perform($: any, cmd: Cmd, me: Sid, v: View, now: number, s
     case 'conductor': {
       const [own, ...typed] = (await realPaths($, cmd.paths)) ?? []
       if (own === undefined) return fail('path')
+      // Only the saved list goes: this session's role and repos stay until `lead off`, and it owes no notice turn.
+      if (cmd.reset === true) return (await saveConductorRepos($, own, [])) ? T['cmd.conductorReset']({}) : say(refusal('refuse', 'not-saved', { tool: 'callboard', target: cmd.op, detail: 'repos' }))
       // Paths typed now replace the list saved for this folder; none typed reuses it.
       if (cmd.paths.length > 0 && typed.length === 0) return fail('own-folder')
       const kept = await conductorRepos($, own)
