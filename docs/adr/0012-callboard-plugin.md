@@ -6,7 +6,7 @@
 Scope: how callboard decides what a session is, who answers its asks and what unattended mode changes. It replaces the
 mod's kinds, grants and per-tier answering with one model, built as a plugin (`tools/callboard/plugin`). It changes who
 may answer a permission prompt and who may widen a session's powers, so it is on the risk list. It is built and live:
-the person switched the one plugin entry over ([docs/setup.md](../setup.md), Switch to the plugin) and the mod is
+the person switched the one plugin entry over ([docs/setup.md](../setup.md), A Mac set up before the plugin) and the mod is
 deleted.
 
 It supersedes [ADR 0006](0006-conductor-opens-leads.md), [ADR 0007](0007-conductor-owns-leads.md) and
