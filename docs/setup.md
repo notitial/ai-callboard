@@ -122,7 +122,7 @@ EXT_DIR="$(ls -d "$HOME"/.vscode/extensions/anthropic.claude-code-* | sort -V | 
   The ring is measured against the compaction point of your `autoCompactWindow` setting (`~/.claude/settings.json`, or
   `CLAUDE_CONFIG_DIR` of the VS Code process; project settings are not read; read each time a panel opens, so a reload picks up
   a changed value): full where Claude Code compacts. With no such setting it uses the model's window, as the stock pie does.
-  The ring is 16px with 2px around it (the footer's own stylesheet sizes it to 26px, so the piece's style block sets the size too), and its hover text is a bold "Context" over `used / limit used · percent` in k (`126k / 200k used · 63%`, the limit being where the ring is full: your `autoCompactWindow` less about 33k); a click
+  The ring is 18px with 2px around it (the footer's own stylesheet sizes it to 26px, so the piece's style block sets the size too), and its arc is coloured by the tokens used: green below 200k, blue from 200k, amber from 300k, red from 400k (the theme's chart colours; fixed amounts, whatever your `autoCompactWindow`). Its hover text is a bold "Context" over `used / limit used · percent` in k (`126k / 200k used · 63%`, the limit being where the ring is full: your `autoCompactWindow` less about 33k); a click
   still compacts. It also edits `webview/index.js`, as the folder pill below does, in three places that must each match once (the check
   names the one that does not), and in two more for the hover text: when either of those does not match once, the hover text
   stays Claude Code's and the rest of the piece still goes in, without a warning. The shipped script is kept as
