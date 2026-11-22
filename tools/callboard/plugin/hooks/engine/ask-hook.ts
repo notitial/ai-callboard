@@ -40,15 +40,16 @@ const ours = (next: any): boolean => next?.origin?.plugin === PLUGIN
 // one it lacks, so a description that holds that sentence is refused too, and so is one with a character that shows as blank or turns the text round.
 const LOOKALIKES = new Map(Object.entries({ '\u0430': 'a', '\u0251': 'a', '\u03b1': 'a', '\u0435': 'e', '\u03b5': 'e', '\u043e': 'o', '\u03bf': 'o', '\u0585': 'o', '0': 'o', '\u0443': 'y', '\u04af': 'y', '\u03b3': 'y', '\u0456': 'l', '\u04cf': 'l', '\u03b9': 'l', '\u01c0': 'l', 'i': 'l', '|': 'l', '1': 'l', '\u0501': 'd', '\u0433': 'r', '\u1d26': 'r', '\u027e': 'r', '\u043c': 'm', '\u03bc': 'm', '\u03c5': 'y', '\u0192': 'f' }))
 const HIDDEN_RE = /[\u115f\u1160\u3164\uffa0\u202a-\u202e\u2066-\u2069]/
+const MARK_RE = /[\u200e\u200f\u061c]/
 const fold = (s: string): string => s.normalize('NFKD').toLowerCase().replace(/[^\p{L}\p{N}|]/gu, '').replace(/[^a-z]|i/g, (c) => LOOKALIKES.get(c) ?? c)
 const RELAYED = fold('relayedfrom')
 const TELL = fold('yourclickdecides')
 // The refusal a Bash description earns, if any: the reserved one, or the one for a character or sentence that could pass it for the relay's. The marks right-to-left text carries
-// (U+200E, U+200F, U+061C) are format characters, which fold() drops.
+// (U+200E, U+200F, U+061C) are format characters, which fold() drops; with both words of the phrase beside them they could reorder it on screen, so that is refused.
 const refusal = (d: unknown): string | undefined => {
   const raw = String(d ?? '')
   const s = fold(raw)
-  return s.startsWith(RELAYED) ? T['dialog.relay.reserved']({}) : HIDDEN_RE.test(raw) || s.includes(TELL) ? T['dialog.relay.hidden']({}) : undefined
+  return s.startsWith(RELAYED) ? T['dialog.relay.reserved']({}) : HIDDEN_RE.test(raw) || s.includes(TELL) || (MARK_RE.test(raw) && s.includes('relayed') && s.includes('from')) ? T['dialog.relay.hidden']({}) : undefined
 }
 const mine = (tool: unknown, input: any): boolean => {
   const p = mem.proxy

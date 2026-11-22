@@ -166,7 +166,7 @@ to proceed?" with only "1. Yes" and "2. No". The manager's own Bash dialog in th
 always allow access to <dir> from this project", "Yes, and switch to auto mode" and "No". A Yes ran the lane's command and
 a No refused it, and no rule or setting was written. The VS Code panel draws its dialog from the same permission
 suggestions; it was not run. A run the hook holds comes back to the caller as the engine's error result carrying the held
-text, not as `{ deny }`, so a run counts as stopped only for a `{ deny }` or for that text; any other error result
+text, not as `{ deny }`, so a run counts as stopped only for a `{ deny }`, or for exactly that text when proxyRun heard the run; any other error result
 (a command that ran and failed, or another hook's refusal) reads as a run that was not stopped. These two are the exceptions to ADR 0004's observing `tool.check`; neither lifts a deny. The
 relay needs Claude Code 2.1.330 or later.
 
