@@ -11,7 +11,7 @@
         anchors-missing <names>  an update moved the code the patch hooks into (a name is missing or matches twice): --apply refuses
         leftovers <files>        a backup or the marker from an earlier run is here and does not match the file: --undo first
       --apply: patch extension.js, keep the original beside it as extension.js.callboard-orig and write callboard-cwd-patch.json
-      (the marker callboard's panels extension reads; its "width", "pie", "pill", "restore", "groups", "archive", "remote", "list" and "run" fields say whether the panel width, the context pie, the folder pill, the restore fix, the group command, the archive command, the session list and the run button below went in). Patched already: says so and stops; outdated: refuses and names --update. A window reload (Developer: Reload
+      (the marker callboard's panels extension reads; its "width", "pie", "pill", "restore", "groups", "archive", "remote", "list" and "run" fields say whether the panel width, the context pie, the folder pill, the restore fix, the group command, the archive command, the remote command, the session list and the run button below went in). Patched already: says so and stops; outdated: refuses and names --update. A window reload (Developer: Reload
       Window) loads it.
       --update: for an `outdated` install, build the patch again from the backup original and swap it in: extension.js and the marker are
       replaced (and webview/index.js, when the context pie, the folder pill or the run button is or goes in or out), the backups are not touched. The new bytes are built before anything is written (a refusal changes nothing), and a failed write puts the
