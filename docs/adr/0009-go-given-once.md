@@ -1,6 +1,6 @@
 # 9. A go given once
 
-**Status:** accepted
+**Status:** accepted, amended
 **Date:** 2026-11-15
 
 *2026-11-16: accepted, with the conductor's go built. A lead's go was built first; the dated lines below say what the

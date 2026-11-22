@@ -1,6 +1,6 @@
 # 13. A conductor is a lead that makes leads
 
-**Status:** accepted
+**Status:** accepted, amended
 **Date:** 2026-11-21
 
 Scope: how one session can open, start and close a lead in each of several repos, so the person talks to one session

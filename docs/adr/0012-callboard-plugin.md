@@ -1,6 +1,6 @@
 # 12. Callboard as a plugin: one session model, one ask chain
 
-**Status:** accepted
+**Status:** accepted, amended
 **Date:** 2026-11-19
 
 Scope: how callboard decides what a session is, who answers its asks and what unattended mode changes. It replaces the
