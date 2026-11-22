@@ -284,8 +284,9 @@ function parseAsk(j: any): Ask | undefined {
   if (typeof j.cut !== 'boolean' || typeof j.tool !== 'string' || typeof j.input !== 'string' || !RAISED.includes(j.raisedBy)) return undefined
   const one = (q: any): Question | undefined => typeof q === 'object' && q !== null && typeof q.header === 'string' && typeof q.question === 'string' && Array.isArray(q.options) && q.options.every((o: any) => typeof o?.label === 'string') ? { header: q.header, question: q.question, options: q.options.map((o: any) => ({ label: o.label, ...(typeof o.description === 'string' ? { description: o.description } : {}) })) } : undefined
   const question = one(j.question)
-  const qs = Array.isArray(j.questions) ? j.questions.map(one) : []
-  return { id: j.id, asker: j.asker, t0: j.t0, awake: j.awake, tool: j.tool, raisedBy: j.raisedBy, input: j.input, cut: j.cut, beat: j.beat, ...(question === undefined ? {} : { question }), ...(qs.length >= 2 && qs.length <= 4 && qs.every((x) => x !== undefined) ? { questions: qs as Question[] } : {}) }
+  const qs: (Question | undefined)[] = Array.isArray(j.questions) ? j.questions.map(one) : []
+  const asked = qs.filter((x) => x !== undefined)
+  return { id: j.id, asker: j.asker, t0: j.t0, awake: j.awake, tool: j.tool, raisedBy: j.raisedBy, input: j.input, cut: j.cut, beat: j.beat, ...(question === undefined ? {} : { question }), ...(qs.length >= 2 && qs.length <= 4 && asked.length === qs.length ? { questions: asked } : {}) }
 }
 export async function writeAsk($: any, a: Ask): Promise<boolean> {
   const p = await askPath($, a.id)

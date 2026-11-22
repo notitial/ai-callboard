@@ -69,7 +69,7 @@ export function validateRequest(r: unknown, kind: Kind = 'compact'): { ok: true;
   const no = (detail: string) => refusal('refuse', 'bad-input', { tool: toolOf(kind), detail })
   const handover = kind === 'handover'
   const focus = handover ? file : given
-  if (handover ? typeof focus !== 'string' || focus.length > 1024 || !PRINTABLE.test(focus) || !focus.startsWith('/') || focus.split('/').includes('..') : typeof focus !== 'string' || focus.length < 1 || focus.length > 1200 || !PRINTABLE.test(focus) || focus.startsWith('/') || FORGED.test(focus)) return no(handover ? 'file' : 'focus')
+  if (typeof focus !== 'string' || (handover ? focus.length > 1024 || !PRINTABLE.test(focus) || !focus.startsWith('/') || focus.split('/').includes('..') : focus.length < 1 || focus.length > 1200 || !PRINTABLE.test(focus) || focus.startsWith('/') || FORGED.test(focus))) return no(handover ? 'file' : 'focus')
   if (typeof continuation !== 'string' || continuation.length < 1 || continuation.length > 600 || !PRINTABLE_NL.test(continuation) || !/[^\n ]/.test(continuation) || continuation.split('\n').length > 5 || FORGED.test(continuation)) return no('continuation')
   return { ok: true, req: { focus, continuation, ...(handover ? { kind } : {}) } }
 }

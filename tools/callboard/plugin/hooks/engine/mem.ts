@@ -57,6 +57,8 @@ const fresh = () => ({
   // This folder's lead preset as registered at the session start, and one typed run of it whose name, model and effort steps are still to run (its notice follows them).
   preset: undefined as Preset | undefined,
   presetRun: undefined as { preset: Preset; result: string } | undefined,
+  // The slash commands another source held when the session started, so this plugin did not register them.
+  taken: new Set<string>(),
   prLost: new Map<string, number>(),
   prLooks: [] as number[],
   prPollAt: 0,
