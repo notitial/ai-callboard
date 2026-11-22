@@ -268,7 +268,7 @@ export async function askState($: any, id: string): Promise<{ ups: UpMark[]; ans
   const f = await askNames($)
   return f === undefined ? { ups: [], answered: false } : { ups: await readUps($, f.d, f.names, id), answered: f.names.includes(`${id}.answer`) }
 }
-// Whether an ask is still open: its file is there and no answer is. A folder that cannot be listed counts as open: a pop-up is not closed on a failed read.
+// Whether an ask is still open: its file is there and no answer is. A folder that cannot be listed counts as open: a dialog is not closed on a failed read.
 export async function askOpen($: any, id: string): Promise<boolean> {
   const f = await askNames($)
   return f !== undefined && (f.failed || (f.names.includes(`${id}.json`) && !f.names.includes(`${id}.answer`)))

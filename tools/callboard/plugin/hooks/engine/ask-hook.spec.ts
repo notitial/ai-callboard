@@ -82,7 +82,7 @@ test('a go dialog or a force-stop dialog open in the session is the person\'s al
 })
 test('the relay\'s own dialog in the manager\'s session passes both hooks untouched: never held, never an ask, and marked shown only when nothing beneath decided it', async () => {
   const f = tiers()
-  const questions = [{ header: 'H', question: '`lane` asks: Which?', options: [{ label: 'A', description: '' }, { label: 'B', description: '' }], multiSelect: false }]
+  const questions = [{ header: 'H', question: 'lane asks: Which?', options: [{ label: 'A', description: '' }, { label: 'B', description: '' }], multiSelect: false }]
   mem.proxy = { id: 'aa11bb22cc', ctrl: new AbortController(), first: questions[0]!.question, shown: false }
   const own = (r: unknown, plugin = 'callboard') => Object.assign(async () => r, { origin: { plugin, tier: 'user' }, signal: undefined as AbortSignal | undefined })
   const e = { tool_name: 'AskUserQuestion', tool_input: { questions }, tool_use_id: 't9' }

@@ -116,6 +116,14 @@ closed ask writes nothing and a toast says so. A keyed OS notification that name
 id) and the tool, never the command, stands beside the open dialog and is taken back when it closes. This replaces the pop-up per question, the line under a stale pop-up
 and the out-of-date toast.
 
+*Amended 2026-11-22 (plain dialog text).* The tool shows no markdown, and the person may read the dialog on a phone, so
+every relay dialog is plain text with no code quotes or fences. Names are a plain session name, else the session id.
+The command is the ask's JSON, whose strings carry every line break as an escape, so no line of it reads as the
+dialog's own. The manager's note sits whole on one line after a short label that names the manager ("NAME's
+summary:"), so none of it reads as the plugin's or the person's. The note itself is a short plain sentence on the
+command's concrete effect (what it reads, writes, sends or changes, and where), then one on its risk, with nothing on
+why it was escalated. The escapes and the look-alike check stay.
+
 **Callboard never judges who may answer.** An ask a session cannot decide (a plan-mode exit, a malformed question, a
 guard's own ask) is an ordinary ask that rises like any other; the rubric of the tier that reads it decides. What is
 not an ask is what the person starts themselves, such as creating a lead or a lane and giving a go. Those are their own acts,

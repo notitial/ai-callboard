@@ -12,7 +12,7 @@ const two = (n: number): string => String(n).padStart(2, '0')
 const clock = (t: number): string => `${two(new Date(t).getHours())}:${two(new Date(t).getMinutes())}`
 export const stamp = (t: number): string => `${new Date(t).getFullYear()}-${two(new Date(t).getMonth() + 1)}-${two(new Date(t).getDate())} ${clock(t)}`
 export const RULES_CAP = 8 * 1024
-// What a pop-up is trusted to show whole: a longer input gets Deny only.
+// What a dialog is trusted to show whole: a longer input gets Deny only.
 export const DIALOG_CAP = 4 * 1024
 // The text as printed: escaped, then cut to `max` bytes. cut: what is shown is not the whole.
 export const printed = (s: string, max: number): { text: string; cut: boolean } => capBytes(escBlock(s), max)
@@ -80,11 +80,14 @@ export type DialogSpec = { header: string; question: string; options: { label: s
 const yesNo = (): { label: string }[] => [{ label: T['dialog.yes']({}) }, { label: T['dialog.no']({}) }]
 export const goDialog = (giver: string, text: string, end: string): DialogSpec => ({ header: T['dialog.go.header']({}), question: T['dialog.go.question']({ giver, text, end }), options: yesNo() })
 export const stopDialog = (name: string, verb: StopVerb): DialogSpec => ({ header: T['dialog.stop.header']({}), question: T['dialog.stop.question']({ name, verb }), options: yesNo() })
-// The relay pop-up: an input not shown whole (cut, or too large to print) gets Deny only, as `decide` refuses its allow. `cut` is that finding: the adapter stores it on the
-// ask, as it stores promptList's cutIds, so no other path allows the input. A question not shown whole comes here with `cut` set; a whole one is mirrored (mirrorOf).
+// The relay dialog, in plain text (the tool shows no markdown): an input not shown whole (cut, or too large to print) gets Deny only, as `decide` refuses its allow. `cut` is that
+// finding: the adapter stores it on the ask, as it stores promptList's cutIds, so no other path allows the input. A question not shown whole comes here with `cut` set; a whole
+// one is mirrored (mirrorOf). The input is the ask's JSON (inputText), whose strings carry every line break as \n, so no line of it can pass for the dialog's own text; an input
+// that is not JSON (an ask file written by hand) gets Deny only, as a cut one does.
+const isJson = (s: string): boolean => { try { JSON.parse(s); return true } catch { return false } }
 export function relayDialog(asker: string, tool: string, input: string, cut: boolean): DialogSpec & { cut: boolean } {
   const p = printed(input, DIALOG_CAP)
-  const whole = !cut && !p.cut
+  const whole = !cut && !p.cut && isJson(input)
   return {
     header: T['dialog.relay.header']({}),
     question: T['dialog.relay.question']({ asker, tool, input: p.text, cut: !whole }),
@@ -93,23 +96,24 @@ export function relayDialog(asker: string, tool: string, input: string, cut: boo
   }
 }
 
-// The manager's note, the first of two pop-ups for a tool ask it escalated: the note under its label (escaped and fenced like the input), with Allow, Show the command (the second
-// pop-up, relayDialog) and Deny. Allow is offered only where the whole command can be shown, as in relayDialog. A note is at most 300 characters, so its escaped text fits the cap.
-export function relayNote(asker: string, tool: string, note: string, input: string): DialogSpec {
-  const whole = !printed(input, DIALOG_CAP).cut
-  return { header: T['dialog.relay.header']({}), question: T['dialog.relay.note']({ asker, tool, note: printed(note, DIALOG_CAP).text }), options: [...(whole ? [{ label: T['dialog.allow']({}) }] : []), { label: T['dialog.show']({}) }, { label: T['dialog.deny']({}) }] }
+// The manager's note, the first of two dialogs for a tool ask it escalated: the note escaped and on one line after its label (by: the manager's plain name), so none of it reads
+// as the plugin's, with Allow, Show the command (the second dialog, relayDialog) and Deny. Allow is offered only where relayDialog offers it. A note the manager wrote is at most
+// 300 characters (noteOf), and any other is cut to what a dialog shows.
+export function relayNote(asker: string, tool: string, note: string, input: string, by?: string): DialogSpec {
+  const whole = relayDialog(asker, tool, input, false).cut === false
+  return { header: T['dialog.relay.header']({}), question: T['dialog.relay.note']({ asker, tool, note: printed(note, DIALOG_CAP).text, ...(by === undefined ? {} : { by }) }), options: [...(whole ? [{ label: T['dialog.allow']({}) }] : []), { label: T['dialog.show']({}) }, { label: T['dialog.deny']({}) }] }
 }
 
 // ---- what the relay puts to the person: the input of an AskUserQuestion it calls in the manager's session (engine/relay.ts) ----
 export type AskQuestion = { question: string; header: string; options: { label: string; description: string }[]; multiSelect: false }
 const HEADER_MAX = 12
-// A pop-up as one question. The tool takes 2 to 4 options, so a lone Deny gets Leave it beside it, which writes nothing.
+// A dialog as one question. The tool takes 2 to 4 options, so a lone Deny gets Leave it beside it, which writes nothing.
 export function askOf(spec: DialogSpec): AskQuestion[] {
   const options = spec.options.length < 2 ? [...spec.options, { label: T['dialog.leave']({}) }] : spec.options
   return [{ question: spec.question, header: spec.header, options: options.map((o) => ({ label: o.label, description: '' })), multiSelect: false }]
 }
 // The asker's own questions in one dialog, as the asker saw them: each question opens with the asker's name, and every text is escaped. A text whose escaped form is past what a
-// pop-up shows whole makes it undefined, and the ask then gets relayDialog's Deny only. The answer maps back by position, so the escaped labels need not match the asker's; it
+// dialog shows whole makes it undefined, and the ask then gets relayDialog's Deny only. The answer maps back by position, so the escaped labels need not match the asker's; it
 // is read by label and by question, so escaped labels of one question, or questions, that come out the same make it undefined too.
 export function mirrorOf(asker: string, qs: readonly Question[]): AskQuestion[] | undefined {
   if (qs.some((q) => [q.header, q.question, ...q.options.flatMap((o) => [o.label, o.description ?? ''])].some((s) => printed(s, DIALOG_CAP).cut))) return undefined

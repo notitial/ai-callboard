@@ -162,14 +162,14 @@ export type Fixed = {
   'cmd.presetHelp': { name: string; model: string; effort: string }
   'go.clicked': { outcome: 'given' | 'declined' | 'unsaved' }
 
-  // Dialogs: the go, the force stop and the relay pop-up, each as header and question, and their buttons.
+  // Dialogs: the go, the force stop and the relay dialog, each as header and question, and their buttons.
   'dialog.go.header': E
   'dialog.go.question': { giver: string; text: string; end: string }
   'dialog.stop.header': E
   'dialog.stop.question': { name: string; verb: StopVerb }
   'dialog.relay.header': E
   'dialog.relay.question': { asker: string; tool: string; input: string; cut: boolean }
-  'dialog.relay.note': { asker: string; tool: string; note: string }
+  'dialog.relay.note': { asker: string; tool: string; note: string; by?: string } // by: the manager's plain name, if it has one
   'dialog.relay.asks': { asker: string; question: string } // an asker's own question, as the manager's session shows it
   'dialog.allow': E
   'dialog.show': E
@@ -187,7 +187,7 @@ export type Fixed = {
 
   // Toasts.
   'toast.refused': { tool: string; code: RefuseCode }
-  'toast.askClosed': E // a click on a relay pop-up whose ask is closed
+  'toast.askClosed': E // a click on a relay dialog whose ask is closed
   'notify.relay': { name: string; tool: string } // the OS notification beside a relayed ask's dialog, taken back when it closes
   'toast.askNoFile': AskRef // the ask file could not be written; the loop still holds the deadline
   'toast.askStuck': AskRef & Names // the sweep found an ask no process answers
