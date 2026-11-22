@@ -198,12 +198,13 @@ async function hold($: any, e: any, beneath: any, signal: AbortSignal | undefine
       if (answered) {
         const d = a === undefined ? undefined : decide(a, ask, st, v, input)
         const guarded = await guardOk($)
-        if (!guarded || a === undefined || d === undefined || d.act === 'ignore') {
+        const dropped = !guarded ? 'no-guard' : d === undefined ? 'shape' : d.act === 'ignore' ? d.msg.slice(7) : undefined
+        if (dropped !== undefined || a === undefined || d === undefined) {
           await rmAnswer($, ask.id)
-          await log($, me, 'answer-dropped', !guarded ? 'no-guard' : d === undefined ? 'shape' : d.msg.slice(7))
+          await log($, me, 'answer-dropped', dropped)
         } else if (await clicked()) return finish('closed', beneath, undefined, 'click')
         else {
-          const decision = d.act === 'allow' ? { behavior: 'allow' } : d.act === 'deny' ? { behavior: 'deny', message: say(d) } : { behavior: 'allow', updatedInput: { ...input, answers: Object.fromEntries(d.picks.map((x) => [x.question, say({ msg: 'ask.answerText', p: { label: x.label, by: d.by } })])) } }
+          const decision = d.act === 'answer' ? { behavior: 'allow', updatedInput: { ...input, answers: Object.fromEntries(d.picks.map((x) => [x.question, say({ msg: 'ask.answerText', p: { label: x.label, by: d.by } })])) } } : d.act === 'allow' ? { behavior: 'allow' } : { behavior: 'deny', message: say(d) }
           return finish('answered', { ...beneath, decision }, a.by)
         }
       }

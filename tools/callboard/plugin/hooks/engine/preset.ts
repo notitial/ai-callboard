@@ -8,23 +8,19 @@ import { isLead, nameRefusal, refusal } from '../core/model.ts'
 import { PRESET_TAIL, T } from '../texts.ts'
 import { modelHeld, ran } from './cue.ts'
 import { originOf, perform, realPaths } from './commands.ts'
-import { readText } from './io.ts'
+import { readText, registerFree } from './io.ts'
 import { mem } from './mem.ts'
 import { getView, updateTable } from './store.ts'
 import { say } from './tools-any.ts'
 
 // Read this folder's preset and register its command; nothing is registered for a missing or bad file, or when the command's name is already taken by anything but this
-// preset's own earlier registration (a reload, even after the file was edited), which is told by the tail of its description.
+// preset's own earlier registration (a reload, even after the file was edited), which is told by the tail of its description (registerFree).
 export async function presetRegister($: any): Promise<void> {
   mem.preset = undefined
   const root = await $.session.root().catch(() => undefined)
   const p = typeof root === 'string' ? parsePreset(await readText($, `${root}/.claude/callboard-lead.json`, 2048)) : undefined
   if (p === undefined) return
-  const description = T['cmd.presetHelp'](p)
-  const listed: { name: string; source: string; description?: string }[] = await $.command.list().catch(() => [{ name: p.command, source: 'builtin' }])
-  if (listed.some((c) => c.name === p.command && !(c.source === 'plugin' && c.description?.endsWith(PRESET_TAIL)))) return
-  await $.command.register({ name: p.command, description })
-  mem.preset = p
+  if (await registerFree($, p.command, T['cmd.presetHelp'](p), (d) => d.endsWith(PRESET_TAIL))) mem.preset = p
 }
 
 // The command's run: every other command passes on, and a failure of the run itself is answered here, so `next` is called at most once.
@@ -40,9 +36,10 @@ export async function presetRun($: any, e: any, next: any) {
 // The rows of this preset's own ended leads: another typed lead in this session's folder that holds the preset's name and has no live session. Its name is free to take, and its row goes
 // when the new name is set (a typed lead's row is never expired). A live holder, a lane, a conductor, a minted lead, a row he turned off and a row of another folder are not in it.
 async function ended($: any, v: View, me: Sid, p: Preset): Promise<Sid[]> {
-  const own = v.rows === 'unknown' ? undefined : (await realPaths($, []))?.[0]
-  if (v.rows === 'unknown' || own === undefined) return []
-  return Object.entries(v.table).filter(([k, r]) => k !== me && r.name === p.name && r.folder === own && r.lead && !r.lead.minted && !r.lead.conductor && !r.off && !v.rows.has(k)).map(([k]) => k)
+  const { rows } = v
+  const own = rows === 'unknown' ? undefined : (await realPaths($, []))?.[0]
+  if (rows === 'unknown' || own === undefined) return []
+  return Object.entries(v.table).filter(([k, r]) => k !== me && r.name === p.name && r.folder === own && r.lead && !r.lead.minted && !r.lead.conductor && !r.off && !rows.has(k)).map(([k]) => k)
 }
 // The name check with the preset's own ended leads left out.
 const nameFree = (v: View, p: Preset, me: Sid, gone: Sid[]) => nameRefusal({ ...v, table: Object.fromEntries(Object.entries(v.table).filter(([k]) => !gone.includes(k))) }, p.name, me)

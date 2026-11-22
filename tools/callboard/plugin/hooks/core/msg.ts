@@ -62,6 +62,7 @@ export type StatusRow =
   | { field: 'off' | 'keepalive'; value: boolean }
   | { field: 'unattended'; value: number | null }
   | { field: 'goes'; value: number }
+  | { field: 'taken'; value: string[] }
 
 type E = Record<never, never>
 type RefuseP = { tool: string; target?: string; detail?: string }

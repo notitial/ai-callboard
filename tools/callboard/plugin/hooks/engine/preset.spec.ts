@@ -44,6 +44,25 @@ test('the start registers the preset\'s command beside callboard\'s; a missing o
   assert.equal(mem.preset?.name, 'SENTINEL')
 })
 
+test('a name another source holds, or that the engine refuses, is skipped and logged, and the rest of the start goes on; a list that fails is no clash', async () => {
+  const f = fake()
+  f.seed({ sid: 'sid-me', pid: 10, name: 'me', cwd: '/w/me', kind: 'interactive' })
+  f.h.files.set(FILE, JSON.stringify(PRESET))
+  f.h.listed = [{ name: 'lead', source: 'builtin' }, { name: 'conductor', source: 'plugin', description: 'Another plugin\'s.' }, { name: 'rest', source: 'plugin', description: T['help.rest']() }]
+  const refuse = f.$.command.register
+  f.$.command.register = async (c: { name: string }) => (c.name === 'unattended' ? Promise.reject(new Error('refused')) : refuse(c))
+  await sessionStart(f.$, {}, async (e: unknown) => e)
+  assert.deepEqual(f.h.commands.sort(), ['callboard', 'rest', 'sentinel'], 'its own earlier line (a reload) is registered again')
+  assert.deepEqual([...mem.taken].sort(), ['conductor', 'lead', 'unattended'])
+  assert.match([...f.h.files].filter(([p]) => p.includes('/log/')).map(([, t]) => t).join(''), /"event":"command-taken","reason":"lead"/)
+  const g = fake()
+  g.seed({ sid: 'sid-me', pid: 10, name: 'me', cwd: '/w/me', kind: 'interactive' })
+  g.$.command.list = async () => Promise.reject(new Error('no list'))
+  await sessionStart(g.$, {}, async (e: unknown) => e)
+  assert.deepEqual(g.h.commands.sort(), ['callboard', 'conductor', 'lead', 'rest', 'unattended'])
+  assert.equal(mem.taken.size, 0)
+})
+
 test('typed by the person it saves the lead row under the session\'s own name and gives the lead tools, and the row takes the preset\'s name once the rename has landed; run by a plugin, a session or anything else it is refused and saves nothing', async () => {
   const f = await started()
   assert.match((await typed(f)).text, /This session is a lead from your next prompt/)

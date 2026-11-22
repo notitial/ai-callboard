@@ -66,7 +66,7 @@ export async function realPaths($: any, paths: string[], max = 16): Promise<stri
   return out.length > 0 ? out : undefined
 }
 function setRow($: any, v: View, me: Sid, folder: string, f: (r: Row) => Row): Promise<boolean> {
-  return updateTable($, (t) => ({ ...t, [me]: f({ name: nameOf(v, me), folder, ...t[me] }) }))
+  return updateTable($, (t) => ({ ...t, [me]: f(t[me] ?? { name: nameOf(v, me), folder }) }))
 }
 
 export async function perform($: any, cmd: Cmd, me: Sid, v: View, now: number, savedOk: () => void): Promise<string> {
@@ -77,7 +77,7 @@ export async function perform($: any, cmd: Cmd, me: Sid, v: View, now: number, s
   switch (cmd.op) {
     case 'status': {
       const goes = (await listGoes($)).filter((g) => covers(g, me, v, now)).length
-      const rows: StatusRow[] = [{ field: 'role', value: statusRole(v, me) }, { field: 'parent', value: person(v, parent(v, me)) }, { field: 'manager', value: person(v, v.manager) }, { field: 'off', value: isOff(v, me) }, { field: 'keepalive', value: (await cfgNow($)).keepalive }, { field: 'unattended', value: w.state === 'on' ? Math.max(1, Math.ceil((w.window.end - now) / 60_000)) : null }, { field: 'goes', value: goes }]
+      const rows: StatusRow[] = [{ field: 'role', value: statusRole(v, me) }, { field: 'parent', value: person(v, parent(v, me)) }, { field: 'manager', value: person(v, v.manager) }, { field: 'off', value: isOff(v, me) }, { field: 'keepalive', value: (await cfgNow($)).keepalive }, { field: 'unattended', value: w.state === 'on' ? Math.max(1, Math.ceil((w.window.end - now) / 60_000)) : null }, { field: 'goes', value: goes }, ...(mem.taken.size === 0 ? [] : [{ field: 'taken' as const, value: [...mem.taken] }])]
       return statusPage(rows)
     }
     case 'lanes': return lanesTable(await laneRows($, v, me))
@@ -158,6 +158,12 @@ export async function commandRun($: any, e: any) {
   // His typed step that saved a change of this session's role, goes or window gives it a turn, so he need not type "done". A read or a failed write sends nothing.
   if (ok && originOf(e) === 'typed' && CHANGES.includes(plan.cmd.op)) mem.owed.push(T['cmd.told']({ result: text }))
   return { text }
+}
+
+// A run of one of callboard's own command names, as the form `args` says (the typed words, when none): a name another source held at the session start (io.ts, registerFree) is
+// that source's to answer, so its run passes on as typed.
+export function commandHeard($: any, e: any, next: any, args?: string) {
+  return mem.taken.has(e?.command) ? next(e) : commandRun($, args === undefined ? e : { ...e, args })
 }
 
 // ---- the typeahead and the briefing ----

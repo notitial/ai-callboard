@@ -12,7 +12,7 @@ import { T } from '../texts.ts'
 import { TOOL_SCHEMAS } from '../tool-schemas.ts'
 import { cueTick } from './cue.ts'
 import { handoverTick } from './handover.ts'
-import { TICK_MS, log, submitOwn, toast } from './io.ts'
+import { TICK_MS, log, registerFree, submitOwn, toast } from './io.ts'
 import { getUp, mem, resetSession, spendStarted, staleView } from './mem.ts'
 import { markDone } from './ask-hook.ts'
 import { prClaim, prTick } from './pr.ts'
@@ -45,11 +45,10 @@ export async function sessionStart($: any, e: any, next: any) {
   }
   usageSweep($).catch(() => undefined)
   await registerTools($, 'any')
-  await $.command.register({ name: 'callboard', description: T['help.status']() })
-  await $.command.register({ name: 'rest', description: T['help.rest']() })
-  await $.command.register({ name: 'unattended', description: T['help.unattended']() })
-  await $.command.register({ name: 'lead', description: T['help.lead']() })
-  await $.command.register({ name: 'conductor', description: T['help.conductor']() })
+  mem.taken.clear()
+  for (const [name, help] of [['callboard', 'help.status'], ['rest', 'help.rest'], ['unattended', 'help.unattended'], ['lead', 'help.lead'], ['conductor', 'help.conductor']] as const) {
+    await registerFree($, name, T[help](), (d) => d === T[help]())
+  }
   await presetRegister($).catch(() => undefined)
   return next(e)
 }
