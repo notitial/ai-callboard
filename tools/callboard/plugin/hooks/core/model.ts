@@ -90,7 +90,7 @@ export type Ask = {
   beat: number
 }
 
-// `asks/<id>.answer`, created exclusively: the first writer wins. `by` is the session that decided, or the person (his click on the relay pop-up). `option` is 1-based,
+// `asks/<id>.answer`, created exclusively: the first writer wins. `by` is the session that decided, or the person (his click on the relay dialog). `option` is 1-based,
 // as prompt_answer takes it.
 export type Answer = {
   ask: string
@@ -104,7 +104,7 @@ export type Answer = {
 }
 
 // `asks/<id>.up.<sid>`: an escalation, or a "told" mark, by that session; created exclusively. `reach` is derived from these and from `awake`. note: what the escalator wrote
-// for the person (the relay pop-up reads it; the ask log never holds it).
+// for the person (the relay dialog reads it; the ask log never holds it).
 export type UpMark = { kind: 'escalated' | 'told'; by: Sid; at: number; note?: string }
 
 export type AskEvent = 'raised' | 'told' | 'escalated' | 'answered' | 'expired' | 'closed' | 'swept'

@@ -75,8 +75,8 @@ test('text a session wrote reaches a text escaped and in quotes it cannot close'
 
 test('a relayed question names its asker and keeps its line breaks; it and the notification escape what a session wrote', () => {
   const evil = 'a<' + String.fromCodePoint(0x202e)
-  assert.equal(T['dialog.relay.asks']({ asker: 'x', question: 'Which?\nPick one.' }), '`x` asks: Which?\nPick one.')
-  for (const out of [T['dialog.relay.asks']({ asker: evil, question: evil }), T['notify.relay']({ name: evil, tool: evil })]) assert.ok(!out.includes('<') && !out.includes(String.fromCodePoint(0x202e)), out)
+  assert.equal(T['dialog.relay.asks']({ asker: 'x', question: 'Which?\nPick one.' }), 'x asks: Which?\nPick one.')
+  for (const out of [T['dialog.relay.asks']({ asker: evil, question: evil }), T['notify.relay']({ name: evil, tool: evil }), T['dialog.relay.question']({ asker: evil, tool: evil, input: '{}', cut: false }), T['dialog.relay.note']({ asker: evil, tool: evil, note: '{}', by: evil })]) assert.ok(!out.includes('<') && !out.includes(String.fromCodePoint(0x202e)), out)
   assert.equal(T['notify.relay']({ name: 'lane', tool: 'Bash' }), 'lane waits on you: Bash')
 })
 

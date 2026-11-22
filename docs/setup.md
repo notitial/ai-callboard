@@ -322,7 +322,7 @@ Run this exact command with the Bash tool and nothing else: touch /tmp/callboard
    The manager session gets a `[callboard] Check-in:` turn naming the ask, and its `prompt_list` shows it. Click Deny on
    the card yourself: your click always wins over a tier's answer.
 
-4. Unattended mode: type these three in the manager session, one at a time. The first says no pop-up will open at you;
+4. Unattended mode: type these three in the manager session, one at a time. The first says no callboard dialog will open at you;
    the second shows the window; the third ends it.
 
 ```

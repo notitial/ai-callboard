@@ -44,7 +44,7 @@ export function stage(x: StageIn): Stage {
   return { open: true, reach, eligible, toPerson, relay, top: c.top }
 }
 
-// One check for an answer: it names this ask, and its author is eligible now, or the person on an ask that has reached him (the relay pop-up). Then it must fit
+// One check for an answer: it names this ask, and its author is eligible now, or the person on an ask that has reached him (the relay dialog). Then it must fit
 // the ask: deny for either kind; allow for a permission ask and answer for a question, each only on an input that was not cut (the person may also allow from the manager's note, when the command prints whole). The label comes from the live input.
 export type Verdict = Decision<'allow' | 'deny' | 'ignore'> | { act: 'answer'; by: string; picks: { question: string; label: string }[] }
 export function decide(a: Answer, ask: Ask, s: Open, v: View, liveInput: unknown): Verdict {
