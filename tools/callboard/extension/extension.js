@@ -7,6 +7,7 @@ const { buildId } = require('./build.js')
 const { createLanes } = require('./lanes.js')
 const { createSpool } = require('./spool-v2.js')
 const { createPick } = require('./pick.js')
+const { createPin } = require('./pin.js')
 const { createRegistry } = require('./registry.js')
 const { claudePatched } = require('./claude-patch.js')
 const { createRunBlock } = require('./run-block.js')
@@ -52,7 +53,7 @@ function activate(context) {
   const pick = createPick({ vscode, windowFolders: allFolders })
   context.subscriptions.push(createSpool({ dir: path.join(CLAUDE, 'callboard', 'v2', 'open'), lanes, workspaceFolders: windowFolders, timeoutMs: SPOOL_OPEN_MS, pick,
     // The Claude extension's command from the remote piece of the patch; an unpatched install has none, which the spool answers as patch-missing.
-    remote: (sid, on) => vscode.commands.executeCommand('callboard remote session', sid, on),
+    remote: (sid, on) => vscode.commands.executeCommand('callboard remote session', sid, on), pin: createPin({ vscode }),
   }).start())
   try {
     // The Run button the Claude patch adds to shell code blocks calls this; it always asks in a modal first (run-block.js).
