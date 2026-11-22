@@ -5,9 +5,11 @@
       No flag: change nothing and print one line, the state and the extension's version, then what it means:
         patched                  the patch is in, its marker matches the file and it is what this script would build now
                                  (with no backup that matches the marker, there is nothing to build from, and the marker decides)
-        outdated <why>           the patch is in but an older script built it (the line names what differs): --update brings it current
+        outdated <why>           the patch is in but an older script built it (the line names what differs): --update brings it current, unless
+                                 the backup no longer fits this script or the webview backup is not the recorded original: then --update refuses
         unpatched-patchable      every anchor was found exactly once: --apply would patch it
         anchors-missing <names>  an update moved the code the patch hooks into (a name is missing or matches twice): --apply refuses
+        leftovers <files>        a backup or the marker from an earlier run is here and does not match the file: --undo first
       --apply: patch extension.js, keep the original beside it as extension.js.callboard-orig and write callboard-cwd-patch.json
       (the marker callboard's panels extension reads; its "width", "pie", "pill", "restore", "groups", "session", "archive", "list" and "run" fields say whether the panel width, the context pie, the folder pill, the restore fix, the group command, the session command, the archive command, the session list and the run button below went in). Patched already: says so and stops; outdated: refuses and names --update. A window reload (Developer: Reload
       Window) loads it.
@@ -47,10 +49,20 @@ PREVIOUS = "extension.js.callboard-prev"
 MARKER = "callboard-cwd-patch.json"
 WEB = "webview/index.js"
 WEB_BACKUP = WEB + ".callboard-orig"
+WEB_FOREIGN = WEB_BACKUP + " does not match the marker's recorded original"
 PATCH = 1
 NAME = b"cbCwd"
 ID = rb"[A-Za-z_$][\w$]*"
 VERSION = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+")
+
+
+def count_why(label, n):
+    """How an anchor that does not match exactly once is named: `label (no match)` or `label (2 matches)`."""
+    return "%s (%s)" % (label, "no match" if n == 0 else "%d matches" % n)
+
+
+def already(what):
+    return "the file already contains %s" % what
 
 # The CSS pieces: each a style block of its own in the webview page the extension builds, put in front of the font configuration style tag. That tag
 # is the one anchor they share: it still matches once after each insert. The rules carry !important, so they win over the page's own. Each block ends
@@ -65,10 +77,6 @@ CSS_ANCHOR = b'<style id="claude-font-configuration">'
 WIDTH_CSS = (
     '[class*="inputWrapper_"],[class*="permissionsContainer_"]{max-width:none!important}'
     '[class*="inputContainer_"]:not([data-permission-mode]){max-width:none!important;left:8px!important;right:8px!important}'
-)
-# (marker field, name in messages, the name of its CSS in this module, the tokens the shipped webview must carry).
-CSS_PIECES = (
-    ("width", "panel width", "WIDTH_CSS", ("inputWrapper_", "permissionsContainer_", "inputContainer_")),
 )
 
 
@@ -99,9 +107,9 @@ def css_problem(raw, web, field, tokens):
     """Why a CSS piece cannot go in (None when it can): the font tag does not match exactly once, the page already has the block, or the webview lacks a token."""
     n = raw.count(CSS_ANCHOR)
     if n != 1:
-        return "font tag anchor (%s)" % ("no match" if n == 0 else "%d matches" % n)
+        return count_why("font tag anchor", n)
     if css_tag(field) in raw:
-        return "the file already contains callboard-%s" % field
+        return already("callboard-" + field)
     miss = [t for t in tokens if t.encode() not in b"".join(web)]
     return "the webview lacks %s" % ", ".join(miss) if miss else None
 
@@ -160,7 +168,7 @@ def pie_problem(raw, web):
     why = css_problem(raw, web, "pie", ())
     for label, pat, _ in PIE_ANCHORS:
         n = len(re.findall(pat, web[1]))
-        why = why or (None if n == 1 else "pie anchor %s (%s)" % (label, "no match" if n == 0 else "%d matches" % n))
+        why = why or (None if n == 1 else count_why("pie anchor " + label, n))
     return why
 
 
@@ -195,7 +203,7 @@ def pie_web(js):
 # kept (a render that finds it asks for nothing), and the span's text is written only when it differs, into the text node it already has: a render then writes nothing.
 # A rename is the only later write, once per rename.
 PILL_ANCHOR = (
-    rb"(?<![\w$.])(?P<st>ID)!==2&&(?P<jsx>ID)\(ID,\{\.\.\.ID\}\),(?=(?P=jsx)\(ID,\{isOpen:ID\.isOpen,onClose:ID\.onClose,availableModels:(?P<s>ID)\.drawnClaudeConfig\.value\?\.models,)"
+    rb"(?<![\w$.])ID!==2&&(?P<jsx>ID)\(ID,\{\.\.\.ID\}\),(?=(?P=jsx)\(ID,\{isOpen:ID\.isOpen,onClose:ID\.onClose,availableModels:(?P<s>ID)\.drawnClaudeConfig\.value\?\.models,)"
     .replace(b"ID", ID)
 )
 PILL_STYLE = (
@@ -239,9 +247,9 @@ def pill_problem(raw, web):
     for what, pat, text in (("pill anchor", PILL_ANCHOR, web[1]), ("pill handler anchor", PILL_HANDLER_ANCHOR, raw)):
         n = len(re.findall(pat, text))
         if n != 1:
-            return "%s (%s)" % (what, "no match" if n == 0 else "%d matches" % n)
+            return count_why(what, n)
     if b"callboard_folder" in raw:
-        return "the file already contains callboard_folder"
+        return already("callboard_folder")
     miss = [t for t in (b".cwd.value", b".getConnection()", b".sendRequest(") if t not in web[1]]
     return "no " + ", ".join(t.decode() for t in miss) if miss else None
 
@@ -296,9 +304,9 @@ def run_problem(raw, web):
     for what, pat, text in (("run code block anchor", RUN_CODE_ANCHOR, web[1]), ("run app anchor", RUN_APP_ANCHOR, web[1]), ("run handler anchor", PILL_HANDLER_ANCHOR, raw)):
         n = len(re.findall(pat, text))
         if n != 1:
-            return "%s (%s)" % (what, "no match" if n == 0 else "%d matches" % n)
+            return count_why(what, n)
     if b"callboard_run" in raw:
-        return "the file already contains callboard_run"
+        return already("callboard_run")
     miss = [t for t in (b".getConnection()", b".sendRequest(", b"claudeChannelId", b".activeSession.value") if t not in web[1]]
     return "no " + ", ".join(t.decode() for t in miss) if miss else css_problem(raw, web, "run", ("codeBlockWrapper_", "copyButton_"))
 
@@ -342,8 +350,8 @@ def restore_problem(raw, _web):
     for label, pat, _ in RESTORE_ANCHORS:
         n = len(re.findall(pat, raw))
         if n != 1:
-            return "restore anchor %s (%s)" % (label, "no match" if n == 0 else "%d matches" % n)
-    return "the file already contains cbFolderOf" if b"cbFolderOf" in raw else None
+            return count_why("restore anchor " + label, n)
+    return already("cbFolderOf") if b"cbFolderOf" in raw else None
 
 
 def restore_in(raw):
@@ -384,8 +392,8 @@ def command_problem(raw, command):
     """Why a command at the groups anchor cannot go in (None when it can): the anchor does not match exactly once, or the file already has the command."""
     n = len(re.findall(GROUPS_ANCHOR, raw))
     if n != 1:
-        return "groups anchor (%s)" % ("no match" if n == 0 else "%d matches" % n)
-    return "the file already contains %s" % command if command.encode() in raw else None
+        return count_why("groups anchor", n)
+    return already(command) if command.encode() in raw else None
 
 
 def groups_in(raw):
@@ -426,8 +434,8 @@ def list_problem(raw, _web):
     """Why the list piece cannot go in (None when it can): the method does not match exactly once, or the file already has the helper."""
     n = len(re.findall(LIST_ANCHOR, raw))
     if n != 1:
-        return "list anchor (%s)" % ("no match" if n == 0 else "%d matches" % n)
-    return "the file already contains %s" % LIST_METHOD if LIST_METHOD.encode() in raw else None
+        return count_why("list anchor", n)
+    return already(LIST_METHOD) if LIST_METHOD.encode() in raw else None
 
 
 # The archive command, at the groups anchor: `callboard archive sessions` (group name, session ids) archives the listed sessions that sit in the group of that name (any
@@ -453,7 +461,7 @@ def archive_in(raw):
 # The optional pieces, in the order they go in: (marker field, name in messages, why it cannot go in, how it goes in). A piece that cannot go in is left out
 # with a warning, and the folder patch still applies.
 PIECES = (
-    *((f, n, lambda raw, web, f=f, t=t: css_problem(raw, web, f, t), lambda raw, f=f, c=c: css_in(raw, f, globals()[c])) for f, n, c, t in CSS_PIECES),
+    ("width", "panel width", lambda raw, web: css_problem(raw, web, "width", ("inputWrapper_", "permissionsContainer_", "inputContainer_")), lambda raw: css_in(raw, "width", WIDTH_CSS)),
     ("pie", "context pie", pie_problem, lambda raw: css_in(raw, "pie", PIE_CSS)),
     ("pill", "folder pill", pill_problem, pill_in),  # its page side is in webview/index.js (pill_web)
     ("restore", "restore fix", restore_problem, restore_in),
@@ -553,11 +561,11 @@ def problems(raw):
     out = []
     for used in (NAME, b"cbq"):
         if used in raw:
-            out.append("the file already contains %s" % used.decode())
+            out.append(already(used.decode()))
     for label, pat, _ in ANCHORS:
         n = len(re.findall(pat, raw))
         if n != 1:
-            out.append("%s (%s)" % (label, "no match" if n == 0 else "%d matches" % n))
+            out.append(count_why(label, n))
     return out
 
 
@@ -572,13 +580,13 @@ def shipped(ext, *paths):
 
 
 def webview(ext):
-    """The shipped webview's (stylesheet, script): the CSS pieces check their tokens against both, the pie patches the script, which is read from its backup when
-    the pie is in. A missing, linked or odd file counts as empty, so those pieces are left out with a warning and the rest still applies."""
+    """The shipped webview's (stylesheet, script): the CSS pieces check their tokens against both, the pie, the pill and the run button patch the script, which is read
+    from its backup when one of them is in. A missing, linked or odd file counts as empty, so those pieces are left out with a warning and the rest still applies."""
     return shipped(ext, "webview/index.css"), shipped(ext, WEB_BACKUP, WEB)
 
 
 def patched(raw, web):
-    """(the patched bytes, {piece: why it is left out, or None when it went in}, the patched webview script or None when the pie is not in). Every anchor is
+    """(the patched bytes, {piece: why it is left out, or None when it went in}, the patched webview script or None when none of the pie, the pill and the run button is in). Every anchor is
     replaced on these very bytes and must match exactly once, else nothing is written; the optional pieces are the anchors that may miss, and the CSS pieces
     check their tokens in `web`."""
     for label, pat, rep in ANCHORS:
@@ -602,6 +610,16 @@ def warn_left_out(left, tail):
             print("warning: the %s %s (%s); %s" % (name, tail[0], left[field], tail[1]))
 
 
+def web_foreign(ext, m, web):
+    """Whether the webview script's backup is not the original the marker recorded, so --update has nothing to rebuild it from."""
+    return os.path.lexists(os.path.join(ext, WEB_BACKUP)) and digest(web[1]) != m.get("web_original_sha256")
+
+
+def can_update(ext):
+    """Whether --update can rebuild an outdated install: the backup still fits this script's anchors and the webview backup is the recorded original."""
+    return not problems(read(os.path.join(ext, BACKUP))) and not web_foreign(ext, marker_of(ext), webview(ext))
+
+
 def stale(ext, raw, m):
     """Why the installed patch differs from the one this script builds from the backed-up original, or None when it is the same (or no usable backup is there to build from)."""
     orig = read(os.path.join(ext, BACKUP))
@@ -611,8 +629,8 @@ def stale(ext, raw, m):
     if bad:
         return "this script no longer fits the backup: " + "; ".join(bad)
     web = webview(ext)
-    if os.path.lexists(os.path.join(ext, WEB_BACKUP)) and digest(web[1]) != m.get("web_original_sha256"):
-        return "%s does not match the marker's recorded original" % WEB_BACKUP
+    if web_foreign(ext, m, web):
+        return WEB_FOREIGN
     new, left, new_js = patched(orig, web)
     if digest(new) == digest(raw) and (web[1] if new_js is None else new_js) == shipped(ext, WEB):
         return None
@@ -646,7 +664,7 @@ def reason(e):
 
 
 def set_web(ext, orig, new):
-    """Bring webview/index.js to `new`, which is `orig` (the shipped script) or the pie's patch of it; the shipped one stays beside it as WEB_BACKUP while they differ."""
+    """Bring webview/index.js to `new`, which is `orig` (the shipped script) or its patch; the shipped one stays beside it as WEB_BACKUP while they differ."""
     path, backup = os.path.join(ext, WEB), os.path.join(ext, WEB_BACKUP)
     if new != orig and not os.path.lexists(backup):
         os.link(path, backup)
@@ -659,12 +677,12 @@ def set_web(ext, orig, new):
 
 
 def web_touched(ext, new_js):
-    """Whether a write has to bring webview/index.js to a state: the pie goes in, or an earlier patch of it is in (its backup is there)."""
+    """Whether a write has to bring webview/index.js to a state: a piece of it goes in, or an earlier patch of it is in (its backup is there)."""
     return new_js is not None or os.path.lexists(os.path.join(ext, WEB_BACKUP))
 
 
-def write_patch(ext, ver, orig, new, left, orig_js, new_js):
-    """The one write of a patch, for --apply and --update: the webview script when the pie is in (or goes out), the patched file, read back, then the marker that vouches for them."""
+def write_patch(ext, orig, new, left, orig_js, new_js):
+    """The one write of a patch, for --apply and --update: the webview script when a piece of it is in (or goes out), the patched file, read back, then the marker that vouches for them."""
     if web_touched(ext, new_js):
         set_web(ext, orig_js, orig_js if new_js is None else new_js)
     main = os.path.join(ext, MAIN)
@@ -672,7 +690,7 @@ def write_patch(ext, ver, orig, new, left, orig_js, new_js):
     if read(main) != new:
         raise OSError("the file read back differs")
     web = {} if new_js is None else {"web_original_sha256": digest(orig_js), "web_patched_sha256": digest(new_js)}
-    put(os.path.join(ext, MARKER), json.dumps({"patch": PATCH, "version": ver, **{f: left[f] is None for f, _, _, _ in PIECES}, "original_sha256": digest(orig), "patched_sha256": digest(new), **web}).encode() + b"\n", 0o644)
+    put(os.path.join(ext, MARKER), json.dumps({"patch": PATCH, **{f: left[f] is None for f, _, _, _ in PIECES}, "original_sha256": digest(orig), "patched_sha256": digest(new), **web}).encode() + b"\n", 0o644)
 
 
 def apply(ext):
@@ -681,7 +699,7 @@ def apply(ext):
         print("already patched %s" % ver)
         return 0
     if name == "outdated":
-        refuse("the patch in %s is outdated (%s); run --update" % (show(ext), detail))
+        refuse("the patch in %s is outdated (%s); %s" % (show(ext), detail, "run --update" if can_update(ext) else "--update refuses it: run --undo, or reinstall the extension"))
     if name == "leftovers":
         refuse("%s from an earlier run is in %s but does not match the file; run --undo first" % (detail, show(ext)))
     if name == "anchors-missing":
@@ -696,7 +714,7 @@ def apply(ext):
     try:
         # A hard link costs no space, and the patched file is a new inode, so the backup keeps the original.
         os.link(main, backup)
-        write_patch(ext, ver, raw, new, left, web[1], new_js)
+        write_patch(ext, raw, new, left, web[1], new_js)
     except BaseException as e:
         # Back to the original: renaming the backup over the file is atomic and needs no space (a no-op when both are still one inode).
         for b, f in ((BACKUP, MAIN), (WEB_BACKUP, WEB)):
@@ -707,7 +725,8 @@ def apply(ext):
                 os.unlink(os.path.join(ext, n))
         refuse("could not patch (%s); the original is back and nothing is left over" % reason(e))
     print("patched %s" % ver)
-    print("Changed: %s (backup: %s, marker: %s, all in %s)" % (MAIN, BACKUP, MARKER, show(ext)))
+    both = new_js is not None
+    print("Changed: %s (%s: %s, marker: %s, all in %s)" % (MAIN + (" and " + WEB if both else ""), "backups" if both else "backup", BACKUP + (" and " + WEB_BACKUP if both else ""), MARKER, show(ext)))
     warn_left_out(left, ("is not in", "the folder patch is."))
     print("Reload the VS Code window (Developer: Reload Window) to load it. Undo: run this with --undo.")
     return 0
@@ -723,8 +742,8 @@ def update(ext):
     if bad:
         refuse("this script cannot build the patch from the backup (%s); nothing was changed" % "; ".join(bad))
     web = webview(ext)
-    if "does not match" in detail:
-        refuse("%s; nothing was changed. Run --undo, or reinstall the extension" % detail)
+    if web_foreign(ext, marker_of(ext), web):
+        refuse("%s; nothing was changed. Run --undo, or reinstall the extension" % WEB_FOREIGN)
     new, left, new_js = patched(orig, web)
     # The previous patched file stays reachable under a second name (a hard link, no space) until the new one is in: a failed write puts it back.
     prev = os.path.join(ext, PREVIOUS)
@@ -737,7 +756,7 @@ def update(ext):
     touched = web_touched(ext, new_js)
     failed = stuck = None
     try:
-        write_patch(ext, ver, orig, new, left, web[1], new_js)
+        write_patch(ext, orig, new, left, web[1], new_js)
     except BaseException as e:
         # A no-op when the file was never replaced (both names are one inode), so the spare name goes either way. The webview script goes back to what it was: a
         # backup this run made is renamed over it (atomic, needs no space, as in --apply), else the earlier patch of it is written back.
@@ -761,7 +780,12 @@ def update(ext):
     if failed is not None:
         refuse("could not update (%s); the previous patch is back and nothing else changed" % reason(failed))
     print("updated %s" % ver)
-    print("Changed: %s and %s, rebuilt from the backup %s (not touched), all in %s" % (MAIN, MARKER, BACKUP, show(ext)))
+    if new_js is not None:
+        print("Changed: %s, %s and %s, rebuilt from the backups %s and %s, all in %s" % (MAIN, WEB, MARKER, BACKUP, WEB_BACKUP, show(ext)))
+    elif touched:
+        print("Changed: %s, %s (back to the shipped script) and %s, rebuilt from the backup %s (not touched), all in %s" % (MAIN, WEB, MARKER, BACKUP, show(ext)))
+    else:
+        print("Changed: %s and %s, rebuilt from the backup %s (not touched), all in %s" % (MAIN, MARKER, BACKUP, show(ext)))
     warn_left_out(left, ("is not in", "the folder patch is."))
     print("Reload the VS Code window (Developer: Reload Window) to load it. Undo: run this with --undo.")
     return 0
@@ -780,7 +804,7 @@ def undo(ext):
     for name, backup, field in ((BACKUP, orig, "original_sha256"), (WEB_BACKUP, orig_js, "web_original_sha256")):
         if backup is None or m is None or digest(backup) == m.get(field):
             continue
-        # An --update of an install made before the marker held web hashes can stop after the pie went in and before the new marker: the backup is the original
+        # An --update of an install made before the marker held web hashes can stop after the webview script was patched and before the new marker: the backup is the original
         # then, shown by the script now being it, or any of the pieces built from it.
         if field == "web_original_sha256" and field not in m and js in (backup, pie_web(backup), pill_web(backup), pill_web(pie_web(backup))):
             continue
@@ -830,7 +854,7 @@ def main(argv):
     if name == "leftovers":
         print("A backup or marker from an earlier run is here and does not match the file: run --undo.")
     if name == "outdated":
-        print("Run --update: it rebuilds the patch from the backup and swaps it in.")
+        print("Run --update: it rebuilds the patch from the backup and swaps it in." if can_update(ext) else "--update refuses this one: run --undo, or reinstall the extension.")
     return 1 if name in ("anchors-missing", "leftovers", "outdated") else 0
 
 
