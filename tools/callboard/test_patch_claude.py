@@ -1152,8 +1152,10 @@ const props = (used, w, o = 20000) => ctx.F.Bar({ usageData: { value: { totalTok
 const used = (u, w) => { const r = ctx.F.pc(props(u, w)); return r && r.p.percentageUsed }
 const ring = (x) => ctx.F.sv({ percentage: x, className: 'c' }).p.children.map((c) => c && { r: c.p.r, d: c.p.strokeDasharray, s: c.p.stroke })
 const hover = (u, w) => { const r = ctx.F.pc(props(u, w)); return r && r.t(r.p).p.children[1].p }
+const arc = () => ctx.F.sv({ percentage: 50, className: 'c' }).p.children.map((c) => [c.t, c.p.stroke, c.p.strokeWidth])
+const fresh = arc(), colour = [0, 199999, 200000, 299999, 300000, 399999, 400000, 2000000, undefined, NaN, '250000', -1].map((u) => (ctx.F.pc(props(u, 1000000)), arc()))
 const sized = ctx.F.sv({ percentage: 50, className: 'c' }).p
-console.log(JSON.stringify({ window: [props(1, 1000000).contextWindow, props(1, 400000).contextWindow, props(1, 1000000, 8000).contextWindow], used: [used(1000, 1000000), used(233500, 1000000), used(900000, 1000000)],
+console.log(JSON.stringify({ fresh, colour, window: [props(1, 1000000).contextWindow, props(1, 400000).contextWindow, props(1, 1000000, 8000).contextWindow], used: [used(1000, 1000000), used(233500, 1000000), used(900000, 1000000)],
   ring: [ring(0), ring(50), ring(150), ring(NaN), ring(undefined)], size: [sized.width, sized.height, sized.viewBox],
   hover: [hover(126430, 233000), hover(0, 233000), hover(500, 233000), hover(499, 233000), hover(250000, 233000), hover(1, 33000), hover(undefined, 233000), hover(126430, 1000000), hover(0, 0)] }))
 """
@@ -1188,10 +1190,10 @@ class Pie(Case):
             new, marker = slurp(os.path.join(ext, self.WEBJS)), self.marker(ext)
             self.assertEqual(slurp(os.path.join(ext, self.BAK)), orig)
             self.assertEqual((marker["pie"], marker["web_original_sha256"], marker["web_patched_sha256"]), (True, hashlib.sha256(orig).hexdigest(), hashlib.sha256(new).hexdigest()))
-            self.assertEqual((new.count(b"cbpCap("), new.count(b"cbpN;"), new.count(b"<circle"), new.count(b'"circle"')), (2, 1, 0, 2))
+            self.assertEqual((new.count(b"cbpCap("), new.count(b"cbpN,cbpU;"), new.count(b"<circle"), new.count(b'"circle"')), (2, 1, 0, 2))
             self.assertNotIn(b"r<=n", new)
             self.assertNotIn(b'"path"', new)
-            self.assertEqual((new.count(b'width:"16",height:"16"'), new.count(b'"20"'), new.count(b"cbpTip"), new.count(b"of context remaining")), (1, 0, 3, 0))
+            self.assertEqual((new.count(b'width:"18",height:"18"'), new.count(b'"20"'), new.count(b"cbpTip"), new.count(b"of context remaining")), (1, 0, 3, 0))
             self.assertEqual(sorted(os.listdir(ext)), sorted(STOCK + ["callboard-cwd-patch.json", "extension.js.callboard-orig"]))
             self.run_script(ext)
             self.assertEqual((self.rc, self.out), (0, "patched 2.1.328\n"))
@@ -1215,18 +1217,24 @@ class Pie(Case):
             self.assertAlmostEqual(float(got["ring"][2][1]["d"].split()[0]), CIRC, places=6)
             self.assertEqual(got["ring"][3][1], False)
             self.assertEqual(got["ring"][4][1], False)
+            track, stock = ["circle", "currentColor", "2.25"], "var(--app-claude-clay-button-orange)"
+            band = lambda name: "var(--vscode-charts-%s)" % name
+            want = [band("green,#89d185")] * 2 + [band("blue,#3794ff")] * 2 + [band("yellow,#cca700")] * 2 + [band("red,#f14c4c")] * 2 + [stock] * 4
+            self.assertEqual(got["colour"], [[track, ["circle", c, "2.25"]] for c in want],
+                             "green below 200k, blue from 200k, amber from 300k, red from 400k, whatever the level; the stock colour when the amount is no number; the same two nodes each time")
+            self.assertEqual(got["fresh"], [track, ["circle", stock, "2.25"]], "before the pie component ran, the stock colour")
             for none in ("", " 0", " garbage", " -5"):
                 self.assertEqual(self.shown(ext, none, names)["window"][0], 967000, "no usable level: the stock window")
             self.assertEqual(self.shown(ext, " 5000000", names)["window"][0], 967000, "a level above the window changes nothing")
 
     @unittest.skipUnless(shutil.which("node"), "needs node")
-    def test_the_ring_is_16px_and_the_hover_has_a_title_and_used_over_limit_in_k_with_the_percent(self):
+    def test_the_ring_is_18px_and_the_hover_has_a_title_and_used_over_limit_in_k_with_the_percent(self):
         for names in (JS330, JSB):
             web = dict(WEB, **{"index.js": PIE_JS.format(**names)})
             ext = self.make(V327, name="hov" + names["pc"], web=web)
             self.run_script(ext, "--apply")
             got = self.shown(ext, "", names)
-            self.assertEqual(got["size"], ["16", "16", "0 0 20 20"], "the drawing keeps its 20 box, so the stroke scales")
+            self.assertEqual(got["size"], ["18", "18", "0 0 20 20"], "the drawing keeps its 20 box, so the stroke scales")
             self.assertEqual([h and h.get("hint") for h in got["hover"]],
                              ["126k / 200k used · 63%", "0k / 200k used · 0%", "1k / 200k used · 0%", "0k / 200k used · 0%", "250k / 200k used · 100%", None, "0k / 200k used · 0%",
                               "126k / 967k used · 13%", None], "whole k, the percent of the limit rounded and never past 100; used past the limit shows as it is; no limit draws nothing")
@@ -1246,7 +1254,7 @@ class Pie(Case):
             self.run_script(ext, "--apply")
             self.assertEqual((self.rc, self.out.count("warning")), (0, 0), self.out)
             new = slurp(os.path.join(ext, self.WEBJS))
-            self.assertEqual((self.marker(ext)["pie"], new.count(b'width:"16",height:"16"'), new.count(b"cbpTip"), new.count(b"cbpCap("), new.count(b"Click to compact now.")), (True, 1, 0, 2, 1 if label != "doubled" else 2), label)
+            self.assertEqual((self.marker(ext)["pie"], new.count(b'width:"18",height:"18"'), new.count(b"cbpTip"), new.count(b"cbpCap("), new.count(b"Click to compact now.")), (True, 1, 0, 2, 1 if label != "doubled" else 2), label)
             self.run_script(ext)
             self.assertEqual((self.rc, self.out), (0, "patched 2.1.328\n"), label)
 
@@ -1332,7 +1340,7 @@ class Pie(Case):
 
     def test_an_install_made_with_the_earlier_pie_reads_outdated_and_update_rebuilds_it(self):
         old = load_module()
-        size = lambda rep: lambda m: rep(m).replace(b'width:"16",height:"16"', b'width:"20",height:"20"')
+        size = lambda rep: lambda m: rep(m).replace(b'width:"18",height:"18"', b'width:"20",height:"20"')
         earlier = tuple((n, p, size(r) if n == "pie drawing" else r) for n, p, r in old.PIE_ANCHORS)
         ext = self.make(V327, name="earlier")
         orig_js = slurp(os.path.join(ext, self.WEBJS))
@@ -1344,7 +1352,7 @@ class Pie(Case):
         self.run_script(ext, "--update")
         self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "updated 2.1.328"))
         new = slurp(os.path.join(ext, self.WEBJS))
-        self.assertEqual((new.count(b'width:"16"'), new.count(b'"20"'), new.count(b"cbpTip"), slurp(os.path.join(ext, self.BAK))), (1, 0, 3, orig_js))
+        self.assertEqual((new.count(b'width:"18"'), new.count(b'"20"'), new.count(b"cbpTip"), slurp(os.path.join(ext, self.BAK))), (1, 0, 3, orig_js))
         self.run_script(ext)
         self.assertEqual((self.rc, self.out), (0, "patched 2.1.328\n"))
         self.run_script(ext, "--undo")
@@ -1829,7 +1837,7 @@ class Pill(Case):
             self.assertIn("warning: the folder pill is not in this patch.", self.out, label)
             self.run_script(ext, "--undo")
             self.assertEqual((self.rc, sorted(os.listdir(ext))), (0, STOCK), label)
-        self.assertIn('[class*="usageButtonV2_"] svg{width:16px!important;height:16px!important}', mod.PIE_CSS)
+        self.assertIn('[class*="usageButtonV2_"] svg{width:18px!important;height:18px!important}', mod.PIE_CSS)
 
     def test_an_install_from_before_the_pill_reads_outdated_and_update_brings_it_in(self):
         ext = self.make(V327, name="old")

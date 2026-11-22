@@ -116,8 +116,11 @@ def css_in(raw, field, css):
 # <CLAUDE_CONFIG_DIR or ~/.claude>/settings.json each time a panel's page is built (0 when it is not a number above 0; project settings are not read). Where the
 # level is below the model's window, the stock threshold (window - the smaller of the output limit and 20000 - 13000) is taken from the level instead of the window.
 # The three anchors are patterns on the minified code; the piece goes in only when each matches exactly once in the shipped index.js and the font tag matches once.
-# The ring is drawn 16px wide (its viewBox stays 20, so the stroke scales). The composer's footer stylesheet sizes the button and its svg to 26px, which wins over the
-# svg's width attribute, so the pie's style block also sets the svg to 16px and the button to fit it with 2px around (the attribute is the fallback when the class
+# The ring is drawn 18px wide (its viewBox stays 20, so the stroke scales), with a stroke of 2.25. Its arc takes its colour from the tokens used, which the pie component
+# leaves in `cbpU` for the ring it draws: green below 200k, blue from 200k, amber from 300k and red from 400k (the theme's chart colours, each with a fallback), and the
+# stock orange while the amount is not a number. Only the arc's stroke attribute changes with it, which the footer's observer (child nodes and text) does not see.
+# The composer's footer stylesheet sizes the button and its svg to 26px, which wins over the
+# svg's width attribute, so the pie's style block also sets the svg to 18px and the button to fit it with 2px around (the attribute is the fallback when the class
 # names change). The hover text is a bold title, "Context", over the line `used / limit used · percent` in k (126k / 200k used · 63%) in place of Claude Code's "37% of
 # context remaining until auto-compact. Click to compact now.": the pie component hands the used tokens, its limit (its window, where the ring is full) and the
 # percent of it used to the tooltip component, whose text and hint lines take them (before the first usage data the limit is not above 0 and the title stands alone).
@@ -126,24 +129,25 @@ def css_in(raw, field, css):
 PIE_CSS = (
     ":root{--callboard-compact:${(()=>{try{let p=require(\"path\"),n=JSON.parse(require(\"fs\").readFileSync(p.join(process.env.CLAUDE_CONFIG_DIR||"
     "p.join(require(\"os\").homedir(),\".claude\"),\"settings.json\"),\"utf8\")).autoCompactWindow;return Number.isInteger(n)&&n>0?n:0}catch{return 0}})()}}"
-    '[class*="usageButtonV2_"]{width:auto!important;height:auto!important;padding:2px!important}[class*="usageButtonV2_"] svg{width:16px!important;height:16px!important}'
+    '[class*="usageButtonV2_"]{width:auto!important;height:auto!important;padding:2px!important}[class*="usageButtonV2_"] svg{width:18px!important;height:18px!important}'
 )
 PIE_CAP = (
-    b'var cbpN;function cbpCap(cbpW){cbpN??=parseInt(getComputedStyle(document.documentElement).getPropertyValue("--callboard-compact"))||0;'
+    b'var cbpN,cbpU;function cbpCap(cbpW){cbpN??=parseInt(getComputedStyle(document.documentElement).getPropertyValue("--callboard-compact"))||0;'
     b"return cbpN>0&&cbpW>cbpN?cbpN:cbpW}"
 )
 PIE_ANCHORS = (
     ("pie component",
-     rb"(function ID\(\{usedTokens:ID,contextWindow:(ID),threshold:(ID),onCompact:ID,buttonClassName:ID\}\)\{let ID=\2>0\?Math\.min\(ID/\2\*100,100\):0;)if\(\2===0\|\|ID<=\3\)return null;".replace(b"ID", ID),
-     lambda m: PIE_CAP + m.group(1) + b"if(" + m.group(2) + b"===0)return null;"),
+     rb"(function ID\(\{usedTokens:(ID),contextWindow:(ID),threshold:(ID),onCompact:ID,buttonClassName:ID\}\)\{let ID=\3>0\?Math\.min\(\2/\3\*100,100\):0;)if\(\3===0\|\|ID<=\4\)return null;".replace(b"ID", ID),
+     lambda m: PIE_CAP + m.group(1) + b"cbpU=" + m.group(2) + b";if(" + m.group(3) + b"===0)return null;"),
     ("pie drawing",
      rb'(function ID\(\{percentage:(ID),className:(ID)\}\)\{)let ID=ID\(\2\),ID=\2/100,\[ID,ID\]=\2<50\?\[ID\(0,ID\),ID\(ID\+ID,1-ID\)\]:\[ID\[ID\],ID\[ID\]\];return (ID)\("svg",\{'
      rb'(width:"20",height:"20",viewBox:"0 0 20 20",fill:"none",'
      rb'xmlns:"http://www.w3.org/2000/svg",className:\3,style:\{display:"block"\},children:)\[ID&&(ID)\("path",\{d:ID,stroke:"currentColor",strokeOpacity:"0.15",strokeWidth:"1.5",'
      rb'strokeLinecap:"round"\}\),\6\("path",\{d:ID,stroke:"var\(--app-claude-clay-button-orange\)",strokeWidth:"1.5",strokeLinecap:"round"\}\)\]\}\)\}'.replace(b"ID", ID),
-     lambda m: (m.group(1) + b"let cbpR=Math.max(0,Math.min(100,+" + m.group(2) + b"||0))/100*2*Math.PI*7.25;return " + m.group(4) + b'("svg",{' + m.group(5).replace(b'width:"20",height:"20"', b'width:"16",height:"16"', 1)
-                + b'[' + m.group(6) + b'("circle",{cx:"10",cy:"10",r:"7.25",stroke:"currentColor",strokeOpacity:"0.15",strokeWidth:"1.5"}),cbpR>0&&' + m.group(6)
-                + b'("circle",{cx:"10",cy:"10",r:"7.25",stroke:"var(--app-claude-clay-button-orange)",strokeWidth:"1.5",strokeLinecap:"round",strokeDasharray:cbpR+" 100",'
+     lambda m: (m.group(1) + b"let cbpR=Math.max(0,Math.min(100,+" + m.group(2) + b'||0))/100*2*Math.PI*7.25,cbpC=typeof cbpU=="number"&&cbpU>=0?"var(--vscode-charts-"+(cbpU>=4e5?"red,#f14c4c":cbpU>=3e5?"yellow,#cca700":cbpU>=2e5?"blue,#3794ff":"green,#89d185")+")":'
+                b'"var(--app-claude-clay-button-orange)";return ' + m.group(4) + b'("svg",{' + m.group(5).replace(b'width:"20",height:"20"', b'width:"18",height:"18"', 1)
+                + b'[' + m.group(6) + b'("circle",{cx:"10",cy:"10",r:"7.25",stroke:"currentColor",strokeOpacity:"0.15",strokeWidth:"2.25"}),cbpR>0&&' + m.group(6)
+                + b'("circle",{cx:"10",cy:"10",r:"7.25",stroke:cbpC,strokeWidth:"2.25",strokeLinecap:"round",strokeDasharray:cbpR+" 100",'
                 b'transform:"rotate(-90 10 10)"})]})}')),
     ("pie window",
      rb"contextWindow:(ID)\((ID)\.usageData\.value\.contextWindow,\2\.usageData\.value\.maxOutputTokens\),threshold:".replace(b"ID", ID),
