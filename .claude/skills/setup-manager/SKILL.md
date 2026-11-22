@@ -52,18 +52,21 @@ first; it is the source for every step here, and wins where the two differ.
    - An old copy of the panels extension: run `ls ~/.vscode/extensions | grep -i local.callboard-panels`. The link
      script does not look for the extension's earlier id `local.callboard-panels-*`, and such a copy answers every
      lane open too, so every lane opens twice. For each entry it prints whose name matches
-     `^local\.callboard-panels-[A-Za-z0-9._-]+$` (any letter case), give the person
-     `rm -rf ~/.vscode/extensions/'<that name>'`, to run with VS Code quit; any other name: build no command, show it.
+     `^local\.callboard-panels-[A-Za-z0-9._-]+$` (any letter case), keep
+     `rm -rf ~/.vscode/extensions/'<that name>'` for the quit below, where the person runs it with VS Code quit; any
+     other name: build no command, show it.
    - The extension link, dry run first: run `/usr/bin/python3 -I <checkout>/tools/callboard/link-extension.py` and
      show it. It changes nothing and is safe while VS Code runs. `already linked` and no `DRY:` line: the link and
      its entry are in place, so skip the apply. If it refuses an entry it names, show it. Only when the entry is
-     `~/.vscode/extensions/<name>` with `<name>` matching `^notitial\.callboard-panels-[A-Za-z0-9._-]+$`, give the
+     `~/.vscode/extensions/<name>` with `<name>` matching `^notitial\.callboard-panels-[A-Za-z0-9._-]+$` (any letter case), give the
      person `rm -rf '<that path>'`; anything else: build no command, and stop. Then run the dry run again.
-   - The apply needs VS Code quit: the script also registers the link in VS Code's `extensions.json` and refuses to
+   - One quit of VS Code covers the old copy's removal and the apply; with neither to do, skip this bullet. The
+     apply needs VS Code quit: the script also registers the link in VS Code's `extensions.json` and refuses to
      change anything while VS Code runs. A session in a VS Code panel ends when VS Code quits, so say this before
-     they quit: quit VS Code (Cmd+Q), run the command below in a plain Terminal, start VS Code again, start a session
+     they quit: quit VS Code (Cmd+Q), run the commands below in a plain Terminal, start VS Code again, start a session
      in this checkout and type `/setup-manager` once more (the steps already done are reported and skipped). In a
-     terminal `claude` this session stays, and they paste the output back. The command:
+     terminal `claude` this session stays, and they paste the output back. The commands, each in its own block: first
+     the `rm -rf` kept for an old copy, if there is one, then, unless the dry run printed `already linked`,
      `/usr/bin/python3 -I <checkout>/tools/callboard/link-extension.py --apply`.
    - After it, run `ls -l ~/.vscode/extensions | grep callboard-panels`: one link, to
      `<checkout>/tools/callboard/extension`. Then run the dry run once more: it should print `already linked` and no
