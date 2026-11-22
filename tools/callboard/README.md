@@ -52,8 +52,9 @@ parent and a capability: none, lead or manager.
 - **Command names.** `/callboard`, `/rest`, `/unattended`, `/lead`, `/conductor` and a preset's command are registered
   only when no other command (a built-in, your own, a skill's, another plugin's) already has the name, and callboard
   then leaves a run of that name to the command that holds it. The name is written to the session's callboard log
-  (`command-taken`) and `/callboard status` lists it under "Held by another command"; the same form after
-  `/callboard` (`/callboard lead`) works unless `/callboard` itself is the name held.
+  (`command-taken`) and `/callboard status` lists it under "Held by another command"; for callboard's own
+  commands the same word after `/callboard` (`/callboard lead`) works unless `/callboard` itself is the name held; a
+  preset's command is renamed in its file.
 - **Manager.** The one session that carries the name in `~/.claude/callboard/manager-name`, found by its registry name
   while it is live. It reaches every session on the Mac. Its role is in `docs/manager/README.md`.
 

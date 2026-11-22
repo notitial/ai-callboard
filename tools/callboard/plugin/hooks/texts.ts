@@ -424,7 +424,7 @@ const fixed: { [K in keyof Fixed]: (p: Fixed[K]) => string } = {
     const left = (m: number): string => (m < 60 ? `${m}m` : `${Math.floor(m / 60)}h ${m % 60}m`)
     const [label, value] =
       p.field === 'role' ? ['Role', p.value.toUpperCase()] : p.field === 'parent' ? ['Parent', none(p.value)] : p.field === 'manager' ? ['Manager', none(p.value)] : p.field === 'off' ? ['Callboard', onOff(!p.value)] :
-      p.field === 'keepalive' ? ['Keepalive', onOff(p.value)] : p.field === 'unattended' ? ['Unattended', p.value === null ? 'OFF' : `ON · ${left(p.value)} left`] : p.field === 'taken' ? ['Held by another command', `${p.value.map((n) => `/${escCell(n)}`).join(', ')}: type the form after /callboard instead (/callboard lead)`] : ['Goes', String(p.value)]
+      p.field === 'keepalive' ? ['Keepalive', onOff(p.value)] : p.field === 'unattended' ? ['Unattended', p.value === null ? 'OFF' : `ON · ${left(p.value)} left`] : p.field === 'taken' ? ['Held by another command', `${p.value.map((n) => `/${escCell(n)}`).join(', ')}: for callboard's own commands type the same word after /callboard (/callboard lead); a lead preset's command is renamed in .claude/callboard-lead.json`] : ['Goes', String(p.value)]
     return `| ${label} | ${value} |`
   },
   'ui.lanes.head': () => '**Sessions under you**',
