@@ -56,6 +56,12 @@ test('the idle-cache nudge names the handover before it says to end the turn', (
   assert.ok(t.indexOf('request_handover') < t.indexOf('), and end your turn'), t)
 })
 
+test('the 300k nudge names the handover before it says to end the turn', () => {
+  const t = T['nudge.idle']({ k: 300 })
+  assert.ok(t.includes('call request_compact (or, if the work will outlast another compaction,'), t)
+  assert.ok(t.indexOf('request_handover') < t.indexOf('), and end your turn'), t)
+})
+
 test('the lane brief says which nudges may be answered with request_handover', () => {
   const brief = T['brief.child']({ name: 'C', sid: 'sid-c', parent: 'L', lead: true })
   assert.ok(brief.includes('the 300k and idle nudges may also be answered with `request_handover`, the 400k one only with `request_compact`'), brief)
