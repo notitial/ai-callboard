@@ -95,6 +95,21 @@ export function relayNote(asker: string, tool: string, note: string, input: stri
   return { header: T['dialog.relay.header']({}), question: T['dialog.relay.note']({ asker, tool, note: printed(note, DIALOG_CAP).text, ...(by === undefined ? {} : { by }) }), options: [...(whole ? [{ label: T['dialog.allow']({}) }] : []), { label: T['dialog.show']({}) }, { label: T['dialog.deny']({}) }] }
 }
 
+// A Bash ask put to the person as the engine's own dialog for that command (engine/relay.ts), which runs nothing in the manager's session. It is sent the command as the ask
+// shows it and a description line that names the asker, never the asker's own description, which that dialog would show as its own; the manager's note goes on the dialog's
+// reason line. An ask not shown whole, an input with a key that could change what runs and that dialog would not show, or a command that dialog may not show as it is (a
+// character that could hide text, a blank line or more than 20 lines that could push some of it out of sight, a redaction) keeps the question form (undefined).
+const NATIVE_KEYS = ['command', 'description', 'timeout', 'run_in_background']
+const visible = (s: string): boolean => escBlock(s.replaceAll('<', '')) === s.replaceAll('<', '') && !/\n\s*\n/.test(s) && s.split('\n').length <= 20 && !s.includes('[REDACTED')
+export type NativePlan = { input: { command: string; description: string }; reason: string }
+export function nativeOf(ask: Ask, asker: string, note: string | undefined, by: string | undefined): NativePlan | undefined {
+  if (ask.tool !== 'Bash' || !shownWhole(ask.input, ask.cut)) return undefined
+  const i = JSON.parse(ask.input)
+  if (i === null || typeof i !== 'object' || typeof i.command !== 'string' || !visible(i.command) || Object.keys(i).some((k) => !NATIVE_KEYS.includes(k))) return undefined
+  const reason = T['dialog.relay.reason']({ ...(note === undefined ? {} : { note: printed(note, DIALOG_CAP).text }), ...(by === undefined ? {} : { by }) })
+  return { input: { command: i.command, description: T['dialog.relay.native']({ asker }) }, reason }
+}
+
 // ---- what the relay puts to the person: the input of an AskUserQuestion it calls in the manager's session (engine/relay.ts) ----
 export type AskQuestion = { question: string; header: string; options: { label: string; description: string }[]; multiSelect: false }
 const HEADER_MAX = 12

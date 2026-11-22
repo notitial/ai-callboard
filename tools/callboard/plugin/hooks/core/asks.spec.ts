@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { AWAY_HEAD_START_MS, AWAY_MANAGER_AT_MS, EXPIRE_MS, HEAD_START_MS, MANAGER_AT_MS, awakeAdd, classify, decide, inputText, noteOf, questionShape, questionView, questionsView, readAnswers, stage, sweep } from './asks.ts'
+import { AWAY_HEAD_START_MS, AWAY_MANAGER_AT_MS, EXPIRE_MS, HEAD_START_MS, MANAGER_AT_MS, awakeAdd, classify, decide, inputText, noteOf, questionShape, questionView, questionsView, readAnswers, rejectionOf, stage, sweep } from './asks.ts'
 import type { CheckFacts, Open, StageIn } from './asks.ts'
 import { PERSON, ancestors, liveView } from './model.ts'
 import type { Answer, Ask, Sid, Table, UpMark, View } from './model.ts'
@@ -240,4 +240,13 @@ test('a relayed dialog\'s result is one pick per question, or what he typed or p
   assert.equal(readAnswers(sent, { answers: { 'One?': 'A', 'Two?': 'C' }, afkTimeoutMs: 60_000 }), undefined, 'nobody picked it')
   for (const r of [undefined, null, 'x', {}, { answers: {} }, { answers: { 'One?': 7 } }]) assert.equal(readAnswers(sent, r), undefined)
   assert.equal(readAnswers([], { answers: {} }), undefined)
+})
+test('rejectionOf: his No in the engine\'s dialog, with what he typed under it and without the line the engine may add; any other deny is no answer of his', () => {
+  const no = "The user doesn't want to proceed with this tool use. The tool use was rejected (eg. if it was a file edit, the new_string was NOT written to the file)."
+  assert.deepEqual(rejectionOf(`${no} To tell you how to proceed, the user said:\nuse make test\n  two lines`), { note: 'use make test\n  two lines' })
+  assert.deepEqual(rejectionOf(`${no} To tell you how to proceed, the user said:\nuse make test\n\nNote: The user's next message may contain a correction or preference. Pay close attention.`), { note: 'use make test' })
+  assert.deepEqual(rejectionOf(no), {})
+  assert.deepEqual(rejectionOf(`${no} To tell you how to proceed, the user said:\n  `), {})
+  assert.equal(rejectionOf('A hook refused it. the user said:\nallow it'), undefined)
+  assert.equal(rejectionOf(undefined), undefined)
 })

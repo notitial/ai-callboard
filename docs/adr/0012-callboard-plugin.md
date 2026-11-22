@@ -133,6 +133,43 @@ summary:"), so none of it reads as the plugin's or the person's. The note itself
 command's concrete effect (what it reads, writes, sends or changes, and where), then one on its risk, with nothing on
 why it was escalated. The escapes and the look-alike check stay.
 
+*Amended 2026-11-22 (native Bash dialog).* A Bash ask is put as the engine's own permission dialog for that command,
+called in the manager's session, when the ask is shown whole, its input holds no key beyond the command, its
+description, a timeout and the background flag, and the command holds no character that could hide text, no blank
+line, no more than 20 lines and no redaction. It is sent
+the command as the ask shows it and the description "Relayed from NAME", never the asker's own description, which
+that dialog would show as its own line; the manager's note is on the dialog's reason line, which the terminal dialog
+does not draw. Every other ask keeps the
+question form. Callboard's `tool.check` turns that call into an ask, which the engine puts to the person, and
+`tool.judge` keeps auto mode's classifier off it. The person's Yes reaches the command's `tool.run`, which the engine
+fires after whoever settled an ask, and callboard's hook there stops it, matched on Bash and that description so no
+other run of Bash loses its background or live output: nothing runs in the manager's session, and the Yes is their
+allow. Their No (or Esc) is their deny, and what they typed under "what to do instead" is its note; any other deny
+after the dialog reached them writes nothing. A Yes on a command they changed first writes nothing, says so, and is
+not put again: the ask goes on along its own timeline. A refusal before the dialog reached them puts the question
+form in its place. The dialog is used only after a self-test, once per process at the manager's first idle tick: the
+command `true`, sent the same way but allowed with no dialog, must be stopped at its run. That shows the hook is wired
+in this process; the path through a dialog is the engine's documented order. A relayed command whose run was not
+stopped anyway turns the dialog off until callboard restarts, says so, and puts the question form. The description is
+the relay's alone: any other Bash whose description starts "Relayed from" is refused in every session, at its check
+and at its run, so no dialog in the manager's session that runs a command can pass for the relay's. What tells the
+relay's dialog from a look-alike the check does not know is the engine's own mark in its title, "from the callboard
+plugin", which a model's call cannot set; the reason line ("Your click decides this ask only." and the manager's note)
+is not drawn by the terminal dialog. A description counts as the relay's when it reads as "Relayed from" after normalising, keeping
+letters and digits only and folding the common look-alikes (Cyrillic, Greek and a few more letters, the digits 0 and 1,
+`i` and `|`); a description in another script is no match, and the marks right-to-left text carries are dropped first.
+One that holds the reason line's sentence, or a character that shows as blank or turns the text round, is refused as
+well, with a text of its own. A Bash of this plugin's goes down the permission chain with its permission suggestions
+emptied. Checked live on 2026-11-22 (Claude Code 2.1.330, the terminal, a scratch home, the plugin from this branch):
+the relayed dialog reads "Bash command · from the callboard plugin", "Relayed from NAME", the command and "Do you want
+to proceed?" with only "1. Yes" and "2. No". The manager's own Bash dialog in the same session offers "Yes", "Yes, and
+always allow access to <dir> from this project", "Yes, and switch to auto mode" and "No". A Yes ran the lane's command and
+a No refused it, and no rule or setting was written. The VS Code panel draws its dialog from the same permission
+suggestions; it was not run. A run the hook holds comes back to the caller as the engine's error result carrying the held
+text, not as `{ deny }`, so a run counts as stopped only for a `{ deny }`, or for exactly that text when proxyRun heard the run; any other error result
+(a command that ran and failed, or another hook's refusal) reads as a run that was not stopped. These two are the exceptions to ADR 0004's observing `tool.check`; neither lifts a deny. The
+relay needs Claude Code 2.1.330 or later.
+
 **Callboard never judges who may answer.** An ask a session cannot decide (a plan-mode exit, a malformed question, a
 guard's own ask) is an ordinary ask that rises like any other; the rubric of the tier that reads it decides. What is
 not an ask is what the person starts themselves, such as creating a lead or a lane and giving a go. Those are their own acts,

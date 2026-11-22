@@ -169,6 +169,10 @@ export type Fixed = {
   'dialog.relay.question': { asker: string; tool: string; input: string; cut: boolean }
   'dialog.relay.note': { asker: string; tool: string; note: string; by?: string } // by: the manager's plain name, if it has one
   'dialog.relay.asks': { asker: string; question: string } // an asker's own question, as the manager's session shows it
+  'dialog.relay.native': { asker: string } // the description line of a relayed command in the engine's own dialog
+  'dialog.relay.reason': { note?: string; by?: string } // that dialog's reason line, with the manager's note if there is one
+  'dialog.relay.held': E // the deny that stops a relayed command where it would run
+  'dialog.relay.reserved': E // the deny of any other Bash that uses the relay's description
   'dialog.allow': E
   'dialog.show': E
   'dialog.leave': E // the second option beside a lone Deny: it writes nothing
@@ -185,6 +189,8 @@ export type Fixed = {
 
   // Toasts.
   'toast.askClosed': E // a click on a relay dialog whose ask is closed
+  'toast.relayAmended': E // a Yes on a relayed command the person changed first
+  'toast.relayRan': E // a relayed command ran in the manager's session
   'notify.relay': { name: string; tool: string } // the OS notification beside a relayed ask's dialog, taken back when it closes
   'toast.askNoFile': AskRef // the ask file could not be written; the loop still holds the deadline
   'toast.askStuck': AskRef & Names // the sweep found an ask no process answers

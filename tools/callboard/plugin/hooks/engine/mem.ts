@@ -77,8 +77,11 @@ const fresh = () => ({
   told: new Set<string>(),
   relayed: new Set<string>(),
   // The ask whose relay dialog is open: the controller that closes it, the first question it shows (how the ask hook knows it), whether the hook saw it go to the person, and
-  // whether it closed by itself while he was idle.
-  proxy: undefined as { id: string; ctrl: AbortController; first?: string; shown: boolean; idle?: boolean } | undefined,
+  // whether it closed by itself while he was idle; for a command in the engine's own dialog, what was sent and whether his Yes reached its run unchanged.
+  proxy: undefined as { id: string; ctrl: AbortController; first?: string; shown: boolean; idle?: boolean; native?: { input: { command: string; description: string }; reason: string }; yes?: boolean } | undefined,
+  // The engine's own dialog for a relayed command: unknown until the self-test, which runs once per process, proves a run of it is stopped (heard); off after a run that was not.
+  native: undefined as 'testing' | boolean | undefined,
+  heard: false,
   sweepAt: 0,
   tidyAt: 0,
   guard: undefined as { at: number; ok: boolean } | undefined,

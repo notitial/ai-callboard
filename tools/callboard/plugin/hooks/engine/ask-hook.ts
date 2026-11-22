@@ -5,6 +5,7 @@ import type { Ask, AskEvent, Owner, Sid } from '../core/model.ts'
 import { capability, isOff, parent } from '../core/model.ts'
 import type { CheckFacts } from '../core/asks.ts'
 import { QUESTION_TOOL, awakeAdd, classify, decide, inputText, questionView, questionsView, stage } from '../core/asks.ts'
+import { T } from '../texts.ts'
 import { PRINT_CAP, printed } from '../ui.ts'
 import { awayNow, log, newId, pause, toast, windowNow } from './io.ts'
 import { mem } from './mem.ts'
@@ -28,15 +29,46 @@ const sorted = (_k: string, v: unknown): unknown => {
 const joinKey = (tool: string, input: unknown): string => `${tool}\n${JSON.stringify(input, sorted)}`
 const decided = (x: any): boolean => x?.decision !== undefined || x?.hookSpecificOutput?.decision !== undefined
 
-// The relay's own dialog in the manager's session (engine/relay.ts): the AskUserQuestion this plugin called there itself, known by its first question. It is no ask: the person
-// alone answers it, so both hooks pass it through untouched.
+// The relay's own calls in the manager's session (engine/relay.ts): every Bash this plugin calls (the self-test, or a relayed command in the engine's own dialog) and the
+// AskUserQuestion known by its first question. None is an ask: the person alone answers them. `mine`: the call the open relay dialog made.
 const PLUGIN = 'callboard'
-const isProxy = (tool: unknown, input: any, next: any): boolean => tool === QUESTION_TOOL && next?.origin?.plugin === PLUGIN && mem.proxy?.first !== undefined && input?.questions?.[0]?.question === mem.proxy.first
+export const SELF_TEST = { command: 'true', description: 'Relayed from callboard: self-test' }
+const ours = (next: any): boolean => next?.origin?.plugin === PLUGIN
+// The relay's description, read as a person reads it: only its letters and digits count (so no invisible character, space or mark between them), the common look-alikes of
+// the letters of "relayedfrom" (Cyrillic, Greek and a few more, the digits 0 and 1, `i` and `|`) read as that letter, and what is left must start with "relayedfrom". Any
+// other letter is itself, so a description in another script is no match. The list is not every confusable: the reason line of the relay's dialog is what tells it from
+// one it lacks, so a description that holds that sentence is refused too, and so is one with a character that shows as blank or turns the text round.
+const LOOKALIKES = new Map(Object.entries({ '\u0430': 'a', '\u0251': 'a', '\u03b1': 'a', '\u0435': 'e', '\u03b5': 'e', '\u043e': 'o', '\u03bf': 'o', '\u0585': 'o', '0': 'o', '\u0443': 'y', '\u04af': 'y', '\u03b3': 'y', '\u0456': 'l', '\u04cf': 'l', '\u03b9': 'l', '\u01c0': 'l', 'i': 'l', '|': 'l', '1': 'l', '\u0501': 'd', '\u0433': 'r', '\u1d26': 'r', '\u027e': 'r', '\u043c': 'm', '\u03bc': 'm', '\u03c5': 'y', '\u0192': 'f' }))
+const HIDDEN_RE = /[\u115f\u1160\u3164\uffa0\u202a-\u202e\u2066-\u2069]/
+const MARK_RE = /[\u200e\u200f\u061c]/
+const fold = (s: string): string => s.normalize('NFKD').toLowerCase().replace(/[^\p{L}\p{N}|]/gu, '').replace(/[^a-z]|i/g, (c) => LOOKALIKES.get(c) ?? c)
+const RELAYED = fold('relayedfrom')
+const TELL = fold('yourclickdecides')
+// The refusal a Bash description earns, if any: the reserved one, or the one for a character or sentence that could pass it for the relay's. The marks right-to-left text carries
+// (U+200E, U+200F, U+061C) are format characters, which fold() drops; with both words of the phrase beside them they could reorder it on screen, so that is refused.
+const refusal = (d: unknown): string | undefined => {
+  const raw = String(d ?? '')
+  const s = fold(raw)
+  return s.startsWith(RELAYED) ? T['dialog.relay.reserved']({}) : HIDDEN_RE.test(raw) || s.includes(TELL) || (MARK_RE.test(raw) && s.includes('relayed') && s.includes('from')) ? T['dialog.relay.hidden']({}) : undefined
+}
+const mine = (tool: unknown, input: any): boolean => {
+  const p = mem.proxy
+  return p === undefined ? false : tool === 'Bash' ? p.native !== undefined && input?.command === p.native.input.command && input?.description === p.native.input.description : tool === QUESTION_TOOL && p.first !== undefined && input?.questions?.[0]?.question === p.first
+}
+const isProxy = (tool: unknown, input: any, next: any): boolean => ours(next) && (tool === 'Bash' || mine(tool, input))
+// A command of the relay's: one the engine refused stays refused; the self-test goes on to its run, where proxyRun stops it; the open dialog's command goes to the person, the
+// manager's note on its reason line; any other is refused.
+const nativeCheck = (input: any, r: any): unknown =>
+  r?.decision === 'deny' ? r : input?.command === SELF_TEST.command && input?.description === SELF_TEST.description ? { decision: 'allow' } : mine('Bash', input) ? { decision: 'ask', reason: mem.proxy!.native!.reason } : { decision: 'deny', reason: T['dialog.relay.held']({}) }
 
-// tool.check only observes: it keeps what it saw for a call that is neither allowed nor denied (a dialog may follow), 60 s, and returns the engine's verdict unchanged, every time.
+// tool.check observes every call but two kinds: it keeps what it saw for a call that is neither allowed nor denied (a dialog may follow), 60 s, and returns the engine's verdict
+// unchanged. The two it decides: this plugin's own Bash (nativeCheck), and any other Bash whose description reads as the relay's, which it denies, in every session, so no dialog
+// that runs a command may pass for the relay's, which runs nothing. A tool.run hook is matched on the plain spelling only: a call denied here never runs.
 export async function toolCheck($: any, e: any, next: any) {
   const r = await next(e)
-  if (isProxy(e.tool, e.input, next)) return r
+  if (isProxy(e.tool, e.input, next)) return e.tool === 'Bash' ? nativeCheck(e.input, r) : r
+  const why = e.tool === 'Bash' ? refusal(e.input?.description) : undefined
+  if (why !== undefined) return { decision: 'deny', reason: why }
   try {
     if (r?.decision !== 'allow' && r?.decision !== 'deny' && typeof e.tool_use_id === 'string' && !isSub(e)) {
       const key = joinKey(String(e.tool), e.input)
@@ -49,6 +81,17 @@ export async function toolCheck($: any, e: any, next: any) {
   } catch {}
   return r
 }
+// The run of a Bash with the relay's description (register.ts matches only those): it never runs, whoever called it. For this plugin's own, the self-test is marked heard,
+// and the open dialog's command records whether it reached its run as sent, since a Yes on a command he changed first is none for the ask.
+export async function proxyRun(_$: any, e: any, next: any) {
+  if (!ours(next)) return { deny: T['dialog.relay.reserved']({}) }
+  if (e.command === SELF_TEST.command && e.description === SELF_TEST.description) mem.heard = true
+  if (mem.proxy?.native !== undefined) mem.proxy.yes = mine('Bash', e)
+  return { deny: T['dialog.relay.held']({}) }
+}
+// Auto mode's classifier is not asked about the open dialog's command: it goes to the person.
+export const proxyJudge = (_$: any, e: any, next: any) => (ours(next) && mine(e.tool, e.input) && e.tool === 'Bash' ? { decision: 'ask', reason: mem.proxy!.native!.reason } : next(e))
+
 // A call's end (a Yes click fires no signal) or a refusal: the asker's loop learns of a click by this id.
 export function markDone(e: any): void {
   const tid = typeof e?.tool_use_id === 'string' ? e.tool_use_id : undefined
@@ -71,8 +114,10 @@ function ownDialog(tool: unknown, input: any, e: any): boolean {
 export async function permissionRequest($: any, e: any, next: any) {
   // The relay's dialog goes to the person unless a hook beneath decides it; the relay writes his dismissal as a deny only when it went to him.
   if (isProxy(e.tool_name, e.tool_input, next)) {
-    const p = mem.proxy
-    const r = await next(e)
+    const p = mine(e.tool_name, e.tool_input) ? mem.proxy : undefined
+    // The engine's own dialog may offer "don't ask again" from the call's suggestions: a Bash of this plugin's goes down the chain with none. The engine's types do not say it
+    // honours that, so the dialog's first live use checks that it shows no such option.
+    const r = await next(e.tool_name === 'Bash' ? { ...e, permission_suggestions: [] } : e)
     if (!decided(r) && p !== undefined) p.shown = true
     return r
   }

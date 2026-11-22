@@ -160,6 +160,15 @@ export function readAnswers(sent: readonly { question: string; options: readonly
   const note = [...got, typed].filter((s) => s !== '').join('\n')
   return note === '' ? undefined : { note }
 }
+// The person's No (or Esc) in the engine's own permission dialog, read from the call's deny, with what they typed under it as the note: the text after "the user said:",
+// without the line the engine may add after it. A deny of any other wording is no answer of theirs (undefined).
+const NO_RE = /^The user doesn't want to proceed with this tool use\./
+const SAID_RE = / the user said:\n([\s\S]*?)(?:\n\nNote: The user's next message[\s\S]*)?$/
+export function rejectionOf(deny: unknown): { note?: string } | undefined {
+  if (typeof deny !== 'string' || !NO_RE.test(deny)) return undefined
+  const note = SAID_RE.exec(deny)?.[1]?.trim()
+  return note ? { note } : {}
+}
 
 // ---- redaction and capping: what a parent sees of the input. A copy of the toolkit's audit-logger.sh rules, best effort (that script says the same) ----
 const REDACT: [RegExp, string | ((m: string, k: string) => string)][] = [
