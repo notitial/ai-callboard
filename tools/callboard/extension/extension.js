@@ -11,7 +11,7 @@ const { createRegistry } = require('./registry.js')
 const { claudePatched } = require('./claude-patch.js')
 const { createFolderBadge } = require('./folder-badge.js')
 const { createGroups, readManagerName, readSessionTable } = require('./groups.js')
-const { createLaneView } = require('./lane-view.js')
+const { showClaudeView } = require('./claude-view.js')
 
 const CLAUDE = path.join(os.homedir(), '.claude')
 const SESSIONS = path.join(CLAUDE, 'sessions')
@@ -57,18 +57,14 @@ function activate(context) {
     // no folder item
   }
   const tablePath = path.join(CLAUDE, 'callboard', 'v2', 'sessions.json')
-  try {
-    context.subscriptions.push(createLaneView({ vscode, registry, lanes, tablePath, projectsDir: path.join(CLAUDE, 'projects'), workspaceFolders: windowFolders }))
-  } catch {
-    // no lane list
-  }
   const sweep = setInterval(() => lanes.sweep().catch(() => undefined), 2000)
   context.subscriptions.push({ dispose: () => clearInterval(sweep) })
-  const groups = createGroups({ vscode, registry, state: context.workspaceState, workspaceFolders: windowFolders,
+  const groups = createGroups({ vscode, registry, state: context.globalState, workspaceFolders: windowFolders,
     loadTable: () => readSessionTable(tablePath), managerName: () => readManagerName(path.join(CLAUDE, 'callboard', 'manager-name')),
   })
   const groupTick = setInterval(() => groups.tick(), groups.TICK_MS)
   context.subscriptions.push({ dispose: () => clearInterval(groupTick) })
+  void showClaudeView({ vscode, sleep: (ms) => new Promise((r) => setTimeout(r, ms)) })
 }
 
 module.exports = { activate, deactivate() {} }

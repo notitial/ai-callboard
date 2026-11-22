@@ -76,7 +76,9 @@ for answers, and that it cannot make leads.
 
 - A prompt-injected conductor can make as many leads as the cap allows, each acting only inside the saved repos and
   asking the conductor for what it may not decide. The cap is per parent, so conductors multiply it: there is no limit
-  for the machine. The person's own list of repos and the lane view are the control.
+  for the machine. The person's own list of repos and the lane view are the control. *Amended 2026-11-22: the
+  Callboard Lanes view is removed; the sessions show in `/callboard lanes` and, with the Claude patch, in the groups of
+  Claude Code's Session Manager list.*
 - The person's pop-ups still open in the manager's session, not the conductor's or a lead's. The conductor answers
   what is below it; what reaches the person reaches them in the manager's session as before.
 - A lead's flags live in the session table, so a reader that loses one demotes the session on its next write. The

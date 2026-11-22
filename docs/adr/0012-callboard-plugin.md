@@ -84,25 +84,37 @@ sees it and must allow, deny, answer or escalate. With no choice it reaches the 
 and to make the work manageable. A session asleep adds nothing, and a liveness that cannot be read never closes
 anything early. An answer counts only if its author is above the asker now, it is built from the live tool input and
 never from a file, and the protected-paths guard and its markers are in place; the person's click always wins. By day
-an ask that reaches the person is a callboard pop-up in the manager's session, or the person tells the manager in words:
-either is the person's own act on that one ask.
+an ask that reaches the person is put to them as a dialog callboard raises in the manager's session, or the person tells
+the manager in words: either is the person's own act on that one ask.
 
-*Amended 2026-11-20 (escalation round).* The relay offers a call of 2 to 4 questions too: one pop-up per question, one
-combined answer, written only on the person's last pick (a dismissed pop-up writes nothing); a single question uses the
-same pop-up with no counter, and it lists the options only when one has a description (the buttons carry the labels). A
-session still answers only a single question. The plugin has no handle to close a `$.ui.ask` pop-up. Its own
-PermissionRequest hook should hear the pop-up and deny it once its ask is decided or closed elsewhere, which would dismiss
-it, but a live test showed a stale pop-up staying open, so that dismiss depends on the engine and is not relied on. The
-fallback is a line the plugin puts under the pop-up with `$.ui.notice`, using the call id `tool.check` reports for it
-(`relayTick`, as soon as the ask is seen closed; skipped when no id was seen), and the out-of-date toast 10 s later. The
-hook and the tick log their steps (`relay-hook`, `relay-stale`) so the next test shows which part failed. The person's pick reaches the asker with a plugin note that it is their settled choice
-(only a pick made in the pop-up carries it: the plugin cannot tell the manager's own `prompt_answer` after a typed turn
+*Amended 2026-11-20 (escalation round).* The relay offers a call of 2 to 4 questions too, with one combined answer;
+a session still answers only a single question. How the dialog is shown and closed is the 2026-11-21 amendment below. The person's pick reaches the asker with a plugin note that it is their settled choice
+(only a pick made in the dialog carries it: the plugin cannot tell the manager's own `prompt_answer` after a typed turn
 from the manager's own decision, so that answer keeps `answered by <manager>, not the person`). The manager's check-in
 also carries a short digest, "since your last check-in", of asks that ended in an asker's own panel (a click or an interruption), lanes done
-or gone and gos that ended: log data, no command text, never a wake-up by itself. The pop-up for a tool ask the manager escalated with a note shows that note
+or gone and gos that ended: log data, no command text, never a wake-up by itself. The dialog for a tool ask the manager escalated with a note shows that note
 (stored in its `up` mark, never in the log) first, under a fixed label, with Allow, Show the command and Deny: the person may allow on the note. Show the command opens the
-ask's own pop-up with the whole raw command (Allow and Deny; Deny only when the command is cut or too large to print: a cut ask skips the note, and a command too large to print leaves the note without Allow).
-With no note it is that second pop-up alone.
+ask's own dialog with the whole raw command (Allow and Deny; Deny only when the command is cut or too large to print: a cut ask skips the note, and a command too large to print leaves the note without Allow).
+With no note it is that second dialog alone.
+
+*Amended 2026-11-21 (native relay).* The relay dialog is an AskUserQuestion that callboard calls in the manager's
+session itself (`$.agent.call`), no longer a `$.ui.ask` pop-up: a pop-up raised from a timer cannot be closed, and one
+left on screen after its ask was decided elsewhere misled the person. A call a plugin makes passes through that plugin's
+own hooks again, so `tool.check` and PermissionRequest know the dialog by its origin and its first question and pass it
+through untouched: callboard's hooks neither hold nor answer it. Its abort signal is the plugin's handle.
+Each tick first closes the open dialog, before every other gate and so also while the manager is busy, once its ask is
+decided, closed or expired elsewhere, or once the window is not off. A dialog closed so writes nothing; one closed by a
+window is put again once the window is off. One dialog is open at a time. A question ask shows the asker's own questions
+in one dialog, each opened with the asker's name and every text escaped; a typed answer in place of a pick is the
+person's deny with what they typed as its note. A tool ask is a question that names the call, as above. A dialog whose
+text is not shown whole, or whose escaped labels or questions come out alike, offers Deny and Leave it, which writes
+nothing. Only a dialog that callboard's PermissionRequest hook saw go to the person, with no hook beneath deciding it,
+is theirs: a result or a refusal without that writes nothing, and a dismissal after it is their deny. A hook above
+callboard's that refuses the dialog after that is read as a dismissal too; it can only deny. A dialog that closed by
+itself while the person was idle writes nothing and is put again. `answerAsk` reads the ask again, so a pick on a
+closed ask writes nothing and a toast says so. A keyed OS notification that names the asker (a plain name, else its
+id) and the tool, never the command, stands beside the open dialog and is taken back when it closes. This replaces the pop-up per question, the line under a stale pop-up
+and the out-of-date toast.
 
 **Callboard never judges who may answer.** An ask a session cannot decide (a plan-mode exit, a malformed question, a
 guard's own ask) is an ordinary ask that rises like any other; the rubric of the tier that reads it decides. What is
@@ -110,8 +122,8 @@ not an ask is what the person starts themselves, such as creating a lead or a la
 not requests to a tier: a tier never answers them, and none of them works while they are away.
 
 **Unattended mode, final shape.** The behaviour is the one of a day with the person at their desk. Three reads of the one
-flag remain. The first is in the one place that opens the person's dialog: while it is on, none opens (no relay pop-up,
-and `go_request` is refused at once, since its dialog would not run). The second is a subagent's dialog: it is not an
+flag remain. The first is in the two places that open the person's dialog, the dialog helper and the relay: while it is
+on, none opens (the relay raises none and closes an open one, and `go_request` is refused at once, since its dialog would not run). The second is a subagent's dialog: it is not an
 ask, so nothing times it out, and left alone it would sit on the person's screen for as long as they are away. While the
 flag is on it is denied with "run it yourself", as it is when a lead is above the session, and the main session's own
 ask rises to the manager and closes at 15 minutes like any other. The third is the manager's own dialog: nobody is

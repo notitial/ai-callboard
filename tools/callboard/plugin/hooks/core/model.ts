@@ -107,7 +107,7 @@ export type Answer = {
 // for the person (the relay pop-up reads it; the ask log never holds it).
 export type UpMark = { kind: 'escalated' | 'told'; by: Sid; at: number; note?: string }
 
-export type AskEvent = 'raised' | 'told' | 'escalated' | 'answered' | 'expired' | 'closed' | 'swept' | 'relay-unanswered'
+export type AskEvent = 'raised' | 'told' | 'escalated' | 'answered' | 'expired' | 'closed' | 'swept'
 // A row of `asks-YYYY-MM.jsonl`, the one append-only ask log.
 export type AskLogRow = { t: number; ev: AskEvent; ask: string; asker: Sid; by?: Owner; code?: string }
 

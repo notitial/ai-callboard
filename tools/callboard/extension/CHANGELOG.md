@@ -2,6 +2,12 @@
 
 The version stays fixed between these entries: a change to the code is an update of the checkout plus a window reload, not a new version.
 
+## 1.8.0
+
+- The "Callboard Lanes" view and its command `callboardPanels.openLane` are removed. Claude Code's own Session Manager list takes its place: with the patch's group, archive and list pieces, callboard files its live sessions by tier, archives a retired lane, and keeps the closed sessions of every window folder listed. A lane's state and its lead are in `/callboard lanes`. The manifest loses `contributes.views`, so this version needs the quit, pull, `link-extension.py --apply` update.
+- The record of which group each session was filed in, and the record of lanes seen running, are kept in the extension's global state under the window's first folder, where Claude Code keeps the groups themselves, in place of the workspace state. So a second account that shares the workspace state no longer reads sessions as filed while its own group list is empty. The old record is not read: after the update each live session is filed in its tier's group once more (one moved by hand goes back to its tier's group that one time), and a lane that was seen running before the update and is retired before the first tick after it is not archived.
+- At window start the side bar switches to Claude Code's Session Manager, and the keyboard focus goes back to the editor. Claude Code shows that view only once it has started, so VS Code falls back to the Explorer at a restart; this brings it back. It runs in every window at every start and reload, opens a closed side bar, and does it once more 2 seconds later, which moves the keyboard focus to the editor from wherever it is then.
+
 ## 1.7.0
 
 - The "Callboard Lanes" view starts collapsed (`visibility: collapsed` on both view entries; VS Code applies it the first time the view appears). Its "Recent chats" groups show each chat's real title, read from the transcript the way Claude Code's own list reads it (the last rename, else the generated title), and leave out a chat with no readable title instead of showing an id. The package description no longer names the old mod. The manifest changes, so this version needs the quit, pull, `link-extension.py --apply` update.
