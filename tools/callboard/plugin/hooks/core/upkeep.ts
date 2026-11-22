@@ -43,26 +43,35 @@ export function sizeNudge(tokens: number, cfg: Config, c: Counters, now: number,
   return kind !== undefined && nudgeOk(c, now, kind, again) && compactPlan(c, tokens, now, false).act === 'queue' ? nudgeSay(kind, cfg) : undefined
 }
 
-// ---- the session's own compaction ----
-// A request is refused while background work runs, inside COMPACT_GAP_MS of the last compaction, and below the floor. The detail is the minutes to wait, or the floor in k.
-export function compactPlan(c: Counters, tokens: number, now: number, busy: boolean): Decision<'queue' | 'refuse'> {
-  const no = (code: 'compact-busy' | 'compact-rate' | 'compact-floor', detail?: string) => refusal('refuse', code, { tool: 'request_compact', ...(detail === undefined ? {} : { detail }) })
+// ---- the session's own compaction, and its handover to a clear session (the same request, a kind) ----
+// A request is refused while background work runs, inside COMPACT_GAP_MS of the last one of its kind (`lastHandoverMs` is this process's, a compaction's is the session's), and a
+// compaction below the floor; a handover has none. The detail is the minutes to wait, or the floor in k.
+export type Kind = 'compact' | 'handover'
+export const toolOf = (kind: Kind): 'request_compact' | 'request_handover' => (kind === 'handover' ? 'request_handover' : 'request_compact')
+export function compactPlan(c: Counters, tokens: number, now: number, busy: boolean, kind: Kind = 'compact', lastHandoverMs?: number): Decision<'queue' | 'refuse'> {
+  const no = (code: 'compact-busy' | 'compact-rate' | 'compact-floor', detail?: string) => refusal('refuse', code, { tool: toolOf(kind), ...(detail === undefined ? {} : { detail }) })
+  const last = kind === 'handover' ? lastHandoverMs : c.lastCompactMs
   if (busy) return no('compact-busy')
-  if (c.lastCompactMs !== undefined && now - c.lastCompactMs < COMPACT_GAP_MS) return no('compact-rate', String(Math.max(1, Math.ceil((c.lastCompactMs + COMPACT_GAP_MS - now) / 60_000))))
-  return tokens < MIN_CONTEXT_TOKENS ? no('compact-floor', String(MIN_CONTEXT_TOKENS / 1000)) : { act: 'queue', msg: 'compact.queued', p: {} }
+  if (last !== undefined && now - last < COMPACT_GAP_MS) return no('compact-rate', String(Math.max(1, Math.ceil((last + COMPACT_GAP_MS - now) / 60_000))))
+  if (kind === 'compact' && tokens < MIN_CONTEXT_TOKENS) return no('compact-floor', String(MIN_CONTEXT_TOKENS / 1000))
+  return kind === 'handover' ? { act: 'queue', msg: 'handover.queued', p: {} } : { act: 'queue', msg: 'compact.queued', p: {} }
 }
-export type Request = { focus: string; continuation: string }
+// `focus` is what a compaction keeps in mind; for a handover it is the path of the session's own handover file.
+export type Request = { focus: string; continuation: string; kind?: 'handover' }
 const PRINTABLE = /^[\x20-\x7e]+$/
 const PRINTABLE_NL = /^[\x20-\x7e\n]+$/
 // A line that opens like the plugin's own turns or a fence: the note is printed between fences, and no line of it may pass for the plugin's.
 const FORGED = /^\s*(\[callboard\]|\[compact-cue\]|<<<|>>>)/m
-// focus: 1 to 1200 printable ASCII characters, not a slash command. continuation: 1 to 600, at most 5 lines, something other than blanks.
-export function validateRequest(r: unknown): { ok: true; req: Request } | Decision<'refuse'> {
-  const { focus, continuation } = (r ?? {}) as Record<string, unknown>
-  const no = (detail: string) => refusal('refuse', 'bad-input', { tool: 'request_compact', detail })
-  if (typeof focus !== 'string' || focus.length < 1 || focus.length > 1200 || !PRINTABLE.test(focus) || focus.startsWith('/') || FORGED.test(focus)) return no('focus')
+// focus: 1 to 1200 printable ASCII characters, not a slash command. A handover's `file` instead: an absolute path of at most 1024 printable characters with no `..` segment (the
+// adapter checks that it is under the session's own `.archive/` and is a plain file). continuation: 1 to 600, at most 5 lines, something other than blanks.
+export function validateRequest(r: unknown, kind: Kind = 'compact'): { ok: true; req: Request } | Decision<'refuse'> {
+  const { focus: given, file, continuation } = (r ?? {}) as Record<string, unknown>
+  const no = (detail: string) => refusal('refuse', 'bad-input', { tool: toolOf(kind), detail })
+  const handover = kind === 'handover'
+  const focus = handover ? file : given
+  if (handover ? typeof focus !== 'string' || focus.length > 1024 || !PRINTABLE.test(focus) || !focus.startsWith('/') || focus.split('/').includes('..') : typeof focus !== 'string' || focus.length < 1 || focus.length > 1200 || !PRINTABLE.test(focus) || focus.startsWith('/') || FORGED.test(focus)) return no(handover ? 'file' : 'focus')
   if (typeof continuation !== 'string' || continuation.length < 1 || continuation.length > 600 || !PRINTABLE_NL.test(continuation) || !/[^\n ]/.test(continuation) || continuation.split('\n').length > 5 || FORGED.test(continuation)) return no('continuation')
-  return { ok: true, req: { focus, continuation } }
+  return { ok: true, req: { focus, continuation, ...(handover ? { kind } : {}) } }
 }
 
 // called: queued. armed: the turn ended with an answer, so the compaction starts. compacting. compacted: the resume note is owed. `at` is the wall time of the call.

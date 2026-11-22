@@ -26,7 +26,7 @@ test('a form that does not fit is bad; a window length that does not fit says so
 const FORMS: [string, boolean][] = [
   ['status', true], ['lanes', true], ['help', true], ['rest', true], ['config', true], ['unattended', true],
   ['off', false], ['on', false], ['lead /Users/x/a', false], ['lead off', false], ['go do the thing', false], ['go off', false], ['unattended 2h', false], ['unattended off', false],
-  ['conductor reset', false], ['config reset', false], ['config keepalive on', false], ['config ping 40', false],
+  ['conductor reset', false], ['config reset', false], ['config keepalive on', false], ['config ping 40', false], ['handover', false],
 ]
 test('origin: only the read-only forms and rest run from anywhere; every other form needs exactly the typed turn', () => {
   for (const [args, open] of FORMS) {

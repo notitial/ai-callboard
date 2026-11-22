@@ -45,3 +45,4 @@ repo's.
 | 0012 | Callboard as a plugin: one session model, one ask chain (`0012-callboard-plugin.md`) | accepted, amended | 2026-11-19 |
 | 0013 | A conductor is a lead that makes leads (`0013-conductor.md`) | accepted | 2026-11-21 |
 | 0014 | A Run button runs a chat code block on the person's click (`0014-run-button.md`) | accepted | 2026-11-21 |
+| 0015 | A session hands itself over to a clear one (`0015-session-handover.md`) | proposed; amends 0012 and 0013 | 2026-11-22 |

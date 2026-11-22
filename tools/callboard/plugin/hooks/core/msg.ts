@@ -49,7 +49,7 @@ export type RefuseCode =
   | 'cue-refused'
 
 // The command forms. One help row each: `help.<name>`.
-export type CommandName = 'status' | 'lanes' | 'help' | 'lead' | 'lead-off' | 'conductor' | 'off' | 'on' | 'go' | 'go-off' | 'unattended' | 'config' | 'rest'
+export type CommandName = 'status' | 'lanes' | 'help' | 'lead' | 'lead-off' | 'conductor' | 'off' | 'on' | 'go' | 'go-off' | 'unattended' | 'config' | 'rest' | 'handover'
 
 // The lane list's columns and states (`/callboard lanes`, `lane_list`).
 export type UiColumn = 'name' | 'role' | 'state' | 'folder' | 'context' | 'fiveHour' | 'sevenDay' | 'cost' | 'read'
@@ -86,6 +86,11 @@ export type Fixed = {
   'compact.notRun': { reason: string }
   'compact.unconfirmed': { reason: string }
   'compact.start': E // toast: callboard starts this session's own compaction
+  // Handover: the queued result, the toast, the refusal turn, and the turn the new session starts with (the handover file, a lane's brief, the continuation, the steps that did not land).
+  'handover.queued': E
+  'handover.start': E
+  'handover.notRun': { reason: string }
+  'handover.note': { name: string; file: string; brief?: string; continuation: string; failed: string[] }
 
   // Nudges (the 300k, 400k and 150k kinds) and the keepalive ping.
   'nudge.idle': { k: number }
@@ -152,6 +157,8 @@ export type Fixed = {
   'cmd.configSet': { key: keyof Config; value: string }
   'cmd.configReset': E
   'cmd.rest': E
+  // His typed /callboard handover: the turn that asks the session to write its state and call request_handover (also the command's own answer).
+  'cmd.handover': E
   // The notice turn after his own step in this session: a typed /callboard command that changed something, or his click on the go dialog.
   'cmd.told': { result: string }
   // The same after a folder's lead preset command, sent once its name, model and effort steps ran; `failed` names the steps that did not land.

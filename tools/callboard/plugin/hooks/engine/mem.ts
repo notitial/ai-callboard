@@ -85,6 +85,12 @@ const fresh = () => ({
   sweepAt: 0,
   tidyAt: 0,
   guard: undefined as { at: number; ok: boolean } | undefined,
+  // The takeover of a handover in this session, per old id: when it began, the tries of the record moves and of the rename, whether the moves are done and the note owed.
+  hand: undefined as { old: string; first: number; moves: number; renames: number; moved: boolean; noted: boolean } | undefined,
+  // When this process last handed a session over: the gap between two handovers is counted on it, since the session's own state does not cross a `/clear`.
+  handedAt: undefined as number | undefined,
+  // Whether the last `/clear` or `/resume` of this process was a `/clear`: a handover's takeover waits for it, so a `/resume` of another conversation never inherits the old row.
+  cleared: false,
 })
 export const mem = fresh()
 // The reading of the machine is kept but read again at the next use; the last good table stays its fallback.
@@ -92,6 +98,9 @@ export function staleView(): void {
   if (mem.view !== undefined) mem.view = { ...mem.view, at: 0 }
 }
 export const resetMem = (): void => void Object.assign(mem, fresh())
+// What belongs to the session id and not to the process: a `/clear` (a handover's, or one typed) and a `/resume` start the next id with these empty.
+const OF_SESSION = ['own', 'pending', 'spent', 'signed', 'owed', 'presetRun', 'selfNamed', 'asks', 'told', 'relayed', 'hand'] as const
+export const resetSession = (): void => void Object.assign(mem, Object.fromEntries(OF_SESSION.map((k) => [k, fresh()[k]])))
 
 // A turn that starts with a pending text spends the keys that text carried; a pending text that never started expires, its keys owed again. The spent set is capped.
 export function spendStarted(startText: unknown, now: number): void {

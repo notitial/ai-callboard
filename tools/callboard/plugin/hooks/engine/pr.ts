@@ -52,6 +52,25 @@ async function writeTracker($: any, t: Tracker): Promise<boolean> {
   return t.prs.length === 0 ? (await rm($, [p]), true) : writeFile($, p, JSON.stringify(t))
 }
 
+// A handover: the old id's tracker is merged into the new id's (an entry the new id already has wins), under both locks, and the old file goes. True when nothing is left behind.
+export async function moveTracker($: any, old: Sid, nw: Sid): Promise<boolean> {
+  const [op, np] = [await path($, 'prs', `${old}.json`), await path($, 'prs', `${nw}.json`)]
+  if (op === undefined || np === undefined) return false
+  if (!(await $.fs.exists(op).catch(() => true))) return true
+  const moved = await locked($, `pr-${old}`, () => locked($, `pr-${nw}`, async () => {
+    const [was, cur] = [await readTracker($, old), (await readTracker($, nw)) ?? { sid: nw, prs: [] }]
+    if (was === undefined) return false
+    const prs = [...new Map([...was.prs, ...cur.prs].map((p) => [refKey(p), p] as const)).values()].slice(-PR_MAX)
+    return (await writeTracker($, { sid: nw, prs })) && (await rm($, [op]))
+  }))
+  return moved === true
+}
+// Whether a session's watch list is there whole, or there is none.
+export async function trackerOk($: any, sid: Sid): Promise<boolean> {
+  const p = await path($, 'prs', `${sid}.json`)
+  return p !== undefined && (!(await $.fs.exists(p).catch(() => true)) || (await readTracker($, sid)) !== undefined)
+}
+
 // ---- the tool ----
 export async function prWatchCall($: any, e: any, _next: any) {
   const sid = (await $.session.id()) as Sid

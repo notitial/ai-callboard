@@ -22,7 +22,7 @@ export const TOOLS = [
   'lane_rename', 'lane_start', 'lane_resume', 'lane_park', 'lane_retire', 'lane_terminate', 'lane_unpark', 'lane_list',
   'lane_create', 'lane_open', 'lane_adopt',
   'prompt_list', 'prompt_answer',
-  'go_request', 'go_status', 'pr_watch', 'request_compact', 'rest',
+  'go_request', 'go_status', 'pr_watch', 'request_compact', 'request_handover', 'rest',
 ] as const
 export type ToolName = (typeof TOOLS)[number]
 
@@ -161,21 +161,22 @@ export type LaneEffort = (typeof LANE_EFFORTS)[number]
 // The manager-name file as read: its one line, null for no file, `unknown` for a file that could not be read.
 export type ManagerName = string | null | 'unknown'
 // One reading of the machine, shared by every step of a tick: the live registry rows by session id, the table, and the manager picked from them. `managers` is
-// every live session that is not off and carries the manager's name, oldest first; two or more is the toast that names both.
-export type View = { rows: ReadonlyMap<Sid, RegistryRow> | 'unknown'; table: Table; managerName: ManagerName; manager: Sid | null | 'unknown'; managers: Sid[] }
+// every live session that is not off and carries the manager's name, oldest first; two or more is the toast that names both. `handing`: the sessions in the middle of a
+// handover (a fresh marker whose process is live): one of them with no row of its own is `unknown`, never gone.
+export type View = { rows: ReadonlyMap<Sid, RegistryRow> | 'unknown'; table: Table; managerName: ManagerName; manager: Sid | null | 'unknown'; managers: Sid[]; handing: ReadonlySet<Sid> }
 // What is above a session: an owner, or `unknown` when a read could not tell. Unknown is not nobody: it never moves an ask or a child.
 type Up = Owner | 'unknown'
 
 const startMs = (r: RegistryRow): number => (Number.isFinite(Date.parse(r.procStart)) ? Date.parse(r.procStart) : Infinity)
-export function liveView(reg: Registry, table: Table, managerName: ManagerName): View {
+export function liveView(reg: Registry, table: Table, managerName: ManagerName, handing: readonly Sid[] = []): View {
   const rows = reg === 'unknown' ? 'unknown' : new Map(reg.map((r) => [r.sid, r]))
   const named = rows === 'unknown' || managerName === null || managerName === 'unknown' ? [] : [...rows.values()].filter((r) => r.name === managerName && !table[r.sid]?.off)
   const managers = named.sort((a, b) => startMs(a) - startMs(b) || (a.sid < b.sid ? -1 : 1)).map((r) => r.sid)
-  return { rows, table, managerName, managers, manager: rows === 'unknown' || managerName === 'unknown' ? 'unknown' : (managers[0] ?? null) }
+  return { rows, table, managerName, managers, manager: rows === 'unknown' || managerName === 'unknown' ? 'unknown' : (managers[0] ?? null), handing: new Set(handing) }
 }
 
-// yes: a row ps confirmed. no: a complete read without one. Busy (in a tool call, compacting, in a dialog) is yes.
-export const liveness = (v: View, s: Sid): Liveness => (v.rows === 'unknown' ? 'unknown' : v.rows.has(s) ? 'yes' : 'no')
+// yes: a row ps confirmed. no: a complete read without one, unless the session is handing over (its successor is not bound yet): then unknown. Busy (in a tool call, compacting, in a dialog) is yes.
+export const liveness = (v: View, s: Sid): Liveness => (v.rows === 'unknown' ? 'unknown' : v.rows.has(s) ? 'yes' : v.handing.has(s) ? 'unknown' : 'no')
 export const isOff = (v: View, s: Sid): boolean => v.table[s]?.off === true
 export const isLead = (v: View, s: Sid): boolean => v.table[s]?.lead !== undefined && !isOff(v, s)
 export const capability = (v: View, s: Sid): Capability => (v.manager === s ? 'manager' : isLead(v, s) ? 'lead' : 'none')

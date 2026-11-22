@@ -143,3 +143,9 @@ test('a signed lane retires as soon as it is out of its turn; a park still waits
   assert.equal(plan('retire', view({ waitingFor: 'permission' }), { signed: true }).msg, 'refuse.not-idle')
   assert.equal(childState(justIdle, L1, false, NOW), 'live')
 })
+
+test('a child that is handing over is left in the table and cannot be retired or stopped while its row is gone', () => {
+  const v = liveView([reg(M, MANAGER), reg(A, 'A')], lanes, MANAGER, [L1])
+  assert.equal(tidy(lanes, v, () => NOW - 30_000, NOW)[L1].goneAt, undefined)
+  for (const verb of ['retire', 'terminate', 'park'] as const) assert.equal(verbPlan(verb, v, A, L1, { signed: true, win: WINDOWS[0], now: NOW }).msg, 'refuse.unknown-liveness')
+})
