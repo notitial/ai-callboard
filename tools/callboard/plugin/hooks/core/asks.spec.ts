@@ -115,6 +115,11 @@ test('decide: the answer must name this ask and come from the person or an eligi
   assert.deepEqual(decide(a({ by: PERSON, decision: 'answer', picks: [1, 2] }), q, mine, all, two), { act: 'answer', by: PERSON, picks: [{ question: 'Which?', label: 'Yes' }, { question: 'Where?', label: 'There' }] })
   for (const picks of [[1], [1, 3], [1, 2, 1], [1, 0]]) assert.equal(decide(a({ by: PERSON, decision: 'answer', picks }), q, mine, all, two).act, 'ignore', String(picks))
   assert.equal(decide(a({ decision: 'answer', picks: [1, 2] }), q, s, all, two).act, 'ignore')
+  // His own words stand as the answer to a question, one or several; a session's are refused, and so are empty words.
+  assert.deepEqual(decide(a({ by: PERSON, decision: 'answer', picks: [1, 'the cellar'] }), q, mine, all, two), { act: 'answer', by: PERSON, picks: [{ question: 'Which?', label: 'Yes' }, { question: 'Where?', label: 'the cellar' }] })
+  assert.deepEqual(decide(a({ by: PERSON, decision: 'answer', picks: ['neither'] }), q, mine, all, live), { act: 'answer', by: PERSON, picks: [{ question: 'Which?', label: 'neither' }] })
+  assert.equal(decide(a({ decision: 'answer', picks: ['neither'] }), q, s, all, live).act, 'ignore')
+  assert.equal(decide(a({ by: PERSON, decision: 'answer', picks: ['  '] }), q, mine, all, live).act, 'ignore')
   assert.equal(decide(a({ by: PERSON, decision: 'answer', picks: [1, 2] }), q, mine, all, live).act, 'ignore')
   assert.equal(decide(a({ decision: 'answer', option: 1 }), ask(), s, all, live).act, 'ignore')
   // Eligible sessions only, in every world: an answer by anyone else is ignored.
@@ -229,12 +234,13 @@ test('an escalate note is one trimmed line of at most 300 characters; empty, bla
   for (const x of ['', ' \n\t ', 7, null, undefined, { a: 1 }]) assert.equal(noteOf(x), undefined)
 })
 
-test('a relayed dialog\'s result is one pick per question, or what he typed or picked beyond one label as a note; a dialog that closed by itself or holds nothing is no answer', () => {
+test('a relayed dialog\'s result is one answer per question, a pick or his own words, or a note when a question is left out or he adds a response; a dialog that closed by itself or holds nothing is no answer', () => {
   const sent = [{ question: 'One?', options: [{ label: 'A' }, { label: 'B' }] }, { question: 'Two?', options: [{ label: 'C' }, { label: 'D' }] }]
   assert.deepEqual(readAnswers(sent, { questions: [], answers: { 'One?': 'B', 'Two?': 'C' } }), { picks: [2, 1] })
   assert.deepEqual(readAnswers(sent.slice(0, 1), { answers: { 'One?': 'A' } }), { picks: [1] })
-  assert.deepEqual(readAnswers(sent, { answers: { 'One?': 'B', 'Two?': 'my own words' } }), { note: 'B\nmy own words' }, 'a typed answer is no pick')
-  assert.deepEqual(readAnswers(sent, { answers: { 'One?': 'A, B', 'Two?': 'C' } }), { note: 'A, B\nC' }, 'several picks of a multi-select are no single pick')
+  assert.deepEqual(readAnswers(sent, { answers: { 'One?': 'A', 'Two?': '  ' } }), { note: 'A\n  ' }, 'blank words are no answer: the deny route, not a lost answer')
+  assert.deepEqual(readAnswers(sent, { answers: { 'One?': 'B', 'Two?': 'my own words' } }), { picks: [2, 'my own words'] }, 'a typed answer is his answer to that question')
+  assert.deepEqual(readAnswers(sent, { answers: { 'One?': 'A, B', 'Two?': 'C' } }), { picks: ['A, B', 1] }, 'several labels are typed words, as the dialog is single-select')
   assert.deepEqual(readAnswers(sent, { answers: { 'One?': 'A' } }), { note: 'A' }, 'a question left out')
   assert.deepEqual(readAnswers(sent, { answers: { 'One?': 'A', 'Two?': 'C' }, response: 'wait' }), { note: 'A\nC\nwait' })
   assert.equal(readAnswers(sent, { answers: { 'One?': 'A', 'Two?': 'C' }, afkTimeoutMs: 60_000 }), undefined, 'nobody picked it')

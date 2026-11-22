@@ -275,9 +275,9 @@ export async function askOpen($: any, id: string): Promise<boolean> {
 }
 export async function readAnswer($: any, id: string): Promise<Answer | undefined> {
   const p = await askPath($, id, 'answer')
-  const j = (p === undefined ? undefined : safeJson((await readText($, p, 4096)) ?? '')) as Partial<Answer> | null | undefined
+  const j = (p === undefined ? undefined : safeJson((await readText($, p, 32_768)) ?? '')) as Partial<Answer> | null | undefined
   if (!j || j.ask !== id || typeof j.by !== 'string' || !['allow', 'deny', 'answer'].includes(j.decision as string) || !isNum(j.at)) return undefined
-  return { ask: id, by: j.by, decision: j.decision!, at: j.at, ...(typeof j.note === 'string' ? { note: j.note } : {}), ...(Number.isInteger(j.option) ? { option: j.option } : {}), ...(Array.isArray(j.picks) && j.picks.every(Number.isInteger) ? { picks: j.picks } : {}) }
+  return { ask: id, by: j.by, decision: j.decision!, at: j.at, ...(typeof j.note === 'string' ? { note: j.note } : {}), ...(Number.isInteger(j.option) ? { option: j.option } : {}), ...(Array.isArray(j.picks) && j.picks.every((p) => Number.isInteger(p) || typeof p === 'string') ? { picks: j.picks } : {}) }
 }
 // The first writer wins: 'exists' says an answer is already there.
 export async function writeAnswer($: any, a: Answer): Promise<'ok' | 'exists' | 'error'> {
