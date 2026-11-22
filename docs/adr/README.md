@@ -8,8 +8,8 @@ change to something they cover.
 Each ADR is a numbered file, `NNNN-short-title.md`, in this folder. The template is the streamlined MADR variant
 recorded in ai-toolkit ADR 0002 (https://github.com/notitial/ai-toolkit/blob/main/docs/adr/0002-streamlined-madr-template.md):
 
-- **Status:** proposed, accepted, deprecated or superseded; the index adds "amended" when the ADR carries an
-  amendment
+- **Status:** proposed, accepted, deprecated or superseded, plus ", amended" when the ADR carries an amendment;
+  the index repeats it
 - **Date:** when the decision was recorded, plus an optional **Accepted** date when it was accepted later
 - **Context:** the forces at play and why a decision is needed
 - **Options Considered:** the alternatives evaluated, so a settled choice is not proposed again
@@ -32,17 +32,17 @@ repo's.
 | # | Title | Status | Date |
 |---|-------|--------|------|
 | 0001 | The manager role (`0001-manager-role.md`) | accepted, amended | 2026-10-21 |
-| 0002 | Callboard (`0002-callboard.md`) | accepted, amended | 2026-10-24 |
-| 0003 | Callboard loads from a live checkout (`0003-symlinked-install.md`) | accepted | 2026-11-06 |
+| 0002 | Callboard (`0002-callboard.md`) | accepted, amended; partly superseded by 0012 | 2026-10-24 |
+| 0003 | Callboard loads from a live checkout (`0003-symlinked-install.md`) | accepted, amended | 2026-11-06 |
 | 0004 | Prompt answering (`0004-prompt-answering.md`) | accepted, amended | 2026-11-06 |
 | 0005 | Callboard's module layout (`0005-callboard-module-layout.md`) | superseded by 0012 | 2026-11-12 |
-| 0006 | A conductor opens leads and wakes them (`0006-conductor-opens-leads.md`) | superseded by 0012 | 2026-11-16 |
+| 0006 | A conductor opens leads and wakes them (`0006-conductor-opens-leads.md`) | superseded by 0012 | 2026-11-13 |
 | 0007 | A conductor owns its leads (`0007-conductor-owns-leads.md`) | superseded by 0012 | 2026-11-15 |
-| 0008 | Unattended mode: the manager decides while the person is away (`0008-unattended-mode.md`) | proposed, amended; mod build replaced by 0012 | 2026-11-16 |
-| 0009 | A go given once (`0009-go-given-once.md`) | accepted | 2026-11-16 |
-| 0010 | PR notices for lanes (`0010-pr-notices.md`) | proposed, amended | 2026-11-15 |
+| 0008 | Unattended mode: the manager decides while the person is away (`0008-unattended-mode.md`) | accepted, amended; built in the plugin per 0012 | 2026-11-16 |
+| 0009 | A go given once (`0009-go-given-once.md`) | accepted, amended | 2026-11-15 |
+| 0010 | PR notices for lanes (`0010-pr-notices.md`) | accepted, amended | 2026-11-15 |
 | 0011 | Every lane prompt rises up the chain (`0011-all-prompts-rise.md`) | superseded by 0012 | 2026-11-16 |
 | 0012 | Callboard as a plugin: one session model, one ask chain (`0012-callboard-plugin.md`) | accepted, amended | 2026-11-19 |
-| 0013 | A conductor is a lead that makes leads (`0013-conductor.md`) | accepted | 2026-11-21 |
-| 0014 | A Run button runs a chat code block on the person's click (`0014-run-button.md`) | accepted | 2026-11-21 |
+| 0013 | A conductor is a lead that makes leads (`0013-conductor.md`) | accepted, amended | 2026-11-21 |
+| 0014 | A Run button runs a chat code block on the person's click (`0014-run-button.md`) | accepted, amended | 2026-11-21 |
 | 0015 | A session hands itself over to a clear one (`0015-session-handover.md`) | proposed; amends 0012 and 0013 | 2026-11-22 |
