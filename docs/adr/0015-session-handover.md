@@ -27,8 +27,8 @@ and `/rename NAME~1` is taken. `/model` and `/effort` survive `/clear`.
 `request_compact`), or the person types `/callboard handover` in its panel, which owes the session one turn telling it to
 write its state to a file under its own `.archive/` and call the tool. A parent asks its lane by an ordinary message; there
 is no parent tool, and nothing lets one session hand over another. The 300k and idle nudges offer it too, when the
-work will outlast another compaction; the 400k nudge asks only for a compaction, as a handover is refused while
-background work runs.
+work will outlast another compaction; the 400k nudge asks only for a compaction, as it tells the session to stop at once
+and a handover needs a state file written first.
 A typed `/clear` is unchanged apart from the memory reset below.
 
 **The tool shares `request_compact`'s body.** The same refusals (a subagent, not interactive, busy agents) and the same
