@@ -1,10 +1,11 @@
 'use strict'
 // The window's spool for the plugin build: requests in ~/.claude/callboard/v2/open, answers beside them.
-// <id>.req holds one JSON request: {op:'open',folder}, {op:'reopen',sid,folder}, {op:'close',sid,pid,name,folder}, {op:'pick',folder,ticked} or {op:'remote',sid,on,folder}. <id> is the writer's own, one per request.
+// <id>.req holds one JSON request: {op:'open',folder}, {op:'reopen',sid,folder}, {op:'close',sid,pid,name,folder}, {op:'pick',folder,ticked}, {op:'remote',sid,on,folder} or {op:'pin',sid,folder}. <id> is the writer's own, one per request.
 // The writer writes `.<id>.tmp` and renames it to <id>.req, uses a fresh random <id> per request, and gives the folder exactly as VS Code names a workspace folder.
 // Only a window that serves the folder takes it (`workspaceFolders()`: its first folder, or every folder when the Claude extension carries the cwd patch,
 // claude-patch.js), and a request older than MAX_AGE_MS (twice the writer's own wait) is dropped. The answer is <id>.result,
 // JSON: {ok:true,sid?} or {ok:false,code}; a close is not answered (the writer does not wait for one). The panel of a close goes to the extension's sweep (lanes.js).
+// A pin ({op:'pin',sid,folder}) pins the active tab when it is a Claude panel (pin.js); like a close it is not answered, and a stale one is dropped.
 // A pick shows the conductor's tick list (pick.js) and is answered {ok:true,folders} with what the person ticked. It waits for the person, so it is claimed like
 // any request and then runs beside the scan: the window goes on serving opens while the list is up. One list at a time; a second pick is answered `busy`.
 // A remote turns Remote Control of the panel that holds the session on or off, through the Claude extension's `callboard remote session` command (tools/callboard/patch-claude.py,
@@ -40,12 +41,13 @@ function parse(text) {
     return { op: r.op, sid: r.sid, pid: r.pid, name: r.name, folder: r.folder }
   }
   if (r.op === 'remote' && isSid(r.sid) && typeof r.on === 'boolean') return { op: r.op, sid: r.sid, on: r.on, folder: r.folder }
+  if (r.op === 'pin' && isSid(r.sid)) return { op: r.op, sid: r.sid, folder: r.folder }
   // The ticked folders only choose which rows of the list start ticked, so a string is all each needs to be.
   if (r.op === 'pick' && Array.isArray(r.ticked) && r.ticked.length <= PICK_MAX && r.ticked.every((p) => typeof p === 'string')) return { op: r.op, folder: r.folder, ticked: r.ticked }
   return undefined
 }
 
-function createSpool({ dir, lanes, workspaceFolders, timeoutMs, pick, remote, now = Date.now }) {
+function createSpool({ dir, lanes, workspaceFolders, timeoutMs, pick, remote, pin, now = Date.now }) {
   let seq = 0
   let busy = false
   // The tick list that is up, if one is: a promise that settles once its answer is written.
@@ -81,6 +83,12 @@ function createSpool({ dir, lanes, workspaceFolders, timeoutMs, pick, remote, no
     await drop(taken)
     if (!r) return refuse(id, 'bad-request')
     if (r.op === 'close') return !stale && lanes.adopt(r.sid, r) ? 'done' : 'dropped'
+    if (r.op === 'pin') {
+      if (stale || !pin) return 'dropped'
+      // Not awaited: a command that never settles must not hold the scan.
+      void Promise.resolve().then(pin).catch(() => undefined)
+      return 'done'
+    }
     if (stale) return refuse(id, 'stale')
     if (r.op === 'pick') {
       if (!pick) return refuse(id, 'failed')
