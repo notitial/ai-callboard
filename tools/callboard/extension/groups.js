@@ -6,7 +6,8 @@
 // The tiers come from the plugin's own records: the manager is the oldest running session named in the manager-name file (the plugin's rule, core/model.ts), a
 // conductor is a table row whose `lead` the person's `/callboard conductor` flagged, any other `lead` row is a lead, one `under` a lead a lane. A session is
 // handled in the window whose folders hold its registry row (Claude keeps its groups per window, under the window's first folder). The group each session was
-// filed in is this window's own state: a session is filed again only when its tier's group differs from that one, so a session the person moves by hand stays
+// filed in is kept where Claude keeps the groups themselves, in the extension's global state under the window's first folder, so the record and the groups
+// belong to the same account and window: a session is filed again only when its tier's group differs from that one, so a session the person moves by hand stays
 // moved until its tier changes. The command answers false for a session it refused (an archived one, or the list limits): that one is tried again.
 // A lane that is retired is archived, through the patch's `callboard archive sessions`, so the sidebar keeps only the lanes that run or sit parked. Retired is read,
 // not stored: the lane had a table row and a live process in this window, and now has neither. Only such a lane is ever named, so a lane retired before the
@@ -81,6 +82,8 @@ function createGroups({ vscode, registry, state, loadTable, managerName, workspa
   let canArchive = false
   let pending = new Set()
   const procState = procStateWith({ alive, startOf })
+  // Claude keys its groups by the window's first folder; the two records here are keyed the same way.
+  const keyOf = (key) => `${key}:${workspaceFolders()[0] ?? ''}`
   const inWindow = (cwd) => typeof cwd === 'string' && workspaceFolders().some((f) => cwd === f || cwd.startsWith(`${f}/`))
 
   async function tick() {
@@ -105,7 +108,7 @@ function createGroups({ vscode, registry, state, loadTable, managerName, workspa
       if (manager === 'unknown') return
       const rows = list.filter((r) => !Number.isInteger(r.pid) || alive(r.pid))
       const want = groupsFor(table, manager)
-      const was = state.get(DONE_KEY, {})
+      const was = state.get(keyOf(DONE_KEY), {})
       // A stored value that is not a plain object (such as a list) is no record: every session is filed once more.
       const filed = was && typeof was === 'object' && !Array.isArray(was) ? { ...was } : {}
       for (const [sid, group] of want) {
@@ -120,7 +123,7 @@ function createGroups({ vscode, registry, state, loadTable, managerName, workspa
       // runs its entry is kept: a manager closed and resumed is not filed again.
       const managed = [...want.values()].includes('Manager')
       const keep = Object.fromEntries(Object.entries(filed).filter(([sid, group]) => want.has(sid) || (!managed && group === 'Manager')))
-      if (JSON.stringify(keep) !== JSON.stringify(was)) await state.update(DONE_KEY, keep)
+      if (JSON.stringify(keep) !== JSON.stringify(was)) await state.update(keyOf(DONE_KEY), keep)
       if (canArchive && loaded) await archiveRetired({ want, table, rows, prior })
     } catch {
       // Grouping is a convenience: an unreadable table or registry is tried again at the next tick, silently.
@@ -132,7 +135,7 @@ function createGroups({ vscode, registry, state, loadTable, managerName, workspa
   // The lanes this window has seen run (a table row and a live process in the window) are remembered; one that has neither now is retired, and goes after a second
   // tick that finds it so. Only a lane remembered is ever named, and one kept by any table row or live process (the manager has one) is not.
   async function archiveRetired({ want, table, rows, prior }) {
-    const stored = state.get(SEEN_KEY, [])
+    const stored = state.get(keyOf(SEEN_KEY), [])
     const seen = new Set(Array.isArray(stored) ? stored.filter((sid) => typeof sid === 'string') : [])
     const was = JSON.stringify([...seen])
     for (const [sid, group] of want) if (group === 'Lanes' && rows.some((r) => r.sessionId === sid && inWindow(r.cwd))) seen.add(sid)
@@ -148,7 +151,7 @@ function createGroups({ vscode, registry, state, loadTable, managerName, workspa
         // The command failed: the lanes stay remembered and are named again at the next tick.
       }
     }
-    if (JSON.stringify([...seen]) !== was) await state.update(SEEN_KEY, [...seen])
+    if (JSON.stringify([...seen]) !== was) await state.update(keyOf(SEEN_KEY), [...seen])
   }
 
   return { tick, TICK_MS }
