@@ -144,11 +144,6 @@ PIE_JS = (
 )
 JS330 = dict(sv="$Bt", pc="jBt", tf="_Bt", fb="jzn", st="_", mp="fAe", cb="F8n", ly="Ly", rj="m")
 JSB = dict(sv="SFt", pc="kFt", tf="tFt", fb="dBn", st="U$", mp="Rr", cb="Xk", ly="Zq", rj="mm")
-# A pie component whose threshold is fixed at 50 and not passed as a prop; the pie anchors must not match it.
-PIE_JS_FIXED = PIE_JS.replace(
-    "threshold:n,onCompact:i,buttonClassName:o}}){{let r=t>0?Math.min(e/t*100,100):0;if(t===0||r<=n)return null;",
-    "onCompact:i,buttonClassName:o}}){{let r=t>0?Math.min(e/t*100,100):0;if(t===0)return null;if(r>=50)return null;",
-).replace(",threshold:t,onCompact:a", ",onCompact:a")
 # The class names the run button's style needs the shipped stylesheet to carry.
 RUN_CSS_TOKENS = ".codeBlockWrapper_d4{position:relative}.copyButton_e5{opacity:0}"
 # A stand-in for the shipped webview, carrying the tokens the width piece checks and the pie's code, and what a stock extension folder then holds.
@@ -189,6 +184,26 @@ class Case(unittest.TestCase):
             setattr(mod, k, v)
         with contextlib.redirect_stdout(io.StringIO()):
             mod.apply(ext)
+
+    def marker(self, ext=None):
+        return json.loads(slurp(os.path.join(ext or self.ext, "callboard-cwd-patch.json")))
+
+    def applied(self, raw=None, variant=V327, name=None, web=WEB):
+        """Patches a new stand-in with --apply; returns (its folder, its marker)."""
+        ext = self.make(variant, name=name or "applied%d" % len(os.listdir(self.t)), raw=raw, web=web)
+        self.run_script(ext, "--apply")
+        return ext, self.marker(ext)
+
+    def reads_patched(self, ext):
+        self.run_script(ext)
+        self.assertEqual((self.rc, self.out), (0, "patched 2.1.328\n"))
+
+    def reads_outdated_then_updates(self, ext, why):
+        """An install an older script built reads outdated (the first line is `outdated <version>: why`) and changes nothing; --update then rebuilds it."""
+        self.assertUnchanged(ext)
+        self.assertEqual((self.rc, self.out.splitlines()[0]), (1, "outdated 2.1.328: " + why))
+        self.run_script(ext, "--update")
+        self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "updated 2.1.328"))
 
     def assertUnchanged(self, ext, *args):
         before = snap(ext)
@@ -238,6 +253,13 @@ class Check(Case):
         self.assertEqual(self.rc, 1)
         self.assertIn("already contains cbCwd", self.out)
 
+    def test_a_file_that_holds_the_patch_prefix_cbq_is_refused(self):
+        ext = self.make(V327, name="prefix", raw=build(V327) + b"var cbqX=1;")
+        self.run_script(ext)
+        self.assertEqual((self.rc, self.out), (1, "anchors-missing 2.1.328: the file already contains cbq\n"))
+        self.assertUnchanged(ext, "--apply")
+        self.assertEqual(self.rc, 1)
+
 
 class Apply(Case):
     def test_apply_backup_marker_idempotence_and_undo(self):
@@ -250,7 +272,7 @@ class Apply(Case):
             self.assertIn(part, new)
         self.assertIn("é".encode("utf-8"), new)
         self.assertEqual(slurp(os.path.join(self.ext, "extension.js.callboard-orig")), orig)
-        marker = json.loads(slurp(os.path.join(self.ext, "callboard-cwd-patch.json")))
+        marker = self.marker(self.ext)
         self.assertEqual((marker["patch"], marker["original_sha256"], marker["patched_sha256"]),
                          (1, hashlib.sha256(orig).hexdigest(), hashlib.sha256(new).hexdigest()))
         self.assertEqual(os.stat(os.path.join(self.ext, "extension.js")).st_mode & 0o777, os.stat(os.path.join(self.ext, "extension.js.callboard-orig")).st_mode & 0o777)
@@ -266,6 +288,18 @@ class Apply(Case):
         self.assertEqual(sorted(os.listdir(self.ext)), STOCK)
         self.assertUnchanged(self.ext, "--undo")
         self.assertEqual((self.rc, self.out), (0, "nothing to undo\n"))
+
+    def test_undo_takes_every_piece_out_with_the_rest(self):
+        for variant in (V327, V328):
+            raw = build(variant)
+            ext, _ = self.applied(raw, variant)
+            for piece in (b"callboard-pie", b"callboard file session", b"cbFolderOf"):
+                self.assertIn(piece, self.js(ext))
+            self.run_script(ext, "--undo")
+            self.assertEqual((self.rc, self.js(ext)), (0, raw))
+            self.assertEqual(slurp(os.path.join(ext, "webview", "index.js")), WEB["index.js"].encode())
+            self.assertEqual(sorted(os.listdir(ext)), STOCK)
+            self.assertEqual(sorted(os.listdir(os.path.join(ext, "webview"))), ["index.css", "index.js"])
 
     def test_the_renamed_variant_patches_too(self):
         ext = self.make(V328, name="r")
@@ -369,11 +403,6 @@ console.log(JSON.stringify(ctx.Hp('/a.css', 'mono')))
 class Css(Case):
     """The CSS pieces are optional style blocks of their own in the webview page, each checked against the shipped webview; the folder patch never depends on them."""
 
-    def applied(self, raw, name="css", web=WEB):
-        ext = self.make(V327, name=name, raw=raw, web=web)
-        self.run_script(ext, "--apply")
-        return ext, json.loads(slurp(os.path.join(ext, "callboard-cwd-patch.json")))
-
     def test_each_block_goes_in_front_of_the_font_tag_once(self):
         mod = load_module()
         ext, marker = self.applied(build(V327))
@@ -410,7 +439,7 @@ class Css(Case):
         ext = self.make(V327, name="noweb", web={})
         os.symlink(os.path.join(self.t, "elsewhere.js"), os.path.join(ext, "webview", "index.js"))
         self.run_script(ext, "--apply")
-        marker = json.loads(slurp(os.path.join(ext, "callboard-cwd-patch.json")))
+        marker = self.marker(ext)
         self.assertEqual((self.rc, marker["width"], marker["pie"], marker["restore"]), (0, False, False, True))
         self.assertIn("the panel width is not in (the webview lacks", self.out)
         self.assertIn("the context pie is not in (pie anchor pie component (no match))", self.out)
@@ -443,7 +472,7 @@ class Css(Case):
             new = self.js(ext)
             self.assertEqual(new.count(b"cbCwd"), 6, label)
             self.assertNotIn(b"callboard-width", new, label)
-            marker = json.loads(slurp(os.path.join(ext, "callboard-cwd-patch.json")))
+            marker = self.marker(ext)
             self.assertEqual((marker["width"], marker["pie"]), (False, False), label)
             self.assertEqual(slurp(os.path.join(ext, "webview", "index.js")), mod_pill(WEB["index.js"]), "only the pill, which needs no page block: " + label)
             self.assertEqual(slurp(os.path.join(ext, "webview", "index.js.callboard-orig")), WEB["index.js"].encode(), label)
@@ -460,17 +489,6 @@ class Css(Case):
         self.assertEqual((self.rc, marker["width"], marker["pie"]), (0, False, True))
         self.assertEqual(self.js(ext).count(b"callboard-width"), 1)
         self.assertIn("the file already contains callboard-width", self.out)
-
-    def test_undo_takes_the_blocks_out_with_the_rest(self):
-        raw = build(V327)
-        ext, _ = self.applied(raw, name="undo")
-        self.assertIn(b"callboard-pie", self.js(ext))
-        self.run_script(ext, "--undo")
-        self.assertEqual((self.rc, self.js(ext)), (0, raw))
-        self.assertEqual(slurp(os.path.join(ext, "webview", "index.js")), WEB["index.js"].encode())
-        self.assertEqual(sorted(os.listdir(ext)), STOCK)
-        self.assertEqual(sorted(os.listdir(os.path.join(ext, "webview"))), ["index.css", "index.js"])
-
 
 # Runs the patched stand-in's group command against a fake provider that keeps the group list the way Claude's settings do, and prints what it did.
 GROUPS_RUNNER = r"""
@@ -499,11 +517,6 @@ G2 = {"id": "g2", "name": "LEAD", "collapsed": False, "sessionIds": ["s9"]}
 class Groups(Case):
     """The group command is one optional registration next to the stock add-to-group command; the folder patch never depends on it."""
 
-    def applied(self, raw, name="grp"):
-        ext = self.make(V327, name=name, raw=raw)
-        self.run_script(ext, "--apply")
-        return ext, json.loads(slurp(os.path.join(ext, "callboard-cwd-patch.json")))
-
     def drive(self, ext, groups, *calls, archived=()):
         p = subprocess.run(["node", "-e", GROUPS_RUNNER, os.path.join(ext, "extension.js"), json.dumps({"groups": groups, "calls": calls, "archived": archived})], capture_output=True, text=True, timeout=60)
         self.assertEqual(p.returncode, 0, p.stderr)
@@ -517,7 +530,7 @@ class Groups(Case):
             self.run_script(ext, "--apply")
             self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "patched 2.1.328"))
             self.assertEqual(self.out.count("warning"), 0)
-            marker = json.loads(slurp(os.path.join(ext, "callboard-cwd-patch.json")))
+            marker = self.marker(ext)
             self.assertEqual((marker["patch"], marker["width"], marker["pie"], marker["groups"], marker["session"], marker["archive"], marker["list"]), (1, True, True, True, True, True, True))
             new = self.js(ext)
             self.assertEqual((new.count(b"callboard file session"), new.count(b"callboard active session"), new.count(b"callboard archive sessions"), new.count(b"cbListOne(e){")), (1, 1, 1, 1))
@@ -599,7 +612,7 @@ class Groups(Case):
             self.assertIn("warning: the group command is not in (groups anchor (", self.out, label)
             new = self.js(ext)
             self.assertEqual((new.count(b"cbCwd"), new.count(b"callboard file session")), (6, 0), label)
-            marker = json.loads(slurp(os.path.join(ext, "callboard-cwd-patch.json")))
+            marker = self.marker(ext)
             self.assertEqual((marker["patch"], marker["groups"], marker["width"]), (1, False, True), label)
             self.run_script(ext)
             self.assertIn("warning: the group command is not in this patch", self.out, label)
@@ -620,23 +633,12 @@ class Groups(Case):
             old.GROUPS_ANCHOR = rb"(NO)(MATCH)(HERE)"
             old.apply(ext)
         self.assertNotIn(b"callboard file session", self.js(ext))
-        self.assertEqual(json.loads(slurp(os.path.join(ext, "callboard-cwd-patch.json")))["groups"], False)
-        self.assertUnchanged(ext)
-        self.assertEqual((self.rc, self.out.splitlines()[0]), (1, "outdated 2.1.328: the group command is not in"))
-        self.run_script(ext, "--update")
-        self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "updated 2.1.328"))
+        self.assertEqual(self.marker(ext)["groups"], False)
+        self.reads_outdated_then_updates(ext, "the group command is not in")
         self.assertEqual(self.js(ext), mod.patched(slurp(os.path.join(ext, "extension.js.callboard-orig")), mod.webview(ext))[0])
-        self.assertEqual(json.loads(slurp(os.path.join(ext, "callboard-cwd-patch.json")))["groups"], True)
+        self.assertEqual(self.marker(ext)["groups"], True)
         self.assertUnchanged(ext)
         self.assertEqual((self.rc, self.out), (0, "patched 2.1.328\n"))
-
-    def test_undo_takes_the_command_out_with_the_rest(self):
-        raw = build(V328)
-        ext, _ = self.applied(raw, name="undo")
-        self.assertIn(b"callboard file session", self.js(ext))
-        self.run_script(ext, "--undo")
-        self.assertEqual((self.rc, self.js(ext)), (0, raw))
-        self.assertEqual(sorted(os.listdir(ext)), STOCK)
 
     @unittest.skipUnless(shutil.which("node"), "needs node")
     def test_a_patched_copy_of_each_installed_claude_extension_still_parses(self):
@@ -654,12 +656,14 @@ class Groups(Case):
             os.makedirs(ext)
             shutil.copy(src, os.path.join(ext, "extension.js"))
             shutil.copy(os.path.join(d, "package.json"), ext)
-            shutil.copytree(os.path.join(d, "webview"), os.path.join(ext, "webview"), ignore=shutil.ignore_patterns("fonts"))
+            shutil.copytree(os.path.join(d, "webview"), os.path.join(ext, "webview"), ignore=shutil.ignore_patterns("fonts", "*.callboard-orig"))
+            web_orig = os.path.join(d, "webview", "index.js.callboard-orig")
+            if os.path.isfile(web_orig):
+                shutil.copy(web_orig, os.path.join(ext, "webview", "index.js"))
             raw = slurp(os.path.join(ext, "extension.js"))
             self.run_script(ext, "--apply")
-            if self.rc != 0:
-                continue
-            marker = json.loads(slurp(os.path.join(ext, "callboard-cwd-patch.json")))
+            self.assertEqual(self.rc, 0, "%s: the patch no longer applies: %s" % (d, self.err or self.out))
+            marker = self.marker(ext)
             self.assertEqual(marker["patch"], 1)
             if marker["groups"]:
                 self.assertEqual(self.js(ext).count(b"callboard file session"), 1, d)
@@ -723,11 +727,6 @@ const start = JSON.parse(process.argv[2])
 
 class ListAndArchive(Case):
     """The session list and the archive command are optional pieces; each costs only itself when its anchor misses."""
-
-    def applied(self, raw=None, variant=V327, name="la"):
-        ext = self.make(variant, name=name, raw=raw)
-        self.run_script(ext, "--apply")
-        return ext, json.loads(slurp(os.path.join(ext, "callboard-cwd-patch.json")))
 
     def node(self, runner, ext, cfg):
         p = subprocess.run(["node", "-e", runner, os.path.join(ext, "extension.js"), json.dumps(cfg)], capture_output=True, text=True, timeout=60)
@@ -802,7 +801,7 @@ class ListAndArchive(Case):
             ext = self.make(V327, name="miss%d" % len(os.listdir(self.t)), raw=raw)
             self.run_script(ext, "--apply")
             self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "patched 2.1.328"), label)
-            marker = json.loads(slurp(os.path.join(ext, "callboard-cwd-patch.json")))
+            marker = self.marker(ext)
             self.assertEqual([marker[f] for f in left if f in marker], [False] * len([f for f in left if f in marker]), label)
             self.assertEqual([marker[f] for f in kept], [True] * len(kept), label)
             self.assertEqual((marker["width"], marker["pie"]), (True, True), label)
@@ -824,12 +823,9 @@ class ListAndArchive(Case):
             old.LIST_ANCHOR = rb"(NO)(MATCH)(HERE)"
             old.apply(ext)
         self.assertNotIn(b"cbListOne", self.js(ext))
-        self.assertUnchanged(ext)
-        self.assertEqual((self.rc, self.out.splitlines()[0]), (1, "outdated 2.1.328: the session list is not in"))
-        self.run_script(ext, "--update")
-        self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "updated 2.1.328"))
+        self.reads_outdated_then_updates(ext, "the session list is not in")
         self.assertEqual(self.js(ext), mod.patched(slurp(os.path.join(ext, "extension.js.callboard-orig")), mod.webview(ext))[0])
-        self.assertEqual(json.loads(slurp(os.path.join(ext, "callboard-cwd-patch.json")))["list"], True)
+        self.assertEqual(self.marker(ext)["list"], True)
 
 
 class Update(Case):
@@ -855,7 +851,7 @@ class Update(Case):
             self.older(ext, **attrs)
             self.assertUnchanged(ext)
             self.assertEqual((self.rc, self.out.splitlines()[0]), (1, "outdated 2.1.328: " + why), name)
-            self.assertIn("--update", self.out)
+            self.assertIn("Run --update: it rebuilds the patch from the backup", self.out)
             self.assertUnchanged(ext, "--apply")
             self.assertEqual(self.rc, 1)
             self.assertIn("run --update", self.err)
@@ -869,7 +865,7 @@ class Update(Case):
         self.assertEqual(self.js(), self.current(orig))
         self.assertEqual(slurp(os.path.join(self.ext, "extension.js.callboard-orig")), backup)
         self.assertEqual(backup, orig)
-        marker = json.loads(slurp(os.path.join(self.ext, "callboard-cwd-patch.json")))
+        marker = self.marker(self.ext)
         self.assertEqual((marker["width"], marker["original_sha256"], marker["patched_sha256"]),
                          (True, hashlib.sha256(orig).hexdigest(), hashlib.sha256(self.js()).hexdigest()))
         self.assertEqual(sorted(os.listdir(self.ext)), ["callboard-cwd-patch.json", "extension.js", "extension.js.callboard-orig", "package.json", "webview"])
@@ -904,6 +900,16 @@ class Update(Case):
         self.assertEqual(cm.exception.code, 1)
         self.assertEqual(snap(self.ext), before)
         self.assertEqual(slurp(os.path.join(self.ext, "extension.js.callboard-orig")), orig)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(mod.main([self.ext]), 1)
+        self.assertIn("--update refuses this one", out.getvalue())
+        self.assertNotIn("Run --update", out.getvalue())
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), self.assertRaises(SystemExit):
+            mod.apply(self.ext)
+        self.assertIn("--update refuses it: run --undo, or reinstall the extension", err.getvalue())
+        self.assertNotIn("run --update", err.getvalue())
 
     def test_check_and_update_agree_when_the_names_collide(self):
         self.older(self.ext, WIDTH_CSS="a{b:c}")
@@ -1001,11 +1007,6 @@ class Restore(Case):
     SID_A = "11111111-1111-4111-8111-111111111111"
     SID_B = "22222222-2222-4222-8222-222222222222"
 
-    def applied(self, raw=None, name="restore"):
-        ext = self.make(V327, name=name, raw=raw if raw is not None else build(V327))
-        self.run_script(ext, "--apply")
-        return ext, json.loads(slurp(os.path.join(ext, "callboard-cwd-patch.json")))
-
     def test_the_three_edits_go_in_once_and_the_marker_says_so(self):
         ext, marker = self.applied()
         self.assertEqual((self.rc, marker["restore"], marker["width"]), (0, True, True))
@@ -1047,7 +1048,7 @@ class Restore(Case):
             self.assertNotIn(b"cbFolderOf", new, label)
             self.assertEqual(new.count(b"cbCwd"), 5, label)
             self.assertIn(b"callboard-width", new, label)
-            marker = json.loads(slurp(os.path.join(ext, "callboard-cwd-patch.json")))
+            marker = self.marker(ext)
             self.assertEqual((marker["restore"], marker["width"]), (False, True), label)
             self.run_script(ext)
             self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "patched 2.1.328"), label)
@@ -1062,13 +1063,6 @@ class Restore(Case):
         self.assertEqual((self.rc, marker["restore"]), (0, False))
         self.assertEqual(self.js(ext).count(b"cbFolderOf("), 1)
         self.assertIn("the file already contains cbFolderOf", self.out)
-
-    def test_undo_takes_the_restore_fix_out_with_the_rest(self):
-        raw = build(V327)
-        ext, _ = self.applied(raw, name="undo")
-        self.run_script(ext, "--undo")
-        self.assertEqual((self.rc, self.js(ext)), (0, raw))
-        self.assertEqual(sorted(os.listdir(ext)), STOCK)
 
     @unittest.skipUnless(shutil.which("node"), "needs node")
     def test_a_restored_or_reopened_panel_starts_in_the_folder_of_its_transcript(self):
@@ -1098,16 +1092,12 @@ class Restore(Case):
             mod.PIECES = mod.PIECES[:3] + mod.PIECES[-1:]
             mod.apply(ext)
         orig = self.js(ext)
-        self.assertNotIn("restore", json.loads(slurp(os.path.join(ext, "callboard-cwd-patch.json"))))
+        self.assertNotIn("restore", self.marker(ext))
         self.assertNotIn(b"cbFolderOf", orig)
-        self.assertUnchanged(ext)
-        self.assertEqual((self.rc, self.out.splitlines()[0]), (1, "outdated 2.1.328: the restore fix is not in"))
-        self.run_script(ext, "--update")
-        self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "updated 2.1.328"))
+        self.reads_outdated_then_updates(ext, "the restore fix is not in")
         self.assertEqual(self.js(ext).count(b"cbFolderOf(cbrS)"), 1)
-        self.assertTrue(json.loads(slurp(os.path.join(ext, "callboard-cwd-patch.json")))["restore"])
-        self.run_script(ext)
-        self.assertEqual((self.rc, self.out), (0, "patched 2.1.328\n"))
+        self.assertTrue(self.marker(ext)["restore"])
+        self.reads_patched(ext)
         self.run_script(ext, "--undo")
         self.assertEqual(self.js(ext), build(V327))
 
@@ -1153,9 +1143,6 @@ class Pie(Case):
     WEBJS = os.path.join("webview", "index.js")
     BAK = os.path.join("webview", "index.js.callboard-orig")
 
-    def marker(self, ext):
-        return json.loads(slurp(os.path.join(ext, "callboard-cwd-patch.json")))
-
     def shown(self, ext, level, names=JS330):
         p = subprocess.run(["node", "-e", WEB_RUNNER, os.path.join(ext, self.WEBJS), level, names["sv"], names["pc"]], capture_output=True, text=True, timeout=60)
         self.assertEqual(p.returncode, 0, p.stderr)
@@ -1168,6 +1155,7 @@ class Pie(Case):
             orig = slurp(os.path.join(ext, self.WEBJS))
             self.run_script(ext, "--apply")
             self.assertEqual((self.rc, self.out.count("warning")), (0, 0), self.out)
+            self.assertIn("Changed: extension.js and webview/index.js (backups: extension.js.callboard-orig and webview/index.js.callboard-orig, marker: callboard-cwd-patch.json", self.out)
             new, marker = slurp(os.path.join(ext, self.WEBJS)), self.marker(ext)
             self.assertEqual(slurp(os.path.join(ext, self.BAK)), orig)
             self.assertEqual((marker["pie"], marker["web_original_sha256"], marker["web_patched_sha256"]), (True, hashlib.sha256(orig).hexdigest(), hashlib.sha256(new).hexdigest()))
@@ -1176,8 +1164,7 @@ class Pie(Case):
             self.assertNotIn(b'"path"', new)
             self.assertEqual((new.count(b'width:"18",height:"18"'), new.count(b'"20"'), new.count(b"cbpTip"), new.count(b"of context remaining")), (1, 0, 3, 0))
             self.assertEqual(sorted(os.listdir(ext)), sorted(STOCK + ["callboard-cwd-patch.json", "extension.js.callboard-orig"]))
-            self.run_script(ext)
-            self.assertEqual((self.rc, self.out), (0, "patched 2.1.328\n"))
+            self.reads_patched(ext)
             self.run_script(ext, "--undo")
             self.assertEqual((self.rc, slurp(os.path.join(ext, self.WEBJS))), (0, orig))
             self.assertEqual((sorted(os.listdir(ext)), sorted(os.listdir(os.path.join(ext, "webview")))), (STOCK, ["index.css", "index.js"]))
@@ -1241,7 +1228,7 @@ class Pie(Case):
 
     @unittest.skipUnless(shutil.which("node"), "needs node")
     def test_the_page_carries_the_level_from_the_settings_of_the_config_folder(self):
-        ext, _ = Css.applied(self, build(V327), name="page")
+        ext, _ = self.applied(build(V327), name="page")
         cfg = os.path.join(self.t, "cfg")
         os.makedirs(cfg)
         script = PAGE.replace("require: () => ({})", "require, process: { env: { CLAUDE_CONFIG_DIR: process.argv[2] } }")
@@ -1287,8 +1274,13 @@ class Pie(Case):
         self.assertEqual(len(mod.PIE_ANCHORS), 3)
 
     def test_a_pie_with_a_fixed_threshold_leaves_the_pie_out_and_names_the_anchor(self):
-        self.assertEqual((PIE_JS.count("threshold:"), PIE_JS_FIXED.count("threshold:"), PIE_JS_FIXED.count("r>=50")), (2, 0, 1))
-        ext = self.make(V327, name="before330", web=dict(WEB, **{"index.js": PIE_JS_FIXED.format(**JS330)}))
+        # A pie component whose threshold is fixed at 50 and not passed as a prop; the pie anchors must not match it.
+        fixed = PIE_JS.replace(
+            "threshold:n,onCompact:i,buttonClassName:o}}){{let r=t>0?Math.min(e/t*100,100):0;if(t===0||r<=n)return null;",
+            "onCompact:i,buttonClassName:o}}){{let r=t>0?Math.min(e/t*100,100):0;if(t===0)return null;if(r>=50)return null;",
+        ).replace(",threshold:t,onCompact:a", ",onCompact:a")
+        self.assertEqual((PIE_JS.count("threshold:"), fixed.count("threshold:"), fixed.count("r>=50")), (2, 0, 1))
+        ext = self.make(V327, name="before330", web=dict(WEB, **{"index.js": fixed.format(**JS330)}))
         self.run_script(ext)
         self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "unpatched-patchable 2.1.328"))
         self.assertIn("warning: the context pie would be left out (pie anchor pie component (no match))", self.out)
@@ -1305,14 +1297,11 @@ class Pie(Case):
         orig_js = slurp(os.path.join(ext, self.WEBJS))
         self.older(ext, **NO_WEB)
         self.assertEqual(slurp(os.path.join(ext, self.WEBJS)), orig_js)
-        self.run_script(ext)
-        self.assertEqual((self.rc, self.out.splitlines()[0]), (1, "outdated 2.1.328: the context pie is not in"))
-        self.run_script(ext, "--update")
-        self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "updated 2.1.328"))
+        self.reads_outdated_then_updates(ext, "the context pie is not in")
+        self.assertIn("Changed: extension.js, webview/index.js and callboard-cwd-patch.json, rebuilt from the backups extension.js.callboard-orig and webview/index.js.callboard-orig", self.out)
         self.assertEqual((slurp(os.path.join(ext, self.BAK)), self.marker(ext)["pie"]), (orig_js, True))
         self.assertNotEqual(slurp(os.path.join(ext, self.WEBJS)), orig_js)
-        self.run_script(ext)
-        self.assertEqual((self.rc, self.out), (0, "patched 2.1.328\n"))
+        self.reads_patched(ext)
         self.run_script(ext, "--update")
         self.assertEqual(self.out, "already patched 2.1.328\n")
         self.run_script(ext, "--undo")
@@ -1327,14 +1316,10 @@ class Pie(Case):
         self.older(ext, PIE_ANCHORS=earlier, PIE_TIP_ANCHORS=())
         before = slurp(os.path.join(ext, self.WEBJS))
         self.assertEqual((before.count(b'width:"20"'), before.count(b"cbpTip")), (1, 0))
-        self.run_script(ext)
-        self.assertEqual((self.rc, self.out.splitlines()[0]), (1, "outdated 2.1.328: the patch code differs from this script's"))
-        self.run_script(ext, "--update")
-        self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "updated 2.1.328"))
+        self.reads_outdated_then_updates(ext, "the patch code differs from this script's")
         new = slurp(os.path.join(ext, self.WEBJS))
         self.assertEqual((new.count(b'width:"18"'), new.count(b'"20"'), new.count(b"cbpTip"), slurp(os.path.join(ext, self.BAK))), (1, 0, 3, orig_js))
-        self.run_script(ext)
-        self.assertEqual((self.rc, self.out), (0, "patched 2.1.328\n"))
+        self.reads_patched(ext)
         self.run_script(ext, "--undo")
         self.assertEqual(slurp(os.path.join(ext, self.WEBJS)), orig_js)
 
@@ -1345,8 +1330,10 @@ class Pie(Case):
         self.run_script(ext, "--apply")
         vars(mod).update(NO_WEB)
         self.assertEqual(mod.state(ext)[:2], ("outdated", "2.1.328"))
-        with contextlib.redirect_stdout(io.StringIO()):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
             self.assertEqual(mod.update(ext), 0)
+        self.assertIn("Changed: extension.js, webview/index.js (back to the shipped script) and callboard-cwd-patch.json, rebuilt from the backup extension.js.callboard-orig (not touched)", out.getvalue())
         self.assertEqual(slurp(os.path.join(ext, self.WEBJS)), orig_js)
         self.assertEqual((self.marker(ext)["pie"], "web_patched_sha256" in self.marker(ext), os.path.exists(os.path.join(ext, self.BAK))), (False, False, False))
         self.assertEqual(mod.state(ext)[0], "patched")
@@ -1499,6 +1486,8 @@ class Pie(Case):
             f.write("truncated")
         self.run_script(ext)
         self.assertEqual((self.rc, self.out.splitlines()[0]), (1, "outdated 2.1.328: webview/index.js.callboard-orig does not match the marker's recorded original"))
+        self.assertIn("--update refuses this one: run --undo, or reinstall the extension.", self.out)
+        self.assertNotIn("Run --update", self.out)
         self.assertUnchanged(ext, "--update")
         self.assertEqual(self.rc, 1)
         self.assertIn("nothing was changed", self.err)
@@ -1661,9 +1650,6 @@ class Pill(Case):
     WEBJS = os.path.join("webview", "index.js")
     BAK = os.path.join("webview", "index.js.callboard-orig")
 
-    def marker(self, ext):
-        return json.loads(slurp(os.path.join(ext, "callboard-cwd-patch.json")))
-
     def test_the_pill_goes_in_once_after_the_model_pill_and_undo_takes_it_out(self):
         for names in (JS330, JSB):
             web = dict(WEB, **{"index.js": PIE_JS.format(**names)})
@@ -1686,8 +1672,7 @@ class Pill(Case):
             self.assertEqual(expr[:expr.index(b"(cbfP=>")].count(b"&&"), 2, "only its two checks (a string cwd, a non-empty one) lead to the span")
             self.assertEqual(expr.count(b"children"), 0, "no children of its own for the page's renderer to fight the text with")
             self.assertEqual((expr.count(b"createElement"), expr.count(b"innerHTML"), expr.count(b"textContent")), (0, 0, 0), "text only")
-            self.run_script(ext)
-            self.assertEqual((self.rc, self.out), (0, "patched 2.1.328\n"))
+            self.reads_patched(ext)
             self.run_script(ext, "--undo")
             self.assertEqual((self.rc, slurp(os.path.join(ext, self.WEBJS)), sorted(os.listdir(ext)), self.js(ext)), (0, orig, STOCK, orig_main))
 
@@ -1824,29 +1809,21 @@ class Pill(Case):
         orig_js = slurp(os.path.join(ext, self.WEBJS))
         self.older(ext, PILL_ANCHOR=rb"no such code")
         self.assertNotIn(b'"span"', slurp(os.path.join(ext, self.WEBJS)))
-        self.run_script(ext)
-        self.assertEqual((self.rc, self.out.splitlines()[0]), (1, "outdated 2.1.328: the folder pill is not in"))
-        self.run_script(ext, "--update")
-        self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "updated 2.1.328"))
+        self.reads_outdated_then_updates(ext, "the folder pill is not in")
         self.assertEqual((self.marker(ext)["pill"], slurp(os.path.join(ext, self.BAK)), slurp(os.path.join(ext, self.WEBJS)).count(b'"span"')), (True, orig_js, 1))
-        self.run_script(ext)
-        self.assertEqual((self.rc, self.out), (0, "patched 2.1.328\n"))
+        self.reads_patched(ext)
 
     def test_an_install_with_the_stage_gated_pill_reads_outdated_and_update_replaces_it(self):
         ext = self.make(V327, name="gated")
         mod = load_module()
         def gated(js):
             m = re.search(mod.PILL_ANCHOR, js)
-            return mod.pill_web(js).replace(m.group(0), m.group(0) + m.group("st") + b"!==2&&", 1)
+            return mod.pill_web(js).replace(m.group(0), m.group(0) + m.group(0)[:m.group(0).index(b"!==2")] + b"!==2&&", 1)
         self.older(ext, pill_web=gated)
         self.assertIn(b"!==2&&typeof ", slurp(os.path.join(ext, self.WEBJS)))
-        self.run_script(ext)
-        self.assertEqual((self.rc, self.out.splitlines()[0]), (1, "outdated 2.1.328: the patch code differs from this script's"))
-        self.run_script(ext, "--update")
-        self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "updated 2.1.328"))
+        self.reads_outdated_then_updates(ext, "the patch code differs from this script's")
         self.assertNotIn(b"!==2&&typeof ", slurp(os.path.join(ext, self.WEBJS)))
-        self.run_script(ext)
-        self.assertEqual((self.rc, self.out), (0, "patched 2.1.328\n"))
+        self.reads_patched(ext)
 
     def test_a_webview_without_the_pie_still_takes_the_pill(self):
         ext = self.make(V327, name="nopie", web=dict(WEB, **{"index.js": WEB["index.js"][WEB["index.js"].index("function Foot"):]}))
@@ -1938,10 +1915,7 @@ class Run(Case):
     BAK = os.path.join("webview", "index.js.callboard-orig")
     VARIANTS = ((V327, JS330), (V328, JSB))
 
-    def marker(self, ext):
-        return json.loads(slurp(os.path.join(ext, "callboard-cwd-patch.json")))
-
-    def applied(self, name, variant=V327, names=JS330, raw=None, web=None):
+    def applied_ext(self, name, variant=V327, names=JS330, raw=None, web=None):
         web = web if web is not None else dict(WEB, **{"index.js": PIE_JS.format(**names)})
         ext = self.make(variant, name=name, raw=raw, web=web)
         self.run_script(ext, "--apply")
@@ -1965,8 +1939,7 @@ class Run(Case):
             self.assertEqual((main.count(b'case"callboard_run":'), main.index(b'case"callboard_run":') < main.index(b'case"open_url":')), (1, True), "a case of the request switch")
             self.assertEqual(main.count(b'<style id="callboard-run">'), 1)
             self.assertEqual((main.count(b'case"callboard_folder":'), main.count(b'case"open_url":')), (1, 1), "the pill's case and the stock one stay")
-            self.run_script(ext)
-            self.assertEqual((self.rc, self.out), (0, "patched 2.1.328\n"))
+            self.reads_patched(ext)
             self.run_script(ext, "--undo")
             self.assertEqual((self.rc, slurp(os.path.join(ext, self.WEBJS)), sorted(os.listdir(ext)), self.js(ext)), (0, orig_js, STOCK, orig_main))
 
@@ -1983,7 +1956,7 @@ class Run(Case):
     @unittest.skipUnless(shutil.which("node"), "needs node")
     def test_a_click_asks_the_host_for_the_text_with_the_channel_and_sends_the_answer_as_the_persons_message(self):
         for variant, names in self.VARIANTS:
-            ext = self.applied("click" + names["cb"], variant, names)
+            ext = self.applied_ext("click" + names["cb"], variant, names)
             p = subprocess.run(["node", "-e", RUN_RUNNER, os.path.join(ext, self.WEBJS), names["cb"], names["ly"], names["rj"]], capture_output=True, text=True, timeout=60)
             self.assertEqual(p.returncode, 0, p.stderr)
             got = json.loads(p.stdout)
@@ -2000,7 +1973,7 @@ class Run(Case):
     @unittest.skipUnless(shutil.which("node"), "needs node")
     def test_the_host_case_takes_the_folder_from_the_channel_passes_the_values_on_and_answers_only_text(self):
         for variant, names in self.VARIANTS:
-            ext = self.applied("host" + names["cb"], variant, names)
+            ext = self.applied_ext("host" + names["cb"], variant, names)
             p = subprocess.run(["node", "-e", RUN_HOST_RUNNER, os.path.join(ext, "extension.js")], capture_output=True, text=True, timeout=60)
             self.assertEqual(p.returncode, 0, p.stderr)
             got = json.loads(p.stdout)
@@ -2063,21 +2036,17 @@ class Run(Case):
         self.older(ext, RUN_CODE_ANCHOR=rb"no such code")
         self.assertEqual(self.marker(ext)["run"], False)
         self.assertNotIn(b"cbRun", slurp(os.path.join(ext, self.WEBJS)))
-        self.run_script(ext)
-        self.assertEqual((self.rc, self.out.splitlines()[0]), (1, "outdated 2.1.328: the run button is not in"))
-        self.run_script(ext, "--update")
-        self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "updated 2.1.328"))
+        self.reads_outdated_then_updates(ext, "the run button is not in")
         self.assertEqual((self.marker(ext)["run"], slurp(os.path.join(ext, self.BAK))), (True, orig_js))
         self.assertEqual(slurp(os.path.join(ext, self.WEBJS)).count(b'className:"cbRun "'), 1)
         self.assertEqual(self.js(ext).count(b'case"callboard_run":'), 1)
-        self.run_script(ext)
-        self.assertEqual((self.rc, self.out), (0, "patched 2.1.328\n"))
+        self.reads_patched(ext)
         self.run_script(ext, "--undo")
         self.assertEqual((self.rc, slurp(os.path.join(ext, self.WEBJS)), sorted(os.listdir(ext))), (0, orig_js, STOCK))
 
     def test_a_webview_without_the_other_pieces_still_takes_the_run_button(self):
         js = PIE_JS.format(**JS330).replace("{...Ft}", "{...Ft,x:1}")
-        ext = self.applied("alone", web=dict(WEB, **{"index.js": js.replace("threshold:n,onCompact", "onCompact")}))
+        ext = self.applied_ext("alone", web=dict(WEB, **{"index.js": js.replace("threshold:n,onCompact", "onCompact")}))
         self.assertEqual(self.marker(ext)["run"], True)
         self.assertEqual(slurp(os.path.join(ext, self.WEBJS)).count(b'className:"cbRun "'), 1)
 
