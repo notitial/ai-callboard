@@ -25,29 +25,7 @@ export async function patchUp($: any, f: (u: Up) => Up): Promise<Up> {
   throw new Error('state-busy')
 }
 
-// What belongs to the session id and not to the process: a `/clear` (a handover's, or one the person typed) starts the next id with these empty. The process keeps the timer, the
-// registered tools, the machine caches and `handedAt`.
-const sessionFresh = () => ({
-  // The plugin's own submitted texts, counted until the turn that carries each starts; `real` is work (a resume note), not a ping, nudge or notice.
-  own: new Map<string, { n: number; real: boolean }>(),
-  // Events: the ones in a submitted text not yet started, the keys spent, the sessions whose report reads signed.
-  pending: new Map<string, { keys: string[]; at: number }>(),
-  spent: new Set<string>(),
-  signed: { at: 0, set: new Set<Sid>() },
-  // Notice turns owed to this session for his own step in it (cmd.told, go.clicked), sent one a tick once it is quiet.
-  owed: [] as string[],
-  presetRun: undefined as { preset: Preset; result: string } | undefined,
-  selfNamed: false,
-  asks: undefined as { at: number; open: { ask: Ask; st: Open }[]; log: AskLogRow[] } | undefined,
-  told: new Set<string>(),
-  relayed: new Set<string>(),
-  // The takeover of a handover in this session: when it began, the tries of the record moves and of the rename, whether the moves are done and the note owed; kept per old id.
-  hand: undefined as { old: string; first: number; moves: number; renames: number; moved: boolean; noted: boolean } | undefined,
-})
 const fresh = () => ({
-  ...sessionFresh(),
-  // When this process last handed a session over: the gap between two handovers is counted on it, since the session's own state does not cross a `/clear`.
-  handedAt: undefined as number | undefined,
   timer: false,
   ticking: false,
   home: undefined as Folder | undefined,
@@ -55,6 +33,8 @@ const fresh = () => ({
   lastTimer: undefined as number | undefined,
   woke: undefined as number | undefined,
   submits: 0,
+  // The plugin's own submitted texts, counted until the turn that carries each starts; `real` is work (a resume note), not a ping, nudge or notice.
+  own: new Map<string, { n: number; real: boolean }>(),
   turnKind: undefined as 'ping' | 'unreal' | undefined,
   lastSubmit: undefined as number | undefined,
   pinged: { realEnd: 0, n: 0 },
@@ -66,12 +46,18 @@ const fresh = () => ({
   win: undefined as { at: number; w: WindowReading } | undefined,
   noSince: new Map<string, number>(),
   tableAt: 0,
-  // The reports queued about sessions.
+  // Events: the ones in a submitted text not yet started, the keys spent, the reports queued about sessions, the sessions whose report reads signed.
+  pending: new Map<string, { keys: string[]; at: number }>(),
+  spent: new Set<string>(),
   reports: [] as { about: Sid; code: string; at: number }[],
+  signed: { at: 0, set: new Set<Sid>() },
   since: 0,
   prNotes: [] as PrNote[],
-  // This folder's lead preset as registered at the session start; `presetRun` (above) is one typed run of it whose name, model and effort steps are still to run (its notice follows them).
+  // Notice turns owed to this session for his own step in it (cmd.told, go.clicked), sent one a tick once it is quiet.
+  owed: [] as string[],
+  // This folder's lead preset as registered at the session start, and one typed run of it whose name, model and effort steps are still to run (its notice follows them).
   preset: undefined as Preset | undefined,
+  presetRun: undefined as { preset: Preset; result: string } | undefined,
   prLost: new Map<string, number>(),
   prLooks: [] as number[],
   prPollAt: 0,
@@ -79,6 +65,7 @@ const fresh = () => ({
   toasted: new Set<string>(),
   logged: '',
   parentTools: false,
+  selfNamed: false,
   dialogs: new Set<string>(),
   usageAt: 0,
   usageOwed: false,
@@ -87,12 +74,19 @@ const fresh = () => ({
   checks: new Map<string, { toolUseId: string; at: number; dup: boolean; approver: unknown; facts: CheckFacts }>(),
   done: new Set<string>(),
   ownPid: undefined as number | undefined,
+  asks: undefined as { at: number; open: { ask: Ask; st: Open }[]; log: AskLogRow[] } | undefined,
+  told: new Set<string>(),
+  relayed: new Set<string>(),
   // The ask whose relay dialog is open: the controller that closes it, the first question it shows (how the ask hook knows it), whether the hook saw it go to the person, and
   // whether it closed by itself while he was idle.
   proxy: undefined as { id: string; ctrl: AbortController; first?: string; shown: boolean; idle?: boolean } | undefined,
   sweepAt: 0,
   tidyAt: 0,
   guard: undefined as { at: number; ok: boolean } | undefined,
+  // The takeover of a handover in this session, per old id: when it began, the tries of the record moves and of the rename, whether the moves are done and the note owed.
+  hand: undefined as { old: string; first: number; moves: number; renames: number; moved: boolean; noted: boolean } | undefined,
+  // When this process last handed a session over: the gap between two handovers is counted on it, since the session's own state does not cross a `/clear`.
+  handedAt: undefined as number | undefined,
 })
 export const mem = fresh()
 // The reading of the machine is kept but read again at the next use; the last good table stays its fallback.
@@ -100,7 +94,9 @@ export function staleView(): void {
   if (mem.view !== undefined) mem.view = { ...mem.view, at: 0 }
 }
 export const resetMem = (): void => void Object.assign(mem, fresh())
-export const resetSession = (): void => void Object.assign(mem, sessionFresh())
+// What belongs to the session id and not to the process: a `/clear` (a handover's, or one typed) and a `/resume` start the next id with these empty.
+const OF_SESSION = ['own', 'pending', 'spent', 'signed', 'owed', 'presetRun', 'selfNamed', 'asks', 'told', 'relayed', 'hand'] as const
+export const resetSession = (): void => void Object.assign(mem, Object.fromEntries(OF_SESSION.map((k) => [k, fresh()[k]])))
 
 // A turn that starts with a pending text spends the keys that text carried; a pending text that never started expires, its keys owed again. The spent set is capped.
 export function spendStarted(startText: unknown, now: number): void {

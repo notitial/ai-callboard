@@ -18,9 +18,8 @@
 // stays listed for the person to reopen, also after the plugin drops its row. The window has to tick at least once while the row shows that: a lead closed while
 // no window on its folder ran until its row was dropped (24 hours, or 28 days parked) reads as retired. A lead the person typed and a conductor are never archived. A retired session is filed in its tier's group before it is archived,
 // since the archive command takes only a session that sits there.
-// A session that handed itself over to a clear one in the same panel (`/callboard handover`) is archived the same way whatever its tier, a typed lead, a conductor and the manager
-// included: the plugin's `handovers.json` names each old session with its group and folder, and one in this window that has neither a table row nor a live process, on two
-// clean ticks in a row, is filed in its group and archived. The ids archived are kept, so a session is never archived twice.
+// A session that handed itself over to a clear one (`/callboard handover`) is archived the same way whatever its tier (the typed lead, a conductor and the manager too): the plugin's
+// `handovers.json` names each old session with its group and folder. The ids archived are kept, so a session is never archived twice.
 const fs = require('node:fs')
 const { pidAlive } = require('./reserved.js')
 const { procStateWith } = require('./proc.js')
@@ -65,6 +64,9 @@ async function managerOf(rows, table, name, state) {
 // The session table as the plugin wrote it: an object keyed by session id; null for a missing file (the plugin's empty table, which files the manager but
 // proves no lane retired). A file that does not parse throws, so the tick waits for a clean read instead of reading every lane as retired.
 async function readSessionTable(file) {
+  return readObject(file, 'session table')
+}
+async function readObject(file, what) {
   let text
   try {
     text = await fs.promises.readFile(file, 'utf8')
@@ -73,22 +75,14 @@ async function readSessionTable(file) {
     throw err
   }
   const j = JSON.parse(text)
-  if (!j || typeof j !== 'object' || Array.isArray(j)) throw new Error('the session table is not an object')
+  if (!j || typeof j !== 'object' || Array.isArray(j)) throw new Error(`the ${what} is not an object`)
   return j
 }
 
 // The plugin's handover record: the old sessions of each name with their group and folder. null for a missing file; a file that does not parse throws, so the tick waits.
 async function readHandovers(file) {
-  let text
-  try {
-    text = await fs.promises.readFile(file, 'utf8')
-  } catch (err) {
-    if (err && err.code === 'ENOENT') return null
-    throw err
-  }
-  const j = JSON.parse(text)
-  if (!j || typeof j !== 'object' || Array.isArray(j)) throw new Error('the handover record is not an object')
-  return Object.values(j).flatMap((e) => (Array.isArray(e?.old) ? e.old : [])).filter((o) => typeof o?.sid === 'string' && ORDER.includes(o.group) && typeof o.folder === 'string' && Number.isFinite(o.at))
+  const j = await readObject(file, 'handover record')
+  return j && Object.values(j).flatMap((e) => (Array.isArray(e?.old) ? e.old : [])).filter((o) => typeof o?.sid === 'string' && ORDER.includes(o.group) && typeof o.folder === 'string' && Number.isFinite(o.at))
 }
 
 // session id -> group name: the manager first, then the table's rows. A row marked off is not callboard's; a loose row is not filed.

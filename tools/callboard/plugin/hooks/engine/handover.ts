@@ -1,6 +1,6 @@
-// A handover: the old session's last tick (`handoverBegin`: pre-flight, marker, rename, `/clear`), and the ticks of whichever session the process runs after it (`handoverTick`:
-// the takeover, the undo, the sweep). Trust rules held here: nothing changes unless every record that has to move reads whole; the marker is the whole state between the two ids and is
-// kept in a 0700 folder; the new session takes only what its marker names, and only in the process that wrote the marker; a table write that cannot land is undone, never left half-done.
+// A handover: the old session's last tick (`handoverBegin`) and the ticks of whichever session the process runs after it (`handoverTick`: takeover, undo, sweep). Trust rules held here:
+// nothing changes unless every record that has to move reads whole; the marker (0700 folder) is the whole state between the two ids; the new session takes only what its marker names, in
+// the process that wrote it; a table write that cannot land is undone, never left half-done.
 import type { Sid, View } from '../core/model.ts'
 import { givenName } from '../core/model.ts'
 import type { Marker } from '../core/handover.ts'
@@ -19,15 +19,20 @@ const DEAD_MARKER_MS = 30_000
 const baseOf = (m: Marker): string => m.name ?? m.historic.slice(0, m.historic.lastIndexOf('~'))
 
 // ---- the old session's last tick ----
+// The marker and the counter entry of a handover that did not happen.
+async function forget($: any, old: Sid): Promise<void> {
+  await rmMarker($, old)
+  await updateHandovers($, (h) => dropHandover(h, old))
+  staleView()
+}
 // undefined: the handover may start. Else the reason it may not, with nothing changed.
-async function preflight($: any, v: View, me: Sid, historic: string): Promise<string | undefined> {
+async function preflight($: any, v: View, me: Sid): Promise<string | undefined> {
   if (v.rows === 'unknown' || v.manager === 'unknown') return 'the sessions could not be read'
   if (!(await tableReadable($))) return 'the session table could not be read'
   if ((await readAsks($)).asks.some((a) => a.asker === me)) return 'an ask of this session is still open'
   if (!(await goesIntact($))) return 'a go file could not be read'
   if (!(await trackerOk($, me))) return 'the PR watch list could not be read'
   if ((await readHandovers($)) === undefined) return 'the handover record could not be read'
-  return namesOf(v).includes(historic) ? `the name ${historic} is taken` : undefined
 }
 const namesOf = (v: View): (string | undefined)[] => [...(v.rows === 'unknown' ? [] : v.rows.values()).map((r) => r.name), ...Object.values(v.table).map((r) => r.name)]
 // Pre-flight, marker, counter, rename, `/clear`: `ok` once `/clear` has been asked for (the tick ends there), else the reason nothing changed.
@@ -41,17 +46,12 @@ export async function handoverBegin($: any, me: Sid, r: Request, now: number): P
   const base = name ?? (own.name ?? me.slice(0, 8)).replace(/~\d+$/, '')
   const n = nextNumber((await readHandovers($)) ?? {}, base, namesOf(v))
   const historic = historicName(base, n)
-  const bad = await preflight($, v, me, historic)
+  const bad = await preflight($, v, me)
   if (bad !== undefined) return { no: bad }
   const marker: Marker = { old: me, pid: own.pid, procStart: own.procStart, name, historic, file: r.focus, continuation: r.continuation, phase: 'clearing', at: now, failed: [], ...(row?.brief === undefined ? {} : { brief: row.brief }) }
   const group = groupOf(v, me)
   const saved = (await writeMarker($, marker)) && (await updateHandovers($, (h) => recordHandover(h, base, n, group === undefined ? undefined : { sid: me, group, folder: own.folder, at: now })))
-  const undo = async (reason: string) => {
-    await rmMarker($, me)
-    await updateHandovers($, (h) => dropHandover(h, me))
-    staleView()
-    return { no: reason }
-  }
+  const undo = async (reason: string) => (await forget($, me), { no: reason })
   if (!saved) return undo('the handover record could not be written')
   staleView()
   // `ran` cannot tell a failed rename from a slow one, so the registry decides: read again once before giving up.
@@ -78,9 +78,7 @@ async function giveBack($: any, me: Sid, m: Marker, reason: string): Promise<voi
   const base = baseOf(m)
   if ((await readOwnRow($, me))?.name !== base) await ran($, 'rename', base, 10_000)
   if ((await readOwnRow($, me))?.name !== base) return
-  await rmMarker($, me)
-  await updateHandovers($, (h) => dropHandover(h, me))
-  staleView()
+  await forget($, me)
   mem.owed.push(say({ msg: 'handover.notRun', p: { reason } }))
   await log($, me, 'handover-undone')
 }
@@ -127,7 +125,6 @@ async function takeover($: any, me: Sid, m: Marker, v: View, now: number): Promi
   }
   await rmMarker($, m.old)
   await log($, me, 'handover-in', m.old)
-  await log($, m.old, 'handover-out', me)
 }
 
 // Only the process that began the handover acts on its marker (its memory holds the time it began; a file that merely names the pid and start time is not enough).
@@ -143,7 +140,6 @@ export async function handoverTick($: any, me: Sid, now: number): Promise<void> 
     const live = [...v.rows.values()].some((r) => r.pid === m.pid && r.procStart === m.procStart)
     if (now - m.at > MARKER_SWEEP_MS || (!live && now - m.at > DEAD_MARKER_MS)) {
       await rmMarker($, m.old)
-      await log($, me, 'handover-swept')
     } else if (own?.pid !== m.pid || own.procStart !== m.procStart || mem.handedAt !== m.at) continue
     else if (m.old === me) {
       if (m.phase !== 'clearing' || now - m.at >= CLEAR_WAIT_MS) await giveBack($, me, m, m.phase === 'clearing' ? 'the session could not be cleared' : 'the records could not be moved')
