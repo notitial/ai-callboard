@@ -34,7 +34,7 @@ jobs:
           node-version: '22.18.0'
           package-manager-cache: false
       - name: Install the claude CLI
-        run: npm install --global @anthropic-ai/claude-code@2.1.319
+        run: npm install --global @anthropic-ai/claude-code@2.1.330
       - name: Run the test suites
         shell: bash
         env:
