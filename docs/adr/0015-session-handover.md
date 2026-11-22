@@ -76,6 +76,23 @@ window's folders with no table row and no live process, on two clean ticks and n
 session` and archived through `callboard archive sessions`, whatever the group, and remembered so it is archived once. A
 retired lane or minted lead is archived the same way already. A loose session is renamed `NAME~N` and not archived.
 
+*Amended 2026-11-23 (`/callboard archive`).* The same record and the same archive path serve a session that ends itself. The
+person types `/callboard archive` in its panel (typed only, like `handover`). It is refused when the session has no sidebar
+group (it is off, or it is not a manager, conductor, lead or lane: the sidebar's own Archive item is for those), has no
+name to find its panel by, or has any session under it, live or parked (the message names them; they are retired first; the
+manager's own sessions are every session with no lead above it). Otherwise the plugin writes a `handovers.json` entry for the
+session marked `archive: true` (the counter for the name is not used up), drops the session's own row, a lead's included,
+asks the window to close the panel once its process is gone (the spool's `close`), and sends the session's own process
+`TERM`. A write that does not land is said and the record taken back. The panels extension archives an entry marked
+`archive` without the two-minute undo wait, on the same two clean ticks. A row dropped first and a signal that fails leave
+a session with no row in the sidebar; the archive happens once the person closes the panel.
+
+*Amended 2026-11-23 (un-file).* A session that leaves its tier while it still has a table row (`/callboard lead off` in a
+typed lead, or `/callboard off`) is taken out of the group it was filed in by the panels extension's groups tick, through a
+new patch piece, `callboard unfile session` (session id, group name), which removes the session from that group and changes
+nothing else. This is a change to the Claude Code patch: after the merge the person runs `/patch-vs-claude` and reloads every
+window.
+
 ## Amends
 
 - **ADR 0012, "Tools follow capability":** six tools go to every session, `request_handover` the sixth.

@@ -19,7 +19,8 @@
 // no window on its folder ran until its row was dropped (24 hours, or 28 days parked) reads as retired. A lead the person typed and a conductor are never archived. A retired session is filed in its tier's group before it is archived,
 // since the archive command takes only a session that sits there.
 // A session that handed itself over to a clear one (`/callboard handover`) is archived the same way whatever its tier (the typed lead, a conductor and the manager too): the plugin's
-// `handovers.json` names each old session with its group and folder. The ids archived are kept, so a session is never archived twice.
+// `handovers.json` names each old session with its group and folder. A session that archives itself (`/callboard archive`) is recorded there too, marked `archive`, and is
+// archived without the undo wait. The ids archived are kept, so a session is never archived twice.
 // A session that still has a table row but no tier (`lead off` on a typed lead, or `off`) is taken out of the group it was filed in, through the patch's `callboard unfile session`,
 // and only out of that one, so a session the person moved by hand stays where it is. The record keeps it until the command answers true. `/callboard on` or `lead` files it again.
 const fs = require('node:fs')
@@ -205,7 +206,7 @@ function createGroups({ vscode, registry, state, loadTable, loadHandovers = asyn
     pending = next
   }
 
-  // The old sessions of a handover in this window with neither a table row nor a live process, gone on two clean ticks, are filed in their group and archived. One the file
+  // The old sessions of a handover or an archive in this window with neither a table row nor a live process, gone on two clean ticks (a handover also past its undo wait), are filed in their group and archived. One the file
   // command refuses is forgotten, as is one the archive command names; any other is named again at the next tick. The record keeps only ids the handover file still lists.
   async function archiveHanded({ table, rows, prior }) {
     const olds = await loadHandovers()
@@ -213,7 +214,7 @@ function createGroups({ vscode, registry, state, loadTable, loadHandovers = asyn
     const stored = state.get(keyOf(HANDED_KEY), [])
     const done = new Set(Array.isArray(stored) ? stored.filter((sid) => typeof sid === 'string') : [])
     const was = JSON.stringify([...done])
-    const gone = olds.filter((o) => !done.has(o.sid) && Date.now() - o.at > UNDO_MS && inWindow(o.folder) && !Object.hasOwn(table, o.sid) && !rows.some((r) => r.sessionId === o.sid))
+    const gone = olds.filter((o) => !done.has(o.sid) && (o.archive === true || Date.now() - o.at > UNDO_MS) && inWindow(o.folder) && !Object.hasOwn(table, o.sid) && !rows.some((r) => r.sessionId === o.sid))
     for (const o of gone.filter((x) => prior.has(x.sid))) {
       try {
         if ((await vscode.commands.executeCommand(COMMAND, o.sid, o.group, ORDER)) === false) done.add(o.sid)

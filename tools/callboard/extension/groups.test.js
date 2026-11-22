@@ -521,6 +521,18 @@ test('an old session of a handover with no table row and no process is filed in 
   assert.equal(w.archived.length, 3, 'never archived twice')
 })
 
+test('a session that archived itself is archived with no undo wait, a handover only after it; both wait for no row and no process on two clean ticks', async () => {
+  const handed = [{ sid: S(1), group: 'Lead', folder: A, at: Date.now(), archive: true }, { sid: S(2), group: 'Lead', folder: A, at: Date.now() }]
+  const w = world({ commands: ARCH, rows: [], handed, archiveAnswers: (ids) => ids })
+  await w.groups.tick()
+  assert.deepEqual([w.calls, w.archived], [[], []], 'the first tick names no one')
+  await w.groups.tick()
+  assert.deepEqual([w.calls, w.archived, w.store.handed], [[[S(1), 'Lead']], [['Lead', [S(1)]]], [S(1)]], 'the handover is still inside its undo wait')
+  const live = world({ commands: ARCH, rows: [row(1, A)], handed: [handed[0]], archiveAnswers: (ids) => ids })
+  for (let i = 0; i < 3; i++) await live.groups.tick()
+  assert.deepEqual(live.archived, [], 'a live process keeps it')
+})
+
 test('an old session that still has a table row or a live process is kept; one the archive command does not name is tried again; the record drops what the file no longer lists', async () => {
   const handed = [1, 2, 3].map((n) => ({ sid: S(n), group: 'Lead', folder: A, at: 1 }))
   const w = world({ commands: ARCH, rows: [row(1, A)], table: { [S(2)]: { name: 'D', folder: A, lead: { repos: [] } } }, handed, handedDone: [S(9)], archiveAnswers: () => [] })

@@ -6,7 +6,7 @@ import { NOW } from '../../test/gen.ts'
 
 test('every form parses to its command', () => {
   const cases: [string, Cmd][] = [
-    ['status', { op: 'status' }], ['  lanes ', { op: 'lanes' }], ['help', { op: 'help' }], ['off', { op: 'off' }], ['on', { op: 'on' }], ['rest', { op: 'rest' }], ['lead off', { op: 'lead-off' }], ['lead', { op: 'lead', paths: [] }],
+    ['status', { op: 'status' }], ['  lanes ', { op: 'lanes' }], ['help', { op: 'help' }], ['off', { op: 'off' }], ['on', { op: 'on' }], ['rest', { op: 'rest' }], ['archive', { op: 'archive' }], ['lead off', { op: 'lead-off' }], ['lead', { op: 'lead', paths: [] }],
     ['lead /Users/x/a ~/b', { op: 'lead', paths: ['/Users/x/a', '~/b'] }], ['conductor reset', { op: 'conductor', paths: [], reset: true }], ['conductor pick', { op: 'conductor', paths: [], pick: true }], ['go ship the thing', { op: 'go', text: 'ship the thing' }], ['go off', { op: 'go-off' }], ['go off abc', { op: 'go-off', id: 'abc' }],
     ['unattended', { op: 'unattended', span: { op: 'state' } }], ['unattended off', { op: 'unattended', span: { op: 'off' } }], ['unattended 2h', { op: 'unattended', span: { op: 'on', end: NOW + 2 * 3_600_000 } }],
     ['remote kid on', { op: 'remote', name: 'kid', on: true }], ['remote kid off', { op: 'remote', name: 'kid', on: false }], ['config', { op: 'config', config: 'show' }], ['config reset', { op: 'config', config: 'reset' }], ['config keepalive off', { op: 'config', config: { key: 'keepalive', value: false } }],
@@ -16,7 +16,7 @@ test('every form parses to its command', () => {
 })
 
 test('a form that does not fit is bad; a window length that does not fit says so', () => {
-  for (const a of ['', 'bogus', 'status now', 'on 1', 'lead rel/path', 'lead /a\u0007b', 'go', 'go Off', 'go OFF now', 'go off all goes', 'config ping', 'config ping 10', 'config ping 56', 'config stop 3k', 'config idle 100', 'config keepalive maybe', 'remote', 'remote kid', 'remote kid maybe', 'remote kid on now', 'remote bad!name on', 'remote on kid', 'config __proto__ 5', 'config constructor 5', 'config toString 5', 'unattended soon'])
+  for (const a of ['', 'bogus', 'archive now', 'archive /a', 'status now', 'on 1', 'lead rel/path', 'lead /a\u0007b', 'go', 'go Off', 'go OFF now', 'go off all goes', 'config ping', 'config ping 10', 'config ping 56', 'config stop 3k', 'config idle 100', 'config keepalive maybe', 'remote', 'remote kid', 'remote kid maybe', 'remote kid on now', 'remote bad!name on', 'remote on kid', 'config __proto__ 5', 'config constructor 5', 'config toString 5', 'unattended soon'])
     assert.deepEqual(parseCommand(a, NOW), { op: 'bad' }, a)
   assert.deepEqual(parseCommand('unattended 10m', NOW), { op: 'bad', detail: 'short' })
   assert.deepEqual(parseCommand('unattended 20h', NOW), { op: 'bad', detail: 'long' })
@@ -26,7 +26,7 @@ test('a form that does not fit is bad; a window length that does not fit says so
 const FORMS: [string, boolean][] = [
   ['status', true], ['lanes', true], ['help', true], ['rest', true], ['config', true], ['unattended', true],
   ['off', false], ['on', false], ['lead /Users/x/a', false], ['lead off', false], ['go do the thing', false], ['go off', false], ['unattended 2h', false], ['unattended off', false],
-  ['remote kid on', false], ['remote kid off', false], ['conductor reset', false], ['config reset', false], ['config keepalive on', false], ['config ping 40', false], ['handover', false],
+  ['remote kid on', false], ['remote kid off', false], ['conductor reset', false], ['config reset', false], ['config keepalive on', false], ['config ping 40', false], ['handover', false], ['archive', false],
 ]
 test('origin: only the read-only forms and rest run from anywhere; every other form needs exactly the typed turn', () => {
   for (const [args, open] of FORMS) {

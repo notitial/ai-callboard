@@ -89,7 +89,8 @@ is the force stop: it always asks you and is refused while unattended mode is on
    itself over to a clear one in the same panel (`request_handover`, or the person's typed `/callboard handover`): it
    keeps its name, role, parent, children, goes and PR watches, and the old conversation is renamed `NAME~N`.
 6. A lane finishes, signs its report, and its lead retires it. The lead is told of a signature in a check-in. A lane
-   you may need again is parked instead.
+   you may need again is parked instead. A session you are done with ends itself and is archived in the sidebar when you
+   type `/callboard archive` in its panel (refused while it has sessions under it).
 7. Before a long stretch, give a lead one go for the whole body of work (`/callboard go TEXT`, one to three lines) so
    its lanes do not ask again for each step; a lead can ask for one with `go_request`, which opens your dialog. A go
    lasts 24 hours or until `/callboard go off`, covers the session and the sessions under it, and never covers a merge,

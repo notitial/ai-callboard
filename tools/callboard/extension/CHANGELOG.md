@@ -4,6 +4,7 @@ The version stays fixed between these entries: a change to the code is an update
 
 ## 1.8.0
 
+- A `handovers.json` entry marked `archive` (a session that typed `/callboard archive`) is archived on the two clean ticks with no two-minute wait. A window reload is enough; the manifest and the patch are unchanged by this entry.
 - A session that still has a row in the plugin's table but no tier (`/callboard lead off` in a lead you typed, or `/callboard off`) is taken out of the sidebar group it was filed in, through a new patch piece, `callboard unfile session` (the marker's `unfile` field). A session you moved into another group stays there. An install patched before reads `outdated` until `/patch-vs-claude` brings it up to date; a window reload loads it.
 - The status bar item that named the folder of the Claude panel in front is removed, and with it the patch's `callboard active session` command that only it used (the folder pill in the composer stays). An install patched before reads `outdated` until `/patch-vs-claude` brings it up to date.
 - The earlier request files under `~/.claude/callboard/open/` (`<NAME>.open`, `.reopen`, `.close` and `.lead`), the lead records in `~/.claude/callboard/lead-records/` and the limits on opens (a gap per name, 8 live sessions per repo, 6 opens a minute) are gone. The extension reads one spool, `~/.claude/callboard/v2/open/`, with a JSON `<id>.req` per request. The entries from 1.0.0 to 1.4.0 below describe the earlier files as they were.
