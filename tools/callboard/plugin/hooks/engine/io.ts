@@ -27,10 +27,15 @@ export function toast($: any, text: string): void {
     Promise.resolve($.ui.toast(text)).catch(() => undefined)
   } catch {}
 }
-// A line under the open dialog of a call; the engine logs a refusal and throws nothing.
-export function notice($: any, tid: string, text: string): void {
+// The OS notification beside a relayed ask's dialog, keyed by the ask, and its withdrawal. Both only inform: a host that cannot raise or withdraw one changes nothing.
+export function notify($: any, key: string, text: string): void {
   try {
-    $.ui.notice(tid, text)
+    Promise.resolve($.ui.notify(text, { key })).catch(() => undefined)
+  } catch {}
+}
+export function unnotify($: any, key: string): void {
+  try {
+    Promise.resolve($.ui.cancelNotify(key)).catch(() => undefined)
   } catch {}
 }
 
@@ -179,7 +184,7 @@ export async function windowNow($: any, fresh = false): Promise<WindowReading> {
   mem.win = { at: now, w }
   return w
 }
-// The one dialog helper: it opens only while the window reads off, one at a time in this session, and records the open dialog's header and question until it ends (a pop-up
+// The dialog helper of the go and force-stop dialogs: it opens only while the window reads off, one at a time in this session, and records the open dialog's header and question until it ends (a pop-up
 // left on screen after its time limit stays recorded). Only the label a dialog offered is an answer; any other result is a reason.
 export async function personDialog($: any, spec: DialogSpec, ms = 90_000): Promise<{ label: string } | { no: 'unattended' | 'busy' | 'timeout' | 'error' }> {
   if ((await windowNow($, true)).state !== 'off') return { no: 'unattended' }

@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { EXPIRE_MS, HEAD_START_MS, MANAGER_AT_MS, awakeAdd, classify, decide, inputText, noteOf, questionShape, questionView, questionsView, stage, sweep } from './asks.ts'
+import { EXPIRE_MS, HEAD_START_MS, MANAGER_AT_MS, awakeAdd, classify, decide, inputText, noteOf, questionShape, questionView, questionsView, readAnswers, stage, sweep } from './asks.ts'
 import type { CheckFacts, Open, StageIn } from './asks.ts'
 import { PERSON, ancestors, liveView } from './model.ts'
 import type { Answer, Ask, Sid, Table, UpMark, View } from './model.ts'
@@ -211,4 +211,17 @@ test('an escalate note is one trimmed line of at most 300 characters; empty, bla
   assert.equal(noteOf('é'.repeat(400))!.length, 300)
   assert.equal(Array.from(noteOf('😀'.repeat(400))!).length, 300)
   for (const x of ['', ' \n\t ', 7, null, undefined, { a: 1 }]) assert.equal(noteOf(x), undefined)
+})
+
+test('a relayed dialog\'s result is one pick per question, or what he typed or picked beyond one label as a note; a dialog that closed by itself or holds nothing is no answer', () => {
+  const sent = [{ question: 'One?', options: [{ label: 'A' }, { label: 'B' }] }, { question: 'Two?', options: [{ label: 'C' }, { label: 'D' }] }]
+  assert.deepEqual(readAnswers(sent, { questions: [], answers: { 'One?': 'B', 'Two?': 'C' } }), { picks: [2, 1] })
+  assert.deepEqual(readAnswers(sent.slice(0, 1), { answers: { 'One?': 'A' } }), { picks: [1] })
+  assert.deepEqual(readAnswers(sent, { answers: { 'One?': 'B', 'Two?': 'my own words' } }), { note: 'B\nmy own words' }, 'a typed answer is no pick')
+  assert.deepEqual(readAnswers(sent, { answers: { 'One?': 'A, B', 'Two?': 'C' } }), { note: 'A, B\nC' }, 'several picks of a multi-select are no single pick')
+  assert.deepEqual(readAnswers(sent, { answers: { 'One?': 'A' } }), { note: 'A' }, 'a question left out')
+  assert.deepEqual(readAnswers(sent, { answers: { 'One?': 'A', 'Two?': 'C' }, response: 'wait' }), { note: 'A\nC\nwait' })
+  assert.equal(readAnswers(sent, { answers: { 'One?': 'A', 'Two?': 'C' }, afkTimeoutMs: 60_000 }), undefined, 'nobody picked it')
+  for (const r of [undefined, null, 'x', {}, { answers: {} }, { answers: { 'One?': 7 } }]) assert.equal(readAnswers(sent, r), undefined)
+  assert.equal(readAnswers([], { answers: {} }), undefined)
 })
