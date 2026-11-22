@@ -141,6 +141,17 @@ EXT_DIR="$(ls -d "$HOME"/.vscode/extensions/anthropic.claude-code-* | sort -V | 
   piece needs two anchors that must each match once, one in `webview/index.js` and one in `extension.js` (the webview asks the
   extension through the connection it already has); when one does not, the check and `--apply` warn that the pill is left out
   and the other pieces still apply. An install made before it reads `outdated`, and `--update` brings it in.
+- The run button (the marker's `run` field) puts a small ▶ button before Copy on shell code blocks in a chat (no language, or
+  sh, bash, zsh, shell, console) and runs the block on your click, then sends the command, its output and its exit status into
+  the same chat as your message, so Claude answers it. A click opens VS Code's own modal with the folder and the whole
+  command, and "Don't run" is its default button (Enter); only "Run" starts it. It runs `$SHELL -lc` in the session's folder, with a Cancel button and a
+  2-minute limit, and keeps the first and last part of long output. When the output looks like it holds a secret, a second
+  modal asks whether to send it masked (the default), as it is, or not at all; the scan is best effort. The run is yours, so
+  it can do what Claude's own hooks block: read the command before you click Run. It needs the panels extension (it does the
+  running) and three anchors that must each match once, two in `webview/index.js` and one in `extension.js`; when one does
+  not, the check and `--apply` warn that the button is left out and the other pieces still apply. A panel reloaded during a run
+  loses the output. An install made before it reads `outdated`, and `--update` brings it in. The decision is
+  [ADR 0014](adr/0014-run-button.md).
 - The patch also carries a restore fix, optional in the same way (the marker's `restore` field, a warning when an anchor is not
   found, one `--undo`): a Claude panel that VS Code restores at a window reload, or that Claude Code reopens (Reopen Closed
   Session), starts in the folder that holds its conversation instead of the window's first folder, so it resumes that
