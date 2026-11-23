@@ -43,8 +43,9 @@ first; it is the source for every step here, and wins where the two differ.
    - The live checkout: run `git -C <checkout> remote get-url origin`; it must print
      `https://github.com/notitial/ai-manager.git`, else show it and stop. Then run
      `git -C <checkout> --no-pager -c core.hooksPath=/dev/null -c core.fsmonitor=false status -sb` (the flags keep git from running a pager, hook or
-     monitor a changed `.git/config` could name). Good: `## main...origin/main` and nothing else. Another
-     branch, local changes or commits ahead: show it and stop; the person sorts it out (never you).
+     monitor a changed `.git/config` could name). Good: `## main...origin/main`, with ` [behind N]` allowed after it (an earlier fetch leaves
+     it behind, never `[ahead`), and nothing else. Another branch, local changes or commits ahead: show it and stop; the
+     person sorts it out (never you).
    - An earlier root-owned install, only on a Mac set up before the plugin: run `ls -d /usr/local/libexec/callboard`.
      If it exists, give the person `sudo rm -rf /usr/local/libexec/callboard`, to run in a terminal (it needs sudo),
      and say step 5 replaces its `env` value.

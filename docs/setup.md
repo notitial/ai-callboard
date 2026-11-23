@@ -643,7 +643,7 @@ Control lists every machine's sessions: write that name into `manager-name` on t
 
 | Part | Check | Good when |
 |---|---|---|
-| Live checkout | `git -C <checkout> --no-pager -c core.hooksPath=/dev/null -c core.fsmonitor=false status -sb` | `## main...origin/main` and nothing else |
+| Live checkout | `git -C <checkout> --no-pager -c core.hooksPath=/dev/null -c core.fsmonitor=false status -sb` | `## main...origin/main`, with ` [behind N]` allowed after it (never `[ahead`), and nothing else |
 | Origin | `git -C <checkout> remote get-url origin` | `https://github.com/notitial/ai-manager.git` |
 | Old install gone | `ls /usr/local/libexec/callboard` | No such file or directory |
 | Old panels copy | `ls ~/.vscode/extensions \| grep -i local.callboard-panels` | it prints nothing |
