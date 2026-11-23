@@ -297,7 +297,10 @@ test('/callboard archive: a session callboard is off for is refused, and a form 
 })
 
 test('/callboard archive: a session with no name, or one the spool would refuse, is archived and stopped with no close request, and the answer says to close the panel', async () => {
-  for (const w of [archiveWorld({}, null), archiveWorld({}, 'a'.repeat(26))]) {
+  const spaced = archiveWorld({}, 'my chat v1.2')
+  assert.equal((await run(spaced.f, 'archive', 'composer')).text, T['cmd.archive']({ ok: true, closed: true }))
+  assert.deepEqual(spaced.kills[0]!.at.closes, [{ op: 'close', sid: 'sid-me', pid: 10, name: 'my chat v1.2', folder: '/w/me' }], 'a generated name with spaces is a label the spool takes')
+  for (const w of [archiveWorld({}, null), archiveWorld({}, 'a'.repeat(26)), archiveWorld({}, 'bad\u0007name')]) {
     assert.equal((await run(w.f, 'archive', 'composer')).text, T['cmd.archive']({ ok: true, closed: false }))
     assert.deepEqual(w.kills.map((k) => k.argv), [['/bin/kill', '-TERM', '10']])
     assert.deepEqual(w.kills[0]!.at.closes, [], 'no close request: the panel cannot be found by this name')

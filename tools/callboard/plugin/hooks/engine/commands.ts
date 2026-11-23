@@ -2,7 +2,7 @@
 // it for a form that widens what a session may do (lead, conductor, off, on, go, go off, unattended on and off, config changes, remote); a write that does not land is said, never reported as done; a path a
 // lead is given is resolved to its real path; the table is written under its lock.
 import type { Row, Sid, View } from '../core/model.ts'
-import { NAME_RE, PERSON, capability, children, descendants, isConductor, isMinted, isOff, keysNamed, nameOf, parent, refusal } from '../core/model.ts'
+import { LABEL_RE, PERSON, capability, children, descendants, isConductor, isMinted, isOff, keysNamed, nameOf, parent, refusal } from '../core/model.ts'
 import type { Cmd, Origin } from '../core/commands.ts'
 import { configNext, parsePreset, planCommand } from '../core/commands.ts'
 import { GO_HOURS, covers } from '../core/go.ts'
@@ -148,8 +148,9 @@ export async function perform($: any, cmd: Cmd, me: Sid, v: View, now: number, s
         return say(refusal('refuse', 'not-saved', { tool: 'callboard', target: cmd.op, detail: 'lane' }))
       }
       // The close finds the panel by its exact name, so a name the spool would refuse skips it and the person closes the panel.
-      const closed = own.name !== undefined && NAME_RE.test(own.name)
-      if (closed) await spoolSend($, { op: 'close', sid: me, pid: own.pid, name: own.name, folder: own.folder })
+      const name = own.name
+      const closed = name !== undefined && LABEL_RE.test(name)
+      if (closed) await spoolSend($, { op: 'close', sid: me, pid: own.pid, name, folder: own.folder })
       // The session ends itself: no wait for its row to go, which a stop of its own process cannot see.
       return T['cmd.archive']({ ok: (await run($, ['/bin/kill', '-TERM', String(own.pid)])).exitCode === 0, closed })
     }
