@@ -38,7 +38,7 @@ Outside those directories, do not search for `package.json`, `Makefile`, or simi
   architectural change; propose a new ADR when a significant decision is made.
 - `docs/setup.md` — the install order on a machine.
 - `.claude/skills/` — the manager's project skills; `.claude/skills/setup-manager/` walks a person through
-  `docs/setup.md`.
+  `docs/setup.md`, and `.claude/skills/update-manager/` updates the install and then runs it.
 - `rules/callboard.md` — an always-on global rule for callboard's turns, linked into `~/.claude/rules/` by hand.
 - `tools/` — the callboard plugin and its panels extension, and the usage watcher, each with its own tests;
   `tools/test-all.sh` runs them all.
@@ -77,7 +77,8 @@ from it (`docs/setup.md`). It stays on `main` and moves only by a fast-forward t
 
 - Code changes go in a plain clone under `/tmp`, such as `/tmp/ai-manager-<task>`, never a worktree. Git MCP calls
   pass `path` set to that clone.
-- Never edit tracked files in the live checkout, and never switch its branch. `.archive/` (state, handoffs, reports)
+- Never edit tracked files in the live checkout, and never switch its branch. The one agent move is `/update-manager`'s
+  fast-forward pull, after the person has seen what comes in. `.archive/` (state, handoffs, reports)
   stays in the live checkout.
 - `/tmp` is wiped on reboot: push the branch before stopping or handing over.
 - A callboard lead or lane still runs in the live repo folder, because callboard keys a session to the folder it

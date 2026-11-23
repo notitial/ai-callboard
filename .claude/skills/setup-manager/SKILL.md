@@ -1,7 +1,6 @@
 ---
 name: setup-manager
-description: "Walk the person through docs/setup.md on this Mac: prerequisites (VS Code and the Claude Code extension among them), callboard from the live checkout (the panels extension link, a check that VS Code loaded it, the state of the Claude Code extension patch, the callboard rule link and the default load), the deny line for the store, the protected-paths hook and its markers (needed before any tier's answer counts), the usage watcher, the old-watcher cut-over, the manager-name file, and a final status table. Runs only read-only checks and dry runs; every --apply, sudo, settings edit, link and launchctl bootout is shown as an exact command for the person to run, and the patch is applied only by the person's own /patch-vs-claude. Use on '/setup-manager'."
-disable-model-invocation: true
+description: "Walk the person through docs/setup.md on this Mac: prerequisites (VS Code and the Claude Code extension among them), callboard from the live checkout (the panels extension link, a check that VS Code loaded it, the state of the Claude Code extension patch, the callboard rule link and the default load), the deny line for the store, the protected-paths hook and its markers (needed before any tier's answer counts), the usage watcher, the old-watcher cut-over, the weekly update reminder, the manager-name file, and a final status table. Runs only read-only checks and dry runs; every --apply, sudo, settings edit, link and launchctl bootout is shown as an exact command for the person to run, and the patch is applied only by the person's own /patch-vs-claude. Use on '/setup-manager'. An agent runs it only when the person asks for the setup, or from /update-manager."
 ---
 
 # /setup-manager
@@ -23,7 +22,7 @@ first; it is the source for every step here, and wins where the two differ.
 - Fill in `<checkout>` with the person's live checkout (`pwd -P` in a session started there). It must match
   `^/[A-Za-z0-9._/-]+$`; otherwise build no command with it, and stop. Callboard loads from
   it, so it must stay on `main` and move only by a fast-forward to a reviewed commit (docs/setup.md, Updating): never pull, check out or edit there
-  yourself. For the usage watcher, `<commit>` is `git -C <checkout> rev-parse HEAD`; ask the person to confirm it is
+  yourself (`/update-manager` pulls, before it runs this skill). For the usage watcher, `<commit>` is `git -C <checkout> rev-parse HEAD`; ask the person to confirm it is
   a commit of `main` they have read.
 - `<toolkit>` is the person's ai-toolkit checkout: ask them for its absolute path. It must match the same pattern;
   otherwise build no command with it, and stop.
@@ -139,11 +138,31 @@ first; it is the source for every step here, and wins where the two differ.
     `jq -e '[.hooks.SessionStart[]?.hooks[]?.command] | any(endswith("/usage-watcher/account-stamp.sh"))' ~/.claude/settings.json`.
     `true`: an earlier install registered a hook that is retired. Show the person the entry, to remove from
     `hooks.SessionStart` by hand (never edit the settings file for them).
-11. **Manager name.** Ask the person which name this machine's manager will carry (a second machine needs another
+11. **Update reminder.** A weekly one-line reminder at session start when a newer release exists, from ai-toolkit's
+    `update-check.sh` (docs/setup.md, The update reminder). Run `ls ~/.claude/hooks/update-check.sh`. Missing: say in
+    one line that ai-toolkit's update check is not installed here, so there is no update reminder (update ai-toolkit and
+    run `/setup-claude`, then this skill again), and go on. Present: run
+    `jq -e --arg c '<checkout>' '[.hooks.SessionStart[]? | select(.matcher == "startup") | .hooks[]? | .command // ""] | any(endswith("update-check.sh --update /update-manager " + $c))' ~/.claude/settings.json`.
+    `true`: done. `false`: show the person the entry below, with `<checkout>` filled in, to add to `hooks.SessionStart`
+    by hand (never edit the settings file for them), beside ai-toolkit's own entry, which stays:
+
+    ```json
+    {
+      "matcher": "startup",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "$HOME/.claude/hooks/update-check.sh --update /update-manager <checkout>",
+          "timeout": 10
+        }
+      ]
+    }
+    ```
+12. **Manager name.** Ask the person which name this machine's manager will carry (a second machine needs another
     name). Run `cat ~/.claude/callboard/manager-name`: it must print that one name. Missing or different: give them the
     file block from docs/setup.md, The manager's name and rules, with their name filled in (the folder is one agents
     cannot write, so they run it).
-12. **Tests.** Offer `bash tools/test-all.sh --quick` (run it on a yes; it only reads and uses temp folders).
+13. **Tests.** Offer `bash tools/test-all.sh --quick` (run it on a yes; it only reads and uses temp folders).
 
 ## Status table
 
@@ -166,6 +185,7 @@ End with one table, from the checks as they stand now (run them again; do not re
 | Old watcher | none / unloaded / still loaded: LABEL |
 | Usage watcher | ok / needs attention / skipped: no network |
 | Retired SessionStart hook | absent / still registered |
+| Update reminder | entry present / entry shown to add / skipped: ai-toolkit's update check missing |
 | Manager name | file holds NAME / missing / skipped |
 | Tests | passed / N failed / not run |
 

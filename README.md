@@ -13,7 +13,7 @@ The manager role for Claude Code, and the tools it runs on: one session per mach
 - **The manager role** ([docs/manager/](docs/manager/)): what the session carrying the manager's name does. It decides across leads and repos, reviews their work and reports. It does no work itself and approves nothing: every go is typed by the person in the session that acts on it.
 - **Callboard** ([tools/callboard/](tools/callboard/)): a Claude Code plugin through which a lead creates, opens, starts, parks and retires its lanes. The person makes a session a lead by typing `/callboard lead`, and a force stop of a live lane asks every time. A VS Code panels extension comes with it.
 - **The usage watcher** ([tools/usage-watcher/](tools/usage-watcher/)): a small launchd job that measures how fast each session burns tokens and writes one summary the manager reads to spot a runaway session early.
-- **Project skills** ([.claude/skills/](.claude/skills/)): a monthly read-only audit, a bounded keep-awake, a display-off command and a guided setup ([setup-manager](.claude/skills/setup-manager/SKILL.md)).
+- **Project skills** ([.claude/skills/](.claude/skills/)): a monthly read-only audit, a bounded keep-awake, a display-off command, a guided setup ([setup-manager](.claude/skills/setup-manager/SKILL.md)) and an update ([update-manager](.claude/skills/update-manager/SKILL.md)).
 - **The callboard rule** ([rules/callboard.md](rules/callboard.md)): an always-on rule for how a session answers callboard's keepalive, nudges and notices.
 
 ## Getting Started

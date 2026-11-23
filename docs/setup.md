@@ -659,11 +659,58 @@ Control lists every machine's sessions: write that name into `manager-name` on t
 | Usage watcher | `bash tools/usage-watcher/install.sh --status --ref <commit>` | exit 0, the job loaded |
 | Summary | `ls -l ~/.local/state/usage-watcher/usage-summary.json` | written in the last 5 minutes |
 | Retired hook | read `hooks.SessionStart` in `~/.claude/settings.json` | no `account-stamp.sh` entry |
+| Update reminder | `jq -e --arg c '<checkout>' '[.hooks.SessionStart[]? \| select(.matcher == "startup") \| .hooks[]? \| .command // ""] \| any(endswith("update-check.sh --update /update-manager " + $c))' ~/.claude/settings.json` | `true`; optional, and needs ai-toolkit's `~/.claude/hooks/update-check.sh` ([The update reminder](#the-update-reminder)) |
 | Old watcher | `launchctl list \| grep usage-watcher` | only `io.notitial.usage-watcher` |
 | Rule link | `ls -l ~/.claude/rules/callboard.md` | it points at `<checkout>/rules/callboard.md` |
 | Tests | `bash tools/test-all.sh` | every suite passes or skips |
 
 ## Updating
+
+Type `/update-manager` in a session in this checkout. The skill
+([.claude/skills/update-manager/SKILL.md](../.claude/skills/update-manager/SKILL.md)) checks that the checkout is on
+`main` and clean, fetches, shows you the commits and the files that come in, and pulls (`git pull --ff-only`) only on
+your yes. It then shows what changed since your old version, runs `/setup-manager`, and ends with the version now
+installed and anything left for you to do, such as copying a settings entry or reloading VS Code. Read the diff
+first if the change matters: [By hand](#by-hand) shows the command, and is the way to install one specific reviewed
+commit instead of the newest.
+
+### The update reminder
+
+Once a week, at the start of a session, ai-toolkit's `update-check.sh` asks GitHub for ai-manager's latest release
+and, while your checkout is behind it, prints one line naming the new version. It sends nothing about you or your
+machine, makes one unauthenticated request with a 3 second cap, and says nothing when offline. It needs ai-toolkit
+installed (`/setup-claude` puts the script at `~/.claude/hooks/update-check.sh`); without it `/setup-manager` says so
+and skips this step. `/setup-manager` (step 11) shows you the `SessionStart` entry to add to `~/.claude/settings.json`
+by hand, beside ai-toolkit's own; `<checkout>` is this checkout, which tells the script which repo to ask about:
+
+```json
+{
+  "matcher": "startup",
+  "hooks": [
+    {
+      "type": "command",
+      "command": "$HOME/.claude/hooks/update-check.sh --update /update-manager <checkout>",
+      "timeout": 10
+    }
+  ]
+}
+```
+
+The reminder names `/skip-update` and `/disable-update`; those are ai-toolkit's own skills and act on the ai-toolkit
+checkout, so in ai-manager's checkout run the script directly. To skip the newest release until a later one
+appears:
+
+```
+bash ~/.claude/hooks/update-check.sh --update /update-manager --skip <checkout>
+```
+
+To turn the reminder off, or back on when it is off:
+
+```
+bash ~/.claude/hooks/update-check.sh --update /update-manager --toggle <checkout>
+```
+
+### By hand
 
 First check where it pulls from: this must print `https://github.com/notitial/ai-manager.git`. Anything else: stop.
 
