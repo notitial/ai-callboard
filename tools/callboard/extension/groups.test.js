@@ -531,27 +531,48 @@ test('an old session of a handover with no table row and no process is filed in 
   await w.groups.tick()
   assert.deepEqual(w.calls, [[S(1), 'Lead'], [S(2), 'Conductor'], [S(3), 'Manager']], 'filed in its group first; a session of another window is not touched')
   assert.deepEqual(w.archived, [['Lead', [S(1)]], ['Conductor', [S(2)]], ['Manager', [S(3)]]])
-  assert.deepEqual(w.store.handed, [S(1), S(2), S(3)])
+  assert.deepEqual(w.store.handed, [`${S(1)}@1`, `${S(2)}@1`, `${S(3)}@1`])
   await w.groups.tick()
   await w.groups.tick()
   assert.equal(w.archived.length, 3, 'never archived twice')
 })
 
 test('a session that archived itself is archived with no undo wait, a handover only after it; both wait for no row and no process on two clean ticks', async () => {
-  const handed = [{ sid: S(1), group: 'Lead', folder: A, at: Date.now(), archive: true }, { sid: S(2), group: 'Lead', folder: A, at: Date.now() }]
+  const at = Date.now()
+  const handed = [{ sid: S(1), group: 'Lead', folder: A, at, archive: true }, { sid: S(2), group: 'Lead', folder: A, at }]
   const w = world({ commands: ARCH, rows: [], handed, archiveAnswers: (ids) => ids })
   await w.groups.tick()
   assert.deepEqual([w.calls, w.archived], [[], []], 'the first tick names no one')
   await w.groups.tick()
-  assert.deepEqual([w.calls, w.archived, w.store.handed], [[[S(1), 'Lead']], [['Lead', [S(1)]]], [S(1)]], 'the handover is still inside its undo wait')
+  assert.deepEqual([w.calls, w.archived, w.store.handed], [[[S(1), 'Lead']], [['Lead', [S(1)]]], [`${S(1)}@${at}`]], 'the handover is still inside its undo wait')
   const live = world({ commands: ARCH, rows: [row(1, A)], handed: [handed[0]], archiveAnswers: (ids) => ids })
   for (let i = 0; i < 3; i++) await live.groups.tick()
   assert.deepEqual(live.archived, [], 'a live process keeps it')
 })
 
+test('a session archived, brought back with Unarchive and archived again is archived the second time too', async () => {
+  const handed = [{ sid: S(1), group: 'Lead', folder: A, at: 1, archive: true }, { sid: S(1), group: 'Lead', folder: A, at: 2, archive: true }]
+  const w = world({ commands: ARCH, rows: [], handed, handedDone: [`${S(1)}@1`], archiveAnswers: (ids) => ids })
+  for (let i = 0; i < 3; i++) await w.groups.tick()
+  assert.deepEqual([w.archived, w.store.handed], [[['Lead', [S(1)]]], [`${S(1)}@1`, `${S(1)}@2`]], 'the first entry was done already; the second is archived once')
+})
+
+test('a manager that was archived is filed again when it is brought back with Unarchive and resumed', async () => {
+  const rows = []
+  const w = world({ commands: ARCH, rows, manager: 'BOSS', done: { [S(1)]: 'Manager' }, handed: [{ sid: S(1), group: 'Manager', folder: A, at: 1, archive: true }], archiveAnswers: (ids) => ids })
+  await w.groups.tick()
+  assert.deepEqual(w.store.done, { [S(1)]: 'Manager' }, 'a closed manager stays filed while it is not archived')
+  await w.groups.tick()
+  assert.deepEqual([w.archived, w.store.done], [[['Manager', [S(1)]]], {}], 'archived: no longer filed')
+  rows.push(boss(1))
+  await w.groups.tick()
+  assert.deepEqual([w.calls.at(-1), w.store.done], [[S(1), 'Manager'], { [S(1)]: 'Manager' }], 'resumed: filed again')
+  assert.equal(w.archived.length, 1, 'its entry is done')
+})
+
 test('an old session that still has a table row or a live process is kept; one the archive command does not name is tried again; the record drops what the file no longer lists', async () => {
   const handed = [1, 2, 3].map((n) => ({ sid: S(n), group: 'Lead', folder: A, at: 1 }))
-  const w = world({ commands: ARCH, rows: [row(1, A)], table: { [S(2)]: { name: 'D', folder: A, lead: { repos: [] } } }, handed, handedDone: [S(9)], archiveAnswers: () => [] })
+  const w = world({ commands: ARCH, rows: [row(1, A)], table: { [S(2)]: { name: 'D', folder: A, lead: { repos: [] } } }, handed, handedDone: [`${S(9)}@1`], archiveAnswers: () => [] })
   for (let i = 0; i < 3; i++) await w.groups.tick()
   assert.deepEqual(w.archived, [['Lead', [S(3)]], ['Lead', [S(3)]]], 'only the one that is gone, and again as it was not named')
   assert.deepEqual(w.store.handed, [], 'S(9) is not in the file any more')
@@ -561,7 +582,7 @@ test('an old session the file command refuses is forgotten; a failing command is
   const handed = [{ sid: S(1), group: 'Lead', folder: A, at: 1 }]
   const x = world({ commands: ARCH, handed, refuse: [S(1)] })
   for (let i = 0; i < 3; i++) await x.groups.tick()
-  assert.deepEqual([x.archived, x.store.handed], [[], [S(1)]])
+  assert.deepEqual([x.archived, x.store.handed], [[], [`${S(1)}@1`]])
   const y = world({ commands: ARCH, handed, archiveFails: true })
   for (let i = 0; i < 3; i++) await y.groups.tick()
   assert.deepEqual(y.store.handed, [])

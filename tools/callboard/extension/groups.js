@@ -19,8 +19,9 @@
 // no window on its folder ran until its row was dropped (24 hours, or 28 days parked) reads as retired. A lead the person typed and a conductor are never archived. A retired session is filed in its tier's group before it is archived,
 // since the archive command takes only a session that sits there.
 // A session that handed itself over to a clear one (`/callboard handover`) is archived the same way whatever its tier (the typed lead, a conductor and the manager too): the plugin's
-// `handovers.json` names each old session with its group and folder. A session that archives itself (`/callboard archive`) is recorded there too, marked `archive`, and is
-// archived without the undo wait. The ids archived are kept, so a session is never archived twice.
+// `handovers.json` names each old session with its group and folder (a session archived, brought back with Unarchive and archived again is two entries). A session that archives itself (`/callboard archive`) is recorded there too, marked `archive`, and is
+// archived without the undo wait. The entries archived are kept, so an entry is never archived twice. A session the archive command names as archived is also taken
+// out of the record of the sessions filed, so when it is brought back with Unarchive and resumed it is filed again.
 // A session that still has a table row but no tier (`lead off` on a typed lead, or `off`) is taken out of the group it was filed in, through the patch's `callboard unfile session`,
 // and only out of that one, so a session the person moved by hand stays where it is. The record keeps it until the command answers true. `/callboard on` or `lead` files it again.
 const fs = require('node:fs')
@@ -33,6 +34,8 @@ const SEEN_KEY = 'callboard.groups.seen'
 const HANDED_KEY = 'callboard.groups.handed'
 const ARCHIVE = 'callboard archive sessions'
 const UNFILE = 'callboard unfile session'
+// One entry of the handover file, by session and time: a session can be archived more than once.
+const entryKey = (o) => `${o.sid}@${o.at}`
 const TICK_MS = 10000
 // A handover can still be undone for this long after it started (the plugin's own marker window).
 const UNDO_MS = 120000
@@ -216,19 +219,24 @@ function createGroups({ vscode, registry, state, loadTable, loadHandovers = asyn
     const olds = await loadHandovers()
     if (olds === null) return
     const stored = state.get(keyOf(HANDED_KEY), [])
-    const done = new Set(Array.isArray(stored) ? stored.filter((sid) => typeof sid === 'string') : [])
+    const done = new Set(Array.isArray(stored) ? stored.filter((k) => typeof k === 'string') : [])
     const was = JSON.stringify([...done])
-    const gone = olds.filter((o) => !done.has(o.sid) && (o.archive === true || Date.now() - o.at > UNDO_MS) && inWindow(o.folder) && !Object.hasOwn(table, o.sid) && !rows.some((r) => r.sessionId === o.sid))
+    const gone = olds.filter((o) => !done.has(entryKey(o)) && (o.archive === true || Date.now() - o.at > UNDO_MS) && inWindow(o.folder) && !Object.hasOwn(table, o.sid) && !rows.some((r) => r.sessionId === o.sid))
     for (const o of gone.filter((x) => prior.has(x.sid))) {
       try {
-        if ((await vscode.commands.executeCommand(COMMAND, o.sid, o.group, ORDER)) === false) done.add(o.sid)
-        else if ((await vscode.commands.executeCommand(ARCHIVE, o.group, [o.sid]))?.includes?.(o.sid)) done.add(o.sid)
+        if ((await vscode.commands.executeCommand(COMMAND, o.sid, o.group, ORDER)) === false) done.add(entryKey(o))
+        else if ((await vscode.commands.executeCommand(ARCHIVE, o.group, [o.sid]))?.includes?.(o.sid)) {
+          done.add(entryKey(o))
+          // No longer filed (the archive took it out of its group): a session brought back with Unarchive and resumed is filed again.
+          const filed = state.get(keyOf(DONE_KEY), {})
+          if (Object.hasOwn(filed, o.sid)) await state.update(keyOf(DONE_KEY), Object.fromEntries(Object.entries(filed).filter(([sid]) => sid !== o.sid)))
+        }
       } catch {
         // A command failed: the session is named again at the next tick.
       }
     }
     for (const o of gone) pending.add(o.sid)
-    const keep = [...done].filter((sid) => olds.some((o) => o.sid === sid))
+    const keep = [...done].filter((k) => olds.some((o) => entryKey(o) === k))
     if (JSON.stringify(keep) !== was) await state.update(keyOf(HANDED_KEY), keep)
   }
 
