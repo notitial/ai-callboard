@@ -81,7 +81,7 @@ test('/callboard conductor with nothing saved asks the window for its tick list:
   assert.deepEqual(rows(f).lead, { repos: ['/w/repo', '/w/repo2'], conductor: true })
   assert.deepEqual(JSON.parse(f.file('conductors.json')!), { '/w/me': ['/w/repo', '/w/repo2'] })
   assert.equal(mem.owed.length, 1)
-  assert.deepEqual(spooled(f).map((p) => JSON.parse(f.h.files.get(p)!).op), ['pin'], 'the pick and its answer are taken away; the pin request stays for the window')
+  assert.deepEqual(spooled(f), [], 'the request and its answer are taken away')
   // With a list saved the bare command asks nothing; `pick` shows the list again with the saved repos ticked, and its answer replaces them.
   seen.length = 0
   await run(f, 'conductor', 'composer')

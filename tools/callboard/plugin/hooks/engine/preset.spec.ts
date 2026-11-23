@@ -228,12 +228,3 @@ test('a name held by a live session, a lane, a conductor, a minted lead, a lead 
     assert.equal(mem.presetRun, undefined, what)
   }
 })
-
-test('his typed preset run asks the window to pin the tab; a refused run asks nothing', async () => {
-  const pins = (f: F) => [...f.h.files].filter(([p]) => p.startsWith(`${V2}/open/`) && p.endsWith('.req')).map(([, t]) => JSON.parse(t))
-  const f = await started()
-  await presetRun(f.$, { command: 'sentinel', args: '', origin: { kind: 'plugin' } }, next)
-  assert.deepEqual(pins(f), [])
-  await typed(f)
-  assert.deepEqual(pins(f), [{ op: 'pin', sid: 'sid-me', folder: '/w/me' }])
-})

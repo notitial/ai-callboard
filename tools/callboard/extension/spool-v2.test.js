@@ -12,7 +12,7 @@ const OTHER = '2b2c3d4e-0000-4000-8000-123456789abc'
 const FOLDER = '/work/repo/lab'
 
 // `lanes` stands in for lanes.js: open and reopen answer a session id, adopt answers whether it took the panel.
-function world({ ws = [FOLDER], lanes = {}, dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cb-spool2-')), now, pick, remote, pin } = {}) {
+function world({ ws = [FOLDER], lanes = {}, dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cb-spool2-')), now, pick, remote } = {}) {
   const calls = []
   let shift = 0
   const fake = {
@@ -21,7 +21,7 @@ function world({ ws = [FOLDER], lanes = {}, dir = fs.mkdtempSync(path.join(os.tm
     adopt: (...a) => (calls.push(['adopt', ...a]), true),
     ...lanes,
   }
-  const spool = createSpool({ dir, lanes: fake, workspaceFolders: () => ws, timeoutMs: 20000, pick, remote: remote && ((...a) => (calls.push(['remote', ...a]), remote(...a))), pin: pin && (() => (calls.push(['pin']), pin())), now: now ?? (() => Date.now() + shift) })
+  const spool = createSpool({ dir, lanes: fake, workspaceFolders: () => ws, timeoutMs: 20000, pick, remote: remote && ((...a) => (calls.push(['remote', ...a]), remote(...a))), now: now ?? (() => Date.now() + shift) })
   const put = (id, req, text = typeof req === 'string' ? req : JSON.stringify(req)) => {
     const f = path.join(dir, `${id}.req`)
     fs.writeFileSync(f, text)
@@ -321,41 +321,4 @@ test('a request whose answer cannot be written is reported and does not stop the
   fs.mkdirSync(path.join(w.dir, 'a1.result'))
   w.put('a2', OPEN)
   assert.deepEqual(await w.spool.scan(), [['a1', 'answer-failed'], ['a2', 'done']])
-})
-
-test('a pin runs the pin callback once and answers nothing; a stale one is dropped, another folder\'s stays, a bad one is refused, and a window without the callback drops it', async () => {
-  const PIN = { op: 'pin', sid: SID, folder: FOLDER }
-  assert.deepEqual(parse(JSON.stringify(PIN)), PIN)
-  assert.equal(parse(JSON.stringify({ ...PIN, sid: 'nope' })), undefined)
-  const w = world({ pin: async () => undefined })
-  const file = w.put('p1', PIN)
-  assert.deepEqual(await w.spool.scan(), [['p1', 'done']])
-  assert.deepEqual(w.calls, [['pin']])
-  assert.equal(w.result('p1'), undefined)
-  assert.equal(fs.existsSync(file), false)
-  const x = world({ ws: ['/elsewhere'], pin: async () => undefined })
-  const other = x.put('p2', PIN)
-  assert.deepEqual(await x.spool.scan(), [['p2', 'not-mine']])
-  assert.deepEqual(x.calls, [])
-  assert.equal(fs.existsSync(other), true, 'another window\'s request stays')
-  const y = world({ pin: async () => undefined })
-  const old = y.put('p3', PIN)
-  y.tick(61_000)
-  assert.deepEqual(await y.spool.scan(), [['p3', 'dropped']])
-  assert.deepEqual(y.calls, [])
-  assert.equal(fs.existsSync(old), false, 'a stale request is taken and dropped')
-  const z = world({ pin: async () => undefined })
-  z.put('p4', { ...PIN, sid: 'nope' })
-  assert.deepEqual(await z.spool.scan(), [['p4', 'bad-request']])
-  assert.deepEqual(z.calls, [])
-  const u = world()
-  const bare = u.put('p5', PIN)
-  assert.deepEqual(await u.spool.scan(), [['p5', 'dropped']])
-  assert.equal(fs.existsSync(bare), false)
-  const t = world({ pin: async () => { throw new Error('boom') } })
-  t.put('p6', PIN)
-  assert.deepEqual(await t.spool.scan(), [['p6', 'done']], 'a pin that throws does not stop the scan')
-  const s = world({ pin: () => new Promise(() => undefined) })
-  s.put('p7', PIN)
-  assert.deepEqual(await s.spool.scan(), [['p7', 'done']], 'a pin that never settles does not hold the scan')
 })

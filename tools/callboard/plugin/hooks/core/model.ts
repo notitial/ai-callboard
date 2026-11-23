@@ -126,7 +126,7 @@ export type CueResult = { id: string; outcome: 'ok' | 'refused' | 'held'; code?:
 // One JSON file `v2/open/<id>.req` per request (written as a dot-file and renamed, a fresh random id, the folder as VS Code names the window's first folder), answered in `<id>.result`. A close names the session's name: the window finds the panel's tab by it.
 // A `pick` asks the window that holds the conductor's `folder` for its tick list, with the repos saved for that folder ticked; its answer's `folders` are what the person ticked.
 // A `remote` asks the window to turn Remote Control of the panel that holds session `sid` on or off.
-export type SpoolRequest = { op: 'open'; folder: Folder } | { op: 'reopen'; sid: Sid; folder: Folder } | { op: 'close'; sid: Sid; pid: number; name: string; folder: Folder } | { op: 'pick'; folder: Folder; ticked: string[] } | { op: 'remote'; sid: Sid; on: boolean; folder: Folder } | { op: 'pin'; sid: Sid; folder: Folder }
+export type SpoolRequest = { op: 'open'; folder: Folder } | { op: 'reopen'; sid: Sid; folder: Folder } | { op: 'close'; sid: Sid; pid: number; name: string; folder: Folder } | { op: 'pick'; folder: Folder; ticked: string[] } | { op: 'remote'; sid: Sid; on: boolean; folder: Folder }
 export type SpoolReply = { ok: true; sid?: Sid; folders?: string[] } | { ok: false; code: string }
 
 // ---- goes, the unattended window, the settings ----

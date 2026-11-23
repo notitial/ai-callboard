@@ -12,7 +12,7 @@ import { isLane, remoteRefusal, remoteWish } from '../core/remote.ts'
 import { T } from '../texts.ts'
 import type { LaneRow } from '../ui.ts'
 import { RULES_CAP, lanesTable, printed, stamp, statusPage } from '../ui.ts'
-import { spool, spoolSend } from './cue.ts'
+import { spool } from './cue.ts'
 import { home, locked, newId, readText, run, windowNow } from './io.ts'
 import { mem } from './mem.ts'
 import { setRemote } from './remote.ts'
@@ -159,25 +159,14 @@ export async function perform($: any, cmd: Cmd, me: Sid, v: View, now: number, s
     }
   }
 }
-// Asks the window that serves this session's folder to pin the active tab, if it is a Claude panel; send and forget, and an optional add-on: a failure here never changes the command's answer.
-export async function pinOwn($: any, me: Sid): Promise<void> {
-  try {
-    const v = await getView($, true)
-    const folder = v.rows === 'unknown' ? undefined : v.rows.get(me)?.folder
-    if (folder !== undefined) await spoolSend($, { op: 'pin', sid: me, folder })
-  } catch {}
-}
 export async function commandRun($: any, e: any) {
   const now = await $.clock.now()
   const plan = planCommand(typeof e?.args === 'string' ? e.args : '', originOf(e), now)
   if (plan.act === 'refuse') return { text: say(plan) }
   let ok = false
-  const me = (await $.session.id()) as Sid
-  const text = await perform($, plan.cmd, me, await getView($, true), now, () => void (ok = true))
+  const text = await perform($, plan.cmd, (await $.session.id()) as Sid, await getView($, true), now, () => void (ok = true))
   // His typed step that saved a change of this session's role, goes or window gives it a turn, so he need not type "done". A read or a failed write sends nothing.
   if (ok && originOf(e) === 'typed' && CHANGES.includes(plan.cmd.op)) mem.owed.push(T['cmd.told']({ result: text }))
-  // A typed `lead` or `conductor` that saved pins this session's tab; the registry row's folder is read after the save.
-  if (ok && originOf(e) === 'typed' && (plan.cmd.op === 'lead' || plan.cmd.op === 'conductor')) await pinOwn($, me)
   return { text }
 }
 
