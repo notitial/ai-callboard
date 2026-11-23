@@ -246,13 +246,13 @@ function archiveWorld(extra: Record<string, unknown> = {}, name = 'me'): { f: Fa
   f.$.process.run = async (argv: string[], o?: unknown) => {
     if (argv[0] !== '/bin/kill') return orig(argv, o)
     const rec = f.h.files.get(`${V2}/handovers.json`)
-    kills.push({ argv, at: { record: rec === undefined ? undefined : JSON.parse(rec), row: 'sid-me' in JSON.parse(f.h.files.get(`${V2}/sessions.json`)!), closes: pins(f) } })
+    kills.push({ argv, at: { record: rec === undefined ? undefined : JSON.parse(rec), row: 'sid-me' in JSON.parse(f.h.files.get(`${V2}/sessions.json`)!), closes: spoolRequests(f) } })
     f.h.ps = f.h.ps.split('\n').filter((l) => l.trim().split(' ')[0] !== argv[2]).join('\n')
     return { exitCode: 0, stdout: '', stderr: '' }
   }
   return { f, kills }
 }
-const untouched = (f: Fake) => assert.deepEqual([f.h.files.has(`${V2}/handovers.json`), pins(f)], [false, []])
+const untouched = (f: Fake) => assert.deepEqual([f.h.files.has(`${V2}/handovers.json`), spoolRequests(f)], [false, []])
 
 test('/callboard archive: the record, then the row goes, then the close request, then the session\'s own stop, in that order, and the answer says it is ending', async () => {
   const { f, kills } = archiveWorld()
@@ -310,7 +310,7 @@ test('/callboard archive: a record that cannot be written changes nothing; a row
   }
   assert.match((await run(b.f, 'archive', 'composer')).text, /lane table could not be written/)
   assert.deepEqual([b.kills, JSON.parse(b.f.h.files.get(`${V2}/handovers.json`)!)], [[], { me: { n: 0, old: [] } }], 'the record is taken back')
-  assert.deepEqual(pins(b.f), [])
+  assert.deepEqual(spoolRequests(b.f), [])
   const c = archiveWorld()
   const before = c.f.$.process.run
   c.f.$.process.run = async (argv: string[], o?: unknown) => (argv[0] === '/bin/kill' ? { exitCode: 1, stdout: '', stderr: '' } : before(argv, o))
@@ -334,25 +334,4 @@ test('/callboard archive: the manager may archive itself while nothing is under 
   untouched(busy)
 })
 
-const pins = (f: ReturnType<typeof fake>) => [...f.h.files].filter(([p]) => p.startsWith(`${V2}/open/`) && p.endsWith('.req')).map(([, t]) => JSON.parse(t))
-
-test('his typed lead or conductor that saved asks the window to pin the tab, once; an untyped form, a read, lead off, conductor reset and a write that did not land ask nothing', async () => {
-  const f = fake()
-  me(f)
-  f.h.dirs.add('/w/repo2')
-  for (const [args, kind] of [['lead', 'plugin'], ['conductor /w/repo2', undefined], ['status', 'composer'], ['lead off', 'composer'], ['conductor reset', 'composer'], ['lead /no/such/dir', 'composer']] as const) await run(f, args, kind)
-  assert.deepEqual(pins(f), [])
-  await run(f, 'lead', 'composer')
-  assert.deepEqual(pins(f), [{ op: 'pin', sid: 'sid-me', folder: '/w/me' }])
-  for (const p of [...f.h.files.keys()].filter((p) => p.startsWith(`${V2}/open/`))) f.h.files.delete(p)
-  for (const args of ['lead off', 'conductor reset']) await run(f, args, 'composer')
-  assert.deepEqual(pins(f), [], 'lead off and conductor reset of a session that holds the role ask nothing')
-  const g = fake()
-  me(g)
-  g.h.dirs.add('/w/repo2')
-  await run(g, 'conductor /w/repo2', 'bridge')
-  assert.deepEqual(pins(g), [{ op: 'pin', sid: 'sid-me', folder: '/w/me' }])
-  g.h.files.set(`${V2}/sessions.json`, '{"broken": ')
-  await run(g, 'lead', 'composer')
-  assert.equal(pins(g).length, 1, 'a write that did not land asks nothing')
-})
+const spoolRequests = (f: ReturnType<typeof fake>) => [...f.h.files].filter(([p]) => p.startsWith(`${V2}/open/`) && p.endsWith('.req')).map(([, t]) => JSON.parse(t))

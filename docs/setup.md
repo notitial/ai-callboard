@@ -361,10 +361,6 @@ window did not answer). [A VS Code per Claude account](#a-vs-code-per-claude-acc
 To end it, tell the conductor "wrap up": it closes every lead and lane under it. `/callboard lead off` takes the
 role away, and the saved list stays for the next time.
 
-When you type `/callboard lead`, `/callboard conductor` or a folder's lead preset command and it saves, the panels
-extension pins the tab in front, if it is a Claude panel, so a role session keeps its place in the tab bar. Lanes and
-leads a conductor opens are not pinned, and the tab is the one in front when the window answers (about a second later).
-
 ### A VS Code per Claude account
 
 VS Code can be started with its own user data folder (`--user-data-dir`), for example by a launcher that keeps one such
