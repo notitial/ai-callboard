@@ -49,5 +49,9 @@ update command as arguments, and reads the repo from `origin`.
   in unseen. The skill compares the new `HEAD` with the commit it showed and, on a difference, lists the extra commits
   and stops before it runs `/setup-manager`, so nothing pulled runs unread; nothing loads until the person reloads the
   windows and restarts the sessions. The one pull form the guard allows cannot name a commit.
+- The agent-run pull goes without the `core.hooksPath` and `core.fsmonitor` hardening that `docs/setup.md`, By hand,
+  uses for its read-only diff: the one pull form the guard allows takes no other argument, so it cannot carry `-c`
+  flags. It runs through git MCP under the protected-paths hook, which denies agent writes to the live checkout's
+  `.git` (hooks and config included) while the `.protected-checkout` marker is in place.
 - A checkout ahead of its last tag compares by that tag, so a reminder can name a release whose content it already has.
 - Cutting a release stays a manual step for the owner.
