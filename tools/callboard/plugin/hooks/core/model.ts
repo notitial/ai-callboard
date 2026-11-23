@@ -155,6 +155,8 @@ export const PERSON: Person = 'PERSON'
 // Claude Code cuts a tab label over 25 characters, and the window's sweep matches a tab by its exact label, so a longer lane name could never be closed.
 export const NAME_MAX = 25
 export const NAME_RE = new RegExp(`^[A-Za-z0-9_-]{1,${NAME_MAX}}$`)
+// The tab label a close request may name, as the spool reads it (extension/reserved.js): the name of any session, spaces allowed.
+export const LABEL_RE = new RegExp(`^[^\\u0000-\\u001f\\u007f-\\u009f]{1,${NAME_MAX}}$`)
 const RESERVED_NAME = 'MANAGER'
 export const MAX_LIVE_CHILDREN = 8
 // The models a lead may give a lane at lane_create; the lane switches to it at its start.

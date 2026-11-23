@@ -72,6 +72,13 @@ test('the handover begins once the turn has ended: the old session is renamed NA
   assert.equal((await getUp(f.$)).req, null)
 })
 
+test('a loose session hands over too: the old conversation is recorded under the lanes\' group, which the extension files it in before it archives it', async () => {
+  const f = machine()
+  f.table({})
+  assert.equal(await begin(f), true)
+  assert.deepEqual(JSON.parse(file(f, 'handovers.json')!), { LEAD: { n: 1, old: [{ sid: 'sid-me', group: 'Lanes', folder: '/w/me', at: T0 }] } })
+})
+
 test('between the two ids the old session is unknown to the view, not gone', async () => {
   const f = machine()
   await begin(f)
