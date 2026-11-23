@@ -121,4 +121,10 @@ Python file run with `/usr/bin/python3 -I`. This replaces the version-in-the-lin
   registry after the write, and the read the old write step made again after the VS Code check. The write is an atomic
   rename of the bytes planned from one read, a moment earlier; the VS Code check refuses and never waits.
 
+## Amendment (2026-11-23): an agent may run the fast-forward
+
+The fast-forward is no longer typed only by the person: `/update-manager` runs it, after showing what comes in and
+getting the person's yes ([ADR 0016](0016-release-update-reminder.md)). The checkout is still never edited by an
+agent, never leaves `main`, and moves only to `origin/main`'s fast-forward.
+
 *Note 2026-11-14: the six checkout `Edit` deny lines under Permission rules are no longer asked for. ai-toolkit's protected-paths hook with the `.protected-checkout` marker denies agent writes to the live checkout, so `docs/setup.md` and `/setup-manager` drop them. The two store and list-file denies stay.*
