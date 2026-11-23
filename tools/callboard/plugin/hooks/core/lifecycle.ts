@@ -9,6 +9,8 @@ export const IDLE_MS = 30_000
 const GONE_AFTER_MS = 30_000
 export const LANE_ROW_KEEP_MS = 24 * 3_600_000
 export const PARKED_ROW_KEEP_MS = 7 * 24 * 3_600_000
+// A park marks the row while the session still runs; one read live this long after the park was reopened by hand, so the mark goes and the row is kept by the gone rule.
+export const PARK_SETTLE_MS = 5 * 60_000
 // A conductor's row is kept longer than a lane's or a lead's: one resumed within the week is still a conductor, with its flag and saved repos.
 export const CONDUCTOR_ROW_KEEP_MS = 7 * 24 * 3_600_000
 // The key of a row between lane_create and the opened panel's session id.
@@ -104,7 +106,7 @@ export function cueReply(r: CueResult | undefined, verb: CueVerb, name: string):
 
 // ---- the table's own upkeep, run inside every write of it ----
 // The name is copied from the registry, unless it is the one Claude generated (givenName); a session read as no on two reads GONE_AFTER_MS apart (noSince: when this process first read it so) and not parked gets
-// goneAt, cleared when it comes back. Expiry is by what the row holds: a row 24 h after goneAt (a conductor's 7 days), a parked one 7 days after parking; a row marked
+// goneAt, cleared when it comes back (and the park mark with it, once it is read live PARK_SETTLE_MS after the park). Expiry is by what the row holds: a row 24 h after goneAt (a conductor's 7 days), a parked one 7 days after parking; a row marked
 // `off`, or one a live session carries, never expires by time. Nothing is decided on an unknown read.
 export function tidy(t: Table, v: View, noSince: (key: string) => number | undefined, now: number): Table {
   if (v.rows === 'unknown') return t
@@ -118,8 +120,10 @@ export function tidy(t: Table, v: View, noSince: (key: string) => number | undef
     const reg = v.rows.get(k)
     const name = givenName(reg)
     const row = { ...r, ...(name ? { name } : {}) }
-    if (reg !== undefined) delete row.goneAt
-    else if (row.goneAt === undefined && row.parked === undefined && (noSince(k) ?? now) <= now - GONE_AFTER_MS) row.goneAt = now
+    if (reg !== undefined) {
+      delete row.goneAt
+      if (row.parked !== undefined && now - row.parked >= PARK_SETTLE_MS) delete row.parked
+    } else if (row.goneAt === undefined && row.parked === undefined && (noSince(k) ?? now) <= now - GONE_AFTER_MS) row.goneAt = now
     const kept = reg !== undefined || row.off === true
     const keepMs = row.lead?.conductor === true && row.lead.minted !== true ? CONDUCTOR_ROW_KEEP_MS : LANE_ROW_KEEP_MS
     const expired = !kept && (row.parked !== undefined ? now - row.parked >= PARKED_ROW_KEEP_MS : row.goneAt !== undefined && now - row.goneAt >= keepMs)

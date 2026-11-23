@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { CUE_MAX_AGE_MS, IDLE_MS, LANE_ROW_KEEP_MS, PARKED_ROW_KEEP_MS, childState, cueAnswer, cueReply, parseCue, reportPath, signedBy, tidy, verbPlan } from './lifecycle.ts'
+import { CUE_MAX_AGE_MS, IDLE_MS, LANE_ROW_KEEP_MS, PARKED_ROW_KEEP_MS, PARK_SETTLE_MS, childState, cueAnswer, cueReply, parseCue, reportPath, signedBy, tidy, verbPlan } from './lifecycle.ts'
 import type { Verb } from './lifecycle.ts'
 import { MAX_LIVE_CHILDREN, liveView, mayActOn, nameOf } from './model.ts'
 import type { Table } from './model.ts'
@@ -96,8 +96,14 @@ test('the table\'s upkeep: gone after two reads 30 s apart, back clears it; a ro
   assert.equal(gone[L1].goneAt, NOW)
   assert.equal(gone[A].name, 'renamed-lead')
   assert.equal(gone['sid-parked'], undefined)
-  // A parked row whose session came back is kept, however old the parking.
-  assert.ok(tidy(t, liveView([reg(M, MANAGER), reg('sid-parked', 'p')], t, MANAGER), () => undefined, NOW)['sid-parked'])
+  // A parked row whose session runs is kept; one the person reopened by hand (read live 5 minutes after the park) is no longer parked, so a later absence starts the 24 h rule, not the old park stamp's.
+  const reopened = liveView([reg(M, MANAGER), reg('sid-parked', 'p')], t, MANAGER)
+  assert.ok(tidy(t, reopened, () => undefined, NOW)['sid-parked'])
+  assert.equal(tidy(t, reopened, () => undefined, NOW)['sid-parked']?.parked, undefined)
+  const justParked = { ...t, 'sid-parked': { ...t['sid-parked']!, parked: NOW - PARK_SETTLE_MS + 1 } }
+  assert.equal(tidy(justParked, reopened, () => undefined, NOW)['sid-parked']?.parked, NOW - PARK_SETTLE_MS + 1)
+  const closedAgain = tidy(tidy(t, reopened, () => undefined, NOW), liveView([reg(M, MANAGER)], t, MANAGER), () => NOW - 30_000, NOW + 1)
+  assert.deepEqual([closedAgain['sid-parked']?.parked, closedAgain['sid-parked']?.goneAt], [undefined, NOW + 1])
   assert.equal(tidy(gone, liveView([reg(L1, 'L1')], gone, MANAGER), () => undefined, NOW + 1)[L1].goneAt, undefined)
   // A parked row is kept up to the day it is 7 days old.
   const parkedAt = { ...t, 'sid-parked': { ...t['sid-parked']!, parked: NOW - PARKED_ROW_KEEP_MS + 1 } }
