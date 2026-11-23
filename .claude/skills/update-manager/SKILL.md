@@ -21,8 +21,9 @@ exception to `/setup-manager`'s rule never to pull there.
    fetch can bring newer tags that `HEAD` does not have yet). None qualifies: no old tag. Then `git_log` with
    `maxCount: 1`: the old `HEAD` sha.
 2. **Check.** `git_remote` with `mode: "get-url"` and `name: "origin"` must give `https://github.com/notitial/ai-manager.git`, else stop. `git_status`:
-   the first line must be `## main...origin/main` (the branch is `main` and tracks `origin/main`, which is what the
-   pull follows), with no change or untracked file under it. `git_fetch` with `tags: true`, then `git_log`
+   the first line must be `## main...origin/main`, with ` [behind N]` allowed after it (the branch is `main` and
+   tracks `origin/main`, which is what the pull follows; an earlier fetch leaves it behind, but never `[ahead`), with
+   no change or untracked file under it. `git_fetch` with `tags: true`, then `git_log`
    of `origin/main..HEAD` (the `branch` parameter takes the range): it must be empty, since a local commit means a
    fast-forward is impossible. `git_log` of `HEAD..origin/main` is what the pull brings: if it is empty too, say
    "ai-manager is already up to date." and stop. Any other failure ends the skill with the refusal below.
