@@ -135,7 +135,7 @@ export async function perform($: any, cmd: Cmd, me: Sid, v: View, now: number, s
     // session's own stop; a write that does not land is said and undone, so nothing is left half-done. A session callboard is off for, or with a row under it, live or parked, is
     // refused. A loose session is recorded under the lanes' group as a stand-in, which the extension files it in before it archives it.
     case 'archive': {
-      const own = v.rows === 'unknown' ? undefined : v.rows.get(me)
+      const own = v.rows === 'unknown' || v.manager === 'unknown' ? undefined : v.rows.get(me)
       if (own === undefined || !Number.isInteger(own.pid) || own.pid < 2) return say(refusal('refuse', 'unknown-liveness', { tool: 'callboard', target: cmd.op }))
       const group = groupOf(v, me)
       if (isOff(v, me) || group === undefined) return say(refusal('refuse', 'is-off', { tool: 'callboard', target: cmd.op }))

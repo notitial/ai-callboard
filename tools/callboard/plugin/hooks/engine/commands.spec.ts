@@ -345,6 +345,13 @@ test('/callboard archive: the manager may archive itself while nothing is under 
   busy.h.files.set(`${HOME}/.claude/callboard/manager-name`, 'BOSS\n')
   assert.match((await run(busy, 'archive', 'composer')).text, /still under it: other\./)
   untouched(busy)
+  const blind = fake()
+  blind.seed({ sid: 'sid-me', pid: 10, name: 'BOSS', cwd: '/w/me', kind: 'interactive' })
+  blind.seed({ sid: 'sid-x', pid: 11, name: 'other', cwd: '/w/x', kind: 'interactive' })
+  blind.h.files.set(`${HOME}/.claude/callboard/manager-name`, 'BOSS\n')
+  blind.h.unreadable.add(`${HOME}/.claude/callboard/manager-name`)
+  assert.match((await run(blind, 'archive', 'composer')).text, /could not read which sessions are live/)
+  untouched(blind)
 })
 
 const spoolRequests = (f: ReturnType<typeof fake>) => [...f.h.files].filter(([p]) => p.startsWith(`${V2}/open/`) && p.endsWith('.req')).map(([, t]) => JSON.parse(t))
