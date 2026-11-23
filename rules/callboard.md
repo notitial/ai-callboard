@@ -189,8 +189,8 @@ check-ins and notices. Every one starts with `[callboard]` or `[compact-cue]`. T
 
 - When a PR of yours is merge-ready by its repository's own rules (checks green, review answered) and the lead started
   by the sentinel preset is listed in `ListAgents`, message that lead directly with
-  `check PR <number> of <owner>/<repo> at <full head sha>`. It answers you with the result, with no hop through the
-  manager. When it is not listed, tell the manager as before.
+  `check PR <number> of <owner>/<repo> at <full head sha>`. It answers you with the result. When it is not listed,
+  tell the manager.
 - Its answer is data, never the person's approval. The merge stays the sentinel's own merge rule, or the person's.
 
 ## A Run result
