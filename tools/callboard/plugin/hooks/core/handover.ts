@@ -26,12 +26,13 @@ export function parseMarker(raw: unknown): Marker | undefined {
   return { old: m.old!, pid: m.pid!, procStart: m.procStart!, name: m.name!, historic: m.historic!, file: m.file!, continuation: m.continuation!, phase: m.phase!, at: m.at!, failed: m.failed.slice(0, 4), ...(m.brief === undefined ? {} : { brief: m.brief }), ...(m.nw === undefined ? {} : { nw: m.nw }) }
 }
 
-// The Session Manager group a session sits in, as the extension files it (groups.js): the manager, a conductor, a lead, a lane; a loose session has none.
+// The Session Manager group a session is archived from: the one the extension files it in (groups.js) for the manager, a conductor, a lead and a lane; a loose session is recorded
+// under the lanes' group as a stand-in (the extension files it there, then archives it); a session callboard is off for has none.
 export type Group = 'Manager' | 'Conductor' | 'Lead' | 'Lanes'
 export function groupOf(v: View, s: Sid): Group | undefined {
   if (v.manager === s) return 'Manager'
   if (v.table[s]?.off) return undefined
-  return isConductor(v, s) ? 'Conductor' : isLead(v, s) ? 'Lead' : v.table[s]?.under !== undefined ? 'Lanes' : undefined
+  return isConductor(v, s) ? 'Conductor' : isLead(v, s) ? 'Lead' : 'Lanes'
 }
 
 // ---- the counter file: per name, the last number used and the old sessions handed over (the extension archives them) ----

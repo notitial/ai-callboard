@@ -203,8 +203,11 @@ EXT_DIR="$(ls -d "$HOME"/.vscode/extensions/anthropic.claude-code-* | sort -V | 
   so is the old conversation of a lane whose session id changed (`/clear`). A row marked `off` is kept. Unarchive in
   the sidebar brings any of them back.
   A session that ends itself with `/callboard archive` (typed in its panel) is archived the same way, with no wait for an
-  undo: it is refused while any session is under it, live or parked, and for a session with no group in the sidebar, which
-  the sidebar's own Archive item archives. A parked session or a closed panel still has its row, so it counts until it is
+  undo: it is refused while any session is under it, live or parked, and in a session callboard is off for. A session
+  with no tier is recorded under Lanes as a stand-in, so an empty Lanes group may appear in a window that had none, and a
+  group of your own that held the session loses it (archiving drops it from every group anyway). When the session has no
+  name of 1 to 25 characters, its panel cannot be found to close: the chat is archived and the answer says to close the
+  panel yourself. A parked session or a closed panel still has its row, so it counts until it is
   retired or its row expires (a typed lead's row goes 24 hours after its session closes). Under the manager is every session with no
   lead above it, so the manager is refused while any other session runs or has a row.
 - The unfile command is another piece (the marker's `unfile` field): `callboard unfile session` takes a session out of the

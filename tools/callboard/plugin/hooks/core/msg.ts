@@ -165,8 +165,8 @@ export type Fixed = {
   'cmd.remote': { name: string; on: boolean }
   // His typed /callboard handover: the turn that asks the session to write its state and call request_handover (also the command's own answer).
   'cmd.handover': E
-  // His typed /callboard archive: whether the signal that ends the session went.
-  'cmd.archive': { ok: boolean }
+  // His typed /callboard archive: whether the signal that ends the session went, and whether its panel is asked to close (a name the panel cannot be found by leaves that to him).
+  'cmd.archive': { ok: boolean; closed: boolean }
   // The notice turn after his own step in this session: a typed /callboard command that changed something, or his click on the go dialog.
   'cmd.told': { result: string }
   // The same after a folder's lead preset command, sent once its name, model and effort steps ran; `failed` names the steps that did not land.

@@ -76,6 +76,6 @@ test('a session\'s group is the one the extension files it in', () => {
   assert.equal(groupOf(v, 'sid-m'), 'Manager')
   assert.equal(groupOf(v, 'sid-a'), 'Lead')
   assert.equal(groupOf(v, 'sid-l'), 'Lanes')
-  assert.equal(groupOf(v, 'sid-q'), undefined)
+  assert.equal(groupOf(v, 'sid-q'), 'Lanes', 'a loose session is recorded under the lanes\' group')
   assert.equal(groupOf(v, 'sid-off'), undefined)
 })
