@@ -113,7 +113,7 @@ that signed done, is gone, has waited on a prompt for 5 minutes or has been idle
 - **Look:** `status`, `lanes`, `help`.
 - **Roles and switches:** `lead [PATH…]`, `conductor [pick | reset | PATH…]`, `lead off`, `off`, `on`. `/lead` and `/conductor` type
   the first two without the `/callboard` word; `conductor reset` forgets the repos saved for the folder.
-- **A lane's Remote Control:** `remote NAME on|off` sets the wish of the lane NAME (it starts off); the lane applies it once, within seconds.
+- **A lane's Remote Control:** `remote NAME on|off` sets the wish of the lane NAME (it starts off); the lane applies it once each time it starts, within seconds.
 - **Settings:** `config [keepalive on|off | ping 30-55 | stop 1-8 | idle 150-800 | working 150-900 | reset]`,
   `rest` (or `/rest`), `go TEXT`, `go off [ID]`, `unattended Nm|Nh|HH:MM|off`.
 

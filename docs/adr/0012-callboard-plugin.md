@@ -134,10 +134,9 @@ lead's `lane_remote` (its own lanes: the same `mayActOn` gate as the other lane 
 set them. The lane itself reconciles: its 2-second tick reads its own registry row (`bridgeSessionId` is Remote Control
 on) and, on a mismatch, asks the window that holds its panel through the spool's `remote` op, which runs the `callboard
 remote session` command of the Claude Code patch (`patch-claude.py`, the `remote` piece) and toggles the panel's own
-channel. An `ok` answer (or a panel that already matches) marks the wish met in the row, and a met wish is never applied
-again: the person's own switch sticks (a chip click afterwards stays until a lead or the person sets the wish again,
-even to the same value, which carries a new `at`), and a restart does not redo a wish that was met; the cost is that a
-lane met off and later resumed with `remoteControlAtStartup` on comes back on until its wish is set again. A panel found
+channel. An `ok` answer (or a panel that already matches) marks the wish met in the row, and a met wish is not applied
+again in that process: the person's own switch sticks (a chip click afterwards stays until a lead or the person sets the wish again,
+even to the same value, which carries a new `at`). A panel found
 already matching is marked met only after it matched for 30 seconds, since Remote Control connects after the panel
 starts. The window's other answers decide what
 follows: `patch-missing` ends the asking until the wish changes, the other failures (`no-channel`, `busy`, `failed`, no
@@ -148,6 +147,17 @@ terminal client and is refused in a panel, and a settings edit (`remoteControlAt
 per-repo file is a settings write, which callboard never does for the person). Turning it on exposes the lane to the
 person's own account only; the `remote` request carries a session id and a boolean and nothing else, and the same-uid
 bounds of the spool apply ([ADR 0002](0002-callboard.md)).
+
+*Amended 2026-11-23 (met by a process).* The row's `met` names the process that met the wish, `<pid>@<process start>` (the
+pair the registry names a process by), where it was `true`. A wish counts as met only in that process, so a chip click
+stays through a `/clear`, a handover and a plugin reload, which keep the process, and a new process applies the wish once
+more and marks it met for itself. This replaces the accepted cost above (a lane met off and resumed with
+`remoteControlAtStartup` on came back on until its wish was set again): the person's own switch no longer outlives a
+restart, and a lane's wish does. A row that reads `met: true` reads as not met, so each live lane applies its wish once
+after the update. Rejected: keeping the mark in memory only (a plugin reload, which every fast-forward of the live
+checkout causes, would reset it and override the person's hand switch in every lane), keeping it in `$.state` (the right
+lifetime, but a second home for a fact the row and `/callboard status` already read), and enforcing the wish on every tick
+(a chip click would not stay).
 
 *Amended 2026-11-22 (plain dialog text).* The tool shows no markdown, and the person may read the dialog on a phone, so
 every relay dialog is plain text with no code quotes or fences. Names are a plain session name, else the session id.

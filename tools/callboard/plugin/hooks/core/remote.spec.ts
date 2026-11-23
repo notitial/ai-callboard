@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { REMOTE_GAP_MS, REMOTE_TRIES, isLane, remoteDue, remoteFailed, remoteMemo, remoteRefusal, remoteWish } from './remote.ts'
+import { REMOTE_GAP_MS, REMOTE_TRIES, isLane, procKey, remoteDue, remoteFailed, remoteMemo, remoteRefusal, remoteWish } from './remote.ts'
 import type { RemoteMemo } from './remote.ts'
 import { liveView } from './model.ts'
 import type { Table } from './model.ts'
@@ -25,10 +25,14 @@ test('only a lane carries the wish: not a lead, the manager, an off session, a r
 
 test('a row with no wish wants off and is not met; a wish is its own value and its mark', () => {
   const row = { name: 'x', folder: '/w' }
-  assert.deepEqual(remoteWish(row), { on: false, at: 0, met: false })
-  assert.deepEqual(remoteWish({ ...row, remote: { on: true, at: 7 } }), { on: true, at: 7, met: false })
-  assert.deepEqual(remoteWish({ ...row, remote: { on: true, met: true } }), { on: true, at: 0, met: true })
-  assert.deepEqual(remoteWish({ ...row, remote: { on: false, at: 7, met: true } }), { on: false, at: 7, met: true })
+  assert.deepEqual(remoteWish(row), { on: false, at: 0 })
+  assert.deepEqual(remoteWish({ ...row, remote: { on: true, at: 7 } }), { on: true, at: 7 })
+  assert.deepEqual(remoteWish({ ...row, remote: { on: true, met: '10@Tue' } }), { on: true, at: 0, met: '10@Tue' })
+  assert.deepEqual(remoteWish({ ...row, remote: { on: false, at: 7, met: '10@Tue' } }), { on: false, at: 7, met: '10@Tue' })
+})
+
+test('a process is named by its pid and start time', () => {
+  assert.equal(procKey({ pid: 10, procStart: 'Tue Oct 27 20:37:50 2026' }), '10@Tue Oct 27 20:37:50 2026')
 })
 
 test('a changed wish, or one set again, starts the counts again; an unchanged one keeps them', () => {

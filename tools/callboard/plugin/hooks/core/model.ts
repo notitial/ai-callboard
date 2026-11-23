@@ -63,9 +63,9 @@ export type Row = {
   goneAt?: number
   model?: LaneModel
   effort?: LaneEffort
-  // The Remote Control wish of a lane (core/remote.ts): `on`, `at` (when it was set, so that setting it again is a new wish) and `met` once the lane has made its panel match. No field is the
+  // The Remote Control wish of a lane (core/remote.ts): `on`, `at` (when it was set, so that setting it again is a new wish) and `met`, the process (`procKey`) that made the lane's panel match. No field is the
   // default wish, off, not yet met.
-  remote?: { on: boolean; at?: number; met?: true }
+  remote?: { on: boolean; at?: number; met?: string }
 }
 export type Table = { [key: string]: Row }
 
