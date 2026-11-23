@@ -24,7 +24,7 @@ working tree or the checkout's git store. Callboard (step 1) and the rule link (
 - VS Code 1.90 or later with the Claude Code extension (`anthropic.claude-code`) installed: the panels extension
   depends on it. The patch of that extension is made for the versions named under
   [The Claude Code extension patch](#the-claude-code-extension-patch); its check says whether yours fits.
-- [ai-toolkit](https://github.com/notitial/ai-toolkit) installed as the base (`/setup-claude`). Its status line
+- [ai-toolkit](https://github.com/notitial/ai-toolkit) installed as the base (`/setup-toolkit`). Its status line
   writes the meter the usage watcher reads.
 - node 22.18 or later, the `claude` CLI, `/usr/bin/python3` 3.9 or later (from the Command Line Tools) and `jq`.
 - Claude Code 2.1.330 or later: the relay needs `$.agent.call` and its abort.
@@ -385,7 +385,7 @@ folder per Claude account. Callboard does not make such launchers. What it needs
 
 Why, and what this line does not cover: [callboard README, Manager setup: keep agents off the store
 (by hand)](../tools/callboard/README.md#manager-setup-keep-agents-off-the-store-by-hand). Do it now, by hand: an agent
-must not edit permission settings, and the `/setup-claude` templates do not carry this line.
+must not edit permission settings, and the `/setup-toolkit` templates do not carry this line.
 
 Add this line to `permissions.deny` in your global `~/.claude/settings.json` (an `Edit` rule covers the Write tool
 too, so no `Write` line is needed; adding one only draws a warning):
@@ -418,12 +418,12 @@ asked to judge an edit of the live checkouts, of `~/.claude/settings*.json` or o
 ai-toolkit's `hooks/protected-paths-guard.sh` denies those before any prompt exists. It never asks, so no prompt is
 left for an agent to answer. Until the hook is in place:
 
-1. ai-toolkit carries the hook and your toolkit checkout is up to date. Run `/setup-claude` yourself: it links the
+1. ai-toolkit carries the hook and your toolkit checkout is up to date. Run `/setup-toolkit` yourself: it links the
    hook into `~/.claude/hooks/` and wires it in `~/.claude/settings.json`, as `/bin/bash -p "$HOME/.claude/hooks/protected-paths-guard.sh" || exit 2`.
    Callboard counts any `PreToolUse` entry of type `command` whose command contains `protected-paths-guard.sh` as the
    guard, with hooks not disabled. It does not judge the rest of the command or the entry, so keep the wrapper the toolkit
    writes: the bare link path lets a call through when the hook cannot start (an install from before the wrapper needs
-   `/setup-claude` again), and a `~` inside the quotes, an entry with `async`, `if` or `args`, a `timeout` under 10, a
+   `/setup-toolkit` again), and a `~` inside the quotes, an entry with `async`, `if` or `args`, a `timeout` under 10, a
    settings `env` that sets `HOME` or a matcher that leaves out Edit, Write or Bash weaken the hook without callboard
    noticing. An agent never edits settings.
 2. The hook protects a folder only when it holds a `.protected-checkout` file. The file is untracked, so only you
@@ -614,16 +614,16 @@ setup, unlink it: this rule replaces it.
 
 ## ai-toolkit's setup and cleanup
 
-ai-toolkit's `/setup-claude` and `/cleanup-claude` leave everything in this guide alone.
+ai-toolkit's `/setup-toolkit` and `/cleanup-claude` leave everything in this guide alone.
 
-- **The rule link.** `/setup-claude` installs only ai-toolkit's own `rules/*.md`, so it never looks at
+- **The rule link.** `/setup-toolkit` installs only ai-toolkit's own `rules/*.md`, so it never looks at
   `callboard.md`: it does not overwrite, remove or list the link. If the link dangles (the checkout moved), its rules
   step reports it as a conflict and still deletes nothing. `/cleanup-claude` unlinks only links that resolve into
   the ai-toolkit checkout, or dangle at a path through `/ai-toolkit/`. This link is neither, so it stays, and the
   cleanup report does not mention it. Keep this checkout outside the ai-toolkit checkout, or cleanup counts the link
   as the toolkit's. After moving the checkout, remove the old link (`rm ~/.claude/rules/callboard.md`) and run the
   `ln -s` again.
-- **Settings.** `/setup-claude` never alters an `env` key outside its template and never removes a deny entry or a
+- **Settings.** `/setup-toolkit` never alters an `env` key outside its template and never removes a deny entry or a
   custom hook, and adds ask entries without ever removing one. `/cleanup-claude` removes only entries its template
   lists. So the `CLAUDE_CODE_PLUGIN_DIRS` line, the deny and ask lines and the SessionStart hook survive both.
 - **Installed files.** Neither touches the panels extension link or the usage-watcher job. `link-extension.py
@@ -679,7 +679,7 @@ commit instead of the newest.
 Once a week, at the start of a session, ai-toolkit's `update-check.sh` asks GitHub for ai-manager's latest release
 and, while your checkout is behind it, prints one line naming the new version. It sends nothing about you or your
 machine, makes one unauthenticated request with a 3 second cap, and says nothing when offline. It needs ai-toolkit
-installed (`/setup-claude` puts the script at `~/.claude/hooks/update-check.sh`); without it `/setup-manager` says so
+installed (`/setup-toolkit` puts the script at `~/.claude/hooks/update-check.sh`); without it `/setup-manager` says so
 and skips this step. `/setup-manager` (step 11) shows you the `SessionStart` entry to add to `~/.claude/settings.json`
 by hand, beside ai-toolkit's own; `<checkout>` is this checkout, which tells the script which repo to ask about:
 

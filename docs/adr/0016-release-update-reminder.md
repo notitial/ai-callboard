@@ -37,7 +37,8 @@ update command as arguments, and reads the repo from `origin`.
 - **`/setup-manager` is no longer user-invoked only,** as ai-toolkit did for `/setup-claude`: it never writes a
   settings file or runs an apply, it shows each as a command for the person, so an agent running it changes nothing
   the person does not do. Its description says it runs only when the person asks for the setup or from
-  `/update-manager`.
+  `/update-manager`. *Amended 2026-11-23: ai-toolkit renamed `/setup-claude` to `/setup-toolkit` and `/update-claude`
+  to `/update-toolkit`, with no aliases ([ai-toolkit #152](https://github.com/notitial/ai-toolkit/pull/152)).*
 
 ## Consequences
 

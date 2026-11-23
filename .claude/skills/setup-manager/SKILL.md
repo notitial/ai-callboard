@@ -38,7 +38,7 @@ first; it is the source for every step here, and wins where the two differ.
    `xcode-select -p`. node must be 22.18 or later. Run `ls -d ~/.vscode/extensions/anthropic.claude-code-*`: the
    Claude Code extension must be installed in VS Code (the panels extension depends on it). Ask the person for their
    VS Code version (Code, About Visual Studio Code): 1.90 or later. Ask whether ai-toolkit is installed
-   (`/setup-claude`); if not, stop: it is the base. Check the checkout is not inside the ai-toolkit checkout.
+   (`/setup-toolkit`); if not, stop: it is the base. Check the checkout is not inside the ai-toolkit checkout.
 2. **Callboard.**
    - The live checkout: run `git -C <checkout> remote get-url origin`; it must print
      `https://github.com/notitial/ai-manager.git`, else show it and stop. Then run
@@ -92,7 +92,7 @@ first; it is the source for every step here, and wins where the two differ.
 4. **Rule link.** Before the restart of step 5, because a session reads its rules when it starts. Run
    `ls -l ~/.claude/rules/callboard.md`. Missing: give the person
    `mkdir -p ~/.claude/rules && ln -s <checkout>/rules/callboard.md ~/.claude/rules/callboard.md`. A link to another
-   path, or a plain file: show it and let the person decide. Mention that ai-toolkit's `/setup-claude` and
+   path, or a plain file: show it and let the person decide. Mention that ai-toolkit's `/setup-toolkit` and
    `/cleanup-claude` leave this link alone (docs/setup.md). If the link was made while sessions were running and
    step 5 asks for no restart, say that those sessions get the rule only when they next start.
 5. **Default load.** The value is `<checkout>/tools/callboard/plugin`. Check: `echo "${CLAUDE_CODE_PLUGIN_DIRS:-unset}"`.
@@ -120,7 +120,7 @@ first; it is the source for every step here, and wins where the two differ.
    - Protected-paths hook: docs/setup.md, Escalation is on by default once the protected-paths hook is in place. Run
      `jq -e '[.hooks.PreToolUse[]?.hooks[]?.command] | any(. == "/bin/bash -p \"$HOME/.claude/hooks/protected-paths-guard.sh\" || exit 2")' ~/.claude/settings.json` (a rough pre-check: it finds the command the toolkit writes and does not look at the matcher, `disableAllHooks`, `env` or the entry's other fields; the plugin's own check decides, and `/callboard status` does not show it)
      and `ls ~/.claude/hooks/protected-paths-guard.sh`. If either fails, tell the person to update their ai-toolkit
-     checkout and run `/setup-claude` themselves, then come back: it is ai-toolkit's, never yours to wire or edit.
+     checkout and run `/setup-toolkit` themselves, then come back: it is ai-toolkit's, never yours to wire or edit.
      Then run `ls <checkout>/.protected-checkout <toolkit>/.protected-checkout ~/.claude/callboard/.protected-checkout`; for each marker that is
      missing, give the person the `touch` command from that section (the marker is theirs to make). Say that
      a tier's answers count only while the hook is wired and `~/.claude/callboard/.protected-checkout` exists (the other two
@@ -142,7 +142,7 @@ first; it is the source for every step here, and wins where the two differ.
 11. **Update reminder.** A weekly one-line reminder at session start when a newer release exists, from ai-toolkit's
     `update-check.sh` (docs/setup.md, The update reminder). Run `ls ~/.claude/hooks/update-check.sh`. Missing: say in
     one line that ai-toolkit's update check is not installed here, so there is no update reminder (update ai-toolkit and
-    run `/setup-claude`, then this skill again), and go on. Present: run
+    run `/setup-toolkit`, then this skill again), and go on. Present: run
     `jq -e --arg c '<checkout>' '[.hooks.SessionStart[]? | select(.matcher == "startup") | .hooks[]? | .command // ""] | any(endswith("update-check.sh --update /update-manager " + $c))' ~/.claude/settings.json`.
     `true`: done. `false`: show the person the `SessionStart` entry from docs/setup.md, The update reminder, with
     `<checkout>` filled in, to add to `hooks.SessionStart` by hand (never edit the settings file for them), beside
