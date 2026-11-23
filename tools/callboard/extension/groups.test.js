@@ -466,7 +466,7 @@ test('a conductor-made lead that is closed or parked stays listed while its row 
 })
 
 test('a conductor-made lead already closed or parked when its window first ticks is archived when its row is dropped; one of another folder, or not yet opened, is not', async () => {
-  const closed = (extra) => ({ name: 'M', folder: A, lead: { repos: [], minted: true }, under: S(3), goneAt: 1, ...extra })
+  const closed = (extra) => ({ name: 'M', folder: A, lead: { repos: [], minted: true }, under: S(3), ...extra })
   for (const mark of [{ goneAt: 1 }, { parked: 1 }]) {
     const w = world({ commands: ARCH, rows: [row(3, A)], table: { ...LEADS(), [S(2)]: closed(mark), [S(4)]: closed({ ...mark, folder: B }), 'new:N': closed(mark), [S(5)]: closed({ ...mark, lead: { repos: [] } }) } })
     await w.groups.tick()

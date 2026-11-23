@@ -329,6 +329,7 @@ test('a typed lead row and a plain lane row gone a day are removed, a conductor 
   f.h.sid = 'sid-a'
   mem.view = undefined
   assert.equal(table(f)['sid-a']?.lead, undefined)
+  assert.match(text(await laneListCall(f.$, {}, next)), /only a lead or the manager may use this/)
 })
 
 test('lane_create refuses a link on the way to the brief and a full house of lanes and rows to open, replaces the brief a finished lane left, and leaves no row behind', async () => {

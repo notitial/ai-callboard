@@ -9,7 +9,7 @@ export const IDLE_MS = 30_000
 const GONE_AFTER_MS = 30_000
 export const LANE_ROW_KEEP_MS = 24 * 3_600_000
 export const PARKED_ROW_KEEP_MS = 7 * 24 * 3_600_000
-// A conductor's row is kept longer than a lane's or a lead's: one resumed within the week still has its leads.
+// A conductor's row is kept longer than a lane's or a lead's: one resumed within the week is still a conductor, with its flag and saved repos.
 export const CONDUCTOR_ROW_KEEP_MS = 7 * 24 * 3_600_000
 // The key of a row between lane_create and the opened panel's session id.
 export const NEW_KEY = 'new:'
@@ -121,8 +121,8 @@ export function tidy(t: Table, v: View, noSince: (key: string) => number | undef
     if (reg !== undefined) delete row.goneAt
     else if (row.goneAt === undefined && row.parked === undefined && (noSince(k) ?? now) <= now - GONE_AFTER_MS) row.goneAt = now
     const kept = reg !== undefined || row.off === true
-    const keep = row.lead?.conductor === true && row.lead.minted !== true ? CONDUCTOR_ROW_KEEP_MS : LANE_ROW_KEEP_MS
-    const expired = !kept && (row.parked !== undefined ? now - row.parked >= PARKED_ROW_KEEP_MS : row.goneAt !== undefined && now - row.goneAt >= keep)
+    const keepMs = row.lead?.conductor === true && row.lead.minted !== true ? CONDUCTOR_ROW_KEEP_MS : LANE_ROW_KEEP_MS
+    const expired = !kept && (row.parked !== undefined ? now - row.parked >= PARKED_ROW_KEEP_MS : row.goneAt !== undefined && now - row.goneAt >= keepMs)
     if (!expired) out[k] = row
   }
   return out
