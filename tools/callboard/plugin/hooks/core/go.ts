@@ -1,7 +1,7 @@
 // The go: what a go file holds, what text a go may carry, and whom it covers. Pure. Trust rules held here: a go covers only its giver and the sessions under the
 // giver now, until its end; a go file is written only by the go dialog's click or his typed `go` (the adapters), or moved to its giver's successor by a handover, so this file only reads one.
 import type { Go, Sid, View } from './model.ts'
-import { ancestors } from './model.ts'
+import { ancestors, isLead } from './model.ts'
 
 export const GO_HOURS = 24
 const GO_TEXT_MAX = 300
@@ -25,6 +25,12 @@ export function parseGo(raw: unknown): Go | undefined {
 }
 // The giver is the reader or above it now, and the go has not ended; an end further off than GO_HOURS is no go. A giver that is gone is nobody's ancestor, so its go covers no one meanwhile.
 export const covers = (g: Go, reader: Sid, v: View, now: number): boolean => now < g.end && g.end - now <= GO_HOURS * 3_600_000 && (g.giver === reader || ancestors(v, reader).includes(g.giver))
+// The lead a session must ask for a go: its `under` while it is a lane or a lead a conductor made and that `under` still holds the lead capability, as `parent` reads it but bound, not live.
+// Undefined: it asks the person itself (a loose session, a lane whose lead dropped its capability, a conductor, a plain lead).
+export const goAsker = (v: View, s: Sid): Sid | undefined => {
+  const row = v.table[s]
+  return row?.under !== undefined && (row.lead === undefined || row.lead.minted === true) && isLead(v, row.under) ? row.under : undefined
+}
 
 // `/callboard go TEXT` and `/callboard go off [ID]`.
 export function goCommand(args: string): { op: 'give'; text: string } | { op: 'off'; id?: string } | 'bad' {

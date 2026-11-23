@@ -40,6 +40,7 @@ export type RefuseCode =
   | 'compact-busy'
   | 'go-bad-text'
   | 'dialog-open' // go_request while another dialog is open: the person was not asked
+  | 'go-ask-parent' // go_request from a session under a lead: it asks that lead
   | 'stop-declined' // a force stop the person did not confirm
   | 'signal-failed' // the signal to the session's process did not go
   | 'table-unwritten' // the lane table could not be written

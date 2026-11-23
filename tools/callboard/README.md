@@ -93,7 +93,7 @@ is the force stop: it always asks you and is refused while unattended mode is on
    you may need again is parked instead. A session you are done with ends itself and is archived in the sidebar when you
    type `/callboard archive` in its panel (refused while it has sessions under it).
 7. Before a long stretch, give a lead one go for the whole body of work (`/callboard go TEXT`, one to three lines) so
-   its lanes do not ask again for each step; a lead can ask for one with `go_request`, which opens your dialog. A go
+   its lanes do not ask again for each step; a lead no conductor made, or a conductor, can ask for one with `go_request`, which opens your dialog in its panel; a lane or a lead a conductor made cannot, and asks its lead or conductor. A go
    lasts 24 hours or until `/callboard go off`, covers the session and the sessions under it, and never covers a merge,
    a force push, a push to main or production, a delete outside the work, or the rest of the list `go_status`
    prints (ADR 0009). It counts only while the protected-paths guard is in place.
