@@ -142,7 +142,7 @@ starts. The window's other answers decide what
 follows: `patch-missing` ends the asking until the wish changes, the other failures (`no-channel`, `busy`, `failed`, no
 answer) are tried five times, 30 seconds apart, and a lane that found no channel asks again at its next turn (a panel has
 its session id only after its first message). One log line says it gave up, and the lane's `/callboard status` has a
-Remote Control row. A lane starts off by this rule, once. Rejected: `command.run('remote-control')`, which opens a dialog in the
+Remote Control row. A lane starts off by this rule, once in each process. Rejected: `command.run('remote-control')`, which opens a dialog in the
 terminal client and is refused in a panel, and a settings edit (`remoteControlAtStartup` is global and read live, a
 per-repo file is a settings write, which callboard never does for the person). Turning it on exposes the lane to the
 person's own account only; the `remote` request carries a session id and a boolean and nothing else, and the same-uid

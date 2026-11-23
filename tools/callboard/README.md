@@ -26,7 +26,8 @@ parent and a capability: none, lead or manager.
   last line of `<folder>/.archive/<LANE>/REPORT.md` is `status: done <its session id>`, appended, never overwritten.
   Only then can its parent retire it. A lane starts with Remote Control off (every ask of a connected session sends your
   phone a push): its lead turns it on with `lane_remote`, or you type `/callboard remote NAME on`. The lane applies a wish
-  once; a chip click you make afterwards stays. It needs the remote piece of the Claude Code patch (docs/setup.md).
+  once each time it starts; a chip click you make afterwards stays until you or its lead set the wish again, or the lane
+  restarts. It needs the remote piece of the Claude Code patch (docs/setup.md).
 - **Lead.** `/callboard lead [PATH…]`, typed by you in the session that coordinates a repo's lanes. It may create and
   adopt lanes in its own folder and the folders you list, and holds the tools that open, prompt, park, retire and list
   its lanes and answer their asks. A lead can also request a go (below).
