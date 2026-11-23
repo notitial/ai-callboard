@@ -340,7 +340,7 @@ const fixed: { [K in keyof Fixed]: (p: Fixed[K]) => string } = {
     if (p.kind === 'green') return `${ref}: all checks finished green on ${esc(p.sha ?? '')}.`
     if (p.kind === 'failed') return `${ref}: a check failed on ${esc(p.sha ?? '')}. Read the checks with the github tools.`
     if (p.kind === 'activity') return `${ref}: ${parts.join(', ')}. Read them with the github tools.`
-    if (p.kind === 'mergeable') return `${ref}: GitHub reports it open, not a draft, with no conflict, no failed or running check and no blocking review. A merge is the person's, always.`
+    if (p.kind === 'mergeable') return `${ref}: GitHub reports it open, not a draft, with no conflict, no failed or running check and no blocking review. Who merges is unchanged: the sentinel's own merge rule, or the person.`
     if (p.kind === 'merged') return `${ref}: merged. Tracking ended.`
     if (p.kind === 'closed') return `${ref}: closed without a merge. Tracking ended.`
     if (p.kind === 'lost') return `${ref}: GitHub stopped answering for it. Tracking ended.`
