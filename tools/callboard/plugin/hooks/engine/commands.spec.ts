@@ -237,10 +237,10 @@ test('/callboard handover: his typed turn owes the session one turn that tells i
 
 // `/callboard archive`: the session's own end. `me` is a lead with the given rows beside it; the kill is recorded with the state of the files at that moment.
 type Fake = ReturnType<typeof fake>
-function archiveWorld(extra: Record<string, unknown> = {}, name = 'me'): { f: Fake; kills: { argv: string[]; at: { record: unknown; row: boolean; closes: unknown[] } }[] } {
+function archiveWorld(extra: Record<string, unknown> = {}, name: string | null = 'me'): { f: Fake; kills: { argv: string[]; at: { record: unknown; row: boolean; closes: unknown[] } }[] } {
   const f = fake()
-  f.seed({ sid: 'sid-me', pid: 10, name, cwd: '/w/me', kind: 'interactive' })
-  f.table({ 'sid-me': { name, folder: '/w/me', lead: { repos: [] } }, ...extra })
+  f.seed({ sid: 'sid-me', pid: 10, ...(name === null ? {} : { name }), cwd: '/w/me', kind: 'interactive' })
+  f.table({ 'sid-me': { name: name ?? 'me', folder: '/w/me', lead: { repos: [] } }, ...extra })
   const kills: { argv: string[]; at: { record: unknown; row: boolean; closes: unknown[] } }[] = []
   const orig = f.$.process.run
   f.$.process.run = async (argv: string[], o?: unknown) => {
@@ -257,7 +257,7 @@ const untouched = (f: Fake) => assert.deepEqual([f.h.files.has(`${V2}/handovers.
 test('/callboard archive: the record, then the row goes, then the close request, then the session\'s own stop, in that order, and the answer says it is ending', async () => {
   const { f, kills } = archiveWorld()
   const r = await run(f, 'archive', 'composer')
-  assert.equal(r.text, T['cmd.archive']({ ok: true }))
+  assert.equal(r.text, T['cmd.archive']({ ok: true, closed: true }))
   assert.deepEqual(kills.map((k) => k.argv), [['/bin/kill', '-TERM', '10']])
   assert.deepEqual(kills[0]!.at.record, { me: { n: 0, old: [{ sid: 'sid-me', group: 'Lead', folder: '/w/me', at: T0, archive: true }] } }, 'the record names the group and says archive')
   assert.equal(kills[0]!.at.row, false, 'its own row is gone before the stop, a lead\'s too')
@@ -276,24 +276,34 @@ test('/callboard archive: a session with a row under it, live or parked, is refu
   assert.ok('sid-me' in JSON.parse(f.h.files.get(`${V2}/sessions.json`)!))
 })
 
-test('/callboard archive: a session with no group (loose, or off) or no name is refused and pointed to the sidebar, and a form from anything but his typed turn is refused', async () => {
-  const loose = archiveWorld()
-  loose.f.table({})
-  assert.match((await run(loose.f, 'archive', 'composer')).text, /no group in the sidebar.*Archive item/)
+test('/callboard archive: a loose session is recorded under the lanes\' group, then closed and stopped, with no row to drop', async () => {
+  const { f, kills } = archiveWorld()
+  f.table({})
+  assert.equal((await run(f, 'archive', 'composer')).text, T['cmd.archive']({ ok: true, closed: true }))
+  assert.deepEqual(kills.map((k) => k.argv), [['/bin/kill', '-TERM', '10']])
+  assert.deepEqual(kills[0]!.at.record, { me: { n: 0, old: [{ sid: 'sid-me', group: 'Lanes', folder: '/w/me', at: T0, archive: true }] } })
+  assert.deepEqual(kills[0]!.at.closes, [{ op: 'close', sid: 'sid-me', pid: 10, name: 'me', folder: '/w/me' }])
+})
+
+test('/callboard archive: a session callboard is off for is refused, and a form from anything but his typed turn is refused', async () => {
   const off = archiveWorld({ 'sid-me': { name: 'me', folder: '/w/me', off: true } })
-  assert.match((await run(off.f, 'archive', 'composer')).text, /no group in the sidebar.*Archive item/)
-  const noName = fake()
-  noName.seed({ sid: 'sid-me', pid: 10, cwd: '/w/me', kind: 'interactive' })
-  noName.table({ 'sid-me': { name: 'me', folder: '/w/me', lead: { repos: [] } } })
-  assert.match((await run(noName, 'archive', 'composer')).text, /no name of 1 to 25 characters to find its panel by/)
-  const long = archiveWorld({}, 'a'.repeat(26))
-  assert.match((await run(long.f, 'archive', 'composer')).text, /no name of 1 to 25 characters/)
-  untouched(long.f)
-  assert.deepEqual(long.kills, [])
+  assert.match((await run(off.f, 'archive', 'composer')).text, /callboard is off for that session/)
   const other = archiveWorld()
   assert.match((await run(other.f, 'archive', 'plugin')).text, /only when the person types it themselves/)
-  for (const w of [loose, off, other, { f: noName, kills: [] }]) untouched(w.f)
-  for (const w of [loose, off, other]) assert.deepEqual(w.kills, [])
+  for (const w of [off, other]) {
+    untouched(w.f)
+    assert.deepEqual(w.kills, [])
+  }
+})
+
+test('/callboard archive: a session with no name, or one the spool would refuse, is archived and stopped with no close request, and the answer says to close the panel', async () => {
+  for (const w of [archiveWorld({}, null), archiveWorld({}, 'a'.repeat(26))]) {
+    assert.equal((await run(w.f, 'archive', 'composer')).text, T['cmd.archive']({ ok: true, closed: false }))
+    assert.deepEqual(w.kills.map((k) => k.argv), [['/bin/kill', '-TERM', '10']])
+    assert.deepEqual(w.kills[0]!.at.closes, [], 'no close request: the panel cannot be found by this name')
+    assert.equal(Object.values(JSON.parse(w.f.h.files.get(`${V2}/handovers.json`)!) as Record<string, { old: { archive?: true }[] }>)[0]!.old[0]!.archive, true)
+  }
+  assert.match(T['cmd.archive']({ ok: true, closed: false }), /close the panel yourself/)
 })
 
 test('/callboard archive: a record that cannot be written changes nothing; a row that cannot be written takes the record back; a stop that did not go says the panel is to be closed', async () => {
@@ -314,7 +324,7 @@ test('/callboard archive: a record that cannot be written changes nothing; a row
   const c = archiveWorld()
   const before = c.f.$.process.run
   c.f.$.process.run = async (argv: string[], o?: unknown) => (argv[0] === '/bin/kill' ? { exitCode: 1, stdout: '', stderr: '' } : before(argv, o))
-  assert.equal((await run(c.f, 'archive', 'composer')).text, T['cmd.archive']({ ok: false }))
+  assert.equal((await run(c.f, 'archive', 'composer')).text, T['cmd.archive']({ ok: false, closed: true }))
   assert.equal(JSON.parse(c.f.h.files.get(`${V2}/handovers.json`)!).me.old[0].archive, true, 'the archive still happens once the process is gone')
 })
 
@@ -324,7 +334,7 @@ test('/callboard archive: the manager may archive itself while nothing is under 
   solo.h.files.set(`${HOME}/.claude/callboard/manager-name`, 'BOSS\n')
   const orig = solo.$.process.run
   solo.$.process.run = async (argv: string[], o?: unknown) => (argv[0] === '/bin/kill' ? { exitCode: 0, stdout: '', stderr: '' } : orig(argv, o))
-  assert.equal((await run(solo, 'archive', 'composer')).text, T['cmd.archive']({ ok: true }))
+  assert.equal((await run(solo, 'archive', 'composer')).text, T['cmd.archive']({ ok: true, closed: true }))
   assert.equal(JSON.parse(solo.h.files.get(`${V2}/handovers.json`)!).BOSS.old[0].group, 'Manager')
   const busy = fake()
   busy.seed({ sid: 'sid-me', pid: 10, name: 'BOSS', cwd: '/w/me', kind: 'interactive' })

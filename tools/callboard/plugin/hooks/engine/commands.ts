@@ -2,7 +2,7 @@
 // it for a form that widens what a session may do (lead, conductor, off, on, go, go off, unattended on and off, config changes, remote); a write that does not land is said, never reported as done; a path a
 // lead is given is resolved to its real path; the table is written under its lock.
 import type { Row, Sid, View } from '../core/model.ts'
-import { NAME_MAX, PERSON, capability, children, descendants, isConductor, isMinted, isOff, keysNamed, nameOf, parent, refusal } from '../core/model.ts'
+import { NAME_RE, PERSON, capability, children, descendants, isConductor, isMinted, isOff, keysNamed, nameOf, parent, refusal } from '../core/model.ts'
 import type { Cmd, Origin } from '../core/commands.ts'
 import { configNext, parsePreset, planCommand } from '../core/commands.ts'
 import { GO_HOURS, covers } from '../core/go.ts'
@@ -132,23 +132,26 @@ export async function perform($: any, cmd: Cmd, me: Sid, v: View, now: number, s
       mem.owed.push(T['cmd.handover']({}))
       return T['cmd.handover']({})
     // The person's own typed step. The record that makes the panels extension archive the session once its process is gone goes first, then the row, then the panel's close and the
-    // session's own stop; a write that does not land is said and undone, so nothing is left half-done. A session with a row under it, live or parked, is refused.
+    // session's own stop; a write that does not land is said and undone, so nothing is left half-done. A session callboard is off for, or with a row under it, live or parked, is
+    // refused. A loose session is recorded under the lanes' group as a stand-in, which the extension files it in before it archives it.
     case 'archive': {
       const own = v.rows === 'unknown' ? undefined : v.rows.get(me)
       if (own === undefined || !Number.isInteger(own.pid) || own.pid < 2) return say(refusal('refuse', 'unknown-liveness', { tool: 'callboard', target: cmd.op }))
       const group = groupOf(v, me)
+      if (isOff(v, me) || group === undefined) return say(refusal('refuse', 'is-off', { tool: 'callboard', target: cmd.op }))
       const kids = children(v, me).map((k) => nameOf(v, k))
-      const no = group === undefined ? 'archive-tier' : kids.length > 0 ? 'archive-children' : !own.name || own.name.length > NAME_MAX ? 'archive-name' : undefined
-      if (group === undefined || !own.name || no !== undefined) return say(refusal('refuse', 'bad-input', { tool: 'callboard', target: kids.length > 8 ? `${kids.slice(0, 8).join(', ')} and ${kids.length - 8} more` : kids.join(', '), detail: no }))
+      if (kids.length > 0) return say(refusal('refuse', 'bad-input', { tool: 'callboard', target: kids.length > 8 ? `${kids.slice(0, 8).join(', ')} and ${kids.length - 8} more` : kids.join(', '), detail: 'archive-children' }))
       const base = nameOf(v, me)
       if (!(await updateHandovers($, (h) => recordHandover(h, base, h[base]?.n ?? 0, { sid: me, group, folder: own.folder, at: now, archive: true })))) return say(refusal('refuse', 'not-saved', { tool: 'callboard', target: cmd.op, detail: 'archive' }))
       if (!(await updateTable($, (t) => Object.fromEntries(Object.entries(t).filter(([k]) => k !== me))))) {
         await updateHandovers($, (h) => dropHandover(h, me))
         return say(refusal('refuse', 'not-saved', { tool: 'callboard', target: cmd.op, detail: 'lane' }))
       }
-      await spoolSend($, { op: 'close', sid: me, pid: own.pid, name: own.name, folder: own.folder })
+      // The close finds the panel by its exact name, so a name the spool would refuse skips it and the person closes the panel.
+      const closed = own.name !== undefined && NAME_RE.test(own.name)
+      if (closed) await spoolSend($, { op: 'close', sid: me, pid: own.pid, name: own.name, folder: own.folder })
       // The session ends itself: no wait for its row to go, which a stop of its own process cannot see.
-      return T['cmd.archive']({ ok: (await run($, ['/bin/kill', '-TERM', String(own.pid)])).exitCode === 0 })
+      return T['cmd.archive']({ ok: (await run($, ['/bin/kill', '-TERM', String(own.pid)])).exitCode === 0, closed })
     }
     case 'lead-off': return saved(await setRow($, v, me, folder ?? '', ({ lead: _, ...r }) => r), T['cmd.leadOff']({}), 'lane')
     case 'off': return saved(await setRow($, v, me, folder ?? '', (r) => ({ ...r, off: true })), T['cmd.off']({}), 'lane')

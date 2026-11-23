@@ -74,18 +74,29 @@ reason `clear` or `resume`. This also fixes the carry-over after a typed `/clear
 **The old conversation is archived.** The panels extension reads `handovers.json` beside the table: an old id in this
 window's folders with no table row and no live process, on two clean ticks and no sooner than two minutes after the handover began, is filed in its group through `callboard file
 session` and archived through `callboard archive sessions`, whatever the group, and remembered so it is archived once. A
-retired lane or minted lead is archived the same way already. A loose session is renamed `NAME~N` and not archived.
+retired lane or minted lead is archived the same way already. A loose session is renamed `NAME~N` and, since 2026-11-23, archived under the stand-in group (see the amendment below).
 
 *Amended 2026-11-23 (`/callboard archive`).* The same record and the same archive path serve a session that ends itself. The
-person types `/callboard archive` in its panel (typed only, like `handover`). It is refused when the session has no sidebar
-group (it is off, or it is not a manager, conductor, lead or lane: the sidebar's own Archive item is for those), has no
-name to find its panel by, or has any session under it, live or parked (the message names them; they are retired first; the
+person types `/callboard archive` in its panel (typed only, like `handover`). It is refused when the session is off or has any
+session under it, live or parked (the message names them; they are retired first; the
 manager's own sessions are every session with no lead above it). Otherwise the plugin writes a `handovers.json` entry for the
 session marked `archive: true` (the counter for the name is not used up), drops the session's own row, a lead's included,
 asks the window to close the panel once its process is gone (the spool's `close`), and sends the session's own process
 `TERM`. A write that does not land is said and the record taken back. The panels extension archives an entry marked
 `archive` without the two-minute undo wait, on the same two clean ticks. A row dropped first and a signal that fails leave
 a session with no row in the sidebar; the archive happens once the person closes the panel.
+
+*Amended 2026-11-23 (any session).* `/callboard archive` and a handover's archive reach every session callboard is on for.
+The command is refused only when callboard is off for the session or a session is under it, live or parked; a session with
+no sidebar group is no longer refused, and a session with no usable name is no longer refused either. A loose session (no
+row, no lead above it, not the manager) is recorded under `Lanes` as a stand-in: the extension files it there, then archives
+it, as for every entry, so the Claude Code patch does not change. The cost is an empty Lanes group in a window that had
+none, and the loss of a group of the person's own, which archiving drops anyway. The panel's close request is sent only for
+a name of 1 to 25 characters, the length the spool and the sweep can find a panel by; a session with another name (or none)
+is archived and stopped without it, and the reply tells the person to close the panel. A loose session that hands itself
+over is recorded under the same stand-in, so its old conversation is archived like any other, where it was only renamed.
+Considered and not taken: an archive command that takes no group, which leaves nothing in the sidebar but needs a patch
+`--update` and a window reload in every window.
 
 *Amended 2026-11-23 (un-file).* A session that leaves its tier while it still has a table row (`/callboard lead off` in a
 typed lead, or `/callboard off`) is taken out of the group it was filed in by the panels extension's groups tick, through a
