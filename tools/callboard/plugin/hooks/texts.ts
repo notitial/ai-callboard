@@ -89,7 +89,7 @@ const BAD_INPUT: Record<string, (p: Params['refuse.bad-input']) => string> = {
   'no-brief': () => `${BAD}: that lane has no brief to start on.`,
   path: () => "a typed path, or this session's own folder, does not resolve to a real folder.",
   'archive-tier': () => "this session has no group in the sidebar (callboard is off for it, or it is not a manager, a conductor, a lead or a lane), so use the sidebar's Archive item.",
-  'archive-children': (p) => `these sessions are still under it: ${esc(p.target ?? '')}. Retire or park them first, then run /callboard archive again.`,
+  'archive-children': (p) => `these sessions are still under it: ${esc(p.target ?? '')}. Retire, park or close them first, then run /callboard archive again.`,
   'archive-name': () => "this session has no name to find its panel by, so give it one with /rename, or use the sidebar's Archive item.",
   'idle-over-working': () => 'the idle level cannot be above the working level.',
   decision: () => 'decision is one of allow, deny, answer or escalate.',

@@ -201,9 +201,10 @@ EXT_DIR="$(ls -d "$HOME"/.vscode/extensions/anthropic.claude-code-* | sort -V | 
   The plugin drops a row on a retire, 24 hours after a lane died without one and 28 days after a park, so a lane in
   either of the last two cases is archived once its row goes; so is the old conversation of a lane whose session id
   changed (`/clear`). Unarchive in the sidebar brings any of them back.
-  A session that ends itself with `/callboard archive` (typed in its panel; the manager and a conductor included) is
-  archived the same way, with no wait for an undo: it is refused while any session is under it, live or parked, and for a
-  session with no group in the sidebar, which the sidebar's own Archive item archives.
+  A session that ends itself with `/callboard archive` (typed in its panel) is archived the same way, with no wait for an
+  undo: it is refused while any session is under it, live or parked, and for a session with no group in the sidebar, which
+  the sidebar's own Archive item archives. Under the manager is every session with no lead above it, so the manager is
+  refused while any other session runs.
 - The unfile command is another piece (the marker's `unfile` field): `callboard unfile session` takes a session out of the
   group it is given and out of no other. The panels extension calls it for a session that still has a row in callboard's
   table but no tier any more (you typed `/callboard lead off` in a lead you made by hand, or `/callboard off`), with the

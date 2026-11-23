@@ -266,7 +266,7 @@ test('/callboard archive: the record, then the row goes, then the close request,
 })
 
 test('/callboard archive: a session with a row under it, live or parked, is refused with the names, and nothing changes', async () => {
-  const { f, kills } = archiveWorld({ 'sid-kid': { name: 'kid', folder: '/w/kid', under: 'sid-me', parked: T0 - MIN } })
+  const { f, kills } = archiveWorld()
   f.seed({ sid: 'sid-live', pid: 11, name: 'live', cwd: '/w/live', kind: 'interactive' })
   f.table({ 'sid-me': { name: 'me', folder: '/w/me', lead: { repos: [] } }, 'sid-kid': { name: 'kid', folder: '/w/kid', under: 'sid-me', parked: T0 - MIN }, 'sid-live': { name: 'live', folder: '/w/live', under: 'sid-me' } })
   const r = await run(f, 'archive', 'composer')

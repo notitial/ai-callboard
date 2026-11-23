@@ -309,6 +309,22 @@ test('an unfile that answers false or throws keeps the session in the record and
   assert.deepEqual(t.store.done, { [S(1)]: 'Lanes' }, 'a throw: kept')
 })
 
+test('a manager that is closed is not taken out of Manager even when it has a row, and is not filed again when it is resumed; one turned off is taken out', async () => {
+  const rows = [boss(1)]
+  const w = world({ commands: UNF, rows, manager: 'BOSS', table: { [S(1)]: { name: 'BOSS', folder: A } } })
+  await w.groups.tick()
+  rows.shift()
+  await w.groups.tick()
+  assert.deepEqual([w.unfiled, w.store.done], [[], { [S(1)]: 'Manager' }])
+  rows.push(boss(1))
+  await w.groups.tick()
+  assert.deepEqual(w.calls, [[S(1), 'Manager']], 'not filed again')
+  rows.shift()
+  w.table[S(1)].off = true
+  await w.groups.tick()
+  assert.deepEqual([w.unfiled, w.store.done], [[[S(1), 'Manager']], {}])
+})
+
 test('without the unfile command (a patch from before it) a session with no tier is left where it is and is forgotten, as before', async () => {
   const w = world({ rows: [row(1, A)], lanes: [{ sid: S(1) }] })
   await w.groups.tick()

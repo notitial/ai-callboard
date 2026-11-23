@@ -145,11 +145,16 @@ function createGroups({ vscode, registry, state, loadTable, loadHandovers = asyn
         }
       }
       // A session with a row and no tier is taken out of its group; it stays in the record until that has worked.
+      // A manager that is closed is in no tier but is not off: it stays filed, so that it is not filed again when it is resumed.
       const leaving = new Set()
+      const managed = [...want.values()].includes('Manager')
       for (const [sid, group] of Object.entries(filed)) {
-        if (!canUnfile || want.has(sid) || !Object.hasOwn(table, sid)) continue
+        if (!canUnfile || want.has(sid) || !Object.hasOwn(table, sid) || (group === 'Manager' && !managed && table[sid]?.off !== true)) continue
         try {
-          if ((await vscode.commands.executeCommand(UNFILE, sid, group)) === true) continue
+          if ((await vscode.commands.executeCommand(UNFILE, sid, group)) === true) {
+            delete filed[sid]
+            continue
+          }
         } catch {
           // The session is taken out again at the next tick.
         }
@@ -157,7 +162,6 @@ function createGroups({ vscode, registry, state, loadTable, loadHandovers = asyn
       }
       // Only sessions still in a tier (or still to be taken out of one) are remembered, so the record cannot outgrow them. The manager is in a tier only while it
       // runs, so while no manager runs its entry is kept: a manager closed and resumed is not filed again.
-      const managed = [...want.values()].includes('Manager')
       const keep = Object.fromEntries(Object.entries(filed).filter(([sid, group]) => want.has(sid) || leaving.has(sid) || (!managed && group === 'Manager')))
       if (JSON.stringify(keep) !== JSON.stringify(was)) await state.update(keyOf(DONE_KEY), keep)
       if (canArchive && loaded) await archiveRetired({ want, table, rows, prior })
