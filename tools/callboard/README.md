@@ -13,7 +13,7 @@ exact texts are in the code, and `/callboard help` lists every command. Nothing 
 | `plugin/` | The Claude Code plugin. A pure core in `plugin/hooks/core/` (no I/O, no text), adapters in `plugin/hooks/engine/` that feed it and act on what it returns, the texts table `plugin/hooks/texts.ts` and the one UI module `plugin/hooks/ui.ts` |
 | `extension/` | The VS Code extension that opens, reopens and closes lane panels. Its one command, `callboard run block`, is the host side of the Run button. What it does: [`extension/README.md`](extension/README.md) |
 | `link-extension.py` | Links that extension into VS Code from this checkout, once per machine (Install) |
-| `patch-claude.py` | Patches the installed Claude Code extension so a lane of any folder of a multi-folder window opens there, widens the composer, shows the composer's context pie always against your autocompact level, puts the session's folder name next to the model name, adds a Run button on shell code blocks that runs the block on your click (after a modal) and sends the output into the chat, makes a restored or reopened panel resume in its conversation's folder, adds a command that files callboard sessions in the sidebar's Manager, Conductor, Lead and Lanes groups, in that order, adds a command that archives a retired lane there, and lists the saved conversations of every folder of the window in the sidebar (docs/setup.md; `/patch-vs-claude`). Header comment: usage and exit codes |
+| `patch-claude.py` | Patches the installed Claude Code extension so a lane of any folder of a multi-folder window opens there, widens the composer, shows the composer's context pie always against your autocompact level, puts the session's folder name next to the model name, adds a Run button on shell code blocks that runs the block on your click (after a modal) and sends the output into the chat, makes a restored or reopened panel resume in its conversation's folder, adds a command that files callboard sessions in the sidebar's Manager, Conductor, Lead and Lanes groups, in that order, adds a command that archives a retired lane there, adds a command that takes a session out of its group when it has no tier any more, and lists the saved conversations of every folder of the window in the sidebar (docs/setup.md; `/patch-vs-claude`). Header comment: usage and exit codes |
 | `test.sh` | The test entry point (Tests) |
 
 ## The sessions
@@ -89,7 +89,8 @@ is the force stop: it always asks you and is refused while unattended mode is on
    itself over to a clear one in the same panel (`request_handover`, or the person's typed `/callboard handover`): it
    keeps its name, role, parent, children, goes and PR watches, and the old conversation is renamed `NAME~N`.
 6. A lane finishes, signs its report, and its lead retires it. The lead is told of a signature in a check-in. A lane
-   you may need again is parked instead.
+   you may need again is parked instead. A session you are done with ends itself and is archived in the sidebar when you
+   type `/callboard archive` in its panel (refused while it has sessions under it).
 7. Before a long stretch, give a lead one go for the whole body of work (`/callboard go TEXT`, one to three lines) so
    its lanes do not ask again for each step; a lead can ask for one with `go_request`, which opens your dialog. A go
    lasts 24 hours or until `/callboard go off`, covers the session and the sessions under it, and never covers a merge,

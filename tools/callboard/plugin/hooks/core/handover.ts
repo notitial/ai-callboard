@@ -35,7 +35,8 @@ export function groupOf(v: View, s: Sid): Group | undefined {
 }
 
 // ---- the counter file: per name, the last number used and the old sessions handed over (the extension archives them) ----
-export type Old = { sid: Sid; group: Group; folder: Folder; at: number }
+// `archive`: the session archived itself (`/callboard archive`) and is archived at once, with no undo wait.
+export type Old = { sid: Sid; group: Group; folder: Folder; at: number; archive?: true }
 export type Handovers = { [name: string]: { n: number; old: Old[] } }
 const GROUPS: readonly string[] = ['Manager', 'Conductor', 'Lead', 'Lanes']
 export function parseHandovers(raw: unknown): Handovers | undefined {

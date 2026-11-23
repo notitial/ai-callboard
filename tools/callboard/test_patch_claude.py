@@ -501,7 +501,7 @@ async function run(groups, sid, name, order) {
   const fake = { workspace: {}, window: {}, commands: { registerCommand: (id, fn) => { H[id] = fn; return {} } } }
   const ctx = vm.createContext({ x: [], Wp: () => {}, F: () => ({}), G: provider, Gq: provider, $e: fake, Pe: fake, require: (m) => (m === 'crypto' ? { randomUUID: () => 'new-id' } : fake) })
   vm.runInContext(code, ctx)
-  const result = await H['callboard file session'](sid, name, order)
+  const result = await H[start.command || 'callboard file session'](sid, name, order)
   return { result, saved, stock: typeof H['claude-vscode.addSessionTabToGroup'], other: typeof H['claude-vscode.toggleFocusView'] }
 }
 ;(async () => {
@@ -517,8 +517,8 @@ G2 = {"id": "g2", "name": "LEAD", "collapsed": False, "sessionIds": ["s9"]}
 class Groups(Case):
     """The group command is one optional registration next to the stock add-to-group command; the folder patch never depends on it."""
 
-    def drive(self, ext, groups, *calls, archived=()):
-        p = subprocess.run(["node", "-e", GROUPS_RUNNER, os.path.join(ext, "extension.js"), json.dumps({"groups": groups, "calls": calls, "archived": archived})], capture_output=True, text=True, timeout=60)
+    def drive(self, ext, groups, *calls, archived=(), command="callboard file session"):
+        p = subprocess.run(["node", "-e", GROUPS_RUNNER, os.path.join(ext, "extension.js"), json.dumps({"groups": groups, "calls": calls, "archived": archived, "command": command})], capture_output=True, text=True, timeout=60)
         self.assertEqual(p.returncode, 0, p.stderr)
         return json.loads(p.stdout)
 
@@ -531,9 +531,9 @@ class Groups(Case):
             self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "patched 2.1.328"))
             self.assertEqual(self.out.count("warning"), 0)
             marker = self.marker(ext)
-            self.assertEqual((marker["patch"], marker["width"], marker["pie"], marker["groups"], marker["archive"], marker["remote"], marker["list"]), (1, True, True, True, True, True, True))
+            self.assertEqual((marker["patch"], marker["width"], marker["pie"], marker["groups"], marker["archive"], marker["unfile"], marker["remote"], marker["list"]), (1, True, True, True, True, True, True, True))
             new = self.js(ext)
-            self.assertEqual((new.count(b"callboard file session"), new.count(b"callboard archive sessions"), new.count(b"callboard remote session"), new.count(b"cbListOne(e){")), (1, 1, 1, 1))
+            self.assertEqual((new.count(b"callboard file session"), new.count(b"callboard archive sessions"), new.count(b"callboard unfile session"), new.count(b"callboard remote session"), new.count(b"cbListOne(e){")), (1, 1, 1, 1, 1))
             self.assertEqual(new.count(b"cbCwd"), 6)
 
     def test_the_command_goes_in_front_of_the_stock_one_inside_its_push_call(self):
@@ -541,9 +541,10 @@ class Groups(Case):
         new = self.js(ext).decode("utf-8")
         i, j = new.index("Pe.commands.registerCommand(\"callboard file session\""), new.index("Pe.commands.registerCommand(\"claude-vscode.addSessionTabToGroup\"")
         self.assertLess(i, j)
-        self.assertEqual(new[i:j].count("registerCommand"), 3, "the group command, then the archive and the remote command")
+        self.assertEqual(new[i:j].count("registerCommand"), 4, "the group command, then the archive, the unfile and the remote command")
         self.assertTrue(new[:i].endswith("x.push("))
         self.assertIn('Pe.commands.registerCommand("callboard archive sessions",async(', new[i:j])
+        self.assertIn('Pe.commands.registerCommand("callboard unfile session",async(', new[i:j])
         self.assertIn('Pe.commands.registerCommand("callboard remote session",async(', new[i:j])
         self.assertTrue(new[i:j].endswith('"ok":"failed"}),'))
 
@@ -595,6 +596,21 @@ class Groups(Case):
         self.assertEqual((r[1]["result"], r[1]["saved"][0][1]["sessionIds"]), (True, ["s9", "x0"]), "a move adds no session, so it still goes")
         held = [{**g, "sessionIds": ["s7"]} if g["id"] == "g1" else g for g in full]
         self.assertEqual([(x["result"], x["saved"]) for x in self.drive(ext, held, ["s7", "Lanes"])], [(False, [])], "100 groups: a move to a new group is refused and the session stays where it was")
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_the_unfile_command_takes_the_session_out_of_the_named_group_and_changes_nothing_else(self):
+        for variant in (V327, V328):
+            ext = self.make(variant, name="unfile%s" % variant["pv"])
+            self.run_script(ext, "--apply")
+            self.assertTrue(self.marker(ext)["unfile"])
+            mine = {"id": "g3", "name": "Mine", "collapsed": False, "sessionIds": ["s1", "s5"]}
+            r = self.drive(ext, [G1, G2, mine], ["s0", "Lanes"], ["s0", "lanes"], ["s1", "Lanes"], ["s5", "Lanes"], ["s0", "Nobody"], [5, "Lanes"], ["s0", ""], ["s0", 5], command="callboard unfile session")
+            self.assertEqual(r[0]["saved"], [[{**G1, "sessionIds": []}, G2, mine]], "the session leaves its group and the emptied group stays")
+            self.assertEqual(r[1]["saved"], r[0]["saved"], "a name in another letter case finds the group")
+            self.assertEqual([(x["result"], x["saved"]) for x in r[2:5]], [(True, [])] * 3, "a session in another group (moved by hand), or a group that does not exist, changes nothing")
+            self.assertEqual([(x["result"], x["saved"]) for x in r[5:]], [(False, [])] * 3, "bad arguments do nothing")
+            self.assertEqual([x["result"] for x in r[:2]], [True, True])
+            self.assertEqual((r[0]["stock"], r[0]["other"]), ("function", "function"), "the stock commands are still registered")
 
     def test_a_missing_or_doubled_anchor_costs_only_the_group_command(self):
         stock = GROUP.replace("addSessionTabToGroup", "addSessionToGroup")
@@ -672,6 +688,9 @@ class Groups(Case):
             if marker["archive"]:
                 for member in (b"archiveSessions(", b"broadcastSessionArchiveChanged(", b"getArchivedSessionIds()"):
                     self.assertIn(member, raw, "%s: the members the archive command uses" % d)
+            if marker["unfile"]:
+                for member in (b".settings.getSessionGroups()", b"persistGroupsFromHost("):
+                    self.assertIn(member, raw, "%s: the members the unfile command uses" % d)
             if marker["remote"]:
                 for member in (b".allComms", b".channels", b"toggleRemoteControl(", b"remoteControlState"):
                     self.assertIn(member, raw, "%s: the members the remote command uses" % d)
@@ -842,9 +861,9 @@ class ListAndArchive(Case):
 
     def test_a_missing_list_anchor_costs_only_the_list_and_a_missing_group_anchor_costs_only_the_two_commands_there(self):
         for label, raw, left, kept in (
-            ("renamed method", build(V327).replace(b"async listSdkSessions", b"async listSessionsFromSdk"), ("list", "session list"), ("groups", "archive", "remote")),
-            ("doubled method", build(V327).replace(b"function Act(", b"class Z{async listSdkSessions(e=this.sessionListOptions()){let t=gd();return t===void 0?await c$e(e):await RHe(e,void 0,t)}}function Act("), ("list", "session list"), ("groups", "archive", "remote")),
-            ("no group registration", build(V327, grp=""), ("groups", "group command", "archive", "remote"), ("list",)),
+            ("renamed method", build(V327).replace(b"async listSdkSessions", b"async listSessionsFromSdk"), ("list", "session list"), ("groups", "archive", "unfile", "remote")),
+            ("doubled method", build(V327).replace(b"function Act(", b"class Z{async listSdkSessions(e=this.sessionListOptions()){let t=gd();return t===void 0?await c$e(e):await RHe(e,void 0,t)}}function Act("), ("list", "session list"), ("groups", "archive", "unfile", "remote")),
+            ("no group registration", build(V327, grp=""), ("groups", "group command", "archive", "unfile", "remote"), ("list",)),
         ):
             ext = self.make(V327, name="miss%d" % len(os.listdir(self.t)), raw=raw)
             self.run_script(ext, "--apply")
@@ -862,8 +881,23 @@ class ListAndArchive(Case):
         self.assertEqual(marker["list"], False)
         ext, marker = self.applied(raw=build(V327, grp=GROUP + 'x.push(Wp("callboard archive sessions",()=>1));'), name="havearch")
         self.assertEqual((marker["archive"], self.js(ext).count(b"callboard archive sessions")), (False, 1))
+        ext, marker = self.applied(raw=build(V327, grp=GROUP + 'x.push(Wp("callboard unfile session",()=>1));'), name="haveunfile")
+        self.assertEqual((marker["unfile"], self.js(ext).count(b"callboard unfile session")), (False, 1))
         ext, marker = self.applied(raw=build(V327, grp=GROUP + 'x.push(Wp("callboard remote session",()=>1));'), name="haveremote")
         self.assertEqual((marker["remote"], self.js(ext).count(b"callboard remote session")), (False, 1))
+
+    def test_an_install_from_before_the_unfile_command_reads_outdated_and_update_brings_it_in(self):
+        mod = load_module()
+        ext = self.make(V327, name="oldunfile")
+        with contextlib.redirect_stdout(io.StringIO()):
+            old = load_module()
+            old.PIECES = tuple((f, n, (lambda raw, _: "not here") if f == "unfile" else problem, put_in) for f, n, problem, put_in in old.PIECES)
+            old.apply(ext)
+        self.assertNotIn(b"callboard unfile session", self.js(ext))
+        self.assertEqual(self.marker(ext)["unfile"], False)
+        self.reads_outdated_then_updates(ext, "the unfile command is not in")
+        self.assertEqual(self.js(ext), mod.patched(slurp(os.path.join(ext, "extension.js.callboard-orig")), mod.webview(ext))[0])
+        self.assertEqual(self.marker(ext)["unfile"], True)
 
     def test_an_install_from_before_the_list_reads_outdated_and_update_brings_it_in(self):
         mod = load_module()

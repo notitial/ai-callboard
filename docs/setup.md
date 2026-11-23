@@ -201,6 +201,18 @@ EXT_DIR="$(ls -d "$HOME"/.vscode/extensions/anthropic.claude-code-* | sort -V | 
   The plugin drops a row on a retire, 24 hours after a lane died without one and 28 days after a park, so a lane in
   either of the last two cases is archived once its row goes; so is the old conversation of a lane whose session id
   changed (`/clear`). Unarchive in the sidebar brings any of them back.
+  A session that ends itself with `/callboard archive` (typed in its panel) is archived the same way, with no wait for an
+  undo: it is refused while any session is under it, live or parked, and for a session with no group in the sidebar, which
+  the sidebar's own Archive item archives. A parked session or a closed panel still has its row, so it counts until it is
+  retired (a typed lead's row stays until `/callboard lead off` is typed in it). Under the manager is every session with no
+  lead above it, so the manager is refused while any other session runs or has a row.
+- The unfile command is another piece (the marker's `unfile` field): `callboard unfile session` takes a session out of the
+  group it is given and out of no other. The panels extension calls it for a session that still has a row in callboard's
+  table but no tier any more (you typed `/callboard lead off` in a lead you made by hand, or `/callboard off`), with the
+  group it filed that session in, so the session leaves Lead, Conductor, Manager or Lanes within about 10 seconds. A
+  session you moved into a group of your own stays there. `/callboard on` or `/callboard lead` files it again. A session
+  whose row is gone (a retired lane) is archived instead, as above. An install without this piece reads `outdated`, and
+  `--update` (`/patch-vs-claude`) brings it in, then a window reload; until then such a session stays in its group.
 - The remote command is another piece (the marker's `remote` field): `callboard remote session` turns Remote Control of a
   session's panel on or off, as the panel's own toggle does. Remote Control sends your phone a push for every ask of every
   connected session, so a lane starts with it off. A lane's row holds the wish (off unless a lead's `lane_remote` or your

@@ -88,6 +88,9 @@ const BAD_INPUT: Record<string, (p: Params['refuse.bad-input']) => string> = {
   unwritten: () => `${BAD}: the brief could not be written.`,
   'no-brief': () => `${BAD}: that lane has no brief to start on.`,
   path: () => "a typed path, or this session's own folder, does not resolve to a real folder.",
+  'archive-tier': () => "this session has no group in the sidebar (callboard is off for it, or it is not a manager, a conductor, a lead or a lane), so use the sidebar's Archive item.",
+  'archive-children': (p) => `these sessions are still under it: ${esc(p.target ?? '')}. A parked or closed one still counts: retire them (a typed lead: /callboard lead off in it), then run /callboard archive again.`,
+  'archive-name': () => `this session has no name of 1 to ${NAME_MAX} characters to find its panel by, so give it one with /rename, or use the sidebar's Archive item.`,
   'idle-over-working': () => 'the idle level cannot be above the working level.',
   decision: () => 'decision is one of allow, deny, answer or escalate.',
   question: () => 'an allow cannot answer a question: use decision answer with option.',
@@ -113,6 +116,7 @@ const NOT_SAVED: Record<string, string> = {
   config: 'the settings could not be written, so nothing changed.',
   rest: 'the rest flag could not be written, so nothing changed.',
   answer: 'the answer could not be written, so nothing changed.',
+  archive: 'the archive record could not be written, so nothing changed.',
   escalate: 'the escalation could not be written, so the ask is still with you.',
   'repos-row': "the conductor's repo list was saved, but this session's row in the lane table could not be written, so it is not a conductor yet. Run /callboard conductor again.",
 }
@@ -206,11 +210,12 @@ const HELP: Record<CommandName, string> = {
   config: 'show or change the settings, for the whole Mac.',
   rest: 'stop keepalive pings in this idle gap. /rest does the same.',
   handover: "ask this session to write its state and hand over to a clear session in this panel, with the same name, role, parent and children; this conversation is kept as NAME~N. Only you, typed.",
+  archive: "close this session's panel and archive its chat in the sidebar; Unarchive there brings it back. Refused while sessions are under it, and for a session with no group. Only you, typed.",
   remote: "turn Remote Control on or off for the lane NAME. A lane starts with it off and applies a wish once: a chip click in its panel stays until you or its lead set the wish again. Only you, typed.",
 }
 const FORM: Record<CommandName, string> = {
   status: 'status', lanes: 'lanes', help: 'help', lead: 'lead [PATH…]', 'lead-off': 'lead off', conductor: 'conductor [pick | reset | PATH…]', off: 'off', on: 'on', go: 'go TEXT', 'go-off': 'go off [ID]',
-  unattended: 'unattended Nm|Nh|HH:MM|off', remote: 'remote NAME on|off', config: 'config [keepalive on|off | ping 30-55 | stop 1-8 | idle 150-800 | working 150-900 | reset]', rest: 'rest', handover: 'handover',
+  unattended: 'unattended Nm|Nh|HH:MM|off', remote: 'remote NAME on|off', config: 'config [keepalive on|off | ping 30-55 | stop 1-8 | idle 150-800 | working 150-900 | reset]', rest: 'rest', handover: 'handover', archive: 'archive',
 }
 const COL: Record<UiColumn, string> = { name: 'Name', role: 'Role', state: 'State', folder: 'Folder', context: 'Context', fiveHour: '5 h', sevenDay: '7 d', cost: 'Cost', read: 'Read' }
 const STATE: Record<UiState, string> = { live: 'live', busy: 'busy', parked: 'parked', gone: 'gone', done: 'signed done', off: 'off', notOpened: 'not opened', unknown: 'unknown' }
@@ -388,6 +393,7 @@ const fixed: { [K in keyof Fixed]: (p: Fixed[K]) => string } = {
   'go.clicked': (p) => p.outcome === 'closed' ? `[callboard] The go dialog you opened ended with no answer from the person, so there is no go, and a click on it now records none; ask again only if the work still needs one. ${SENT} ${NEVER}` : `[callboard] The person ${p.outcome === 'given' ? 'clicked Yes on your go request; the go is what go_status lists' : p.outcome === 'declined' ? 'declined the go you asked for' : 'said yes to the go you asked for, but it could not be saved, so there is none; ask again'}. ${SENT} ${NEVER}`,
   'cmd.remote': (p) => `Remote Control is ${p.on ? 'wanted ON' : 'wanted OFF'} for the lane ${q(p.name)}. The lane applies it once, within seconds, and then leaves it: a chip click afterwards stays until you set it again. /callboard status in that lane says when it could not.`,
   'cmd.handover': () => `[callboard] The person ran /callboard handover in this session: finish the step you are on, write your state with the handover skill to a file under .archive/, call request_handover, and end your turn. ${SENT} ${NEVER}`,
+  'cmd.archive': (p) => (p.ok ? 'This session is ending. Its chat is archived in the sidebar within about 20 seconds; Unarchive brings it back.' : 'The signal to this session did not go. Close its panel yourself: its chat is archived in the sidebar once it has ended.'),
   'cmd.rest': () => 'Rest set for this session: no more keepalive pings in this idle gap, so its prompt cache will expire. The next real turn turns pings back on. A PR notice still wakes it.',
 
   'dialog.go.header': () => 'Go request',
