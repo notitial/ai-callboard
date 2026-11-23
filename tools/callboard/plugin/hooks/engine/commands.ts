@@ -2,7 +2,7 @@
 // it for a form that widens what a session may do (lead, conductor, off, on, go, go off, unattended on and off, config changes, remote); a write that does not land is said, never reported as done; a path a
 // lead is given is resolved to its real path; the table is written under its lock.
 import type { Row, Sid, View } from '../core/model.ts'
-import { PERSON, capability, children, descendants, isConductor, isMinted, isOff, keysNamed, nameOf, parent, refusal } from '../core/model.ts'
+import { NAME_MAX, PERSON, capability, children, descendants, isConductor, isMinted, isOff, keysNamed, nameOf, parent, refusal } from '../core/model.ts'
 import type { Cmd, Origin } from '../core/commands.ts'
 import { configNext, parsePreset, planCommand } from '../core/commands.ts'
 import { GO_HOURS, covers } from '../core/go.ts'
@@ -138,7 +138,7 @@ export async function perform($: any, cmd: Cmd, me: Sid, v: View, now: number, s
       if (own === undefined || !Number.isInteger(own.pid) || own.pid < 2) return say(refusal('refuse', 'unknown-liveness', { tool: 'callboard', target: cmd.op }))
       const group = groupOf(v, me)
       const kids = children(v, me).map((k) => nameOf(v, k))
-      const no = group === undefined ? 'archive-tier' : kids.length > 0 ? 'archive-children' : !own.name ? 'archive-name' : undefined
+      const no = group === undefined ? 'archive-tier' : kids.length > 0 ? 'archive-children' : !own.name || own.name.length > NAME_MAX ? 'archive-name' : undefined
       if (group === undefined || !own.name || no !== undefined) return say(refusal('refuse', 'bad-input', { tool: 'callboard', target: kids.length > 8 ? `${kids.slice(0, 8).join(', ')} and ${kids.length - 8} more` : kids.join(', '), detail: no }))
       const base = nameOf(v, me)
       if (!(await updateHandovers($, (h) => recordHandover(h, base, h[base]?.n ?? 0, { sid: me, group, folder: own.folder, at: now, archive: true })))) return say(refusal('refuse', 'not-saved', { tool: 'callboard', target: cmd.op, detail: 'archive' }))
