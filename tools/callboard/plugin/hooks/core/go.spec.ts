@@ -36,6 +36,7 @@ test('goAsker: a lane and a lead a conductor made are sent to the lead bound ove
     'sid-cond': { name: 'cond', folder: '/', lead: { repos: [], conductor: true } },
     'sid-mint': { name: 'mint', folder: '/', lead: { repos: [], minted: true }, under: 'sid-cond' },
     'sid-free': { name: 'free', folder: '/' },
+    'sid-demoted': { name: 'demoted', folder: '/', lead: { repos: [], minted: true }, under: 'sid-lead' },
     'sid-ex': { name: 'ex', folder: '/' },
     'sid-orphan': { name: 'orphan', folder: '/', under: 'sid-ex' },
   }
@@ -43,7 +44,8 @@ test('goAsker: a lane and a lead a conductor made are sent to the lead bound ove
   assert.equal(goAsker(v, 'sid-lane'), 'sid-lead')
   assert.equal(goAsker(v, 'sid-mint'), 'sid-cond')
   // The lead it is bound to has dropped its capability: the lane is in effect loose and keeps go_request.
-  for (const s of ['sid-orphan', 'sid-lead', 'sid-cond', 'sid-free', 'sid-nobody', M]) assert.equal(goAsker(v, s), undefined, s)
+  // A minted lead whose conductor became a plain lead: `parent` sends it to the manager, so it is loose too.
+  for (const s of ['sid-demoted', 'sid-orphan', 'sid-lead', 'sid-cond', 'sid-free', 'sid-nobody', M]) assert.equal(goAsker(v, s), undefined, s)
 })
 
 test('a go\'s text: one to three plain lines the person can read, nothing hidden and no fence; a file that is not a go is no go', () => {
