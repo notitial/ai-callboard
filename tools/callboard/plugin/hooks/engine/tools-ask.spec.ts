@@ -136,6 +136,33 @@ test('go_request opens one dialog and its Yes writes a go for 24 h; No, a bad te
   assert.doesNotMatch(away, /force stop/)
   assert.equal(lead.h.asked.length, 2)
 })
+test('go_request below the top tier: a lane and a lead a conductor made are sent to their lead before any dialog, also in an unattended window and with the conductor not live', async () => {
+  const { f, lead } = world()
+  const lane = peer(f, 'sid-me')
+  const goes = () => [...f.h.files.keys()].filter((k) => k.startsWith(`${V2}/go/`))
+  const settle = async () => { for (let i = 0; i < 20; i++) await new Promise((r) => setImmediate(r)) }
+  lane.h.askAnswer = async () => 'Yes'
+  assert.match((await call(lane, goRequestCall, { text: 'Build the ask tools' })).deny!, /Message `lead` with what the go must name/)
+  await settle()
+  assert.equal(lane.h.asked.length, 0)
+  assert.deepEqual(goes(), [])
+  f.h.files.set(`${V2}/unattended.json`, JSON.stringify({ start: T0, end: T0 + 60 * MIN, readAt: T0 }))
+  mem.win = undefined
+  assert.match((await call(lane, goRequestCall, { text: 'Build the ask tools' })).deny!, /Message `lead`/)
+  assert.match((await call(lane, goRequestCall, { text: ' padded ' })).deny!, /Message `lead`/)
+  f.h.files.delete(`${V2}/unattended.json`)
+  mem.win = undefined
+  f.table({ 'sid-lead': { name: 'MINT', folder: '/w/lead', lead: { repos: [], minted: true }, under: 'sid-cond' }, 'sid-cond': { name: 'COND', folder: '/w/cond', lead: { repos: [], conductor: true } } })
+  mem.view = undefined
+  lead.h.askAnswer = async () => 'Yes'
+  assert.match((await call(lead, goRequestCall, { text: 'Build the ask tools' })).deny!, /Message `COND`/)
+  f.seed({ sid: 'sid-cond', pid: 14, name: 'COND', cwd: '/w/cond', kind: 'interactive' })
+  mem.view = undefined
+  assert.match((await call(lead, goRequestCall, { text: 'Build the ask tools' })).deny!, /Message `COND`/)
+  await settle()
+  assert.equal(lead.h.asked.length, 0)
+  assert.deepEqual(goes(), [])
+})
 test('go_status reports a go only while the protected-paths guard is in place, and only to the giver and the sessions under it', async () => {
   const { f, lead, boss } = world()
   f.h.files.delete(`${HOME}/.claude/settings.json`)

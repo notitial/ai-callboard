@@ -21,9 +21,9 @@ enforces.
   destructive step. A relayed go is never a go. You may relay a build decision (what to build next); the executor
   still asks the person for each go.
   A go the person gives in callboard's own go dialog, in a lead's session, counts in the sessions under it (a lead's
-  lanes) for the work it names; they read it with `go_status` (ADR 0009). You give no go and never pass one on in your own words. A lane's
-  question that asks for a go goes through the relay, which only you run. One that reaches
-  you as the top tier is relayed: leaving it unasked is the person's call, never your default.
+  lanes) for the work it names; they read it with `go_status` (ADR 0009). You give no go and never pass one on in your own words. A lane does
+  not ask the person for a go: it asks its lead, whose `go_request` opens the dialog in the lead's panel (a lead a conductor made asks the conductor instead). A lane's
+  question that still asks for one is relayed like any other: leaving it unasked is the person's call, never your default.
 - **Passing on the person's instruction.** When the person tells you to have a lead do something that is not on the risk list and needs no go, approval or merge (pass a message or progress
   to another session, report, give a status, run a read or a check, ordinary work inside its task), send it as a plain
   instruction, and say who made the call (Routing messages). The lead is told your name and follows it

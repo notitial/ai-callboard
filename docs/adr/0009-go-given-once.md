@@ -130,6 +130,13 @@ Facts that bound the options:
   dialog covers the lead and its lanes as above. A binding that cannot be read counts as none, so the dialog then
   opens in the lead as before. The person's own `/callboard go` typed in a lead's panel still opens the dialog there.
   A lead with no conductor is unchanged.*
+- *2026-11-23: only the top tier asks. A lane under a lead is refused like a lead a conductor made, before any dialog,
+  by its bound `under` and not by liveness. The refusal names that lead and says to message it. Cause: a lane's go
+  dialog opens in its own panel, which the person does not watch, and nothing carries it up as an ask is carried. The
+  person's own `/callboard go` typed in any panel is unchanged. Built 2026-11-23, which also builds the 2026-11-17
+  minted-lead refusal the plugin had not carried over, in one simpler form that replaces that note's details: one
+  refusal text for every session under a lead, with no wording by the lead's liveness and no fallback for an unreadable
+  binding, and, if the lead stays gone, the person types `/callboard go` in the session's panel.*
 - *Amended 2026-11-17 ([ADR 0008](0008-unattended-mode.md)):* while unattended mode is on, a lead's or a
   conductor's `go_request` is refused before any dialog. A go the person gives with their own `/callboard go` still
   opens, and the mode gives or widens none.

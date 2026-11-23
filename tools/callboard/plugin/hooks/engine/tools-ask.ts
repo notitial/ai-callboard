@@ -1,11 +1,11 @@
 // The ask and go tools: prompt_list, prompt_answer, go_request, go_status, and what the tick and the relay share of the open asks.
 // Trust rules held here: an answer's author is the caller's own session id (or the person on his click), never a name in the input; eligibility is checked again at the write and the first
-// writer wins; a go is reported only while the protected-paths guard is in place; go_request opens a dialog and returns, and only the person's click on it writes a go.
+// writer wins; a go is reported only while the protected-paths guard is in place; go_request opens a dialog only in a session no lead is above, and returns, and only the person's click on it writes a go.
 import type { Ask, Decision, Owner, Sid, View } from '../core/model.ts'
 import { capability, chain, isOff, nameOf, refusal } from '../core/model.ts'
 import type { Open } from '../core/asks.ts'
 import { capBytes, decide, noteOf, stage } from '../core/asks.ts'
-import { GO_HOURS, covers, goTextOk } from '../core/go.ts'
+import { GO_HOURS, covers, goAsker, goTextOk } from '../core/go.ts'
 import type { RefuseCode } from '../core/msg.ts'
 import { T } from '../texts.ts'
 import { goDialog, promptList, stamp } from '../ui.ts'
@@ -122,6 +122,8 @@ async function goDialogRun($: any, me: Sid, name: string, text: string): Promise
 export async function goRequestCall($: any, e: any, _next: any) {
   const c = await caller($, e, 'go_request')
   if (!isCaller(c)) return deny(c)
+  const up = goAsker(c.v, c.me)
+  if (up !== undefined) return deny(refusal('refuse', 'go-ask-parent', { tool: 'go_request', target: nameOf(c.v, up) }))
   const no = (code: RefuseCode) => deny(refusal('refuse', code, { tool: 'go_request' }))
   if (!goTextOk(e.text)) return no('go-bad-text')
   if ((await windowNow($, true)).state !== 'off') return no('unattended')

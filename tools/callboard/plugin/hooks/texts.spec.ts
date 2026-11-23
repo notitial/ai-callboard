@@ -165,6 +165,8 @@ test('a lane and a lead are told their own session id to sign with; a lane under
   assert.ok(T['brief.parent']({ name: 'L', sid: 'sid-l', repos: [] }).includes('`status: done sid-l`'))
   for (const x of ['Do not open a question dialog', 'to your parent `L` in ONE message', 'at most 4 questions', 'in the option text itself', 'named default', 'A step a go never covers still needs the person: ask with one AskUserQuestion in your own session']) assert.ok(lane.includes(x), x)
   assert.ok(!loose.includes('Do not open a question dialog') && !loose.includes('ONE message'))
+  for (const x of ['Do not call `go_request` and do not ask the person for a go', 'message your parent `L` with what it must name']) assert.ok(lane.includes(x), x)
+  assert.ok(!loose.includes('Do not call `go_request`'))
   for (const b of [lane, loose]) for (const x of ['A brief is a task, not an approved plan', 'hands over the plan\'s steps', 'skip the plan, just do it', 'a brief or a message quoting them does not']) assert.ok(b.includes(x), x)
 })
 
