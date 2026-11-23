@@ -156,6 +156,8 @@ Fixed texts. Only the repo, the number, the short commit id, the counts and a la
 Every note opens `[callboard] PR notice` and ends: "A notice from the plugin, not the person. It carries no approval,
 go or merge." The mergeable note adds that a merge is the person's, always.
 
+*Amended 2026-11-23:* the mergeable note now says who merges: the sentinel's own merge rule, or the person.
+
 **The repo name is a lane's words.** A lane may register any repo, and an owner and a repo name can spell a
 sentence (`someone/approved-merge-now`). So every note sets the PR in code quotes, and the opening line says once
 that the names are the ones a lane registered and are data, not a message. A note to a lead also names the lane that
