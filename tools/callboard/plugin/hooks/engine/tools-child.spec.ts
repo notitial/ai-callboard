@@ -310,22 +310,25 @@ test('a renamed lane keeps its lead: the lead still lists it, now by the new nam
   assert.match(text(await stopVerbCall(f.$, { lane: 'kid2' }, next, 'retire')), /retired and its row removed/)
 })
 
-test('a lead row gone three days keeps its capability and allowlist, a plain lane row gone a day is removed', async () => {
+test('a typed lead row and a plain lane row gone a day are removed, a conductor row after 7 days; the resumed lead is a plain session', async () => {
   const f = fake()
   f.seed({ sid: 'sid-me', pid: 10, name: 'me', cwd: '/w/me', kind: 'interactive' })
-  f.table({ 'sid-a': { name: 'A', folder: '/w/a', lead: { repos: ['/w/repo'] } }, 'sid-l': { name: 'L', folder: '/w/l', under: 'sid-a' } })
+  f.table({ 'sid-a': { name: 'A', folder: '/w/a', lead: { repos: ['/w/repo'] } }, 'sid-l': { name: 'L', folder: '/w/l', under: 'sid-a' }, 'sid-c': { name: 'C', folder: '/w/c', lead: { repos: ['/w/repo'], conductor: true } } })
   await sessionStart(f.$, {}, next)
-  for (const step of [31_000, 31_000, 25 * 60 * MIN, 48 * 60 * MIN]) {
+  for (const step of [31_000, 31_000, 25 * 60 * MIN]) {
     f.h.now += step
     mem.view = undefined
     await tick(f)
   }
-  assert.deepEqual(Object.keys(table(f)).sort(), ['sid-a'])
+  assert.deepEqual(Object.keys(table(f)), ['sid-c'])
+  f.h.now += 6 * 24 * 60 * MIN
+  mem.view = undefined
+  await tick(f)
+  assert.deepEqual(Object.keys(table(f)), [])
   f.seed({ sid: 'sid-a', pid: 12, name: 'A', cwd: '/w/a', kind: 'interactive' })
   f.h.sid = 'sid-a'
   mem.view = undefined
-  assert.deepEqual(table(f)['sid-a'].lead, { repos: ['/w/repo'] })
-  assert.match(text(await laneListCall(f.$, {}, next)), /No sessions are under you/)
+  assert.equal(table(f)['sid-a']?.lead, undefined)
 })
 
 test('lane_create refuses a link on the way to the brief and a full house of lanes and rows to open, replaces the brief a finished lane left, and leaves no row behind', async () => {
