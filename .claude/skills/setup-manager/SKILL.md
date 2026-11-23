@@ -143,21 +143,9 @@ first; it is the source for every step here, and wins where the two differ.
     one line that ai-toolkit's update check is not installed here, so there is no update reminder (update ai-toolkit and
     run `/setup-claude`, then this skill again), and go on. Present: run
     `jq -e --arg c '<checkout>' '[.hooks.SessionStart[]? | select(.matcher == "startup") | .hooks[]? | .command // ""] | any(endswith("update-check.sh --update /update-manager " + $c))' ~/.claude/settings.json`.
-    `true`: done. `false`: show the person the entry below, with `<checkout>` filled in, to add to `hooks.SessionStart`
-    by hand (never edit the settings file for them), beside ai-toolkit's own entry, which stays:
-
-    ```json
-    {
-      "matcher": "startup",
-      "hooks": [
-        {
-          "type": "command",
-          "command": "$HOME/.claude/hooks/update-check.sh --update /update-manager <checkout>",
-          "timeout": 10
-        }
-      ]
-    }
-    ```
+    `true`: done. `false`: show the person the `SessionStart` entry from docs/setup.md, The update reminder, with
+    `<checkout>` filled in, to add to `hooks.SessionStart` by hand (never edit the settings file for them), beside
+    ai-toolkit's own entry, which stays.
 12. **Manager name.** Ask the person which name this machine's manager will carry (a second machine needs another
     name). Run `cat ~/.claude/callboard/manager-name`: it must print that one name. Missing or different: give them the
     file block from docs/setup.md, The manager's name and rules, with their name filled in (the folder is one agents

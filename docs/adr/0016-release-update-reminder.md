@@ -46,8 +46,8 @@ update command as arguments, and reads the repo from `origin`.
 - The checkout is the one place an agent moves a callboard install. A commit the person confirmed without reading
   still goes live in every session; the control is the person's yes, and the by-hand route stays for a commit they want
   to read in full first. The pull fetches again, so a commit pushed in the seconds between the yes and the pull comes
-  in unseen; the skill compares the new `HEAD` with the commit it showed and lists any extra commits before it goes on,
-  and nothing loads until the person reloads the windows and restarts the sessions. The one pull form the guard allows
-  cannot name a commit.
+  in unseen. The skill compares the new `HEAD` with the commit it showed and, on a difference, lists the extra commits
+  and stops before it runs `/setup-manager`, so nothing pulled runs unread; nothing loads until the person reloads the
+  windows and restarts the sessions. The one pull form the guard allows cannot name a commit.
 - A checkout ahead of its last tag compares by that tag, so a reminder can name a release whose content it already has.
 - Cutting a release stays a manual step for the owner.

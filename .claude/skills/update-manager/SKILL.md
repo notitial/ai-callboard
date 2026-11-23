@@ -21,20 +21,23 @@ exception to `/setup-manager`'s rule never to pull there.
    fetch can bring newer tags that `HEAD` does not have yet). None qualifies: no old tag. Then `git_log` with
    `maxCount: 1`: the old `HEAD` sha.
 2. **Check.** `git_remote` with `mode: "get-url"` and `name: "origin"` must give `https://github.com/notitial/ai-manager.git`, else stop. `git_status`:
-   the branch must be `main`, with no changes and no untracked files. `git_fetch` with `tags: true`, then `git_log`
+   the first line must be `## main...origin/main` (the branch is `main` and tracks `origin/main`, which is what the
+   pull follows), with no change or untracked file under it. `git_fetch` with `tags: true`, then `git_log`
    of `origin/main..HEAD` (the `branch` parameter takes the range): it must be empty, since a local commit means a
    fast-forward is impossible. `git_log` of `HEAD..origin/main` is what the pull brings: if it is empty too, say
    "ai-manager is already up to date." and stop. Any other failure ends the skill with the refusal below.
 3. **Show what comes in, and ask.** `git_log` of `HEAD..origin/main` with `oneline: true` and `maxCount: 20`, then
    `git_diff` with `stat: true`, `source: "HEAD"`, `target: "origin/main"`. Say which commit `origin/main` is (the full
    sha) and that the full diff is one command away
-   (`git -C <checkout> log -p --no-textconv --no-ext-diff HEAD..origin/main`, as docs/setup.md, Updating, has it).
+   (`git -C <checkout> --no-pager -c core.hooksPath=/dev/null -c core.fsmonitor=false log -p --no-textconv --no-ext-diff HEAD..origin/main`,
+   the hardened form from docs/setup.md, By hand, with `HEAD..origin/main` as the range).
    A change under `tools/callboard/` or `rules/` reaches every session, so ask once: "Pull these commits?". Only a
    yes in the person's own turn goes on; anything else ends the skill with the refusal below (`Not updated: you did
    not confirm.`).
 4. **Pull:** `git_pull` as above. If it fails, the refusal below. Then `git_log` with `maxCount: 1`: the new `HEAD`
-   should be the sha named in step 3. If it is not (the pull fetched again and found a newer commit), list the extra
-   commits (`git_log` of `<sha from step 3>..HEAD`, `oneline: true`) and say they were not shown before the pull.
+   must be the sha named in step 3. If it is not (the pull fetched again and found a newer commit), stop here: do not
+   run `/setup-manager`, which would follow the pulled skill text and scripts. List the extra commits (`git_log` of
+   `<sha from step 3>..HEAD`, `oneline: true`) and end with the unseen closing below (`<new>` found as in step 5).
 5. **Show what changed.** The new version: the highest plain version tag `HEAD` contains, found as in step 1. Then
    `git_diff` with `nameOnly: true`, `source: "<old sha>"`, `target: "HEAD"`: note whether any path starts with
    `tools/callboard/` or `rules/`. Print one line now, `Pulled ai-manager <old> -> <new>.`, because `/setup-manager`
@@ -73,6 +76,13 @@ the checkout has already moved, so say that and not "done":
 ```
 Pulled ai-manager <old> -> <new>, but /setup-manager did not finish: <reason>.
 Fix that, then run /setup-manager.
+```
+
+If step 4 found commits that were not shown (nothing else runs after it):
+
+```
+Pulled ai-manager <old> -> <new>, but <N> commits came in that you did not see: <their titles>.
+Read them, then run /setup-manager.
 ```
 
 A version with no tag is its short sha (the first 7 characters), also when `HEAD` is ahead of its last tag: write
