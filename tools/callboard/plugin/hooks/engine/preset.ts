@@ -7,7 +7,7 @@ import type { Sid, View } from '../core/model.ts'
 import { isLead, nameRefusal, refusal } from '../core/model.ts'
 import { PRESET_TAIL, T } from '../texts.ts'
 import { modelHeld, ran } from './cue.ts'
-import { originOf, perform, pinOwn, realPaths } from './commands.ts'
+import { originOf, perform, realPaths } from './commands.ts'
 import { readText, registerFree } from './io.ts'
 import { mem } from './mem.ts'
 import { getView, updateTable } from './store.ts'
@@ -55,10 +55,7 @@ async function runPreset($: any, e: any, p: Preset): Promise<{ text: string }> {
   let ok = false
   const cmd: Cmd = { op: 'lead', paths: [] }
   const result = await perform($, cmd, me, v, now, () => void (ok = true))
-  if (ok) {
-    mem.presetRun = { preset: p, result }
-    await pinOwn($, me)
-  }
+  if (ok) mem.presetRun = { preset: p, result }
   return { text: result }
 }
 
