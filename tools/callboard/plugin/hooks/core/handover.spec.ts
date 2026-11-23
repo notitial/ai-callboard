@@ -55,6 +55,11 @@ test('the row of the old id moves to the new id under the name; every child foll
   assert.equal(lanes['sid-l'].under, 'sid-a')
 })
 
+test('a lane handed over keeps its Remote Control mark: the process is the same', () => {
+  const t: Table = { 'sid-l': { name: 'L1', folder: '/w/a', under: 'sid-a', remote: { on: true, at: 3, met: '7@Tue Oct 27 20:37:50 2026' } } }
+  assert.deepEqual((handOver(t, 'sid-l', 'sid-m', 'L1') as Table)['sid-m'].remote, { on: true, at: 3, met: '7@Tue Oct 27 20:37:50 2026' })
+})
+
 test('a name Claude generated is not written; a loose session moves nothing; done already is the same table; both keys is a clash', () => {
   assert.equal((handOver(lanes, 'sid-a', 'sid-b', null) as Table)['sid-b'].name, 'LEAD')
   assert.deepEqual(handOver({ 'sid-q': { name: 'Q', folder: '/f' } }, 'sid-a', 'sid-b', 'A'), { 'sid-q': { name: 'Q', folder: '/f' } })

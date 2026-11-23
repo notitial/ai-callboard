@@ -83,7 +83,7 @@ function parseTable(text: string): Table | undefined {
     if (typeof lead === 'object' && lead !== null && Array.isArray(lead.repos)) row.lead = { repos: lead.repos.filter((x): x is string => typeof x === 'string'), ...(lead.minted === true ? { minted: true as const } : lead.conductor === true ? { conductor: true as const } : {}) }
     if (o.off === true) row.off = true
     const remote = o.remote as { on?: unknown; at?: unknown; met?: unknown } | undefined
-    if (typeof remote === 'object' && remote !== null && typeof remote.on === 'boolean') row.remote = { on: remote.on, ...(num(remote.at) === undefined ? {} : { at: num(remote.at) }), ...(remote.met === true ? { met: true as const } : {}) }
+    if (typeof remote === 'object' && remote !== null && typeof remote.on === 'boolean') row.remote = { on: remote.on, ...(num(remote.at) === undefined ? {} : { at: num(remote.at) }), ...(typeof remote.met === 'string' ? { met: remote.met } : {}) }
     if ((LANE_MODELS as readonly unknown[]).includes(o.model)) row.model = o.model as LaneModel
     if ((LANE_EFFORTS as readonly unknown[]).includes(o.effort)) row.effort = o.effort as LaneEffort
     t[k] = row

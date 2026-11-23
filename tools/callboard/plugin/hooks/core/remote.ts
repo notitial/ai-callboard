@@ -1,8 +1,9 @@
 // A lane's Remote Control wish and how the lane applies it. Pure. Remote Control sends the person's phone a push for every ask of a connected session, so a lane starts with it off.
 // The row's `remote` is the wish (set by a lead's `lane_remote` or the person's `/callboard remote NAME on|off`; no field is the default, off). The lane's own tick makes its panel match
 // once, asking the window that holds the panel (the spool's `remote` op), and then records the wish as met in its row and stops: a switch the person makes by hand afterwards (the chip)
-// stays, until a lead or the person sets the wish again (setting it to the same value is a new wish: it has a new `at`). The mark is in the row, so a restart does not apply a wish that was met,
-// and a panel that is found already matching is marked met only once it has matched for a pause (Remote Control connects a moment after a panel starts).
+// stays, until a lead or the person sets the wish again (setting it to the same value is a new wish: it has a new `at`). The mark is in the row and names the process that met the wish, so a
+// `/clear`, a handover and a plugin reload keep it, and a new process (a restart, a resume) applies the wish once more. A panel that is found already matching is marked met only once it has
+// matched for a pause (Remote Control connects a moment after a panel starts).
 import type { RefuseCode } from './msg.ts'
 import type { Row, Sid, View } from './model.ts'
 
@@ -16,7 +17,10 @@ export function remoteRefusal(v: View, key: Sid): RefuseCode | undefined {
   return r === undefined ? 'no-such-lane' : r.lead !== undefined ? 'is-lead' : v.manager === key ? 'is-manager' : r.off ? 'is-off' : r.under === undefined ? 'no-such-lane' : undefined
 }
 export const isLane = (v: View, s: Sid): boolean => remoteRefusal(v, s) === undefined
-export const remoteWish = (r: Row): { on: boolean; at: number; met: boolean } => ({ on: r.remote?.on ?? false, at: r.remote?.at ?? 0, met: r.remote?.met === true })
+// `met`: the process that made the panel match (`procKey`), none while the wish is not met.
+export const remoteWish = (r: Row): { on: boolean; at: number; met?: string } => ({ on: r.remote?.on ?? false, at: r.remote?.at ?? 0, ...(r.remote?.met === undefined ? {} : { met: r.remote.met }) })
+// A process by its pid and start time, the pair the registry names it by: a restart is a new process even when the session id stays.
+export const procKey = (r: { pid: number; procStart: string }): string => `${r.pid}@${r.procStart}`
 
 // What one process remembers of its own wish: the wish (its value and its `at`) the counts are for, the asks that failed, when the last was made, since when the panel has matched and, once it
 // gave up, the code it gave up on.
