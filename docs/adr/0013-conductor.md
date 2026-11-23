@@ -52,6 +52,13 @@ folder. A chain is lane, lead, conductor, manager.
   not where the person looks, so it asks its conductor.
 - Closing a conductor's lead with live lanes is the same as closing any lead with live lanes. A minted lead's row goes
   like a lane's row; a typed lead's row and a conductor's stay until the person drops them.
+  *Amended 2026-11-23: one time rule for every row, so the lane list cannot grow. A row no live session carries goes 24
+  hours after its session closed (a typed lead's too) and 7 days after a park; a conductor's row goes 7 days after its
+  session closed, so a conductor resumed within the week is still a conductor (its leads' rows go after 24 hours). A row marked `off` is never expired. A
+  resumed typed lead whose row is gone comes back a plain session and retypes its grant (`/sentinel`, `/callboard
+  lead <paths>`); a conductor retypes `/callboard conductor` (its repos are saved per folder). The panels extension
+  archives a minted lead when its row is dropped, as it does a lane; a typed lead and a conductor are never archived
+  by the extension.*
 
 **Invariants kept.** A conductor and its leads read the same ask rubric as any lead, with no carve-out for a merge. No
 conductor can make a go, answer as the person, answer an ask of its own or above it, or force stop without the person's

@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { CUE_MAX_AGE_MS, IDLE_MS, LANE_ROW_KEEP_MS, PARKED_ROW_KEEP_MS, childState, cueAnswer, cueReply, parseCue, reportPath, signedBy, tidy, verbPlan } from './lifecycle.ts'
+import { CUE_MAX_AGE_MS, IDLE_MS, LANE_ROW_KEEP_MS, PARKED_ROW_KEEP_MS, PARK_SETTLE_MS, childState, cueAnswer, cueReply, parseCue, reportPath, signedBy, tidy, verbPlan } from './lifecycle.ts'
 import type { Verb } from './lifecycle.ts'
 import { MAX_LIVE_CHILDREN, liveView, mayActOn, nameOf } from './model.ts'
 import type { Table } from './model.ts'
@@ -88,7 +88,7 @@ test('the cue: acted on only when its sender is above the child now and it is fr
   assert.equal(cueReply({ id: 'c', outcome: 'held' }, 'start', 'L1').msg, 'refuse.cue-held')
 })
 
-test('the table\'s upkeep: gone after two reads 30 s apart, back clears it; a plain lane row expires 24 h after, a lead or off row never, a parked one after 28 days', () => {
+test('the table\'s upkeep: gone after two reads 30 s apart, back clears it; a row expires 24 h after (a conductor\'s 7 days), a parked one after 7 days, an off row never', () => {
   const t: Table = { ...lanes, 'sid-off': { name: 'o', folder: '/', off: true }, 'sid-parked': { name: 'p', folder: '/', under: A, parked: NOW - PARKED_ROW_KEEP_MS } }
   const v = liveView([reg(M, MANAGER), reg(A, 'renamed-lead')], t, MANAGER)
   assert.equal(tidy(t, v, () => NOW - 10_000, NOW)[L1].goneAt, undefined)
@@ -96,28 +96,41 @@ test('the table\'s upkeep: gone after two reads 30 s apart, back clears it; a pl
   assert.equal(gone[L1].goneAt, NOW)
   assert.equal(gone[A].name, 'renamed-lead')
   assert.equal(gone['sid-parked'], undefined)
-  // A parked row whose session came back is kept, however old the parking.
-  assert.ok(tidy(t, liveView([reg(M, MANAGER), reg('sid-parked', 'p')], t, MANAGER), () => undefined, NOW)['sid-parked'])
+  // A parked row whose session runs is kept; one the person reopened by hand (read live 5 minutes after the park) is no longer parked, so a later absence starts the 24 h rule, not the old park stamp's.
+  const reopened = liveView([reg(M, MANAGER), reg('sid-parked', 'p')], t, MANAGER)
+  assert.ok(tidy(t, reopened, () => undefined, NOW)['sid-parked'])
+  assert.equal(tidy(t, reopened, () => undefined, NOW)['sid-parked']?.parked, undefined)
+  const justParked = { ...t, 'sid-parked': { ...t['sid-parked']!, parked: NOW - PARK_SETTLE_MS + 1 } }
+  assert.equal(tidy(justParked, reopened, () => undefined, NOW)['sid-parked']?.parked, NOW - PARK_SETTLE_MS + 1)
+  const closedAgain = tidy(tidy(t, reopened, () => undefined, NOW), liveView([reg(M, MANAGER)], t, MANAGER), () => NOW - 30_000, NOW + 1)
+  assert.deepEqual([closedAgain['sid-parked']?.parked, closedAgain['sid-parked']?.goneAt], [undefined, NOW + 1])
   assert.equal(tidy(gone, liveView([reg(L1, 'L1')], gone, MANAGER), () => undefined, NOW + 1)[L1].goneAt, undefined)
-  // The laptop shut three days: the lead's row keeps its capability and allowlist; the plain lane row is removed.
+  // A parked row is kept up to the day it is 7 days old.
+  const parkedAt = { ...t, 'sid-parked': { ...t['sid-parked']!, parked: NOW - PARKED_ROW_KEEP_MS + 1 } }
+  assert.ok(tidy(parkedAt, v, () => undefined, NOW)['sid-parked'])
+  // The laptop shut three days: a gone typed lead's row and a lane's are removed, an off row stays, a conductor's row is kept until its 7 days are up.
   const later = NOW + 3 * 24 * 3_600_000
-  const back = tidy(gone, liveView([], gone, MANAGER), () => NOW, later)
-  assert.deepEqual(back[A].lead, { repos: [] })
+  const away: Table = { ...gone, [A]: { ...gone[A]!, goneAt: NOW }, 'sid-cond': { name: 'c', folder: '/', lead: { repos: [], conductor: true }, goneAt: NOW } }
+  const back = tidy(away, liveView([], away, MANAGER), () => NOW, later)
+  assert.deepEqual([back[A], back[L1]], [undefined, undefined])
   assert.ok(back['sid-off']?.off)
-  assert.equal(back[L1], undefined)
+  assert.deepEqual(back['sid-cond']?.lead, { repos: [], conductor: true })
   assert.ok(later - NOW > LANE_ROW_KEEP_MS)
+  // A typed lead gone less than 24 h is kept; at 24 h it goes.
+  assert.ok(tidy(away, liveView([], away, MANAGER), () => NOW, NOW + LANE_ROW_KEEP_MS - 1)[A])
+  assert.equal(tidy(away, liveView([], away, MANAGER), () => NOW, NOW + LANE_ROW_KEEP_MS)[A], undefined)
   // A rename never moves the report path; an unknown read changes nothing.
   assert.equal(tidy(t, liveView([reg(L1, 'renamed')], t, MANAGER), () => undefined, NOW)[L1].report, '/Users/x/repo/.archive/L1/REPORT.md')
   assert.equal(tidy(t, liveView('unknown', t, MANAGER), () => 0, NOW), t)
 })
 
-test('the upkeep in every world: an unknown read changes nothing; a typed lead row, an off row and a row a live session carries are never dropped', () => {
+test('the upkeep in every world: an unknown read changes nothing; an off row and a row a live session carries are never dropped', () => {
   forAll(300, (r, w) => {
     const now = NOW + Math.floor(r() * 40 * 86_400_000)
     const out = tidy(w.table, w.v, () => (r() < 0.5 ? undefined : now - 60_000), now)
     if (w.v.rows === 'unknown') return assert.equal(out, w.table)
     for (const [k, row] of Object.entries(w.table)) {
-      if ((row.lead !== undefined && !row.lead.minted) || row.off || w.v.rows.has(k)) assert.ok(out[k], `${k} dropped`)
+      if (row.off || w.v.rows.has(k)) assert.ok(out[k], `${k} dropped`)
       if (w.v.rows.has(k)) assert.equal(out[k].goneAt, undefined)
     }
   })

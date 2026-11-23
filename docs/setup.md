@@ -197,17 +197,18 @@ EXT_DIR="$(ls -d "$HOME"/.vscode/extensions/anthropic.claude-code-* | sort -V | 
   only after it saw the lane running and then saw it with no table row and no process, on two clean ticks. So a lane the
   extension never saw running, a parked lane while its row stays, a live lane, a lead you typed, a conductor and the
   manager are never archived. A lead a conductor made is archived the same way when it is retired; one that is closed
-  or parked stays listed.
-  The plugin drops a row on a retire, 24 hours after a lane died without one and 28 days after a park, so a lane in
-  either of the last two cases is archived once its row goes; so is the old conversation of a lane whose session id
-  changed (`/clear`). Unarchive in the sidebar brings any of them back.
+  or parked stays listed until its row goes.
+  The plugin drops a row on a retire, 24 hours after a session closed without one (a conductor's row after 7 days) and
+  7 days after a park, so a lane or a conductor-made lead in either of the last two cases is archived once its row goes;
+  so is the old conversation of a lane whose session id changed (`/clear`). A row marked `off` is kept. Unarchive in
+  the sidebar brings any of them back.
   A session that ends itself with `/callboard archive` (typed in its panel) is archived the same way, with no wait for an
   undo: it is refused while any session is under it, live or parked, and in a session callboard is off for. A session
   with no tier is recorded under Lanes as a stand-in, so an empty Lanes group may appear in a window that had none, and a
   group of your own that held the session loses it (archiving drops it from every group anyway). When the session has no
   name of 1 to 25 characters, its panel cannot be found to close: the chat is archived and the answer says to close the
   panel yourself. A parked session or a closed panel still has its row, so it counts until it is
-  retired (a typed lead's row stays until `/callboard lead off` is typed in it). Under the manager is every session with no
+  retired or its row expires (a typed lead's row goes 24 hours after its session closes). Under the manager is every session with no
   lead above it, so the manager is refused while any other session runs or has a row.
 - The unfile command is another piece (the marker's `unfile` field): `callboard unfile session` takes a session out of the
   group it is given and out of no other. The panels extension calls it for a session that still has a row in callboard's

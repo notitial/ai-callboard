@@ -320,7 +320,7 @@ test('a minted lead is opened and bound like a lane: its row follows the session
   const list = text(await laneListCall(f.$, {}, next))
   assert.match(list, /\| NL \|/)
   assert.match(list, /LL \|/)
-  // The minted lead's session ends: the conductor retires it and its row is removed; a typed lead's row would stay.
+  // The minted lead's session ends: the conductor retires it and its row is removed; a typed lead's row is not removed by the retire.
   for (const [p, t] of [...f.h.files]) if (p.endsWith('/sessions/40.json') || p.endsWith('/sessions/41.json')) f.h.files.delete(p)
   f.h.ps = f.h.ps.split('\n').filter((l) => !/^\s*(40|41) /.test(l)).join('\n')
   mem.view = undefined

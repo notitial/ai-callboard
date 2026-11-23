@@ -448,7 +448,7 @@ test('a lead a conductor made, seen running and then retired, is archived from t
   assert.deepEqual([w.archived, w.store.seenLeads], [[['Lead', [S(2)]]], []])
 })
 
-test('a conductor-made lead that is closed or parked is forgotten, so it stays listed when the plugin drops its row later', async () => {
+test('a conductor-made lead that is closed or parked stays listed while its row stays and is archived when the plugin drops the row, as a lane is', async () => {
   for (const mark of ['goneAt', 'parked']) {
     const rows = [row(2, A), row(3, A)]
     const w = world({ commands: ARCH, rows, table: LEADS() })
@@ -456,14 +456,24 @@ test('a conductor-made lead that is closed or parked is forgotten, so it stays l
     assert.deepEqual(w.store.seenLeads, [S(2)])
     // Closed: the process is gone and the row stays, first unmarked, then marked by the plugin.
     rows.splice(0, 1)
-    await w.groups.tick()
-    assert.deepEqual(w.store.seenLeads, [S(2)], 'a row with no mark yet is a retire under way or a close not yet read')
     w.table[S(2)][mark] = 1
-    await w.groups.tick()
-    assert.deepEqual(w.store.seenLeads, [], mark)
+    for (let i = 0; i < 4; i++) await w.groups.tick()
+    assert.deepEqual([w.archived, w.store.seenLeads], [[], [S(2)]], `${mark}: listed while the row stays`)
     delete w.table[S(2)]
     for (let i = 0; i < 4; i++) await w.groups.tick()
-    assert.deepEqual(w.archived, [], mark)
+    assert.deepEqual([w.archived, w.store.seenLeads], [[['Lead', [S(2)]]], []], mark)
+  }
+})
+
+test('a conductor-made lead already closed or parked when its window first ticks is archived when its row is dropped; one of another folder, or not yet opened, is not', async () => {
+  const closed = (extra) => ({ name: 'M', folder: A, lead: { repos: [], minted: true }, under: S(3), ...extra })
+  for (const mark of [{ goneAt: 1 }, { parked: 1 }]) {
+    const w = world({ commands: ARCH, rows: [row(3, A)], table: { ...LEADS(), [S(2)]: closed(mark), [S(4)]: closed({ ...mark, folder: B }), 'new:N': closed(mark), [S(5)]: closed({ ...mark, lead: { repos: [] } }) } })
+    await w.groups.tick()
+    assert.deepEqual(w.store.seenLeads, [S(2)], 'only a minted lead of this window, with a session id')
+    for (const sid of [S(2), S(4), 'new:N', S(5)]) delete w.table[sid]
+    for (let i = 0; i < 4; i++) await w.groups.tick()
+    assert.deepEqual(w.archived, [['Lead', [S(2)]]])
   }
 })
 

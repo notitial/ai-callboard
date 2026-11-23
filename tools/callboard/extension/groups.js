@@ -12,11 +12,10 @@
 // A lane that is retired is archived, through the patch's `callboard archive sessions`, so the sidebar keeps only the lanes that run or sit parked. Retired is read,
 // not stored: the lane had a table row and a live process in this window, and now has neither. Only such a lane is ever named, so a lane retired before the
 // extension saw it, a parked lane (its row stays), a live one (its process stays) and the manager are never archived. The lane must be gone on two clean
-// ticks in a row, and a tick whose reads are in doubt names no one. The plugin drops a row on a retire, 24 hours after a lane died without one, and 28 days after
+// ticks in a row, and a tick whose reads are in doubt names no one. The plugin drops a row on a retire, 24 hours after a lane died without one, and 7 days after
 // a park, so a lane in the last two cases is archived once its row is dropped: it is no longer parked or reachable by then.
-// A lead a conductor made is archived the same way when it is retired: one whose row shows it closed or parked on any tick of this window is forgotten, so it
-// stays listed for the person to reopen, also after the plugin drops its row. The window has to tick at least once while the row shows that: a lead closed while
-// no window on its folder ran until its row was dropped (24 hours, or 28 days parked) reads as retired. A lead the person typed and a conductor are never archived. A retired session is filed in its tier's group before it is archived,
+// A lead a conductor made is archived the same way: when it is retired, or when its row is dropped after it closed or was parked. A closed or parked row in this window's
+// folder is enough to remember it, so a lead closed while no window on its folder ran is archived too. A lead the person typed and a conductor are never archived. A retired session is filed in its tier's group before it is archived,
 // since the archive command takes only a session that sits there.
 // A session that handed itself over to a clear one (`/callboard handover`) is archived the same way whatever its tier (the typed lead, a conductor and the manager too): the plugin's
 // `handovers.json` names each old session with its group and folder (a session archived, brought back with Unarchive and archived again is two entries). A session that archives itself (`/callboard archive`) is recorded there too, marked `archive`, and is
@@ -178,8 +177,8 @@ function createGroups({ vscode, registry, state, loadTable, loadHandovers = asyn
 
   // The lanes and the conductor-made leads this window has seen run (a table row and a live process in the window) are remembered, each group in its own list;
   // one that has neither now is retired, and goes after a second tick that finds it so. Only a session remembered is ever named, and one kept by any table row or
-  // live process (the manager has one) is not. A lead is forgotten as soon as its row shows it closed (`goneAt`) or parked, so only one whose row went while it
-  // still ran is archived.
+  // live process (the manager has one) is not. A conductor-made lead whose row shows it closed (`goneAt`) or parked in this window's folder is remembered too, so it
+  // is archived when the plugin drops that row, as a lane is; until then it stays listed for the person to reopen.
   async function archiveRetired({ want, table, rows, prior }) {
     const here = (sid) => Object.hasOwn(table, sid) || rows.some((r) => r.sessionId === sid)
     const next = new Set()
@@ -190,8 +189,8 @@ function createGroups({ vscode, registry, state, loadTable, loadHandovers = asyn
       for (const [sid, g] of want) {
         if (g !== group) continue
         const row = table[sid]
-        if (group === 'Lead' && (row.lead.minted !== true || row.goneAt !== undefined || row.parked !== undefined)) seen.delete(sid)
-        else if (rows.some((r) => r.sessionId === sid && inWindow(r.cwd))) seen.add(sid)
+        if (group === 'Lead' && row.lead.minted !== true) seen.delete(sid)
+        else if (rows.some((r) => r.sessionId === sid && inWindow(r.cwd)) || (group === 'Lead' && (row.goneAt !== undefined || row.parked !== undefined) && !sid.startsWith('new:') && inWindow(row.folder))) seen.add(sid)
       }
       const gone = [...seen].filter((sid) => !here(sid))
       for (const sid of gone) next.add(sid)

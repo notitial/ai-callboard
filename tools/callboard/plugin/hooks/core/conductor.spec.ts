@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { EXPIRE_MS, HEAD_START_MS, MANAGER_AT_MS, decide, stage } from './asks.ts'
 import type { Ask, Answer, Table } from './model.ts'
 import { MAX_LIVE_CHILDREN, PERSON, ancestors, capability, chain, descendants, isConductor, isMinted, liveView, mayActOn, mayAdopt, mayCreate, parent } from './model.ts'
-import { LANE_ROW_KEEP_MS, tidy, verbPlan } from './lifecycle.ts'
+import { CONDUCTOR_ROW_KEEP_MS, LANE_ROW_KEEP_MS, tidy, verbPlan } from './lifecycle.ts'
 import { notices } from './notices.ts'
 import { planCommand } from './commands.ts'
 import { MANAGER, NOW, WINDOWS, forAll, reg } from '../../test/gen.ts'
@@ -104,7 +104,7 @@ test('the one cap counts leads and lanes together: eight live children of any mi
   assert.equal(mayCreate(liveView([reg(C, 'C'), ...kids.slice(1).map((k) => reg(k, k))], t, MANAGER), C, 'one-more', '/Users/x/repo', 'lead'), undefined)
 })
 
-test('a minted lead\'s row goes like a lane\'s: a verb removes it once no session carries it, and the upkeep expires it; a typed lead\'s row and a conductor\'s stay', () => {
+test('a minted lead\'s row goes like a lane\'s: a verb removes it once no session carries it; no verb removes a typed one; the upkeep expires every gone row', () => {
   const x = { signed: true, win: WINDOWS[0], now: NOW }
   const gone = liveView(rows.filter((r) => r.sid !== ML), table, MANAGER)
   for (const verb of ['retire', 'terminate'] as const) {
@@ -116,12 +116,14 @@ test('a minted lead\'s row goes like a lane\'s: a verb removes it once no sessio
   // A live minted lead is stopped like a live lane: park and retire by its conductor, a force stop through the person's dialog.
   assert.equal(verbPlan('terminate', v, C, ML, x).dialog, true)
   assert.equal(verbPlan('retire', v, C, ML, x).act, 'stop')
-  // The upkeep: a minted row gone for a day is dropped; the typed rows are kept.
-  const later = NOW + LANE_ROW_KEEP_MS + 1
-  const away = liveView([reg(M, MANAGER)], { ...table, [ML]: { ...table[ML]!, goneAt: NOW } }, MANAGER)
-  const out = tidy(away.table, away, () => undefined, later)
-  assert.equal(out[ML], undefined)
-  assert.ok(out[C] && out[A])
+  // The upkeep: a minted or typed lead gone for a day is dropped; a conductor's row is kept for 7 days, so one resumed within the week keeps its leads.
+  const away = liveView([reg(M, MANAGER)], { ...table, [ML]: { ...table[ML]!, goneAt: NOW }, [A]: { ...table[A]!, goneAt: NOW }, [C]: { ...table[C]!, goneAt: NOW } }, MANAGER)
+  const day = tidy(away.table, away, () => undefined, NOW + LANE_ROW_KEEP_MS)
+  assert.deepEqual([day[ML], day[A]], [undefined, undefined])
+  assert.ok(day[C])
+  assert.ok(tidy(away.table, away, () => undefined, NOW + CONDUCTOR_ROW_KEEP_MS - 1)[C])
+  assert.equal(tidy(away.table, away, () => undefined, NOW + CONDUCTOR_ROW_KEEP_MS)[C], undefined)
+  assert.ok(tidy(away.table, away, () => undefined, NOW + LANE_ROW_KEEP_MS - 1)[A])
 })
 
 test('a conductor is told of asks and expired asks from everything under it, and of the other events from its children only', () => {

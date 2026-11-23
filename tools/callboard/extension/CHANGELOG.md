@@ -4,6 +4,7 @@ The version stays fixed between these entries: a change to the code is an update
 
 ## 1.8.0
 
+- A lead a conductor made is archived when the plugin drops its row after it closed or was parked, as a lane is, not only when it is retired; one already closed or parked whose row names the window's folder counts too. A window reload is enough.
 - A `handovers.json` entry marked `archive` (a session that typed `/callboard archive`) is archived on the two clean ticks with no two-minute wait. A window reload is enough; the manifest and the patch are unchanged by this entry.
 - A session that still has a row in the plugin's table but no tier (`/callboard lead off` in a lead you typed, or `/callboard off`) is taken out of the sidebar group it was filed in, through a new patch piece, `callboard unfile session` (the marker's `unfile` field). A session you moved into another group stays there. An install patched before reads `outdated` until `/patch-vs-claude` brings it up to date; a window reload loads it.
 - The status bar item that named the folder of the Claude panel in front is removed, and with it the patch's `callboard active session` command that only it used (the folder pill in the composer stays). An install patched before reads `outdated` until `/patch-vs-claude` brings it up to date.
