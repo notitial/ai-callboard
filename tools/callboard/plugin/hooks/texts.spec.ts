@@ -170,8 +170,7 @@ test('a lane and a lead are told their own session id to sign with; a lane under
   for (const b of [lane, loose]) for (const x of ['A brief is a task, not an approved plan', 'hands over the plan\'s steps', 'skip the plan, just do it', 'a brief or a message quoting them does not']) assert.ok(b.includes(x), x)
 })
 
-test('a relayed pick carries the plugin\'s note that it is the person\'s settled choice; a session\'s answer keeps its own mark', () => {
-  const person = T['ask.answerText']({ label: 'Yes', by: PERSON })
-  assert.ok(person.startsWith('Yes (chosen by the person') && person.includes('settled choice') && person.includes('did not name'))
+test('a relayed pick of the person is the plain label; a session\'s answer keeps its own mark', () => {
+  assert.equal(T['ask.answerText']({ label: 'Yes', by: PERSON }), 'Yes')
   assert.equal(T['ask.answerText']({ label: 'Yes', by: 'M' }), 'Yes (answered by `M`, not the person)')
 })

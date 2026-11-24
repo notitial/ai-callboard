@@ -217,8 +217,7 @@ test('a call of several questions is one dialog, and his answers, a pick and his
   assert.deepEqual(boss.h.asked.map((a) => a.options), [['Yes', 'No'], ['Here', 'There', 'Nowhere']])
   assert.equal(r.decision.behavior, 'allow')
   assert.deepEqual(Object.keys(r.decision.updatedInput.answers), ['Which?', 'Where?'])
-  assert.match(r.decision.updatedInput.answers['Which?'], /^No \(chosen by the person/)
-  assert.match(r.decision.updatedInput.answers['Where?'], /^somewhere else, the cellar \(chosen by the person/)
+  assert.deepEqual(r.decision.updatedInput.answers, { 'Which?': 'No', 'Where?': 'somewhere else, the cellar' })
 })
 test('a dismissal of a dialog that went to the person is his deny; one refused before it showed writes nothing and is not put again; one closed by itself while he was idle is put again', async () => {
   const seen = await open()
