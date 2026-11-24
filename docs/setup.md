@@ -4,7 +4,7 @@ From nothing to a working manager setup on one Mac: callboard loaded from your c
 that keep agents off its files, the usage watcher running, and the callboard rule linked.
 
 You run every install step yourself. An agent never edits settings or permissions: where a step changes
-`~/.claude/settings.json`, you make the edit. The `setup-manager` skill walks through the same steps (see
+`~/.claude/settings.json`, you make the edit. The `setup-manager` skill checks the same parts in one pass (see
 [The guided way](#the-guided-way)).
 
 `<checkout>` below is your live checkout of this repo: the absolute path of one clone that stays on `main` and moves
@@ -675,8 +675,8 @@ Control lists every machine's sessions: write that name into `manager-name` on t
 Type `/update-manager` in a session in this checkout. The skill
 ([.claude/skills/update-manager/SKILL.md](../.claude/skills/update-manager/SKILL.md)) checks that the checkout is on
 `main` and clean, fetches, shows you the commits and the files that come in, and pulls (`git pull --ff-only`) only on
-your yes. It then shows what changed since your old version, runs `/setup-manager`, and ends with the version now
-installed and anything left for you to do, such as copying a settings entry or reloading VS Code. Read the diff
+your yes. It then shows what changed since your old version, runs `/setup-manager`'s one-pass check, and ends with the
+version now installed and anything left for you to do, such as copying a settings entry or reloading VS Code. Read the diff
 first if the change matters: [By hand](#by-hand) shows the command, and is the way to install one specific reviewed
 commit instead of the newest.
 
@@ -686,7 +686,7 @@ Once a week, at the start of a session, ai-toolkit's `update-check.sh` asks GitH
 and, while your checkout is behind it, prints one line naming the new version. It sends nothing about you or your
 machine, makes one unauthenticated request with a 3 second cap, and says nothing when offline. It needs ai-toolkit
 installed (`/setup-toolkit` puts the script at `~/.claude/hooks/update-check.sh`); without it `/setup-manager` says so
-and skips this step. `/setup-manager` (step 11) shows you the `SessionStart` entry to add to `~/.claude/settings.json`
+and skips this check. `/setup-manager` shows you the `SessionStart` entry to add to `~/.claude/settings.json`
 by hand, beside ai-toolkit's own; `<checkout>` is this checkout, which tells the script which repo to ask about:
 
 ```json
@@ -766,6 +766,8 @@ can still relay a prompt to you. For the usage watcher, run its installer again 
 ## The guided way
 
 Type `/setup-manager` in a session in this checkout. The skill
-([.claude/skills/setup-manager/SKILL.md](../.claude/skills/setup-manager/SKILL.md)) runs the read-only checks and
-the dry runs itself, the patch's check among them, shows you every `--apply`, settings edit, link and `launchctl
-bootout` as an exact command to run, sends you to `/patch-vs-claude` for the patch, and ends with a status table.
+([.claude/skills/setup-manager/SKILL.md](../.claude/skills/setup-manager/SKILL.md)) is a sync check: in one pass it
+reads the machine and runs the read-only checks and dry runs, the patch's check among them, and shows a status table
+first. It then lists only what is open, grouped by where you must act, as exact commands to run (every `--apply`,
+settings edit, link and `launchctl bootout`), and sends you to `/patch-vs-claude` for the patch. It runs neither
+[the first test](#the-first-test) nor the protected-paths probe: do those by hand when you want them.

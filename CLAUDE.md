@@ -37,8 +37,8 @@ Outside those directories, do not search for `package.json`, `Makefile`, or simi
 - `docs/adr/` — the decisions behind the design (index: `docs/adr/README.md`). Check them before proposing an
   architectural change; propose a new ADR when a significant decision is made.
 - `docs/setup.md` — the install order on a machine.
-- `.claude/skills/` — the manager's project skills; `.claude/skills/setup-manager/` walks a person through
-  `docs/setup.md`, and `.claude/skills/update-manager/` updates the install and then runs it.
+- `.claude/skills/` — the manager's project skills; `.claude/skills/setup-manager/` checks a Mac against
+  `docs/setup.md` in one pass, and `.claude/skills/update-manager/` updates the install and then runs it.
 - `rules/callboard.md` — an always-on global rule for callboard's turns, linked into `~/.claude/rules/` by hand.
 - `tools/` — the callboard plugin and its panels extension, and the usage watcher, each with its own tests;
   `tools/test-all.sh` runs them all.
