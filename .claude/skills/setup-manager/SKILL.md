@@ -77,7 +77,8 @@ first; it is the source for every step here, and wins where the two differ.
      load; check the link above and that the Claude Code extension is installed and enabled.
 3. **The Claude Code extension patch.** Callboard works without it in one repo per window; lanes and leads in other
    folders of one window, the Run button, the tier groups, lane archiving, the session list of every folder, the
-   folder pill and the context ring need it (docs/setup.md, The Claude Code extension patch).
+   folder pill, the context ring and Claude tabs opening in the active editor group need it (docs/setup.md, The Claude
+   Code extension patch).
    - Find the folder: `ls -d ~/.vscode/extensions/anthropic.claude-code-* | sort -V`, the newest version. Two
      platform builds of the newest version: ask which one. The folder must contain no single quote or newline, or
      stop.
