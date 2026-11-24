@@ -85,7 +85,7 @@ except where it says stop.
      alone (docs/setup.md).
    - The value is `<checkout>/tools/callboard/plugin`. `echo "${CLAUDE_CODE_PLUGIN_DIRS:-unset}"` shows what this
      session loaded. When it differs: `jq -e --arg v '<checkout>/tools/callboard/plugin' '.env.CLAUDE_CODE_PLUGIN_DIRS
-     == $v' ~/.claude/settings.json`. `true`: the line is there and this session started before it. `false`: `jq -e
+     == $v' ~/.claude/settings.json`. `true`: the line is there and this session started before it, so the row says restart due. `false`: `jq -e
      '.env.CLAUDE_CODE_PLUGIN_DIRS // "" | . == ""' ~/.claude/settings.json`; `true` is unset, so give the one-line
      command from `tools/callboard/README.md`, Default load (every session), with `<checkout>` filled in; `false`
      is another value, which the person decides by hand (callboard should be the only plugin on it, never twice; a
@@ -105,10 +105,12 @@ except where it says stop.
      each missing marker, the `touch` command from that section (`mkdir -p ~/.claude/callboard` first for the last).
      A tier's answers count only while the hook is wired and the last marker exists; `touch
      ~/.claude/callboard/OFF` is the person's off.
-8. **The usage watcher.** `bash tools/usage-watcher/install.sh --status --ref <commit>` (read-only, no network). Exit
-   0 and the job loaded: ok. Otherwise run the dry run `bash tools/usage-watcher/install.sh --ref <commit>`, show it,
-   and give `bash tools/usage-watcher/install.sh --ref <commit> --apply`. A fetch failure: no network; the manager
-   reports "install pending" until it is installed.
+8. **The usage watcher.** `bash tools/usage-watcher/install.sh --status --ref <commit>` is read-only, but it fetches
+   `main` to compare. Exit 0: ok. Exit 4: run the dry run `bash tools/usage-watcher/install.sh --ref <commit>`, show
+   it, and give `bash tools/usage-watcher/install.sh --ref <commit> --apply`. A fetch failure (exit 1, "fetching main
+   ... failed"): no network, so run `bash tools/usage-watcher/install.sh --status`, which reads local files only; exit
+   0 means installed but not compared, anything else means the manager reports "install pending" until it is
+   installed.
 9. **The update reminder** (docs/setup.md, The update reminder). `ls ~/.claude/hooks/update-check.sh`: missing means
    ai-toolkit's update check is not installed, so there is no reminder (update ai-toolkit and run `/setup-toolkit`).
    Present: `jq -e --arg c '<checkout>' '[.hooks.SessionStart[]? | select(.matcher == "startup") | .hooks[]? |
@@ -133,10 +135,10 @@ Show this before anything else, from the reads above:
 | Extension link | ok, then look at Output > Callboard Panels once / apply due / refused: ... |
 | Claude Code patch | patched, no warning line / patched, warning: ... / outdated / unpatched / anchors-missing / leftovers |
 | Rule link | ok / missing / points elsewhere |
-| Default load | ok / unset / other value |
+| Default load | ok / set, restart due / unset / other value |
 | Deny line | present / missing |
 | Protected-paths hook and markers | wired (rough check, not probed), 3 of 3 markers / missing: ... |
-| Usage watcher | ok / needs attention / skipped: no network |
+| Usage watcher | ok / installed, not compared: no network / needs attention |
 | Update reminder | entry present / entry shown to add / skipped: ai-toolkit's update check missing |
 | Manager name | NAME / missing |
 
@@ -151,7 +153,8 @@ group what it is and whether it ends their session. Skip a group with nothing in
 2. **Settings-file lines, by hand:** the deny line, the retired hook to remove, the update reminder entry, a changed
    `CLAUDE_CODE_PLUGIN_DIRS`. Never edit the file for them.
 3. **Before the session restart:** the rule link and the default load line, whichever the table shows open. A session
-   reads its rules and plugin list when it starts, so the person restarts every session, this one included, after.
+   reads its rules and plugin list when it starts, so the person restarts every session, this one included, after:
+   also when the default load row says restart due, with no command to run.
 4. **VS Code quit, last,** because it ends a session running in a VS Code panel: quit VS Code (Cmd+Q), run in a plain
    Terminal the `rm -rf` for an old panels copy or a refused entry, then
    `/usr/bin/python3 -I <checkout>/tools/callboard/link-extension.py --apply`, and start VS Code again. Afterwards
