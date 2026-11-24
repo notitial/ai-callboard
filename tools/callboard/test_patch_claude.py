@@ -1226,7 +1226,7 @@ class AddDir(Case):
     @unittest.skipUnless(shutil.which("node"), "needs node")
     def test_a_session_gets_no_other_folder_and_the_untrusted_start_and_the_sdk_are_unchanged(self):
         ext, _ = self.applied()
-        stock = self.make(V328, name="stock")
+        stock = self.make(V327, name="stock")
         run = lambda e: json.loads(subprocess.run(["node", "-e", ADDDIR_RUNNER, os.path.join(e, "extension.js")], capture_output=True, text=True, timeout=60, check=True).stdout)
         untrusted = {"cwd": "/u", "dirs": []}
         self.assertEqual(run(stock), {"trusted": {"cwd": "/a", "dirs": ["/b", "/c"]}, "untrusted": untrusted, "sdk": ["/s"]})

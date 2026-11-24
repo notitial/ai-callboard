@@ -354,12 +354,6 @@ def restore_problem(raw, _web):
     return already("cbFolderOf") if b"cbFolderOf" in raw else None
 
 
-def restore_in(raw):
-    for _, pat, rep in RESTORE_ANCHORS:
-        raw = re.sub(pat, rep, raw)
-    return raw
-
-
 # The tab group fix: a Claude tab opens in the editor group the person is in. Stock createPanel, when no group holds a Claude tab, calls `startClaudeGroup()` (a new group beside
 # the active one) and then locks the group it got: `startsClaudeGroup` becomes the panel's `startedInNewColumn`, which the open command and the reopen path turn into the
 # lock (setting claudeCode.lockEditorGroups). A lone empty group counts as a started group too. Two edits end both: the call becomes `void 0`, which the stock code already
@@ -530,7 +524,7 @@ PIECES = (
     ("width", "panel width", lambda raw, web: css_problem(raw, web, "width", ("inputWrapper_", "permissionsContainer_", "inputContainer_")), lambda raw: css_in(raw, "width", WIDTH_CSS)),
     ("pie", "context pie", pie_problem, lambda raw: css_in(raw, "pie", PIE_CSS)),
     ("pill", "folder pill", pill_problem, pill_in),  # its page side is in webview/index.js (pill_web)
-    ("restore", "restore fix", restore_problem, restore_in),
+    ("restore", "restore fix", restore_problem, lambda raw: edits_in(RESTORE_ANCHORS, raw)),
     ("groups", "group command", lambda raw, _: command_problem(raw, GROUPS_COMMAND), groups_in),
     ("archive", "archive command", lambda raw, _: command_problem(raw, ARCHIVE_COMMAND), archive_in),
     ("unfile", "unfile command", lambda raw, _: command_problem(raw, UNFILE_COMMAND), unfile_in),
