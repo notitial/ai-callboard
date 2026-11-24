@@ -42,7 +42,7 @@ exception to `/setup-manager`'s rule never to pull there.
 5. **Show what changed.** The new version: the highest plain version tag `HEAD` contains, found as in step 1. Then
    `git_diff` with `nameOnly: true`, `source: "<old sha>"`, `target: "HEAD"`: note whether any path starts with
    `tools/callboard/` or `rules/`. Print one line now, `Pulled ai-manager <old> -> <new>.`, because `/setup-manager`
-   ends with a VS Code quit for the person, which ends this session before step 7.
+   can end with a VS Code quit for the person, which ends this session before step 7.
 6. **Run `/setup-manager`** with the Skill tool. It checks the machine in one pass, shows its status table, and ends
    its turn only where the person must act, with no question between its checks.
 7. **Close.** Your last message is only the closing below, nothing after it. Pick the closing by how `/setup-manager`
@@ -52,7 +52,7 @@ exception to `/setup-manager`'s rule never to pull there.
 
 The last message is two or three lines and no more. Nothing follows it, not a summary and not an offer.
 
-Read `/setup-manager`'s final status table as it stands: a row that is not ok, or a command it showed the person that
+Read `/setup-manager`'s status table and the commands it listed after it: a row that is not ok, or a command it showed the person that
 they have not run (a settings entry, `/patch-vs-claude`, the usage watcher's `--apply`, a link, a `touch`, the VS Code
 quit), is
 something left.
@@ -73,7 +73,7 @@ Updated ai-manager <old> -> <new>.
 Last step: <the actions, joined with "then">.
 ```
 
-If `/setup-manager` stopped before it finished (a missing prerequisite or a failed check), the checkout has already moved, so say that and not "done":
+If `/setup-manager` stopped before it finished (the origin, branch or checkout path check failed), the checkout has already moved, so say that and not "done":
 
 ```
 Pulled ai-manager <old> -> <new>, but /setup-manager did not finish: <reason>.

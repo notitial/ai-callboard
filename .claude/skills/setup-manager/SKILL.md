@@ -37,7 +37,7 @@ except where it says stop.
 1. **Prerequisites.** `node --version` (22.18 or later), `claude --version`, `/usr/bin/python3 --version`,
    `jq --version`, `xcode-select -p`. The VS Code version (1.90 or later):
    `/usr/bin/plutil -extract CFBundleShortVersionString raw '/Applications/Visual Studio Code.app/Contents/Info.plist'`;
-   that file missing: ask the person for it. The Claude Code extension, which the panels extension depends on:
+   that file missing: the row says unknown. The Claude Code extension, which the panels extension depends on:
    `ls -d ~/.vscode/extensions/anthropic.claude-code-*`. ai-toolkit, the base: `readlink
    ~/.claude/hooks/protected-paths-guard.sh` prints `<toolkit>/hooks/protected-paths-guard.sh`; no output means it is
    not installed, so tell the person to run `/setup-toolkit` and skip the checks that need `<toolkit>`. `<checkout>`
@@ -47,7 +47,9 @@ except where it says stop.
    `git -C <checkout> --no-pager -c core.hooksPath=/dev/null -c core.fsmonitor=false status -sb` (the flags keep git
    from running a pager, hook or monitor a changed `.git/config` could name). Good: `## main...origin/main`, with
    ` [behind N]` allowed after it (never `[ahead`), and nothing else. Anything else: show it and stop; the person
-   sorts it out. When it is good, `<commit>` is `git -C <checkout> rev-parse HEAD`; there is nothing to confirm.
+   sorts it out. `git -C <checkout> rev-parse --show-toplevel` must equal `<checkout>`, else stop (a subfolder or a
+   `/tmp` clone is not the live checkout). When it is all good, `<commit>` is `git -C <checkout> rev-parse HEAD`;
+   there is nothing to confirm.
 3. **Old installs.** Each check below speaks up only when it finds something; the table has one row for all of them.
    - `ls -d /usr/local/libexec/callboard`: the earlier root-owned install. Found: `sudo rm -rf
      /usr/local/libexec/callboard`.
@@ -68,8 +70,8 @@ except where it says stop.
 5. **The Claude Code extension patch.** Callboard works without it in one repo per window; lanes and leads in other
    folders of one window, the Run button, the tier groups, lane archiving, the session list of every folder, the
    folder pill and the context ring need it (docs/setup.md, The Claude Code extension patch). The folder is the
-   highest version in step 1's `ls -d` (two platform builds of it: show both and ask which); it must contain no
-   single quote or newline, or skip the check. Run
+   highest version in step 1's `ls -d` (two platform builds of it: the row says two builds, and the person names
+   one); it must contain no single quote or newline, or skip the check. Run
    `/usr/bin/python3 -I <checkout>/tools/callboard/patch-claude.py '<folder>'`, which changes nothing. Report the
    first word, the version and every `warning:` line. `patched` is ok. `unpatched-patchable` or `outdated`: the
    person types `/patch-vs-claude` in a session in this checkout, then reloads each VS Code window (Command Palette,
@@ -113,9 +115,10 @@ except where it says stop.
    .command // ""] | any(endswith("update-check.sh --update /update-manager " + $c))' ~/.claude/settings.json`.
    `false`: show the `SessionStart` entry from docs/setup.md with `<checkout>` filled in, to add to
    `hooks.SessionStart` by hand beside ai-toolkit's own.
-10. **The manager name.** `cat ~/.claude/callboard/manager-name` and show the name. Missing: ask the person which
-    name this machine's manager will carry (a second machine needs another), then give the file block from
-    docs/setup.md, The manager's name and rules, with it filled in (the folder is one agents cannot write).
+10. **The manager name.** `cat ~/.claude/callboard/manager-name` and show the name. Missing: the row says so, and
+    after the table you ask which name this machine's manager will carry (a second machine needs another), then give
+    the file block from docs/setup.md, The manager's name and rules, with it filled in (the folder is one agents
+    cannot write).
 
 ## Status table first
 
@@ -124,15 +127,15 @@ Show this before anything else, from the reads above:
 | Part | Status |
 |---|---|
 | Prerequisites | ok, VS Code VERSION / missing: ... |
-| ai-toolkit | `<toolkit>` / missing |
-| Live checkout | on main, clean at SHA / needs attention: ... |
+| ai-toolkit | `<toolkit>` / missing, or its protected-paths hook link is |
+| Live checkout | `<checkout>`, on main, clean at SHA / needs attention: ... |
 | Old installs | none / found: ... |
-| Extension link | ok / apply due / refused: ... |
+| Extension link | ok, then look at Output > Callboard Panels once / apply due / refused: ... |
 | Claude Code patch | patched, no warning line / patched, warning: ... / outdated / unpatched / anchors-missing / leftovers |
 | Rule link | ok / missing / points elsewhere |
 | Default load | ok / unset / other value |
 | Deny line | present / missing |
-| Protected-paths hook and markers | wired, 3 of 3 markers / missing: ... |
+| Protected-paths hook and markers | wired (rough check, not probed), 3 of 3 markers / missing: ... |
 | Usage watcher | ok / needs attention / skipped: no network |
 | Update reminder | entry present / entry shown to add / skipped: ai-toolkit's update check missing |
 | Manager name | NAME / missing |
@@ -143,7 +146,8 @@ Only what the table shows open, grouped by stop, each command in its own block a
 group what it is and whether it ends their session. Skip a group with nothing in it. In this order:
 
 1. **Now, in any terminal:** the `sudo` and `launchctl bootout` commands for old installs, the usage watcher's
-   `--apply`, the `touch` markers, the manager-name file block, and a typed `/patch-vs-claude`.
+   `--apply`, the `touch` markers and the manager-name file block. Then, typed in a session in this checkout,
+   `/patch-vs-claude` when the patch row is open.
 2. **Settings-file lines, by hand:** the deny line, the retired hook to remove, the update reminder entry, a changed
    `CLAUDE_CODE_PLUGIN_DIRS`. Never edit the file for them.
 3. **Before the session restart:** the rule link and the default load line, whichever the table shows open. A session
