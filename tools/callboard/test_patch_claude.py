@@ -220,6 +220,29 @@ class Check(Case):
             self.assertEqual((self.rc, self.out), (0, "unpatched-patchable 2.1.328\n"))
             self.assertEqual(snap(ext), before)
 
+    def test_the_shapes_of_2_1_331_are_patchable(self):
+        """setupPanel takes its folders from a helper after another declaration, the open command passes a literal, the code block spreads a prop."""
+        raw = build(V328).decode("utf-8")
+        for old, new in (
+            ("let i=Pe.workspace.workspaceFolders?.map((h)=>h.uri.fsPath)||[],", "let j=o&&Pe.env.remoteName===void 0?Date.now()+GQ:0,i=_r().map((h)=>h.uri.fsPath),"),
+            ("O.focusInput)", "!0)"),
+        ):
+            self.assertEqual(raw.count(old), 1, old)
+            raw = raw.replace(old, new)
+        old = "codeBlockWrapper,children:["
+        self.assertEqual(WEB["index.js"].count(old), 1)
+        web = dict(WEB, **{"index.js": WEB["index.js"].replace(old, "codeBlockWrapper,...void 0,children:[")})
+        ext = self.make(V328, name="v331", raw=raw.encode("utf-8"), pkg=dict(PKG, version="2.1.331"), web=web)
+        self.run_script(ext)
+        self.assertEqual((self.rc, self.out), (0, "unpatched-patchable 2.1.331\n"))
+        self.run_script(ext, "--apply")
+        self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "patched 2.1.331"))
+        self.assertNotIn("warning", self.out)
+        new = slurp(os.path.join(ext, "extension.js"))
+        for part in (b"a=$v(i.includes(cbCwd)?[cbCwd]:i)", b"createPanel(w,T,C,A,k,!0,void 0,!1,cbqC)"):
+            self.assertIn(part, new)
+        self.assertIn(b'title:"Run"', slurp(os.path.join(ext, "webview", "index.js")))
+
     def test_each_missing_anchor_is_named_and_nothing_changes(self):
         breaks = {
             "createPanel signature": ("a=!1){if(e)", "a=!1,u=2){if(e)"),

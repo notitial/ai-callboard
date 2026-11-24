@@ -254,7 +254,7 @@ EXT_DIR="$(ls -d "$HOME"/.vscode/extensions/anthropic.claude-code-* | sort -V | 
 - It serves the lanes of every folder of the window. A tab that Claude Code itself restores or reopens
   resumes in its conversation's folder through the restore fix; where that fix is not in or finds no transcript, it starts in
   the window's first folder.
-- The patch is made for 2.1.327, 2.1.328 and 2.1.330; the context pie's anchors fit the code of 2.1.330 (an older script gets every other piece and a
+- The patch is made for 2.1.327, 2.1.328, 2.1.330 and 2.1.331; the context pie's anchors fit the code of 2.1.330 (an older script gets every other piece and a
   warning that the pie is left out). A later version may rename or restructure the code it hooks into; then
   `anchors-missing` is printed and nothing is touched, and the panels extension keeps its one-repo-per-window behavior.
 - The marker lives in the Claude extension's own folder, so an update (a new folder) drops the

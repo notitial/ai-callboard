@@ -88,11 +88,11 @@ ANCHORS = (
      rb"(this\.setupPanel\(ID,ID,ID,ID,ID===!0,ID)\)".replace(b"ID", ID),
      lambda m: m.group(1) + b"," + NAME + b")"),
     ("setupPanel start",
-     rb"(setupPanel\((?:ID,){5}ID=!1)\)\{(this\.panelFullEditor\.set\(ID,!!ID\);let (ID)=ID\.workspace\.workspaceFolders\?\.map\(\((ID)\)=>\4\.uri\.fsPath\)"
-     rb"\|\|\[\],ID=ID\()\3\)".replace(b"ID", ID),
+     rb"(setupPanel\((?:ID,){5}ID=!1)\)\{(this\.panelFullEditor\.set\(ID,!!ID\);let (?:ID=[^;{}]{1,120}?,)?(ID)=(?:ID\.workspace\.workspaceFolders\?\.map|ID\(\)\.map)\(\((ID)\)=>\4\.uri\.fsPath\)"
+     rb"(?:\|\|\[\])?,ID=ID\()\3\)".replace(b"ID", ID),
      lambda m: m.group(1) + b"," + NAME + b"){" + m.group(2) + m.group(3) + b".includes(" + NAME + b")?[" + NAME + b"]:" + m.group(3) + b")"),
     ("editor.open command",
-     rb'("claude-vscode\.editor\.open",async\((?P<args>(?:ID,){4}ID),(?P<opt>ID)\)=>\{[\s\S]{0,1500}?)(?P<decl>let\{[^{}]{1,80}\}=await ID)\.createPanel\((?P=args),(?P<fi>ID\.focusInput)\)'.replace(b"ID", ID),
+     rb'("claude-vscode\.editor\.open",async\((?P<args>(?:ID,){4}ID),(?P<opt>ID)\)=>\{[\s\S]{0,1500}?)(?P<decl>let\{[^{}]{1,80}\}=await ID)\.createPanel\((?P=args),(?P<fi>ID\.focusInput|!0)\)'.replace(b"ID", ID),
      lambda m: m.group(1) + b"let cbqC=await " + pick(m.group("args").split(b",")[0], m.group("opt")) + b";if(cbqC===null)return;" + m.group("decl")
      + b".createPanel(" + m.group("args") + b"," + m.group("fi") + b",void 0,!1,cbqC)"),
 )
@@ -269,7 +269,7 @@ def pill_web(js):
 # manager, so a click finds the session on screen), the button in the code block component, and in extension.js a case in front of the one that opens an url. All three anchors
 # must match exactly once and the shipped webview must carry the tokens its style names; otherwise the piece is left out whole, with a warning, and the others still apply.
 RUN_CODE_ANCHOR = (
-    rb'function ID\(\{children:ID\}\)\{let (?P<ref>ID)=ID\(null\);return ID\("div",\{className:(?P<ly>ID)\.codeBlockWrapper,children:\[(?=(?P<jsx>ID)\(ID,\{getText:)'
+    rb'function ID\(\{children:ID\}\)\{let (?P<ref>ID)=ID\(null\);return ID\("div",\{className:(?P<ly>ID)\.codeBlockWrapper,(?:\.\.\.void 0,)?children:\[(?=(?P<jsx>ID)\(ID,\{getText:)'
     .replace(b"ID", ID)
 )
 RUN_APP_ANCHOR = rb"(?<=\}\),)(?P<a>ID)\.activateSessionEvents\.add\(\(\{sessionId:ID,initialPrompt:ID\}\)=>\{ID\((?P<c>ID),".replace(b"ID", ID)
