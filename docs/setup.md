@@ -103,7 +103,8 @@ the manager all work. These need it:
 - the Run button on shell code blocks;
 - the tier groups in the Session Manager list, and the archiving of a retired lane there;
 - the session list of every folder of the window;
-- the folder pill, the context ring, the wider composer and the restore fix.
+- the folder pill, the context ring, the wider composer and the restore fix;
+- a new Claude tab opening in the editor group you are in, with no split and no locked group.
 
 It edits only the Claude Code extension's own folder, and nothing else: no setting and no
 network. Run it as your user, in any terminal, then reload each VS Code window (Command Palette, Developer: Reload
@@ -185,6 +186,11 @@ EXT_DIR="$(ls -d "$HOME"/.vscode/extensions/anthropic.claude-code-* | sort -V | 
   conversation. The folder is found from the session's transcript (`projects/<folder>/<session id>.jsonl` under Claude's
   config folder, from the `CLAUDE_CONFIG_DIR` of the VS Code process, not from the `claudeCode.environmentVariables` setting), as no saved panel state names it. With no transcript yet, a one-folder window, a folder that is a
   sub-folder of a window folder or a very long path, the panel starts in the first folder as before.
+- The tab group fix is optional in the same way (the marker's `tabgroup` field, a warning when an anchor is not found): when
+  no editor group holds a Claude tab, Claude Code splits the window with a new group and locks it (setting
+  `claudeCode.lockEditorGroups`). With the fix a new Claude tab, a lane's included, opens in the group you are in: no new
+  group, and no group is locked, a lone empty group included. A group that already holds Claude tabs is still the one used,
+  as before. The window's other lock, for Claude in a new window, is not touched.
 - The group command is another piece, optional in the same way (the marker's `groups` field): it adds the command
   `callboard file session`, which the panels extension calls to file each callboard session in the Session Manager group
   of its tier: the manager in Manager, a conductor in Conductor, a lead in Lead and a lane in Lanes (a group of that name
