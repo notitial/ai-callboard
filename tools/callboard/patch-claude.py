@@ -11,7 +11,7 @@
         anchors-missing <names>  an update moved the code the patch hooks into (a name is missing or matches twice): --apply refuses
         leftovers <files>        a backup or the marker from an earlier run is here and does not match the file: --undo first
       --apply: patch extension.js, keep the original beside it as extension.js.callboard-orig and write callboard-cwd-patch.json
-      (the marker callboard's panels extension reads; its "width", "pie", "pill", "restore", "groups", "archive", "unfile", "remote", "list", "tabgroup" and "run" fields say whether the panel width, the context pie, the folder pill, the restore fix, the group command, the archive command, the unfile command, the remote command, the session list, the tab group fix and the run button below went in). Patched already: says so and stops; outdated: refuses and names --update. A window reload (Developer: Reload
+      (the marker callboard's panels extension reads; its "width", "pie", "pill", "restore", "groups", "archive", "unfile", "remote", "list", "tabgroup", "adddir" and "run" fields say whether the panel width, the context pie, the folder pill, the restore fix, the group command, the archive command, the unfile command, the remote command, the session list, the tab group fix, the add-dir fix and the run button below went in). Patched already: says so and stops; outdated: refuses and names --update. A window reload (Developer: Reload
       Window) loads it.
       --update: for an `outdated` install, build the patch again from the backup original and swap it in: extension.js and the marker are
       replaced (and webview/index.js, when the context pie, the folder pill or the run button is or goes in or out), the backups are not touched. The new bytes are built before anything is written (a refusal changes nothing), and a failed write puts the
@@ -29,7 +29,8 @@ against the autocompact level of the settings, in webview/index.js, kept as webv
 matches once, the run button (RUN_CODE_ANCHOR: a button before Copy on shell code blocks, with its app handle in index.js and a case in extension.js, which ask the panels extension's `callboard run block` command: a modal first, then the run, then the output goes back into the chat as the person's message; see the comment above RUN_CODE_ANCHOR) goes in when its three anchors and its style tokens match, the restore fix
 (RESTORE_ANCHORS below: a panel that VS Code restores or Claude reopens keeps the folder of its conversation, found from the session's transcript) goes in
 when its two anchors do, and the group command (GROUPS_ANCHOR below) registers `callboard file session` (session id, group name, order), so callboard's panels
-extension can put the manager, a conductor, a lead or a lane in the sidebar's Manager, Conductor, Lead or Lanes group, with those groups first in that order, when its one anchor matches exactly once, and the archive command (at the same anchor) registers `callboard archive sessions` (group name, session ids), which archives the listed sessions of that group and no other, and the unfile command (at the same anchor) registers `callboard unfile session` (session id, group name), which takes the session out of the group of that name and changes nothing else, and the remote command (at the same anchor) registers `callboard remote session` (session id, on), which turns Remote Control of that session's panel on or off for callboard's panels extension, and the session list (LIST_ANCHOR below: the sidebar lists the saved conversations of every folder of the window, not only the first, so a closed lead of another folder stays listed and a click reopens it) goes in when its one anchor matches exactly once, and the tab group fix (TABGROUP_ANCHORS below: a new Claude tab opens in the editor group the person is in, with no new group and no lock) goes in when its two anchors match once each; when one does not, a warning line says so and the folder patch still applies. There is no half patch: a failure after the file was replaced puts the backup back. An update of the extension is a new
+extension can put the manager, a conductor, a lead or a lane in the sidebar's Manager, Conductor, Lead or Lanes group, with those groups first in that order, when its one anchor matches exactly once, and the archive command (at the same anchor) registers `callboard archive sessions` (group name, session ids), which archives the listed sessions of that group and no other, and the unfile command (at the same anchor) registers `callboard unfile session` (session id, group name), which takes the session out of the group of that name and changes nothing else, and the remote command (at the same anchor) registers `callboard remote session` (session id, on), which turns Remote Control of that session's panel on or off for callboard's panels extension, and the session list (LIST_ANCHOR below: the sidebar lists the saved conversations of every folder of the window, not only the first, so a closed lead of another folder stays listed and a click reopens it) goes in when its one anchor matches exactly once, and the tab group fix (TABGROUP_ANCHORS below: a new Claude tab opens in the editor group the person is in, with no new group and no lock) goes in when its two anchors match once each, and the add-dir fix (ADDDIR_ANCHORS below: a session gets none of the window's other
+folders as additional directories, so no file scope and no .claude skills of theirs) goes in when its one anchor matches once; when one does not, a warning line says so and the folder patch still applies. There is no half patch: a failure after the file was replaced puts the backup back. An update of the extension is a new
 folder, so it starts unpatched and this runs again. It never uses the network, runs nothing else, works only inside EXTENSION_DIR
 and changes no setting. Run it as your user: it refuses root. Tests: /usr/bin/python3 -I tools/callboard/test_patch_claude.py
 Exit codes: 0 done or nothing to do (patched, patchable), 1 refused, outdated or anchors missing, 2 usage.
@@ -353,12 +354,6 @@ def restore_problem(raw, _web):
     return already("cbFolderOf") if b"cbFolderOf" in raw else None
 
 
-def restore_in(raw):
-    for _, pat, rep in RESTORE_ANCHORS:
-        raw = re.sub(pat, rep, raw)
-    return raw
-
-
 # The tab group fix: a Claude tab opens in the editor group the person is in. Stock createPanel, when no group holds a Claude tab, calls `startClaudeGroup()` (a new group beside
 # the active one) and then locks the group it got: `startsClaudeGroup` becomes the panel's `startedInNewColumn`, which the open command and the reopen path turn into the
 # lock (setting claudeCode.lockEditorGroups). A lone empty group counts as a started group too. Two edits end both: the call becomes `void 0`, which the stock code already
@@ -369,16 +364,25 @@ TABGROUP_ANCHORS = (
 )
 
 
-def tabgroup_problem(raw, _web):
-    """Why the tab group fix cannot go in (None when it can): an anchor does not match exactly once."""
-    for label, pat, _ in TABGROUP_ANCHORS:
+# The add-dir fix: a session gets no additional directories. Stock spawnClaude passes every other folder of the window (less a git worktree of the session's own) as the
+# SDK's additionalDirectories, one --add-dir each, so the session takes their file permission scope and their .claude skills, commands and agents. The one edit makes that
+# option `[]`, as the stock untrusted start already does. The anchor is the option followed by that untrusted branch: the SDK's own `additionalDirectories:y,` matches
+# the plain option too. /add-dir typed in a session and permissions.additionalDirectories in settings still work. Optional.
+ADDDIR_ANCHORS = (
+    ("add-dir option", rb"(?<=,additionalDirectories:)ID(?=,\.\.\.ID!==void 0&&\{cwd:ID,additionalDirectories:\[\]\})".replace(b"ID", ID), lambda m: b"[]"),
+)
+
+
+def edits_problem(anchors, raw):
+    """Why a piece made of plain edits cannot go in (None when it can): an anchor does not match exactly once."""
+    for label, pat, _ in anchors:
         n = len(re.findall(pat, raw))
         if n != 1:
             return count_why(label, n)
 
 
-def tabgroup_in(raw):
-    for _, pat, rep in TABGROUP_ANCHORS:
+def edits_in(anchors, raw):
+    for _, pat, rep in anchors:
         raw = re.sub(pat, rep, raw)
     return raw
 
@@ -520,13 +524,14 @@ PIECES = (
     ("width", "panel width", lambda raw, web: css_problem(raw, web, "width", ("inputWrapper_", "permissionsContainer_", "inputContainer_")), lambda raw: css_in(raw, "width", WIDTH_CSS)),
     ("pie", "context pie", pie_problem, lambda raw: css_in(raw, "pie", PIE_CSS)),
     ("pill", "folder pill", pill_problem, pill_in),  # its page side is in webview/index.js (pill_web)
-    ("restore", "restore fix", restore_problem, restore_in),
+    ("restore", "restore fix", restore_problem, lambda raw: edits_in(RESTORE_ANCHORS, raw)),
     ("groups", "group command", lambda raw, _: command_problem(raw, GROUPS_COMMAND), groups_in),
     ("archive", "archive command", lambda raw, _: command_problem(raw, ARCHIVE_COMMAND), archive_in),
     ("unfile", "unfile command", lambda raw, _: command_problem(raw, UNFILE_COMMAND), unfile_in),
     ("remote", "remote command", lambda raw, _: command_problem(raw, REMOTE_COMMAND), remote_in),
     ("list", "session list", list_problem, list_in),
-    ("tabgroup", "tab group fix", tabgroup_problem, tabgroup_in),
+    ("tabgroup", "tab group fix", lambda raw, _: edits_problem(TABGROUP_ANCHORS, raw), lambda raw: edits_in(TABGROUP_ANCHORS, raw)),
+    ("adddir", "add-dir fix", lambda raw, _: edits_problem(ADDDIR_ANCHORS, raw), lambda raw: edits_in(ADDDIR_ANCHORS, raw)),
     ("run", "run button", run_problem, run_in),  # its page side is in webview/index.js (run_web)
 )
 

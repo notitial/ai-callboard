@@ -104,7 +104,8 @@ the manager all work. These need it:
 - the tier groups in the Session Manager list, and the archiving of a retired lane there;
 - the session list of every folder of the window;
 - the folder pill, the context ring, the wider composer and the restore fix;
-- a new Claude tab opening in the editor group you are in, with no split and no locked group.
+- a new Claude tab opening in the editor group you are in, with no split and no locked group;
+- a session that gets none of the window's other folders as additional directories.
 
 It edits only the Claude Code extension's own folder, and nothing else: no setting and no
 network. Run it as your user, in any terminal, then reload each VS Code window (Command Palette, Developer: Reload
@@ -191,6 +192,11 @@ EXT_DIR="$(ls -d "$HOME"/.vscode/extensions/anthropic.claude-code-* | sort -V | 
   `claudeCode.lockEditorGroups`). With the fix a new Claude tab, a lane's included, opens in the group you are in: no new
   group, and no group is locked, a lone empty group included. A group that already holds Claude tabs is still the one used,
   as before. The window's other lock, for Claude in a new window, is not touched.
+- The add-dir fix is optional in the same way (the marker's `adddir` field, a warning when its anchor is not found): Claude
+  Code starts each session with every other folder of the window as an additional directory (`--add-dir`), so the session
+  can read and edit their files without asking and loads their `.claude` skills, commands and agents. With the fix a
+  session gets only its own folder, and reading or editing a file in another folder of the window asks first.
+  `/add-dir` typed in a session and `permissions.additionalDirectories` in your settings still add a folder. An install made before it reads `outdated`, and `--update` brings it in.
 - The group command is another piece, optional in the same way (the marker's `groups` field): it adds the command
   `callboard file session`, which the panels extension calls to file each callboard session in the Session Manager group
   of its tier: the manager in Manager, a conductor in Conductor, a lead in Lead and a lane in Lanes (a group of that name

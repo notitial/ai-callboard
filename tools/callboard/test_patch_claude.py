@@ -25,6 +25,8 @@ TEMPLATE = (
     'if(n!==void 0)u=n;else{{let h=this.groups,_=h[0];if(!_){{_=await this.startClaudeGroup()}}u=_?.viewColumn??9,l=_?.startsClaudeGroup??!1}}'
     'if(this.setupPanel(d,e,t,p,s===!0,a),e)this.sessionPanels.set(e,d);return{{startedInNewColumn:l,column:u}}}}'
     'startClaudeGroup(){{this.splits++;return{{viewColumn:2,startsClaudeGroup:!0}}}}'
+    'async spawnClaude(o,{f}){{let T=o||this.cwd,C=await this.others(T),F={{cwd:T,additionalDirectories:C,...{f}!==void 0&&{{cwd:{f},additionalDirectories:[]}},settings:1}};return F}}'
+    'sdkOptions(E,y,O){{return{{abortController:E,additionalDirectories:y,cwd:O}}}}'
     'setupPanel(e,t,n,r,o,s=!1){{this.panelFullEditor.set(e,!!r);let i={vs}.workspace.workspaceFolders?.map((h)=>h.uri.fsPath)||[],'
     'a={nc}(i);return a}}'
     'sessionListOptions(){{return{{dir:this.cwd,includeWorktrees:!1}}}}async listSdkSessions(e=this.sessionListOptions()){{let t={gd}();return t===void 0?await {la}(e):await {lb}(e,void 0,t)}}}}'
@@ -1191,6 +1193,78 @@ class TabGroup(Case):
         self.reads_outdated_then_updates(ext, "the tab group fix is not in")
         self.assertTrue(self.marker(ext)["tabgroup"])
         self.assertIn(b"_=void 0}", self.js(ext))
+        self.reads_patched(ext)
+        self.run_script(ext, "--undo")
+        self.assertEqual(self.js(ext), build(V327))
+
+
+ADDDIR_RUNNER = r"""
+const vm = require('vm'), fs = require('fs')
+const fake = { workspace: {}, window: {}, commands: { registerCommand: () => ({}) } }
+const ctx = vm.createContext({ x: [], Wp: () => {}, F: () => ({}), G: {}, Gq: {}, $e: fake, Pe: fake, require: () => fake })
+vm.runInContext(fs.readFileSync(process.argv[1], 'utf8') + ';globalThis.W=W', ctx)
+const w = Object.assign(Object.create(ctx.W.prototype), { cwd: '/a', others: async () => ['/b', '/c'] })
+;(async () => {
+  const pick = (o) => ({ cwd: o.cwd, dirs: o.additionalDirectories })
+  console.log(JSON.stringify({ trusted: pick(await w.spawnClaude()), untrusted: pick(await w.spawnClaude(undefined, '/u')), sdk: w.sdkOptions(1, ['/s'], '/a').additionalDirectories }))
+})()
+"""
+
+
+class AddDir(Case):
+    """The add-dir fix is one optional edit: a session gets none of the window's other folders as additional directories."""
+
+    def test_the_edit_goes_in_once_and_the_marker_says_so(self):
+        ext, marker = self.applied()
+        self.assertEqual((self.rc, marker["adddir"], marker["tabgroup"]), (0, True, True))
+        self.assertEqual(self.out.count("warning"), 0)
+        new = self.js(ext)
+        self.assertNotIn(b"additionalDirectories:C,", new)
+        self.assertEqual(new.count(b"additionalDirectories:[],"), 1)
+        self.assertIn(b"additionalDirectories:y,", new)
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_a_session_gets_no_other_folder_and_the_untrusted_start_and_the_sdk_are_unchanged(self):
+        ext, _ = self.applied()
+        stock = self.make(V327, name="stock")
+        run = lambda e: json.loads(subprocess.run(["node", "-e", ADDDIR_RUNNER, os.path.join(e, "extension.js")], capture_output=True, text=True, timeout=60, check=True).stdout)
+        untrusted = {"cwd": "/u", "dirs": []}
+        self.assertEqual(run(stock), {"trusted": {"cwd": "/a", "dirs": ["/b", "/c"]}, "untrusted": untrusted, "sdk": ["/s"]})
+        self.assertEqual(run(ext), {"trusted": {"cwd": "/a", "dirs": []}, "untrusted": untrusted, "sdk": ["/s"]})
+
+    def test_a_missing_or_doubled_anchor_costs_only_the_add_dir_fix(self):
+        raw = build(V327)
+        misses = {
+            "no option": raw.replace(b"additionalDirectories:C,", b"extraDirectories:C,"),
+            "no untrusted branch": raw.replace(b"&&{cwd:x,additionalDirectories:[]}", b"&&{cwd:x}"),
+            "two options": raw.replace(b"settings:1}", b"settings:1},G2={cwd:T,additionalDirectories:C,...x!==void 0&&{cwd:x,additionalDirectories:[]}}"),
+        }
+        for label, bad in misses.items():
+            ext = self.make(V327, name="m%d" % len(os.listdir(self.t)), raw=bad)
+            self.run_script(ext)
+            self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "unpatched-patchable 2.1.328"), label)
+            self.assertIn("warning: the add-dir fix would be left out (add-dir option ", self.out, label)
+            self.run_script(ext, "--apply")
+            self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "patched 2.1.328"), label)
+            self.assertIn("warning: the add-dir fix is not in (add-dir option ", self.out, label)
+            new = self.js(ext)
+            self.assertIn(b"_=void 0}", new, label)
+            self.assertNotIn(b"additionalDirectories:[],...", new, label)
+            marker = self.marker(ext)
+            self.assertEqual((marker["adddir"], marker["tabgroup"]), (False, True), label)
+            self.run_script(ext, "--undo")
+            self.assertEqual((self.rc, self.js(ext)), (0, bad), label)
+
+    def test_an_install_from_before_the_fix_reads_outdated_and_update_brings_it_in(self):
+        mod = load_module()
+        ext = self.make(V327, name="older")
+        with contextlib.redirect_stdout(io.StringIO()):
+            mod.PIECES = tuple(p for p in mod.PIECES if p[0] != "adddir")
+            mod.apply(ext)
+        self.assertNotIn("adddir", self.marker(ext))
+        self.reads_outdated_then_updates(ext, "the add-dir fix is not in")
+        self.assertTrue(self.marker(ext)["adddir"])
+        self.assertIn(b"additionalDirectories:[],...", self.js(ext))
         self.reads_patched(ext)
         self.run_script(ext, "--undo")
         self.assertEqual(self.js(ext), build(V327))
