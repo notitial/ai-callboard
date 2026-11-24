@@ -21,8 +21,10 @@ SCRIPT = os.path.join(HERE, "patch-claude.py")
 PY = "/usr/bin/python3"
 
 TEMPLATE = (
-    'var q="é";function {nc}(e){{return e[0]}}class W{{async createPanel(e,t,n,r,o,s,i,a=!1){{if(e){{return 1}}let d=1,p=2,l=!1;'
-    'if(this.setupPanel(d,e,t,p,s===!0,a),e)this.sessionPanels.set(e,d);return{{startedInNewColumn:l}}}}'
+    'var q="é";function {nc}(e){{return e[0]}}class W{{async createPanel(e,t,n,r,o,s,i,a=!1){{if(e){{return 1}}let d=1,p=2,l=!1,u;'
+    'if(n!==void 0)u=n;else{{let h=this.groups,_=h[0];if(!_){{_=await this.startClaudeGroup()}}u=_?.viewColumn??9,l=_?.startsClaudeGroup??!1}}'
+    'if(this.setupPanel(d,e,t,p,s===!0,a),e)this.sessionPanels.set(e,d);return{{startedInNewColumn:l,column:u}}}}'
+    'startClaudeGroup(){{this.splits++;return{{viewColumn:2,startsClaudeGroup:!0}}}}'
     'setupPanel(e,t,n,r,o,s=!1){{this.panelFullEditor.set(e,!!r);let i={vs}.workspace.workspaceFolders?.map((h)=>h.uri.fsPath)||[],'
     'a={nc}(i);return a}}'
     'sessionListOptions(){{return{{dir:this.cwd,includeWorktrees:!1}}}}async listSdkSessions(e=this.sessionListOptions()){{let t={gd}();return t===void 0?await {la}(e):await {lb}(e,void 0,t)}}}}'
@@ -1106,6 +1108,92 @@ out.create = [b.real(1, SB, 3, 4, 5, false, undefined), b.real(1, SB, 3, 4, 5, f
 out.method = [b.c.cbFolderOf(SB), b.c.cbFolderOf(7), b.c.cbFolderOf('x'), boot([folders[1]]).c.cbFolderOf(SB)]
 console.log(JSON.stringify(out))
 """
+
+
+TABGROUP_RUNNER = r"""
+const vm = require('vm'), fs = require('fs')
+const fake = { workspace: {}, window: {}, commands: { registerCommand: () => ({}) } }
+const ctx = vm.createContext({ x: [], Wp: () => {}, F: () => ({}), G: {}, Gq: {}, $e: fake, Pe: fake, require: () => fake })
+vm.runInContext(fs.readFileSync(process.argv[1], 'utf8') + ';globalThis.W=W', ctx)
+const open = async (groups, ...args) => {
+  const w = Object.assign(Object.create(ctx.W.prototype), { groups, splits: 0, setupPanel: () => 0, sessionPanels: new Map() })
+  const r = await w.createPanel(undefined, undefined, ...args)
+  return { splits: w.splits, locked: r.startedInNewColumn, column: r.column }
+}
+;(async () => {
+  console.log(JSON.stringify({
+    none: await open([]),
+    given: await open([], 5),
+    claude: await open([{ viewColumn: 3, startsClaudeGroup: false }]),
+    emptyLone: await open([{ viewColumn: 1, startsClaudeGroup: true }]),
+  }))
+})()
+"""
+
+
+class TabGroup(Case):
+    """The tab group fix is one optional pair of edits: a new Claude tab opens in the active group instead of a new one, and nothing locks a group."""
+
+    def test_the_two_edits_go_in_once_and_the_marker_says_so(self):
+        ext, marker = self.applied()
+        self.assertEqual((self.rc, marker["tabgroup"], marker["width"]), (0, True, True))
+        self.assertEqual(self.out.count("warning"), 0)
+        new = self.js(ext)
+        self.assertEqual(new.count(b"_=void 0}"), 1)
+        self.assertEqual(new.count(b",l=!1}"), 1)
+        self.assertNotIn(b"await this.startClaudeGroup()", new)
+        self.assertNotIn(b"?.startsClaudeGroup??", new)
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_a_new_panel_opens_in_the_active_group_and_no_group_is_started_or_locked(self):
+        ext, _ = self.applied()
+        stock = self.make(V327, name="stock")
+        run = lambda e: json.loads(subprocess.run(["node", "-e", TABGROUP_RUNNER, os.path.join(e, "extension.js")], capture_output=True, text=True, timeout=60, check=True).stdout)
+        self.assertEqual(run(stock)["none"], {"splits": 1, "locked": True, "column": 2})
+        self.assertEqual(run(ext), {
+            "none": {"splits": 0, "locked": False, "column": 9},
+            "given": {"splits": 0, "locked": False, "column": 5},
+            "claude": {"splits": 0, "locked": False, "column": 3},
+            "emptyLone": {"splits": 0, "locked": False, "column": 1},
+        })
+
+    def test_a_missing_or_doubled_anchor_costs_only_the_tab_group_fix(self):
+        raw = build(V327)
+        misses = {
+            "no call": raw.replace(b"await this.startClaudeGroup()", b"await this.startGroup()"),
+            "no flag": raw.replace(b"_?.startsClaudeGroup??!1", b"_?.startsClaudeGroup"),
+            "two calls": raw.replace(b"_=await this.startClaudeGroup()}", b"_=await this.startClaudeGroup()}_=await this.startClaudeGroup();"),
+        }
+        for label, bad in misses.items():
+            ext = self.make(V327, name="m%d" % len(os.listdir(self.t)), raw=bad)
+            self.run_script(ext)
+            self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "unpatched-patchable 2.1.328"), label)
+            self.assertIn("warning: the tab group fix would be left out (tab group ", self.out, label)
+            self.run_script(ext, "--apply")
+            self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "patched 2.1.328"), label)
+            self.assertIn("warning: the tab group fix is not in (tab group ", self.out, label)
+            new = self.js(ext)
+            self.assertIn(b"callboard-width", new, label)
+            self.assertNotIn(b"_=void 0}", new, label)
+            self.assertNotIn(b",l=!1}", new, label)
+            marker = self.marker(ext)
+            self.assertEqual((marker["tabgroup"], marker["width"]), (False, True), label)
+            self.run_script(ext, "--undo")
+            self.assertEqual((self.rc, self.js(ext)), (0, bad), label)
+
+    def test_an_install_from_before_the_fix_reads_outdated_and_update_brings_it_in(self):
+        mod = load_module()
+        ext = self.make(V327, name="older")
+        with contextlib.redirect_stdout(io.StringIO()):
+            mod.PIECES = tuple(p for p in mod.PIECES if p[0] != "tabgroup")
+            mod.apply(ext)
+        self.assertNotIn("tabgroup", self.marker(ext))
+        self.reads_outdated_then_updates(ext, "the tab group fix is not in")
+        self.assertTrue(self.marker(ext)["tabgroup"])
+        self.assertIn(b"_=void 0}", self.js(ext))
+        self.reads_patched(ext)
+        self.run_script(ext, "--undo")
+        self.assertEqual(self.js(ext), build(V327))
 
 
 class Restore(Case):

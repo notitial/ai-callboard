@@ -69,7 +69,8 @@ except where it says stop.
    `rm -rf '<that path>'` in the same quit; anything else: build no command, show it.
 5. **The Claude Code extension patch.** Callboard works without it in one repo per window; lanes and leads in other
    folders of one window, the Run button, the tier groups, lane archiving, the session list of every folder, the
-   folder pill and the context ring need it (docs/setup.md, The Claude Code extension patch). The folder is the
+   folder pill, the context ring and Claude tabs opening in the active editor group need it (docs/setup.md, The
+   Claude Code extension patch). The folder is the
    highest version in step 1's `ls -d` (two platform builds of it: the row says two builds, and the person names
    one); it must contain no single quote or newline, or skip the check. Run
    `/usr/bin/python3 -I <checkout>/tools/callboard/patch-claude.py '<folder>'`, which changes nothing. Report the
