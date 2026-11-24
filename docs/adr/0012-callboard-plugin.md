@@ -98,8 +98,8 @@ means off. The check-in turn that tells a parent of a new ask comes from a list 
 seconds after the 5; `prompt_list` and `prompt_answer` read the ask fresh and are exact.
 
 *Amended 2026-11-20 (escalation round).* The relay offers a call of 2 to 4 questions too, with one combined answer;
-a session still answers only a single question. How the dialog is shown and closed is the 2026-11-21 amendment below. The person's pick reaches the asker with a plugin note that it is their settled choice
-(only a pick made in the dialog carries it: the plugin cannot tell the manager's own `prompt_answer` after a typed turn
+a session still answers only a single question. How the dialog is shown and closed is the 2026-11-21 amendment below. The person's pick reaches the asker as the plain label, as a pick in the asker's own panel would
+(only a pick made in the dialog is plain: the plugin cannot tell the manager's own `prompt_answer` after a typed turn
 from the manager's own decision, so that answer keeps `answered by <manager>, not the person`). The manager's check-in
 also carries a short digest, "since your last check-in", of asks that ended in an asker's own panel (a click or an interruption), lanes done
 or gone and gos that ended: log data, no command text, never a wake-up by itself. The dialog for a tool ask the manager escalated with a note shows that note
@@ -205,8 +205,8 @@ text, not as `{ deny }`, so a run counts as stopped only for a `{ deny }`, or fo
 relay needs Claude Code 2.1.330 or later.
 
 *Amended 2026-11-22 (typed answers).* In a question's relay dialog, what the person types in place of a pick is their
-answer to that question, no longer a deny with their words as the note: it reaches the asker as that question's answer
-with the same note that it is the person's settled choice, for one question or several, and each question of a call may
+answer to that question, no longer a deny with their words as the note: it reaches the asker as that question's answer,
+the typed words as they are, for one question or several, and each question of a call may
 be a pick or typed words. Typed words are the person's alone: a session's `prompt_answer` takes an option only, and the
 engine refuses typed words from any author but the person. They are cut to 2000 bytes when written. An answer that
 leaves a question out, or adds a response, is still the person's deny with what they typed as its note; a dialog that

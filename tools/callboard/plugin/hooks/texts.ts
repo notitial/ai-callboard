@@ -359,7 +359,7 @@ const fixed: { [K in keyof Fixed]: (p: Fixed[K]) => string } = {
   'ask.answered': (p) => `Ask ${q(p.ask)} answered. It lands shortly; the person's click always wins.`,
   'ask.escalated': (p) => `Ask ${q(p.ask)} passed up to ${who(p.to)}.`,
   'ask.denyText': (p) => (p.by === PERSON ? 'Denied by the person.' : `Denied by ${q(p.by)}, not the person${p.note === '' ? '' : `: ${esc(p.note)}`}. It is no approval and no refusal of anything else.`),
-  'ask.answerText': (p) => (p.by === PERSON ? `${p.label} (chosen by the person in the callboard dialog in the manager's session, not by a session: their settled choice; ask again only for a step the question did not name)` : `${p.label} (answered by ${q(p.by)}, not the person)`),
+  'ask.answerText': (p) => (p.by === PERSON ? p.label : `${p.label} (answered by ${q(p.by)}, not the person)`),
 
   'lane.cued': (p) => `${q(p.name)} accepted ${p.verb}.`,
   'lane.stopped': (p) => {
