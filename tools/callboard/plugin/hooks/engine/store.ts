@@ -4,7 +4,7 @@
 import { parseConfig } from '../core/commands.ts'
 import { parseGo } from '../core/go.ts'
 import type { Handovers, Marker } from '../core/handover.ts'
-import { HANDING_MS, parseHandovers, parseMarker } from '../core/handover.ts'
+import { HANDING_MS, parseHandovers, parseMarker, recordRetired } from '../core/handover.ts'
 import { CONDUCTOR_REPOS_MAX } from '../core/lifecycle.ts'
 import type { Answer, Ask, AskLogRow, Config, Go, LaneEffort, LaneModel, ManagerName, Question, RaisedBy, Registry, RegistryRow, Row, Sid, Table, UpMark, View } from '../core/model.ts'
 import { LANE_EFFORTS, LANE_MODELS, liveView } from '../core/model.ts'
@@ -199,6 +199,11 @@ export async function updateHandovers($: any, f: (h: Handovers) => Handovers): P
     return cur !== undefined && (await writeFile($, p, JSON.stringify(f(cur))))
   })
   return done === true
+}
+// The rows of `keys` left the table, which `v` still shows: the panels extension of every window archives each of them. Best-effort: the table is already written, so a failed write is not an error here.
+export async function recordGone($: any, v: View, keys: readonly Sid[]): Promise<void> {
+  const now = await $.clock.now()
+  if (keys.length > 0) await updateHandovers($, (h) => recordRetired(h, v, keys, now))
 }
 // Every go file is read whole (a file that does not parse would not move with its giver); listGoes runs first, so a go that ended long ago is gone before the files are counted.
 export async function goesIntact($: any): Promise<boolean> {

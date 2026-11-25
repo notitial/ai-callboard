@@ -326,6 +326,7 @@ test('a minted lead is opened and bound like a lane: its row follows the session
   mem.view = undefined
   assert.match(text(await stopVerbCall(f.$, { lane: 'NL' }, next, 'retire')), /`NL` is retired and its row removed/)
   assert.equal(table(f)['sid-nl'], undefined)
+  assert.deepEqual(JSON.parse(f.file('handovers.json')!).NL.old, [{ sid: 'sid-nl', group: 'Lead', folder: '/w/repo/new', at: T0, archive: true }])
 })
 
 test('the briefings: a conductor gets the parent briefing and the conductor one; a minted lead is told its parent, to ask it for a go and not to call go_request; a plain lead is not told either', async () => {

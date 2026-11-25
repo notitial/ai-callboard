@@ -19,7 +19,7 @@ import { prClaim, prTick } from './pr.ts'
 import { presetRegister, presetTick } from './preset.ts'
 import { relayTick } from './relay.ts'
 import { remoteTick } from './remote.ts'
-import { askOpen, getView, listGoes, logAsk, readAsks, rmAsk, tidyAsks, tidyAskLogs, updateTable } from './store.ts'
+import { askOpen, getView, listGoes, logAsk, readAsks, recordGone, rmAsk, tidyAsks, tidyAskLogs, updateTable } from './store.ts'
 import { isSub, say } from './tools-any.ts'
 import { openAsks } from './tools-ask.ts'
 import { idle, keepaliveTick, midNudge, nudgeTick, requestTick, signedNow } from './upkeep.ts'
@@ -137,7 +137,10 @@ async function tableTick($: any, v: View, now: number): Promise<void> {
   mem.tableAt = now
   for (const k of Object.keys(v.table)) v.rows.has(k) ? mem.noSince.delete(k) : mem.noSince.has(k) || mem.noSince.set(k, now)
   const next = (t: typeof v.table) => tidy(t, v, (k) => mem.noSince.get(k), now)
-  if (JSON.stringify(next(v.table)) !== JSON.stringify(v.table)) await updateTable($, next)
+  if (JSON.stringify(next(v.table)) === JSON.stringify(v.table)) return
+  let before = v.table
+  let after = v.table
+  if (await updateTable($, (t) => ((before = t), (after = next(t))))) await recordGone($, { ...v, table: before }, Object.keys(before).filter((k) => !(k in after)))
 }
 // Every 30 s: the sessions, this one and its children (the manager and a conductor: everything under it), whose report is signed.
 async function signedTick($: any, v: View, me: Sid, now: number): Promise<void> {

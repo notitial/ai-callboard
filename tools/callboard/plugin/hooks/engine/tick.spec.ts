@@ -174,6 +174,22 @@ test('the table: a row no live session carries is marked gone after 30 s and dro
   await tick(f)
   assert.equal(JSON.parse(f.h.files.get(`${V2}/sessions.json`)!)['sid-ghost'], undefined)
 })
+test('a row that expires is recorded for every window to archive, once; a typed lead that expires is not', async () => {
+  const f = lead({ 'sid-ghost': kid({ name: 'ghost' }), 'sid-typed': { name: 'typed', folder: '/w/t', lead: { repos: [] } } })
+  await start(f)
+  await tick(f)
+  f.h.now += 31_000
+  await tick(f)
+  assert.equal(f.h.files.has(`${V2}/handovers.json`), false, 'gone is not yet dropped')
+  f.h.now += 25 * 60 * MIN
+  await tick(f)
+  assert.equal(JSON.parse(f.h.files.get(`${V2}/sessions.json`)!)['sid-ghost'], undefined)
+  const at = f.h.now
+  assert.deepEqual(JSON.parse(f.h.files.get(`${V2}/handovers.json`)!), { ghost: { n: 0, old: [{ sid: 'sid-ghost', group: 'Lanes', folder: '/w/kid', at, archive: true }] } })
+  f.h.now += 40_000
+  await tick(f)
+  assert.equal(JSON.parse(f.h.files.get(`${V2}/handovers.json`)!).ghost.old.length, 1)
+})
 test('a doubtful registry changes nothing in the table and sends nothing', async () => {
   const f = lead({ 'sid-ghost': kid({ name: 'ghost' }) })
   await start(f)

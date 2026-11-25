@@ -3,6 +3,7 @@
 // `under` of every child, never overwrites a row the new id already has, and gives the new id no power its predecessor did not have.
 import type { Folder, Row, Sid, Table, View } from './model.ts'
 import { isConductor, isLead } from './model.ts'
+import { NEW_KEY } from './lifecycle.ts'
 
 // A marker holds the old id as `unknown` for this long (a takeover that has not come by then is a crash); a marker older than the sweep age is removed by any session; the old
 // session renames itself back when its `/clear` has not run by the wait.
@@ -62,6 +63,16 @@ export function recordHandover(h: Handovers, name: string, n: number, old: Old |
   const next: Handovers = { ...h, [name]: { n, old: [...(h[name]?.old ?? []), ...(old === undefined ? [] : [old])] } }
   const all = Object.entries(next).flatMap(([k, e]) => e.old.map((o) => [k, o] as const)).sort((a, b) => b[1].at - a[1].at).slice(0, HANDOVERS_MAX)
   return Object.fromEntries(Object.entries(next).map(([k, e]) => [k, { n: e.n, old: e.old.filter((o) => all.some(([, a]) => a === o)) }]))
+}
+// The file after the rows of `keys` left the table (a retire, a terminate, or a row that expired): each lane, and each lead a conductor made, gets an `archive` entry in its own group, so the
+// panels extension of every window archives it. A key that is no such row (a typed lead, a conductor, a loose or off session, a `new:` row) gets none; `v.table` is the table from before.
+export function recordRetired(h: Handovers, v: View, keys: readonly Sid[], now: number): Handovers {
+  return keys.reduce((acc, k) => {
+    const row = v.table[k]
+    const group = groupOf(v, k)
+    const mine = row?.under !== undefined && !k.startsWith(NEW_KEY) && (row.lead === undefined || row.lead.minted === true)
+    return mine && group !== undefined ? recordHandover(acc, row.name, acc[row.name]?.n ?? 0, { sid: k, group, folder: row.folder, at: now, archive: true }) : acc
+  }, h)
 }
 // The file after a handover was undone: the entry of the old id is gone (the number stays used).
 export const dropHandover = (h: Handovers, old: Sid): Handovers => Object.fromEntries(Object.entries(h).map(([k, e]) => [k, { n: e.n, old: e.old.filter((o) => o.sid !== old) }]))
