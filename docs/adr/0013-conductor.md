@@ -57,7 +57,7 @@ folder. A chain is lane, lead, conductor, manager.
   session closed, so a conductor resumed within the week is still a conductor (its leads' rows go after 24 hours). A row marked `off` is never expired. A
   resumed typed lead whose row is gone comes back a plain session and retypes its grant (`/sentinel`, `/callboard
   lead <paths>`); a conductor retypes `/callboard conductor` (its repos are saved per folder). The panels extension
-  archives a minted lead when its row is dropped, as it does a lane; a typed lead and a conductor are never archived
+  archives a minted lead when its row is dropped (the plugin records it in `handovers.json` for every window), as it does a lane; a typed lead and a conductor are never archived
   by the extension.*
 
 **Invariants kept.** A conductor and its leads read the same ask rubric as any lead, with no carve-out for a merge. No

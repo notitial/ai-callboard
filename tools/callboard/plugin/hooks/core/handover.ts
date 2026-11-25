@@ -37,7 +37,7 @@ export function groupOf(v: View, s: Sid): Group | undefined {
 }
 
 // ---- the counter file: per name, the last number used and the old sessions handed over (the extension archives them) ----
-// `archive`: the session archived itself (`/callboard archive`) and is archived at once, with no undo wait.
+// `archive`: the session is archived at once, with no undo wait: it archived itself (`/callboard archive`), or the plugin dropped its row (a retire, a terminate, an expired row).
 export type Old = { sid: Sid; group: Group; folder: Folder; at: number; archive?: true }
 export type Handovers = { [name: string]: { n: number; old: Old[] } }
 const GROUPS: readonly string[] = ['Manager', 'Conductor', 'Lead', 'Lanes']
@@ -58,11 +58,12 @@ export function nextNumber(h: Handovers, name: string, taken: readonly (string |
   const k = taken.map((t) => (t?.startsWith(`${name}~`) ? Number(t.slice(name.length + 1)) : 0)).filter((n) => Number.isInteger(n))
   return 1 + Math.max(h[name]?.n ?? 0, ...k)
 }
-// The file after one handover of `name` as number `n`; the old sessions of all names stay at most HANDOVERS_MAX, the oldest dropped.
+// The file after one handover of `name` as number `n`; the old sessions of all names stay at most HANDOVERS_MAX, the oldest dropped, and a name with no number used and no session left is dropped too, so
+// the file cannot outgrow the sessions it lists.
 export function recordHandover(h: Handovers, name: string, n: number, old: Old | undefined): Handovers {
   const next: Handovers = { ...h, [name]: { n, old: [...(h[name]?.old ?? []), ...(old === undefined ? [] : [old])] } }
   const all = Object.entries(next).flatMap(([k, e]) => e.old.map((o) => [k, o] as const)).sort((a, b) => b[1].at - a[1].at).slice(0, HANDOVERS_MAX)
-  return Object.fromEntries(Object.entries(next).map(([k, e]) => [k, { n: e.n, old: e.old.filter((o) => all.some(([, a]) => a === o)) }]))
+  return Object.fromEntries(Object.entries(next).map(([k, e]) => [k, { n: e.n, old: e.old.filter((o) => all.some(([, a]) => a === o)) }] as const).filter(([, e]) => e.n > 0 || e.old.length > 0))
 }
 // The file after the rows of `keys` left the table (a retire, a terminate, or a row that expired): each lane, and each lead a conductor made, gets an `archive` entry in its own group, so the
 // panels extension of every window archives it. A key that is no such row (a typed lead, a conductor, a loose or off session, a `new:` row) gets none; `v.table` is the table from before.

@@ -184,6 +184,7 @@ test('a row that expires is recorded for every window to archive, once; a typed 
   f.h.now += 25 * 60 * MIN
   await tick(f)
   assert.equal(JSON.parse(f.h.files.get(`${V2}/sessions.json`)!)['sid-ghost'], undefined)
+  assert.equal(JSON.parse(f.h.files.get(`${V2}/sessions.json`)!)['sid-typed'], undefined, 'the typed lead row expired too')
   const at = f.h.now
   assert.deepEqual(JSON.parse(f.h.files.get(`${V2}/handovers.json`)!), { ghost: { n: 0, old: [{ sid: 'sid-ghost', group: 'Lanes', folder: '/w/kid', at, archive: true }] } })
   f.h.now += 40_000

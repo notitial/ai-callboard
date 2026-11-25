@@ -36,6 +36,7 @@ test('recording keeps the newest old sessions up to the cap; dropping removes on
   assert.equal(d.A.old.length, HANDOVERS_MAX - 1)
   assert.equal(d.A.n, h.A.n)
   assert.deepEqual(recordHandover({}, 'B', 1, undefined), { B: { n: 1, old: [] } })
+  assert.deepEqual(recordHandover({ E: { n: 0, old: [] }, F: { n: 0, old: [{ sid: 'x', group: 'Lanes', folder: '/f', at: 0 }] } }, 'G', 0, undefined), { F: { n: 0, old: [{ sid: 'x', group: 'Lanes', folder: '/f', at: 0 }] } }, 'a name with no number and no session is not kept')
 })
 
 const lanes: Table = {
