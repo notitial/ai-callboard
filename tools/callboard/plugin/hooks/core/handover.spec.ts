@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { HANDOVERS_MAX, dropHandover, groupOf, handOver, historicName, nextNumber, parseHandovers, parseMarker, recordHandover } from './handover.ts'
+import { HANDOVERS_MAX, dropHandover, groupOf, handOver, historicName, nextNumber, parseHandovers, parseMarker, recordHandover, recordRetired } from './handover.ts'
 import type { Marker } from './handover.ts'
 import { liveView } from './model.ts'
 import type { Table } from './model.ts'
@@ -36,6 +36,7 @@ test('recording keeps the newest old sessions up to the cap; dropping removes on
   assert.equal(d.A.old.length, HANDOVERS_MAX - 1)
   assert.equal(d.A.n, h.A.n)
   assert.deepEqual(recordHandover({}, 'B', 1, undefined), { B: { n: 1, old: [] } })
+  assert.deepEqual(recordHandover({ E: { n: 0, old: [] }, F: { n: 0, old: [{ sid: 'x', group: 'Lanes', folder: '/f', at: 0 }] } }, 'G', 0, undefined), { F: { n: 0, old: [{ sid: 'x', group: 'Lanes', folder: '/f', at: 0 }] } }, 'a name with no number and no session is not kept')
 })
 
 const lanes: Table = {
@@ -83,4 +84,22 @@ test('a session\'s group is the one the extension files it in', () => {
   assert.equal(groupOf(v, 'sid-l'), 'Lanes')
   assert.equal(groupOf(v, 'sid-q'), 'Lanes', 'a loose session is recorded under the lanes\' group')
   assert.equal(groupOf(v, 'sid-off'), undefined)
+})
+
+test('rows that left the table are recorded as archive entries for lanes and minted leads only, each in its own group', () => {
+  const t: Table = {
+    L: { name: 'lead', folder: '/w/l', lead: { repos: [] } },
+    A: { name: 'lane', folder: '/w/a', under: 'L' },
+    M: { name: 'minted', folder: '/w/m', under: 'C', lead: { repos: [], minted: true } },
+    C: { name: 'cond', folder: '/w/c', lead: { repos: [], conductor: true } },
+    O: { name: 'off', folder: '/w/o', under: 'L', off: true },
+    X: { name: 'loose', folder: '/w/x' },
+    'new:N': { name: 'N', folder: '/w/n', under: 'L' },
+  }
+  const v = liveView([], t, null)
+  assert.deepEqual(recordRetired({}, v, ['A', 'M', 'L', 'C', 'O', 'X', 'new:N', 'gone'], 5), {
+    lane: { n: 0, old: [{ sid: 'A', group: 'Lanes', folder: '/w/a', at: 5, archive: true }] },
+    minted: { n: 0, old: [{ sid: 'M', group: 'Lead', folder: '/w/m', at: 5, archive: true }] },
+  })
+  assert.equal(recordRetired({ lane: { n: 3, old: [] } }, v, ['A'], 5).lane!.n, 3, 'the number of a name stays')
 })

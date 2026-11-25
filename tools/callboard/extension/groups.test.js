@@ -15,10 +15,10 @@ const row = (n, cwd, extra = {}) => ({ sessionId: S(n), cwd, entrypoint: 'claude
 // `failing` makes the command throw. `leads` and `lanes` are sessions with a table row of that role (a lead with `lead`, a lane `under` S(99)); `table` adds
 // rows as they are. `done` is the stored record; `manager` the manager-name file's line (an Error: a file that cannot be read); `incomplete` marks the registry read as one with doubt in it.
 // `startOf` is `ps`: by default each pid starts when its row says, so a row whose pid answers is its own process.
-// `seen` is the stored record of lanes seen running, `seenLeads` that of conductor-made leads; `archived` records every call of the archive command (group, ids), which `archiveFails` makes throw; it answers the ids it was given, or what `archiveAnswers` says.
-function world({ commands = [COMMAND], rows = [], lanes = [], leads = [], table: extra = {}, folders = [A], done = {}, seen = [], seenLeads = [], manager = null, incomplete = false, failing = false, failOn = 0, failSid, refuse = [], loadError = false, missingTable = false, archiveFails = false, archiveAnswers, unfileAnswer = true, unfileFails = false, handed = null, handedDone = [], alive = () => true, startOf = async (pid) => rows.find((r) => r.pid === pid)?.procStart } = {}) {
+// `archived` records every call of the archive command (group, ids), which `archiveFails` makes throw; it answers the ids it was given, or what `archiveAnswers` says.
+function world({ commands = [COMMAND], rows = [], lanes = [], leads = [], table: extra = {}, folders = [A], done = {}, manager = null, incomplete = false, failing = false, failOn = 0, failSid, refuse = [], loadError = false, missingTable = false, archiveFails = false, archiveAnswers, unfileAnswer = true, unfileFails = false, handed = null, handedDone = [], alive = () => true, startOf = async (pid) => rows.find((r) => r.pid === pid)?.procStart } = {}) {
   const table = { ...Object.fromEntries(lanes.map((l) => [l.sid, { name: 'L', folder: A, under: S(99) }])), ...Object.fromEntries(leads.map((l) => [l.sid, { name: 'D', folder: A, lead: { repos: [] } }])), ...extra }
-  const w = { calls: [], archived: [], unfiled: [], store: { done, seen, seenLeads, handed: handedDone }, keys: new Set(), updates: 0, listed: 0, looked: 0, table }
+  const w = { calls: [], archived: [], unfiled: [], store: { done, handed: handedDone }, keys: new Set(), updates: 0, listed: 0, looked: 0, table }
   const vscode = {
     commands: {
       getCommands: async () => { w.looked++; return commands },
@@ -42,7 +42,7 @@ function world({ commands = [COMMAND], rows = [], lanes = [], leads = [], table:
       },
     },
   }
-  const keys = { 'callboard.groups.done': 'done', 'callboard.groups.seen': 'seen', 'callboard.groups.seenLeads': 'seenLeads', 'callboard.groups.handed': 'handed' }
+  const keys = { 'callboard.groups.done': 'done', 'callboard.groups.handed': 'handed' }
   // The records are keyed by the window's first folder. Another key throws inside the tick, which is silent, so that tick files and stores nothing; `keys` holds the keys used.
   const part = (k) => { const at = k.lastIndexOf(':'); assert.equal(k.slice(at + 1), folders[0] ?? ''); assert.ok(keys[k.slice(0, at)], k); w.keys.add(k); return keys[k.slice(0, at)] }
   const state = { get: (k) => w.store[part(k)], update: async (k, v) => { w.store[part(k)] = v; if (part(k) === 'done') w.updates++ } }
@@ -168,10 +168,10 @@ test('a patched window with several folders serves a session in any of them', as
 })
 
 test('the records are kept under the window\'s first folder, as Claude keeps its groups', async () => {
-  const w = world({ commands: [COMMAND, ARCHIVE], rows: [row(1, A)], lanes: [{ sid: S(1) }], folders: [B, A] })
-  await w.groups.tick()
-  assert.deepEqual([...w.keys].sort(), [`callboard.groups.done:${B}`, `callboard.groups.seen:${B}`, `callboard.groups.seenLeads:${B}`])
-  assert.deepEqual([w.store.done, w.store.seen], [{ [S(1)]: 'Lanes' }, [S(1)]])
+  const w = world({ commands: [COMMAND, ARCHIVE], rows: [row(1, A)], lanes: [{ sid: S(1) }], folders: [B, A], handed: [{ sid: S(2), group: 'Lanes', folder: A, at: 1, archive: true }], archiveAnswers: (ids) => ids })
+  for (let i = 0; i < 3; i++) await w.groups.tick()
+  assert.deepEqual([...w.keys].sort(), [`callboard.groups.done:${B}`, `callboard.groups.handed:${B}`])
+  assert.deepEqual([w.store.done, w.store.handed], [{ [S(1)]: 'Lanes' }, [`${S(2)}@1`]])
 })
 
 test('without the command (an unpatched Claude Code, or one with only `callboard assign group`) nothing is read, called or stored', async () => {
@@ -333,191 +333,28 @@ test('without the unfile command (a patch from before it) a session with no tier
   assert.deepEqual([w.unfiled, w.store.done], [[], {}])
 })
 
-// The archive command, as the patch registers it. A lane is archived only after the extension saw it with a table row and a live process in this window and
-// then saw it with neither, on two ticks in a row.
+// The archive command, as the patch registers it.
 const ARCH = [COMMAND, ARCHIVE]
 const retire = (w, rows, sid) => {
   delete w.table[sid]
   rows.splice(0, rows.length, ...rows.filter((r) => r.sessionId !== sid))
 }
 
-test('a lane seen running and then retired (no row, no process) is archived on the second tick, once, and forgotten', async () => {
-  const rows = [row(1, A), row(2, A)]
-  const w = world({ commands: ARCH, rows, lanes: [{ sid: S(1) }, { sid: S(2) }] })
-  await w.groups.tick()
-  assert.deepEqual([w.archived, w.store.seen], [[], [S(1), S(2)]], 'seen, nothing retired')
-  retire(w, rows, S(1))
-  await w.groups.tick()
-  assert.deepEqual(w.archived, [], 'gone on one tick only')
-  await w.groups.tick()
-  assert.deepEqual([w.archived, w.store.seen], [[['Lanes', [S(1)]]], [S(2)]], 'only the retired lane, only the Lanes group')
-  await w.groups.tick()
-  assert.equal(w.archived.length, 1, 'named once')
-})
-
-test('a lane retired before the extension saw it is never archived, however long it stays in the Lanes group', async () => {
-  const w = world({ commands: ARCH, rows: [row(2, A)], lanes: [{ sid: S(2) }], done: { [S(1)]: 'Lanes', [S(2)]: 'Lanes' } })
-  for (let i = 0; i < 4; i++) await w.groups.tick()
-  assert.deepEqual([w.archived, w.store.seen], [[], [S(2)]], 'S(1) has a filed record but was never seen with a row and a process')
-})
-
-test('a parked lane, a live lane, a lane with an off row, a lead and the manager are never archived', async () => {
-  const rows = [row(1, A), row(2, A), row(3, A), boss(4)]
-  const w = world({ commands: ARCH, rows, lanes: [{ sid: S(1) }, { sid: S(2) }, { sid: S(3) }], manager: 'BOSS', seen: [S(4)] })
-  await w.groups.tick()
-  assert.deepEqual(w.store.seen.sort(), [S(1), S(2), S(3), S(4)].sort(), 'the three lanes are seen; the manager was stored as if it were')
-  w.table[S(1)].parked = Date.now()
-  delete w.table[S(2)]
-  w.table[S(3)].off = true
-  rows.splice(0, rows.length, ...rows.filter((r) => r.sessionId !== S(1) && r.sessionId !== S(3)))
-  for (let i = 0; i < 4; i++) await w.groups.tick()
-  assert.deepEqual(w.archived, [], 'S(1) parked (row, no process), S(2) running with no row (process), S(3) off (row), the manager (process)')
-})
-
-test('a lane that comes back before the second tick is not archived, and needs two fresh ticks to go', async () => {
-  const rows = [row(1, A)]
-  const w = world({ commands: ARCH, rows, lanes: [{ sid: S(1) }] })
-  await w.groups.tick()
-  retire(w, rows, S(1))
-  await w.groups.tick()
-  w.table[S(1)] = { name: 'L', folder: A, under: S(99) }
-  await w.groups.tick()
-  delete w.table[S(1)]
-  await w.groups.tick()
-  assert.deepEqual(w.archived, [], 'back on the second tick: the count starts again')
-  await w.groups.tick()
-  assert.deepEqual(w.archived, [['Lanes', [S(1)]]])
-})
-
-test('a tick with doubt in its reads names no one: unreadable table, incomplete registry, a manager that cannot be told', async () => {
-  for (const doubt of [{ loadError: true }, { incomplete: true }, { manager: 'BOSS', startOf: async () => undefined, rows: [boss(5)] }]) {
-    const rows = doubt.rows ?? []
-    const w = world({ commands: ARCH, ...doubt, rows, seen: [S(1)] })
-    for (let i = 0; i < 3; i++) await w.groups.tick()
-    assert.deepEqual([w.archived, w.store.seen], [[], [S(1)]], JSON.stringify(Object.keys(doubt)))
-  }
-})
-
-test('a lane running outside this window is not seen, so it is never archived from here', async () => {
-  const rows = [row(1, B)]
-  const w = world({ commands: ARCH, rows, lanes: [{ sid: S(1) }] })
-  await w.groups.tick()
-  retire(w, rows, S(1))
-  for (let i = 0; i < 3; i++) await w.groups.tick()
-  assert.deepEqual([w.archived, w.store.seen], [[], []])
-})
-
-test('a dead process is gone: a lane whose row stays is kept, one whose row went too is archived', async () => {
-  let up = true
-  const rows = [row(1, A, { pid: 11 }), row(2, A, { pid: 12 })]
-  const w = world({ commands: ARCH, rows, lanes: [{ sid: S(1) }, { sid: S(2) }], alive: () => up, startOf: async () => undefined })
-  await w.groups.tick()
-  up = false
-  delete w.table[S(2)]
-  for (let i = 0; i < 3; i++) await w.groups.tick()
-  assert.deepEqual(w.archived, [['Lanes', [S(2)]]], 'S(1) is parked or closed (row), S(2) has no row and no process')
-})
-
-test('a failing archive command keeps the lane remembered and names it again; a command that is missing does nothing and stores nothing', async () => {
-  const rows = [row(1, A)]
-  const w = world({ commands: ARCH, rows, lanes: [{ sid: S(1) }], archiveFails: true })
-  await w.groups.tick()
-  retire(w, rows, S(1))
-  for (let i = 0; i < 3; i++) await assert.doesNotReject(w.groups.tick())
-  assert.deepEqual([w.archived, w.store.seen], [[], [S(1)]])
-  const none = world({ rows: [row(1, A)], lanes: [{ sid: S(1) }] })
-  await none.groups.tick()
-  assert.deepEqual([none.archived, none.store.seen], [[], []], 'the file command alone: lanes are not even noted')
-})
-
-test('a stored record that is not a list is no record', async () => {
-  const w = world({ commands: ARCH, rows: [row(1, A)], lanes: [{ sid: S(1) }], seen: { [S(9)]: 1 } })
-  await w.groups.tick()
-  assert.deepEqual(w.store.seen, [S(1)])
-})
-
-const LEADS = () => ({ [S(1)]: { name: 'D', folder: A, lead: { repos: [] } }, [S(2)]: { name: 'M', folder: A, lead: { repos: [], minted: true }, under: S(3) }, [S(3)]: { name: 'C', folder: A, lead: { repos: [], conductor: true } } })
-
-test('a lead a conductor made, seen running and then retired, is archived from the Lead group; a lead the person typed and a conductor never are', async () => {
-  const rows = [row(1, A), row(2, A), row(3, A)]
-  const w = world({ commands: ARCH, rows, table: LEADS() })
-  await w.groups.tick()
-  assert.deepEqual([w.store.seen, w.store.seenLeads], [[], [S(2)]], 'only the conductor-made lead is remembered')
-  for (const sid of [S(1), S(2), S(3)]) retire(w, rows, sid)
-  for (let i = 0; i < 4; i++) await w.groups.tick()
-  assert.deepEqual([w.archived, w.store.seenLeads], [[['Lead', [S(2)]]], []])
-})
-
-test('a conductor-made lead that is closed or parked stays listed while its row stays and is archived when the plugin drops the row, as a lane is', async () => {
-  for (const mark of ['goneAt', 'parked']) {
-    const rows = [row(2, A), row(3, A)]
-    const w = world({ commands: ARCH, rows, table: LEADS() })
-    await w.groups.tick()
-    assert.deepEqual(w.store.seenLeads, [S(2)])
-    // Closed: the process is gone and the row stays, first unmarked, then marked by the plugin.
-    rows.splice(0, 1)
-    w.table[S(2)][mark] = 1
-    for (let i = 0; i < 4; i++) await w.groups.tick()
-    assert.deepEqual([w.archived, w.store.seenLeads], [[], [S(2)]], `${mark}: listed while the row stays`)
-    delete w.table[S(2)]
-    for (let i = 0; i < 4; i++) await w.groups.tick()
-    assert.deepEqual([w.archived, w.store.seenLeads], [[['Lead', [S(2)]]], []], mark)
-  }
-})
-
-test('a conductor-made lead already closed or parked when its window first ticks is archived when its row is dropped; one of another folder, or not yet opened, is not', async () => {
-  const closed = (extra) => ({ name: 'M', folder: A, lead: { repos: [], minted: true }, under: S(3), ...extra })
-  for (const mark of [{ goneAt: 1 }, { parked: 1 }]) {
-    const w = world({ commands: ARCH, rows: [row(3, A)], table: { ...LEADS(), [S(2)]: closed(mark), [S(4)]: closed({ ...mark, folder: B }), 'new:N': closed(mark), [S(5)]: closed({ ...mark, lead: { repos: [] } }) } })
-    await w.groups.tick()
-    assert.deepEqual(w.store.seenLeads, [S(2)], 'only a minted lead of this window, with a session id')
-    for (const sid of [S(2), S(4), 'new:N', S(5)]) delete w.table[sid]
-    for (let i = 0; i < 4; i++) await w.groups.tick()
-    assert.deepEqual(w.archived, [['Lead', [S(2)]]])
-  }
-})
-
-test('a retired session is filed in its group before it is archived, and is forgotten only when the archive command names it or the file command refuses it', async () => {
-  const rows = [row(1, A), row(2, A)]
-  const w = world({ commands: ARCH, rows, lanes: [{ sid: S(1) }, { sid: S(2) }], done: { [S(1)]: 'Lanes', [S(2)]: 'Lanes' }, archiveAnswers: () => [] })
-  await w.groups.tick()
-  assert.deepEqual(w.calls, [], 'both were filed before')
-  retire(w, rows, S(1))
-  for (let i = 0; i < 3; i++) await w.groups.tick()
-  assert.deepEqual(w.calls, [[S(1), 'Lanes'], [S(1), 'Lanes']], 'filed again on each tick that names it')
-  assert.deepEqual([w.archived, w.store.seen], [[['Lanes', [S(1)]], ['Lanes', [S(1)]]], [S(1), S(2)]], 'not named as archived: remembered and tried again')
-  // The file command refuses it (archived by hand, or the list limits): it cannot be archived, so it is forgotten and the archive command is not called for it.
-  const xrows = [row(1, A)]
-  const x = world({ commands: ARCH, rows: xrows, lanes: [{ sid: S(1) }], done: { [S(1)]: 'Lanes' }, refuse: [S(1)] })
-  await x.groups.tick()
-  assert.deepEqual(x.store.seen, [S(1)])
-  retire(x, xrows, S(1))
-  for (let i = 0; i < 3; i++) await x.groups.tick()
-  assert.deepEqual([x.calls, x.archived, x.store.seen], [[[S(1), 'Lanes']], [], []])
-})
-
 test('a missing table (a fresh install) still files the manager but archives nothing', async () => {
-  const w = world({ commands: ARCH, rows: [boss(1)], manager: 'BOSS', seen: [S(2)], missingTable: true })
+  const w = world({ commands: ARCH, rows: [boss(1)], manager: 'BOSS', handed: [{ sid: S(2), group: 'Lanes', folder: A, at: 1, archive: true }], missingTable: true })
   for (let i = 0; i < 3; i++) await w.groups.tick()
   assert.deepEqual([w.calls, w.archived], [[[S(1), 'Manager']], []])
 })
 
-test('a tick that stops early between two clean ticks restarts the count: gone, doubt, gone does not archive', async () => {
-  const rows = [row(1, A)]
-  const w = world({ commands: ARCH, rows, lanes: [{ sid: S(1) }] })
-  await w.groups.tick()
-  retire(w, rows, S(1))
-  await w.groups.tick()
-  w.doubt = true
-  await w.groups.tick()
-  w.doubt = false
-  await w.groups.tick()
-  assert.deepEqual(w.archived, [])
-  await w.groups.tick()
-  assert.deepEqual(w.archived, [['Lanes', [S(1)]]])
+test('a lane retired in another window is archived here from its entry, though this window never saw it; two windows each archive it once', async () => {
+  const handed = [{ sid: S(1), group: 'Lanes', folder: A, at: 7, archive: true }]
+  for (const w of [world({ commands: ARCH, handed, archiveAnswers: (ids) => ids }), world({ commands: ARCH, handed, archiveAnswers: (ids) => ids })]) {
+    for (let i = 0; i < 4; i++) await w.groups.tick()
+    assert.deepEqual([w.calls, w.archived, w.store.handed], [[[S(1), 'Lanes']], [['Lanes', [S(1)]]], [`${S(1)}@7`]])
+  }
 })
 
-test('readSessionTable: the table as an object, null for a missing file; an unparsable or non-object file throws, so a tick waits and never reads lanes as retired', async () => {
+test('readSessionTable: the table as an object, null for a missing file; an unparsable or non-object file throws, so a tick waits and never reads a lane as gone', async () => {
   const d = fs.mkdtempSync(path.join(os.tmpdir(), 'groups-'))
   try {
     fs.writeFileSync(path.join(d, 'ok'), '{"a":{}}')

@@ -16,7 +16,7 @@ import { laneRows } from './commands.ts'
 import { sendCue, spool, spoolSend } from './cue.ts'
 import { log, pause, personDialog, plainPath, run, windowNow, writeFile } from './io.ts'
 import { setRemote } from './remote.ts'
-import { getView, updateTable } from './store.ts'
+import { getView, recordGone, updateTable } from './store.ts'
 import { signedNow } from './upkeep.ts'
 import { deny, isSub, say } from './tools-any.ts'
 
@@ -107,7 +107,10 @@ export async function stopVerbCall($: any, e: any, _next: any, verb: StopVerb) {
     return deny(refusal('refuse', 'signal-failed', { tool, target: name }))
   }
   if (reg !== undefined) await spoolSend($, { op: 'close', sid: key, pid: reg.pid, name, folder: reg.folder })
-  if (outcome === 'done' && verb !== 'park' && !(await dropRow($, key))) return deny(refusal('refuse', 'table-unwritten', { tool, target: name }))
+  if (outcome === 'done' && verb !== 'park') {
+    if (!(await dropRow($, key))) return deny(refusal('refuse', 'table-unwritten', { tool, target: name }))
+    await recordGone($, v, [key])
+  }
   return { result: say({ msg: 'lane.stopped', p: { verb, name, outcome, ...(reg === undefined ? {} : { pid: reg.pid }) } }) }
 }
 

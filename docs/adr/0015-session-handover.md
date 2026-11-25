@@ -74,7 +74,7 @@ reason `clear` or `resume`. This also fixes the carry-over after a typed `/clear
 **The old conversation is archived.** The panels extension reads `handovers.json` beside the table: an old id in this
 window's folders with no table row and no live process, on two clean ticks and no sooner than two minutes after the handover began, is filed in its group through `callboard file
 session` and archived through `callboard archive sessions`, whatever the group, and remembered so it is archived once. A
-retired lane or minted lead is archived the same way already. A loose session is renamed `NAME~N` and, since 2026-11-23, archived under the stand-in group (see the amendment below).
+retired or terminated lane or minted lead, and a row that expired, is recorded in the same file, marked `archive`, when the plugin drops its row, and archived the same way in every window. A loose session is renamed `NAME~N` and, since 2026-11-23, archived under the stand-in group (see the amendment below).
 
 *Amended 2026-11-23 (`/callboard archive`).* The same record and the same archive path serve a session that ends itself. The
 person types `/callboard archive` in its panel (typed only, like `handover`). It is refused when the session is off or has any
