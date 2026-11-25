@@ -209,15 +209,15 @@ EXT_DIR="$(ls -d "$HOME"/.vscode/extensions/anthropic.claude-code-* | sort -V | 
   tier changes; one you move by hand stays moved until then. An install with the older `callboard assign group` reads
   `outdated`, and grouping waits until `--update`.
 - The archive command is another piece (the marker's `archive` field): `callboard archive sessions` archives the sessions it is
-  given that sit in the group it is given, as the sidebar's Archive item does. The panels extension names a lane in Lanes
-  only after it saw the lane running and then saw it with no table row and no process, on two clean ticks. So a lane the
-  extension never saw running, a parked lane while its row stays, a live lane, a lead you typed, a conductor and the
-  manager are never archived. A lead a conductor made is archived the same way when it is retired; one that is closed
-  or parked stays listed until its row goes.
-  The plugin drops a row on a retire, 24 hours after a session closed without one (a conductor's row after 7 days) and
-  7 days after a park, so a lane or a conductor-made lead in either of the last two cases is archived once its row goes;
-  so is the old conversation of a lane whose session id changed (`/clear`). A row marked `off` is kept. Unarchive in
-  the sidebar brings any of them back.
+  given that sit in the group it is given, as the sidebar's Archive item does. The plugin records each lane and each lead a
+  conductor made in `handovers.json` when its row is dropped (a retire, a terminate, or an expired row), and the panels
+  extension of every window, in every VS Code instance, archives it from there once it has no table row and no process,
+  on two clean ticks. The plugin drops a row on a retire, 24 hours after a session closed without one (a conductor's row
+  after 7 days) and 7 days after a park, so a lane or a conductor-made lead in either of the last two cases is archived
+  once its row goes; so is the old conversation of a lane whose session id changed (`/clear`). A parked lane while its row
+  stays, a live lane, a lead you typed, a conductor and the manager are never archived; a row marked `off` is kept. The
+  record holds the newest 32 sessions, so a window closed while more than 32 were retired or handed over misses the oldest.
+  A lane retired before this record existed is archived by hand. Unarchive in the sidebar brings any of them back.
   A session that ends itself with `/callboard archive` (typed in its panel) is archived the same way, with no wait for an
   undo: it is refused while any session is under it, live or parked, and in a session callboard is off for. A session
   with no tier is recorded under Lanes as a stand-in, so an empty Lanes group may appear in a window that had none, and a

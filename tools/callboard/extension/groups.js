@@ -9,18 +9,15 @@
 // filed in is kept where Claude keeps the groups themselves, in the extension's global state under the window's first folder, so the record and the groups
 // belong to the same account and window: a session is filed again only when its tier's group differs from that one, so a session the person moves by hand stays
 // moved until its tier changes. The command answers false for a session it refused (an archived one, or the list limits): that one is tried again.
-// A lane that is retired is archived, through the patch's `callboard archive sessions`, so the sidebar keeps only the lanes that run or sit parked. Retired is read,
-// not stored: the lane had a table row and a live process in this window, and now has neither. Only such a lane is ever named, so a lane retired before the
-// extension saw it, a parked lane (its row stays), a live one (its process stays) and the manager are never archived. The lane must be gone on two clean
-// ticks in a row, and a tick whose reads are in doubt names no one. The plugin drops a row on a retire, 24 hours after a lane died without one, and 7 days after
-// a park, so a lane in the last two cases is archived once its row is dropped: it is no longer parked or reachable by then.
-// A lead a conductor made is archived the same way: when it is retired, or when its row is dropped after it closed or was parked. A closed or parked row in this window's
-// folder is enough to remember it, so a lead closed while no window on its folder ran is archived too. A lead the person typed and a conductor are never archived. A retired session is filed in its tier's group before it is archived,
-// since the archive command takes only a session that sits there.
-// A session that handed itself over to a clear one (`/callboard handover`) is archived the same way whatever its tier (the typed lead, a conductor and the manager too): the plugin's
-// `handovers.json` names each old session with its group and folder (a session archived, brought back with Unarchive and archived again is two entries). A session that archives itself (`/callboard archive`) is recorded there too, marked `archive`, and is
-// archived without the undo wait. The entries archived are kept, so an entry is never archived twice. A session the archive command names as archived is also taken
-// out of the record of the sessions filed, so when it is brought back with Unarchive and resumed it is filed again.
+// A session that is gone is archived, through the patch's `callboard archive sessions`, so the sidebar keeps only the sessions that run or sit parked. The plugin's
+// `handovers.json` (the plugin's state folder, shared by every window and every VS Code instance) names each one with its group and folder: the old session of a handover
+// (`/callboard handover`, whatever its tier: the typed lead, a conductor and the manager too), a session that archived itself (`/callboard archive`, marked `archive`, archived
+// without the undo wait a handover has), and a lane or a conductor-made lead whose row the plugin dropped (a retire, a terminate, or the row expired: 24 hours after a lane died
+// without a retire, 7 days after a park). A typed lead and a conductor are never recorded for a drop. A session is archived in the window whose folders hold its folder once it has no
+// table row and no live process on two clean ticks, and a tick whose reads are in doubt names no one. It is filed in its group first, since the archive command takes only a session
+// that sits there. Each entry is its own record (a session archived, brought back with Unarchive and archived again is two entries), kept per window and instance, so an entry is never
+// archived twice there. A session the archive command names as archived is also taken out of the record of the sessions filed, so when it is brought back with Unarchive and resumed
+// it is filed again.
 // A session that still has a table row but no tier (`lead off` on a typed lead, or `off`) is taken out of the group it was filed in, through the patch's `callboard unfile session`,
 // and only out of that one, so a session the person moved by hand stays where it is. The record keeps it until the command answers true. `/callboard on` or `lead` files it again.
 const fs = require('node:fs')
@@ -29,7 +26,6 @@ const { procStateWith } = require('./proc.js')
 
 const COMMAND = 'callboard file session'
 const DONE_KEY = 'callboard.groups.done'
-const SEEN_KEY = 'callboard.groups.seen'
 const HANDED_KEY = 'callboard.groups.handed'
 const ARCHIVE = 'callboard archive sessions'
 const UNFILE = 'callboard unfile session'
@@ -39,8 +35,6 @@ const TICK_MS = 10000
 // A handover can still be undone for this long after it started (the plugin's own marker window).
 const UNDO_MS = 120000
 const ORDER = ['Manager', 'Conductor', 'Lead', 'Lanes']
-// The groups a retired session is archived from, each with the record of its sessions seen running.
-const SEEN_KEYS = { Lanes: SEEN_KEY, Lead: 'callboard.groups.seenLeads' }
 
 // The manager-name file's first line, or null for a missing or empty file. A file that is there but cannot be read throws, so the tick waits for a clean read
 // instead of filing the manager as nobody, as the plugin's `unknown` does.
@@ -68,7 +62,7 @@ async function managerOf(rows, table, name, state) {
 }
 
 // The session table as the plugin wrote it: an object keyed by session id; null for a missing file (the plugin's empty table, which files the manager but
-// proves no lane retired). A file that does not parse throws, so the tick waits for a clean read instead of reading every lane as retired.
+// archives nothing). A file that does not parse throws, so the tick waits for a clean read instead of reading every session as gone.
 async function readSessionTable(file) {
   return readObject(file, 'session table')
 }
@@ -116,7 +110,7 @@ function createGroups({ vscode, registry, state, loadTable, loadHandovers = asyn
   async function tick() {
     if (busy) return
     busy = true
-    // A tick that stops early (doubt in a read, an error) leaves no lane pending: a lane must be gone on two clean ticks in a row.
+    // A tick that stops early (doubt in a read, an error) leaves no session pending: a session must be gone on two clean ticks in a row.
     const prior = pending
     pending = new Set()
     try {
@@ -166,7 +160,6 @@ function createGroups({ vscode, registry, state, loadTable, loadHandovers = asyn
       // runs, so while no manager runs its entry is kept: a manager closed and resumed is not filed again.
       const keep = Object.fromEntries(Object.entries(filed).filter(([sid, group]) => want.has(sid) || leaving.has(sid) || (!managed && group === 'Manager')))
       if (JSON.stringify(keep) !== JSON.stringify(was)) await state.update(keyOf(DONE_KEY), keep)
-      if (canArchive && loaded) await archiveRetired({ want, table, rows, prior })
       if (canArchive && loaded) await archiveHanded({ table, rows, prior })
     } catch {
       // Grouping is a convenience: an unreadable table or registry is tried again at the next tick, silently.
@@ -175,44 +168,7 @@ function createGroups({ vscode, registry, state, loadTable, loadHandovers = asyn
     }
   }
 
-  // The lanes and the conductor-made leads this window has seen run (a table row and a live process in the window) are remembered, each group in its own list;
-  // one that has neither now is retired, and goes after a second tick that finds it so. Only a session remembered is ever named, and one kept by any table row or
-  // live process (the manager has one) is not. A conductor-made lead whose row shows it closed (`goneAt`) or parked in this window's folder is remembered too, so it
-  // is archived when the plugin drops that row, as a lane is; until then it stays listed for the person to reopen.
-  async function archiveRetired({ want, table, rows, prior }) {
-    const here = (sid) => Object.hasOwn(table, sid) || rows.some((r) => r.sessionId === sid)
-    const next = new Set()
-    for (const [group, key] of Object.entries(SEEN_KEYS)) {
-      const stored = state.get(keyOf(key), [])
-      const seen = new Set(Array.isArray(stored) ? stored.filter((sid) => typeof sid === 'string') : [])
-      const was = JSON.stringify([...seen])
-      for (const [sid, g] of want) {
-        if (g !== group) continue
-        const row = table[sid]
-        if (group === 'Lead' && row.lead.minted !== true) seen.delete(sid)
-        else if (rows.some((r) => r.sessionId === sid && inWindow(r.cwd)) || (group === 'Lead' && (row.goneAt !== undefined || row.parked !== undefined) && !sid.startsWith('new:') && inWindow(row.folder))) seen.add(sid)
-      }
-      const gone = [...seen].filter((sid) => !here(sid))
-      for (const sid of gone) next.add(sid)
-      const due = gone.filter((sid) => prior.has(sid))
-      if (due.length) {
-        try {
-          // The archive command takes only a session that sits in the group, so each is filed there first. One the file command refuses (archived already, or
-          // the list limits) cannot be archived and is forgotten; any other stays remembered until the archive command names it as done.
-          for (const sid of due) if ((await vscode.commands.executeCommand(COMMAND, sid, group, ORDER)) === false) seen.delete(sid)
-          const filed = due.filter((sid) => seen.has(sid))
-          const done = filed.length ? await vscode.commands.executeCommand(ARCHIVE, group, filed) : []
-          for (const sid of Array.isArray(done) ? done : []) seen.delete(sid)
-        } catch {
-          // A command failed: the sessions stay remembered and are named again at the next tick.
-        }
-      }
-      if (JSON.stringify([...seen]) !== was) await state.update(keyOf(key), [...seen])
-    }
-    pending = next
-  }
-
-  // The old sessions of a handover or an archive in this window with neither a table row nor a live process, gone on two clean ticks (a handover also past its undo wait), are filed in their group and archived. One the file
+  // The old sessions of a handover, an archive or a dropped row in this window with neither a table row nor a live process, gone on two clean ticks (a handover also past its undo wait), are filed in their group and archived. One the file
   // command refuses is forgotten, as is one the archive command names; any other is named again at the next tick. The record keeps only ids the handover file still lists.
   async function archiveHanded({ table, rows, prior }) {
     const olds = await loadHandovers()
