@@ -47,3 +47,4 @@ repo's.
 | 0014 | A Run button runs a chat code block on the person's click (`0014-run-button.md`) | accepted, amended | 2026-11-21 |
 | 0015 | A session hands itself over to a clear one (`0015-session-handover.md`) | proposed; amends 0012 and 0013 | 2026-11-22 |
 | 0016 | A weekly release reminder and an agent-run update (`0016-release-update-reminder.md`) | proposed; amends 0003 | 2026-11-23 |
+| 0017 | Every piece of the Claude Code patch goes in on its own (`0017-patch-pieces-on-their-own.md`) | proposed | 2026-11-25 |

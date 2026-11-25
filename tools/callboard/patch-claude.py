@@ -552,7 +552,7 @@ def patched(raw, web):
     for field, _, needs, parts in PIECES:
         edits, tokens, adds = parts()
         new = dict(have)
-        why = next(("it needs the %s" % names[n] for n in needs if left.get(n) is not None), None)
+        why = next(("it needs the %s" % names[n] for n in needs if left[n] is not None), None)
         for file, label, pat, rep in edits:
             if why is None:
                 new[file], n = re.subn(pat, rep, new[file])
@@ -601,7 +601,9 @@ def stale(ext, raw, m):
     if web_foreign(ext, m, web):
         return WEB_FOREIGN
     if digest(new) == digest(raw) and (web[1] if new_js is None else new_js) == shipped(ext, WEB):
-        return None
+        # The same bytes, but a marker that does not record what went in: one from a script that had no field for the folder patch or the pie tooltip.
+        off = [name for field, name, _, _ in PIECES if m.get(field) is not (left[field] is None)]
+        return "the marker does not record the %s" % ", the ".join(off) if off else None
     for field, name, _, _ in PIECES:
         if left[field] is None and m.get(field) is not True:
             return "the %s is not in" % name

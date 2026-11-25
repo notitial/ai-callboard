@@ -975,6 +975,20 @@ class Update(Case):
         self.assertUnchanged(self.ext, "--update")
         self.assertEqual((self.rc, self.out), (0, "already patched 2.1.328\n"))
 
+    def test_a_marker_without_the_folder_patch_and_tooltip_fields_reads_outdated_and_update_only_adds_them(self):
+        """The script before each piece applied on its own built the same bytes and recorded neither field; no false warning, and --update rewrites the marker only."""
+        self.run_script(self.ext, "--apply")
+        path = os.path.join(self.ext, "callboard-cwd-patch.json")
+        old = {k: v for k, v in self.marker().items() if k not in ("cwd", "pietip")}
+        with open(path, "w") as f:
+            json.dump(old, f)
+        js, web = self.js(), slurp(os.path.join(self.ext, "webview", "index.js"))
+        self.reads_outdated_then_updates(self.ext, "the marker does not record the folder patch, the pie tooltip")
+        self.assertNotIn("warning", self.out)
+        self.assertEqual((self.js(), slurp(os.path.join(self.ext, "webview", "index.js"))), (js, web))
+        self.assertEqual(self.marker(), dict(old, cwd=True, pietip=True))
+        self.reads_patched(self.ext)
+
     def test_an_install_made_by_an_older_script_reads_outdated_and_apply_refuses_it(self):
         for name, attrs, why in (
             ("code", dict(WIDTH_CSS='[class*="x_"]{margin:0!important}'), "the patch code differs from this script's"),
@@ -2359,19 +2373,26 @@ instanceof let new of return set static super switch this throw try typeof var v
 
 
 def one_byte_breaks(mod, raw, web):
-    """For each edit of each piece, a one-byte change of the shipped files inside the bytes that edit matches: (field, label, broken extension.js, broken
-    webview script, the fields that must be left out). Those are the piece, the pieces whose edit has the same anchor, and every piece that needs one of
+    """For each anchor of each piece, once, a one-byte change of the shipped files inside the bytes that anchor matches: (the pieces with that anchor, label,
+    broken extension.js, broken webview script, the fields that must be left out). Those are the pieces with the anchor and every piece that needs one of
     them. Letters flip case (not in a keyword) and a `;` goes in after a `}`; the first change that leaves out exactly those fields and still parses is used.
-    A piece with no such break fails: it cannot be left out on its own."""
+    An anchor with no such break fails: its pieces cannot be left out on their own."""
     pieces, stock = mod.PIECES, {"ext": raw, "web": web[1]}
     needs = {f: set(n) for f, _, n, _ in pieces}
     edits = {f: parts()[0] for f, _, _, parts in pieces}
+    # The bytes each piece's anchors match in the shipped files: a change there leaves that piece out too.
+    spans = {f: [(fl, range(o.start(), o.end())) for fl, _, pat, _ in edits[f] for o in [re.search(pat, stock[fl])] if o] for f in edits}
+    done = set()
     for i, (field, _, _, _) in enumerate(pieces):
         mod.PIECES = pieces[:i]
         new, _, new_js = mod.patched(raw, web)
         mod.PIECES = pieces
         seen = {"ext": new, "web": web[1] if new_js is None else new_js}
         for file, label, pat, rep in edits[field]:
+            if pat in done:
+                seen[file] = re.sub(pat, rep, seen[file])
+                continue
+            done.add(pat)
             m = re.search(pat, seen[file])
             if len(re.findall(pat, stock[file])) == 1:
                 start = re.search(pat, stock[file]).start()
@@ -2379,16 +2400,20 @@ def one_byte_breaks(mod, raw, web):
                 start = next(stock[file].index(pre) + len(pre) for pre in (seen[file][max(0, m.start() - k):m.start()] for k in (8, 16, 32, 64, 128, 256, 512))
                              if stock[file].count(pre) == 1)
             shift = m.start() - start
-            want = {f for f in edits if any(e[2] == pat for e in edits[f])}
+            owners = {f for f in edits if any(e[2] == pat for e in edits[f])}
+            want = set(owners)
             while True:
                 more = {f for f in needs if f not in want and needs[f] & want}
                 if not more:
                     break
                 want |= more
             found = None
+            others = [r for f in spans if f not in want for fl, r in spans[f] if fl == file]
             # The match and the bytes around it that a lookbehind or a lookahead reads (the add-dir option is one name, its context a lookahead).
             for p in range(start, start + len(m.group(0)) + 200):
-                c, word = stock[file][p:p + 1], re.search(rb"[\w$]*\Z", stock[file][:p + 1]).group(0) + re.match(rb"[\w$]*", stock[file][p + 1:]).group(0)
+                if any(p in r for r in others):
+                    continue
+                c, word = stock[file][p:p + 1], re.search(rb"[\w$]*\Z", stock[file][max(0, p - 64):p + 1]).group(0) + re.match(rb"[\w$]*", stock[file][p + 1:p + 65]).group(0)
                 for change in ([b";"] if c == b"}" else []) + ([c.swapcase()] if c.isalpha() and word not in KEYWORDS else []):
                     broken = stock[file][:p] + (c + change if change == b";" else change) + stock[file][p + 1:]
                     text = seen[file][:p + shift] + (c + change if change == b";" else change) + seen[file][p + shift + 1:]
@@ -2397,7 +2422,7 @@ def one_byte_breaks(mod, raw, web):
                     b = dict(stock, **{file: broken})
                     left = mod.patched(b["ext"], (web[0], b["web"]))[1]
                     if {f for f, why in left.items() if why} == want and parses(b[file]):
-                        found = (field, label, b["ext"], b["web"], want)
+                        found = (owners, label, b["ext"], b["web"], want)
                         break
                 if found:
                     break
@@ -2420,8 +2445,8 @@ class EachPiece(Case):
     def breaks_on_their_own(self, raw, web, pkg):
         mod = load_module()
         seen = []
-        for field, label, broken, broken_js, want in one_byte_breaks(mod, raw, web):
-            seen.append(field)
+        for owners, label, broken, broken_js, want in one_byte_breaks(mod, raw, web):
+            seen += owners
             ext = os.path.join(self.t, "b%d" % len(os.listdir(self.t)))
             os.makedirs(os.path.join(ext, "webview"))
             for path, data in (("extension.js", broken), ("webview/index.js", broken_js), ("webview/index.css", web[0]), ("package.json", json.dumps(pkg).encode())):

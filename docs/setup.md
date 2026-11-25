@@ -22,8 +22,8 @@ working tree or the checkout's git store. Callboard (step 1) and the rule link (
 - macOS.
 - Network access, for the usage watcher's installer (see above): its dry run fetches too.
 - VS Code 1.90 or later with the Claude Code extension (`anthropic.claude-code`) installed: the panels extension
-  depends on it. The patch of that extension is made for the versions named under
-  [The Claude Code extension patch](#the-claude-code-extension-patch); its check says whether yours fits.
+  depends on it. The check of [The Claude Code extension patch](#the-claude-code-extension-patch) says whether your
+  version fits.
 - [ai-toolkit](https://github.com/notitial/ai-toolkit) installed as the base (`/setup-toolkit`). Its status line
   writes the meter the usage watcher reads.
 - node 22.18 or later, the `claude` CLI, `/usr/bin/python3` 3.9 or later (from the Command Line Tools) and `jq`.
@@ -134,8 +134,11 @@ EXT_DIR="$(ls -d "$HOME"/.vscode/extensions/anthropic.claude-code-* | sort -V | 
 
 - The check prints `patched`, `outdated`, `unpatched-patchable`, `anchors-missing` or `leftovers` (a backup or marker
   from an earlier run that does not match the file: run `--undo`) and the extension's version, and changes
-  nothing. `--apply` changes `extension.js` only when every one of its four anchors matches exactly once; otherwise it
-  changes nothing and names the anchor that is missing. It keeps the original as `extension.js.callboard-orig` and writes
+  nothing. Each piece below, the folder patch included (the marker's `cwd` field), goes in on its own: when one of its
+  anchors does not match exactly once, or the code it calls is not there, the check and `--apply` print a warning line
+  naming the piece, leave it out with the pieces that need it (the restore fix needs the folder patch, the pie's hover
+  text the pie), and apply the rest. Only when no piece fits is `anchors-missing` printed, and nothing is changed. The decision
+  is [ADR 0017](adr/0017-patch-pieces-on-their-own.md). `--apply` keeps the original as `extension.js.callboard-orig` and writes
   `callboard-cwd-patch.json` (the marker the panels extension reads), both in the extension's folder. A second run says
   `already patched`.
 - The same patch adds a style block to the page Claude Code builds for its panels, optional on its own: the panel width
@@ -153,8 +156,9 @@ EXT_DIR="$(ls -d "$HOME"/.vscode/extensions/anthropic.claude-code-* | sort -V | 
   a changed value): full where Claude Code compacts. With no such setting it uses the model's window, as the stock pie does.
   The ring is 18px with 2px around it (the footer's own stylesheet sizes it to 26px, so the piece's style block sets the size too), and its arc is coloured by the tokens used: green below 200k, blue from 200k, amber from 300k, red from 400k (the theme's chart colours; fixed amounts, whatever your `autoCompactWindow`). Its hover text is a bold "Context" over `used / limit used · percent` in k (`126k / 200k used · 63%`, the limit being where the ring is full: your `autoCompactWindow` less about 33k); a click
   still compacts. It also edits `webview/index.js`, as the folder pill below does, in three places that must each match once (the check
-  names the one that does not), and in two more for the hover text: when either of those does not match once, the hover text
-  stays Claude Code's and the rest of the piece still goes in, without a warning. The shipped script is kept as
+  names the one that does not), and in two more for the hover text, a piece of its own (the marker's `pietip` field) that
+  needs the pie: when either of those does not match once, the hover text stays Claude Code's, with a warning, and the rest
+  of the pie still goes in. The shipped script is kept as
   `webview/index.js.callboard-orig`, and `--update` and `--undo` handle both files. After
   a Claude Code update the new folder starts unpatched; if the pie's code moved, the check and `--apply` warn that the pie is
   left out, and the other pieces still apply.
@@ -266,12 +270,12 @@ EXT_DIR="$(ls -d "$HOME"/.vscode/extensions/anthropic.claude-code-* | sort -V | 
 - It serves the lanes of every folder of the window. A tab that Claude Code itself restores or reopens
   resumes in its conversation's folder through the restore fix; where that fix is not in or finds no transcript, it starts in
   the window's first folder.
-- The patch is made for 2.1.327, 2.1.328, 2.1.330 and 2.1.331; the context pie's anchors fit the code of 2.1.330 (an older script gets every other piece and a
-  warning that the pie is left out). A later version may rename or restructure the code it hooks into; then
-  `anchors-missing` is printed and nothing is touched, and the panels extension keeps its one-repo-per-window behavior.
+- The check says whether your version fits. A later version may rename or restructure the code a piece hooks into; then
+  that piece is left out with a warning and the rest goes in. `anchors-missing` means no piece fits, and nothing is
+  touched. Without the folder patch the panels extension keeps its one-repo-per-window behavior.
 - The marker lives in the Claude extension's own folder, so an update (a new folder) drops the
-  patch and its marker together, and the panels extension counts the patch only when the marker's checksum matches the
-  file beside it. Without the patch, open one VS Code window per repo and use callboard as before. If a patched open
+  patch and its marker together, and the panels extension counts the folder patch only when the marker's checksum matches the
+  file beside it and its `cwd` field is not `false`. Without it, open one VS Code window per repo and use callboard as before. If a patched open
   does not bring up its panel, it fails as the usual open timeout, once.
 
 ### Load it in every session
