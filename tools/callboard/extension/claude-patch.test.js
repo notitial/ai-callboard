@@ -20,6 +20,13 @@ test('the marker with the sha of the file beside it means patched', () => {
   assert.equal(cwdPatched(folder()), true)
 })
 
+test('a marker whose cwd field says the folder patch was left out means unpatched; true or no field means patched', () => {
+  const marker = (cwd) => ({ patch: 1, original_sha256: sha('original'), patched_sha256: sha('patched code'), ...cwd })
+  assert.equal(cwdPatched(folder({ marker: marker({ cwd: false }) })), false, 'the other pieces went in, the folder patch did not')
+  assert.equal(cwdPatched(folder({ marker: marker({ cwd: true }) })), true)
+  assert.equal(cwdPatched(folder({ marker: marker({}) })), true, 'a marker with no cwd field counts as patched')
+})
+
 test('no marker, a file that no longer matches it, another patch number, or a marker that is not JSON mean unpatched', () => {
   assert.equal(cwdPatched(folder({ marker: false })), false)
   const d = folder()
