@@ -975,18 +975,28 @@ class Update(Case):
         self.assertUnchanged(self.ext, "--update")
         self.assertEqual((self.rc, self.out), (0, "already patched 2.1.328\n"))
 
-    def test_a_marker_without_the_folder_patch_and_tooltip_fields_reads_outdated_and_update_only_adds_them(self):
-        """The script before each piece applied on its own built the same bytes and recorded neither field; no false warning, and --update rewrites the marker only."""
+    def old_marker(self):
+        """Applies the patch and drops the folder patch and pie tooltip fields from its marker; returns that marker."""
         self.run_script(self.ext, "--apply")
-        path = os.path.join(self.ext, "callboard-cwd-patch.json")
         old = {k: v for k, v in self.marker().items() if k not in ("cwd", "pietip")}
-        with open(path, "w") as f:
+        with open(os.path.join(self.ext, "callboard-cwd-patch.json"), "w") as f:
             json.dump(old, f)
+        return old
+
+    def test_a_marker_without_the_folder_patch_and_tooltip_fields_reads_outdated_and_update_only_adds_them(self):
+        """The same bytes under a marker with neither field: no warning, and --update rewrites the marker only."""
+        old = self.old_marker()
         js, web = self.js(), slurp(os.path.join(self.ext, "webview", "index.js"))
         self.reads_outdated_then_updates(self.ext, "the marker does not record the folder patch, the pie tooltip")
         self.assertNotIn("warning", self.out)
         self.assertEqual((self.js(), slurp(os.path.join(self.ext, "webview", "index.js"))), (js, web))
         self.assertEqual(self.marker(), dict(old, cwd=True, pietip=True))
+        self.reads_patched(self.ext)
+
+    def test_a_marker_without_those_fields_and_no_backup_to_rebuild_from_reads_patched_with_no_warning(self):
+        """A missing field counts as in, as the panels extension reads it; only a field that is false warns."""
+        self.old_marker()
+        os.unlink(os.path.join(self.ext, "extension.js.callboard-orig"))
         self.reads_patched(self.ext)
 
     def test_an_install_made_by_an_older_script_reads_outdated_and_apply_refuses_it(self):
@@ -2485,11 +2495,11 @@ class EachPiece(Case):
             self.assertEqual({f for f, v in marker.items() if v is False}, out, member)
             self.assertIn("lacks %s" % member.decode(), self.out)
 
-    # What the patch script built from the shipped files of Claude Code 2.1.331 when every piece went in, before each piece applied on its own.
+    # The patch of Claude Code 2.1.331's shipped files with every piece applied.
     V331 = {"original_sha256": "9dead0c8f6970cb4120bd002ee1eb2b10d025677941e4fc19c7162c67f3f25fa", "patched_sha256": "2b2440773435807d4e8d7de7c7e34cdae60887e3e9a3b9fe183bacf13bf033cc",
             "web_original_sha256": "b043c87aba7f3799127ebe02843b62a3fdebd27dd4d878c38847f80413a891e3", "web_patched_sha256": "869aa1365124aef08763630c37dbe27fc85ba09029f6943e54b29415d23201fb"}
 
-    def test_the_patch_of_2_1_331_is_byte_identical_to_the_one_built_before(self):
+    def test_the_patch_of_2_1_331_has_the_pinned_hashes(self):
         """On a copy of an installed 2.1.331 whose shipped files are the ones above; the install is not changed. Every piece went in, the add-dir fix and the
         run button among them, with the same bytes: a piece silently left out fails here."""
         src = None

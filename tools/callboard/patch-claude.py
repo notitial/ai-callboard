@@ -601,7 +601,7 @@ def stale(ext, raw, m):
     if web_foreign(ext, m, web):
         return WEB_FOREIGN
     if digest(new) == digest(raw) and (web[1] if new_js is None else new_js) == shipped(ext, WEB):
-        # The same bytes, but a marker that does not record what went in: one from a script that had no field for the folder patch or the pie tooltip.
+        # The same bytes, but a marker whose fields do not say what went in (one with no field for the folder patch or the pie tooltip): --update rewrites it.
         off = [name for field, name, _, _ in PIECES if m.get(field) is not (left[field] is None)]
         return "the marker does not record the %s" % ", the ".join(off) if off else None
     for field, name, _, _ in PIECES:
@@ -818,7 +818,7 @@ def main(argv):
         warn_left_out(patched(read(os.path.join(ext, MAIN)), webview(ext))[1], ("would be left out", "the rest would go in."))
     if name == "patched":
         for field, piece, _, _ in PIECES:
-            if marker_of(ext).get(field) is not True:
+            if marker_of(ext).get(field) is False:
                 print("warning: the %s is not in this patch." % piece)
     if name == "leftovers":
         print("A backup or marker from an earlier run is here and does not match the file: run --undo.")
