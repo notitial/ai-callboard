@@ -40,6 +40,9 @@ TEMPLATE = (
     'x.push(Wp("claude-vscode.editor.openLast",async()=>{{await rl("claude-vscode.editor.open")}}));'
     'class P{{async processRequest({rq},t){{switch({rq}.request.type){{case"get_asset_uris":return 1;case"open_url":return await this.openURL({rq}.request.url),{{type:"open_url_response"}};case"x":return 2}}}}}}'
     '{grp}'
+    # The provider's members the commands at the groups anchor call, which the script checks are there.
+    'class Pv{{m(){{this.settings.getSessionGroups();this.settings.getArchivedSessionIds();this.settings.archiveSessions();this.broadcastSessionArchiveChanged();'
+    'this.persistGroupsFromHost();for(let c of this.allComms)c.channels;this.toggleRemoteControl();this.remoteControlState}}}}'
     '{html}'
 )
 # The registration of the stock add-to-group command, inside a push call of the activation, with the provider's name `pv`.
@@ -112,8 +115,8 @@ def snap(root):
 def mod_pill(js, run=False):
     """The stand-in webview script with only the pill put in (and the run button too, with run=True; no pie), as the script builds it."""
     mod = load_module()
-    out = mod.pill_web(js.encode())
-    return mod.run_web(out) if run else out
+    mod.PIECES = tuple(p for p in mod.PIECES if p[0] in ("pill", "run" if run else "pill"))
+    return mod.patched(build(V327), (WEB["index.css"].encode(), js.encode()))[2]
 
 
 def load_module():
@@ -247,43 +250,62 @@ class Check(Case):
             self.assertIn(part, new)
         self.assertIn(b'title:"Run"', slurp(os.path.join(ext, "webview", "index.js")))
 
-    def test_each_missing_anchor_is_named_and_nothing_changes(self):
+    def folder_patch_left_out(self, ext, why, raw):
+        """The check warns that the folder patch and the restore fix (which needs it) would be left out; --apply puts every other piece in and the
+        marker's cwd says false; --undo puts the file back."""
+        self.run_script(ext)
+        self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "unpatched-patchable 2.1.328"))
+        self.assertIn("warning: the folder patch would be left out (%s" % why, self.out)
+        self.assertIn("warning: the restore fix would be left out (it needs the folder patch)", self.out)
+        self.run_script(ext, "--apply")
+        self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "patched 2.1.328"))
+        self.assertEqual(self.out.count("warning"), 2, self.out)
+        marker = self.marker(ext)
+        self.assertEqual((marker["cwd"], marker["restore"]), (False, False))
+        self.assertEqual([f for f, v in marker.items() if v is False], ["cwd", "restore"])
+        new = self.js(ext)
+        self.assertNotIn(b"cbqC===null", new)
+        self.assertEqual((new.count(b"callboard file session"), new.count(b"additionalDirectories:[],..."), new.count(b'case"callboard_run":')), (1, 1, 1), "the other pieces went in")
+        self.run_script(ext, "--undo")
+        self.assertEqual((self.rc, self.js(ext)), (0, raw))
+
+    def test_a_missing_folder_patch_anchor_leaves_out_only_the_folder_patch_and_the_restore_fix(self):
         breaks = {
             "createPanel signature": ("a=!1){if(e)", "a=!1,u=2){if(e)"),
-            "setupPanel call": ("s===!0,a)", "s===!0,a,0)"),
+            "createPanel's setupPanel call": ("s===!0,a)", "s===!0,a,0)"),
             "setupPanel start": ("workspaceFolders?.map", "workspaceFolders.map"),
             "editor.open command": ("O.focusInput", "O.focusInputs"),
         }
         for label, (old, new) in breaks.items():
             raw = build(V328).decode("utf-8")
             self.assertEqual(raw.count(old), 1, label)
-            ext = self.make(V328, name="m%d" % len(os.listdir(self.t)), raw=raw.replace(old, new).encode("utf-8"))
-            self.run_script(ext)
-            self.assertEqual(self.rc, 1)
-            self.assertTrue(self.out.startswith("anchors-missing 2.1.328: "), self.out)
-            self.assertIn(label.split()[0], self.out)
-            self.assertIn("no match", self.out)
-            self.assertUnchanged(ext, "--apply")
-            self.assertEqual(self.rc, 1)
-            self.assertFalse(os.path.exists(os.path.join(ext, "extension.js.callboard-orig")))
+            raw = raw.replace(old, new).encode("utf-8")
+            ext = self.make(V328, name="m%d" % len(os.listdir(self.t)), raw=raw)
+            self.folder_patch_left_out(ext, label + " (no match)", raw)
 
-    def test_a_doubled_anchor_is_refused(self):
+    def test_a_doubled_anchor_leaves_the_folder_patch_out(self):
         raw = build(V327)
-        ext = self.make(V327, name="dup", raw=raw + raw[raw.index(b"x.push(Wp("):raw.index(b"x.push(Wp(\"claude-vscode.editor.openLast")])
-        self.run_script(ext)
-        self.assertEqual(self.rc, 1)
-        self.assertIn("editor.open command (2 matches)", self.out)
+        raw += raw[raw.index(b"x.push(Wp("):raw.index(b"x.push(Wp(\"claude-vscode.editor.openLast")]
+        self.folder_patch_left_out(self.make(V327, name="dup", raw=raw), "editor.open command (2 matches)", raw)
 
-    def test_a_file_that_already_names_the_patch_is_refused(self):
-        ext = self.make(V327, name="own", raw=build(V327) + b"var cbCwd=1;")
-        self.run_script(ext)
-        self.assertEqual(self.rc, 1)
-        self.assertIn("already contains cbCwd", self.out)
+    def test_a_file_that_already_names_the_patch_leaves_the_folder_patch_out(self):
+        for name in (b"cbCwd", b"cbqC"):
+            raw = build(V327) + b"var " + name + b"=1;"
+            self.folder_patch_left_out(self.make(V327, name="own" + name.decode(), raw=raw), "the file already contains " + name.decode(), raw)
 
-    def test_a_file_that_holds_the_patch_prefix_cbq_is_refused(self):
+    def test_another_name_with_the_patch_prefix_cbq_is_no_clash(self):
         ext = self.make(V327, name="prefix", raw=build(V327) + b"var cbqX=1;")
         self.run_script(ext)
-        self.assertEqual((self.rc, self.out), (1, "anchors-missing 2.1.328: the file already contains cbq\n"))
+        self.assertEqual((self.rc, self.out), (0, "unpatched-patchable 2.1.328\n"))
+        self.run_script(ext, "--apply")
+        self.assertEqual((self.rc, self.marker(ext)["cwd"]), (0, True))
+
+    def test_a_file_no_piece_fits_is_refused_and_nothing_changes(self):
+        ext = self.make(V327, name="none", raw=b"var nothing=1;", web={})
+        self.run_script(ext)
+        self.assertEqual((self.rc, self.out.split(": ")[0]), (1, "anchors-missing 2.1.328"))
+        for part in ("the folder patch: createPanel signature (no match)", "the restore fix: it needs the folder patch", "the run button: run code block anchor (no match)"):
+            self.assertIn(part, self.out)
         self.assertUnchanged(ext, "--apply")
         self.assertEqual(self.rc, 1)
 
@@ -377,8 +399,8 @@ class Apply(Case):
         raw = build(V327)
         self.assertEqual(mod.patched(raw, (b"", b""))[0].count(b"cbCwd"), 6)
         doubled = raw + raw[raw.index(b"x.push(Wp("):raw.index(b'x.push(Wp("claude-vscode.editor.openLast')]
-        with self.assertRaises(SystemExit):
-            mod.patched(doubled, (b"", b""))
+        new, left, _ = mod.patched(doubled, (b"", b""))
+        self.assertEqual((left["cwd"], new.count(b"cbCwd"), new.count(b"cbqC===null")), ("editor.open command (2 matches)", 0, 0), "no edit of a piece left out is written")
 
     def test_a_corrupt_marker_reads_as_leftovers_and_undo_recovers_from_the_backup(self):
         orig = self.js()
@@ -918,7 +940,7 @@ class ListAndArchive(Case):
         ext = self.make(V327, name="oldunfile")
         with contextlib.redirect_stdout(io.StringIO()):
             old = load_module()
-            old.PIECES = tuple((f, n, (lambda raw, _: "not here") if f == "unfile" else problem, put_in) for f, n, problem, put_in in old.PIECES)
+            old.PIECES = tuple((f, n, needs, (lambda: ([("ext", "not here", rb"(?!)", lambda m: b"")], [], ())) if f == "unfile" else parts) for f, n, needs, parts in old.PIECES)
             old.apply(ext)
         self.assertNotIn(b"callboard unfile session", self.js(ext))
         self.assertEqual(self.marker(ext)["unfile"], False)
@@ -1003,9 +1025,10 @@ class Update(Case):
         orig = self.js()
         self.older(self.ext, WIDTH_CSS="a{b:c}")
         mod = load_module()
+        mod.PIECES = mod.PIECES[:1]
         mod.ANCHORS = mod.ANCHORS + (("extra anchor", rb"zzz", lambda m: b""),)
         before = snap(self.ext)
-        self.assertEqual(mod.state(self.ext)[::2], ("outdated", "this script no longer fits the backup: extra anchor (no match)"))
+        self.assertEqual(mod.state(self.ext)[::2], ("outdated", "this script no longer fits the backup: the folder patch: extra anchor (no match)"))
         with self.assertRaises(SystemExit) as cm:
             mod.update(self.ext)
         self.assertEqual(cm.exception.code, 1)
@@ -1023,14 +1046,17 @@ class Update(Case):
         self.assertNotIn("run --update", err.getvalue())
 
     def test_check_and_update_agree_when_the_names_collide(self):
+        """A name of the folder patch that the backup already holds: the check and the update both build the patch without it."""
         self.older(self.ext, WIDTH_CSS="a{b:c}")
         mod = load_module()
         mod.NAME = "é".encode("utf-8")
-        before = snap(self.ext)
-        self.assertEqual(mod.state(self.ext)[::2], ("outdated", "this script no longer fits the backup: the file already contains é"))
-        with self.assertRaises(SystemExit) as cm:
-            mod.update(self.ext)
-        self.assertEqual((cm.exception.code, snap(self.ext)), (1, before))
+        self.assertEqual(mod.state(self.ext)[::2], ("outdated", "the patch code differs from this script's"))
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(mod.update(self.ext), 0)
+        self.assertIn("warning: the folder patch is not in (the file already contains é)", out.getvalue())
+        self.assertEqual((self.marker()["cwd"], self.marker()["restore"], self.marker()["width"]), (False, False, True))
+        self.assertEqual(mod.state(self.ext)[0], "patched")
 
     def test_without_a_matching_backup_the_marker_decides(self):
         self.older(self.ext, WIDTH_CSS="a{b:c}")
@@ -1358,7 +1384,7 @@ class Restore(Case):
         mod = load_module()
         ext = self.make(V327, name="older")
         with contextlib.redirect_stdout(io.StringIO()):
-            mod.PIECES = mod.PIECES[:3] + mod.PIECES[-1:]
+            mod.PIECES = tuple(p for p in mod.PIECES if p[0] in ("cwd", "width", "pie", "pietip", "pill", "run"))
             mod.apply(ext)
         orig = self.js(ext)
         self.assertNotIn("restore", self.marker(ext))
@@ -1482,18 +1508,27 @@ class Pie(Case):
     def test_a_missing_tooltip_anchor_leaves_the_stock_hover_and_keeps_the_ring(self):
         js = WEB["index.js"]
         cases = {
-            "amounts": js.replace("percentageUsed:r,onCompact:i", "percentage:r,onCompact:i", 1),
-            "text": js.replace("of context remaining", "of context left", 1),
-            "doubled": js + js[js.index("function jzn"):js.index("function Bar")],
+            "amounts": (js.replace("percentageUsed:r,onCompact:i", "percentage:r,onCompact:i", 1), "pie tooltip amounts (no match)"),
+            "text": (js.replace("of context remaining", "of context left", 1), "pie tooltip text (no match)"),
+            "doubled": (js + js[js.index("function jzn"):js.index("function Bar")], "pie tooltip text (2 matches)"),
         }
-        for label, bad in cases.items():
+        for label, (bad, why) in cases.items():
             ext = self.make(V327, name="tip" + label, web=dict(WEB, **{"index.js": bad}))
             self.run_script(ext, "--apply")
-            self.assertEqual((self.rc, self.out.count("warning")), (0, 0), self.out)
+            self.assertEqual((self.rc, self.out.count("warning")), (0, 1), self.out)
+            self.assertIn("warning: the pie tooltip is not in (%s)" % why, self.out, label)
             new = slurp(os.path.join(ext, self.WEBJS))
-            self.assertEqual((self.marker(ext)["pie"], new.count(b'width:"18",height:"18"'), new.count(b"cbpTip"), new.count(b"cbpCap("), new.count(b"Click to compact now.")), (True, 1, 0, 2, 1 if label != "doubled" else 2), label)
+            self.assertEqual((self.marker(ext)["pie"], self.marker(ext)["pietip"], new.count(b'width:"18",height:"18"'), new.count(b"cbpTip"), new.count(b"cbpCap("), new.count(b"Click to compact now.")),
+                             (True, False, 1, 0, 2, 1 if label != "doubled" else 2), label)
             self.run_script(ext)
-            self.assertEqual((self.rc, self.out), (0, "patched 2.1.328\n"), label)
+            self.assertEqual((self.rc, self.out), (0, "patched 2.1.328\nwarning: the pie tooltip is not in this patch.\n"), label)
+
+    def test_the_tooltip_needs_the_pie(self):
+        ext = self.make(V327, name="tipnopie", web=dict(WEB, **{"index.js": WEB["index.js"].replace('strokeOpacity:"0.15"', 'strokeOpacity:"0.2"', 1)}))
+        self.run_script(ext, "--apply")
+        self.assertIn("warning: the pie tooltip is not in (it needs the context pie)", self.out)
+        self.assertEqual((self.marker(ext)["pie"], self.marker(ext)["pietip"]), (False, False))
+        self.assertNotIn(b"cbpTip", slurp(os.path.join(ext, self.WEBJS)))
 
     @unittest.skipUnless(shutil.which("node"), "needs node")
     def test_the_page_carries_the_level_from_the_settings_of_the_config_folder(self):
@@ -1628,14 +1663,13 @@ class Pie(Case):
             self.assertEqual(snap(ext), before, failing)
 
     def test_an_update_that_died_after_the_pie_went_in_leaves_leftovers_that_undo_clears(self):
-        for name, pie_in in (("linked", False), ("piein", True), ("pillin", "pill"), ("pieandpillin", "both")):
+        for name, web_in in (("linked", False), ("webin", True)):
             ext = self.make(V327, name="die-" + name)
             orig_main, orig_js = self.js(ext), slurp(os.path.join(ext, self.WEBJS))
             self.older(ext, **NO_WEB)
             mod = load_module()
-            if pie_in:
-                new_js = {True: mod.pie_web, "pill": mod.pill_web, "both": lambda j: mod.pill_web(mod.pie_web(j))}[pie_in](orig_js)
-                mod.set_web(ext, orig_js, new_js)
+            if web_in:
+                mod.set_web(ext, orig_js, mod.patched(orig_main, mod.webview(ext))[2])
                 self.assertNotEqual(slurp(os.path.join(ext, self.WEBJS)), orig_js)
             else:
                 os.link(os.path.join(ext, self.WEBJS), os.path.join(ext, self.BAK))
@@ -2027,8 +2061,8 @@ class Pill(Case):
             "no switch": ("extension.js", raw.replace('case"open_url":return await this.openURL(', 'case"open_urls":return await this.openURL(', 1), "pill handler anchor (no match)"),
             "doubled": ("extension.js", raw + 'class P2{async processRequest(e,t){switch(e.request.type){case"open_url":return await this.openURL(e.request.url)}}}', "pill handler anchor (2 matches)"),
             "named": ("extension.js", raw + 'var x="callboard_folder";', "the file already contains callboard_folder"),
-            "no connection": ("webview", WEB["index.js"].replace("getConnection()", "getConn()"), "no .getConnection()"),
-            "no sendRequest": ("webview", WEB["index.js"].replace("sendRequest(", "send("), "no .sendRequest("),
+            "no connection": ("webview", WEB["index.js"].replace("getConnection()", "getConn()"), "the webview lacks .getConnection()"),
+            "no sendRequest": ("webview", WEB["index.js"].replace("sendRequest(", "send("), "the webview lacks .sendRequest("),
         }
         for label, (where, bad, why) in cases.items():
             ext = self.make(V327, name="h" + label.replace(" ", ""), raw=bad.encode("utf-8") if where == "extension.js" else None, web=dict(WEB, **{"index.js": bad}) if where == "webview" else WEB)
@@ -2057,11 +2091,11 @@ class Pill(Case):
             before = snap(ext)
             self.run_script(ext)
             self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "unpatched-patchable 2.1.328"), label)
-            self.assertIn("warning: the folder pill would be left out (" + ("no .cwd.value" if label == "no cwd read" else "pill anchor "), self.out, label)
+            self.assertIn("warning: the folder pill would be left out (" + ("the webview lacks .cwd.value" if label == "no cwd read" else "pill anchor "), self.out, label)
             self.assertEqual(snap(ext), before, label)
             self.run_script(ext, "--apply")
             self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "patched 2.1.328"), label)
-            self.assertIn("warning: the folder pill is not in (" + ("no .cwd.value" if label == "no cwd read" else "pill anchor "), self.out, label)
+            self.assertIn("warning: the folder pill is not in (" + ("the webview lacks .cwd.value" if label == "no cwd read" else "pill anchor "), self.out, label)
             marker = self.marker(ext)
             self.assertEqual((marker["pill"], marker["pie"], marker["width"], marker["restore"]), (False, True, True, True), label)
             self.assertNotIn(b'"span"', slurp(os.path.join(ext, self.WEBJS)), label)
@@ -2085,10 +2119,9 @@ class Pill(Case):
     def test_an_install_with_the_stage_gated_pill_reads_outdated_and_update_replaces_it(self):
         ext = self.make(V327, name="gated")
         mod = load_module()
-        def gated(js):
-            m = re.search(mod.PILL_ANCHOR, js)
-            return mod.pill_web(js).replace(m.group(0), m.group(0) + m.group(0)[:m.group(0).index(b"!==2")] + b"!==2&&", 1)
-        self.older(ext, pill_web=gated)
+        def gated(m):
+            return m.group(0) + m.group(0)[:m.group(0).index(b"!==2")] + b"!==2&&" + mod.pill_page(m)[len(m.group(0)):]
+        self.older(ext, pill_page=gated)
         self.assertIn(b"!==2&&typeof ", slurp(os.path.join(ext, self.WEBJS)))
         self.reads_outdated_then_updates(ext, "the patch code differs from this script's")
         self.assertNotIn(b"!==2&&typeof ", slurp(os.path.join(ext, self.WEBJS)))
@@ -2265,7 +2298,7 @@ class Run(Case):
             "doubled code block": (dict(WEB, **{"index.js": js + js[js.index("function F8n"):js.index("function App")]}), raw, "run code block anchor (2 matches)"),
             "app": (dict(WEB, **{"index.js": js.replace("activateSessionEvents", "activate2")}), raw, "run app anchor (no match)"),
             "doubled app": (dict(WEB, **{"index.js": js + js[js.index("function App"):js.index("class Sess")]}), raw, "run app anchor (2 matches)"),
-            "no session value": (dict(WEB, **{"index.js": js.replace(".activeSession.value", ".activeSession2")}), raw, "no .activeSession.value"),
+            "no session value": (dict(WEB, **{"index.js": js.replace(".activeSession.value", ".activeSession2")}), raw, "the webview lacks .activeSession.value"),
             "tokens": (dict(WEB, **{"index.css": WEB["index.css"].replace(RUN_CSS_TOKENS, "")}), raw, "the webview lacks codeBlockWrapper_, copyButton_"),
             "already there": (WEB, raw + b";var x='callboard_run'", "the file already contains callboard_run"),
         }
@@ -2318,6 +2351,141 @@ class Run(Case):
         ext = self.applied_ext("alone", web=dict(WEB, **{"index.js": js.replace("threshold:n,onCompact", "onCompact")}))
         self.assertEqual(self.marker(ext)["run"], True)
         self.assertEqual(slurp(os.path.join(ext, self.WEBJS)).count(b'className:"cbRun "'), 1)
+
+
+# Words a one-byte break must not touch: a changed keyword no longer parses.
+KEYWORDS = set(b"""async await break case catch class const continue debugger default delete do else export extends finally for function get if import in
+instanceof let new of return set static super switch this throw try typeof var void while with yield""".split())
+
+
+def one_byte_breaks(mod, raw, web):
+    """For each edit of each piece, a one-byte change of the shipped files inside the bytes that edit matches: (field, label, broken extension.js, broken
+    webview script, the fields that must be left out). Those are the piece, the pieces whose edit has the same anchor, and every piece that needs one of
+    them. Letters flip case (not in a keyword) and a `;` goes in after a `}`; the first change that leaves out exactly those fields and still parses is used.
+    A piece with no such break fails: it cannot be left out on its own."""
+    pieces, stock = mod.PIECES, {"ext": raw, "web": web[1]}
+    needs = {f: set(n) for f, _, n, _ in pieces}
+    edits = {f: parts()[0] for f, _, _, parts in pieces}
+    for i, (field, _, _, _) in enumerate(pieces):
+        mod.PIECES = pieces[:i]
+        new, _, new_js = mod.patched(raw, web)
+        mod.PIECES = pieces
+        seen = {"ext": new, "web": web[1] if new_js is None else new_js}
+        for file, label, pat, rep in edits[field]:
+            m = re.search(pat, seen[file])
+            if len(re.findall(pat, stock[file])) == 1:
+                start = re.search(pat, stock[file]).start()
+            else:  # an anchor in what an earlier piece put in (the restore fix's): found in the shipped file by the bytes before it
+                start = next(stock[file].index(pre) + len(pre) for pre in (seen[file][max(0, m.start() - k):m.start()] for k in (8, 16, 32, 64, 128, 256, 512))
+                             if stock[file].count(pre) == 1)
+            shift = m.start() - start
+            want = {f for f in edits if any(e[2] == pat for e in edits[f])}
+            while True:
+                more = {f for f in needs if f not in want and needs[f] & want}
+                if not more:
+                    break
+                want |= more
+            found = None
+            # The match and the bytes around it that a lookbehind or a lookahead reads (the add-dir option is one name, its context a lookahead).
+            for p in range(start, start + len(m.group(0)) + 200):
+                c, word = stock[file][p:p + 1], re.search(rb"[\w$]*\Z", stock[file][:p + 1]).group(0) + re.match(rb"[\w$]*", stock[file][p + 1:]).group(0)
+                for change in ([b";"] if c == b"}" else []) + ([c.swapcase()] if c.isalpha() and word not in KEYWORDS else []):
+                    broken = stock[file][:p] + (c + change if change == b";" else change) + stock[file][p + 1:]
+                    text = seen[file][:p + shift] + (c + change if change == b";" else change) + seen[file][p + shift + 1:]
+                    if len(re.findall(pat, text)) == 1:
+                        continue
+                    b = dict(stock, **{file: broken})
+                    left = mod.patched(b["ext"], (web[0], b["web"]))[1]
+                    if {f for f, why in left.items() if why} == want and parses(b[file]):
+                        found = (field, label, b["ext"], b["web"], want)
+                        break
+                if found:
+                    break
+            if not found:
+                raise AssertionError("no one-byte break of %s (%s) leaves out only %s" % (label, field, sorted(want)))
+            yield found
+            seen[file] = re.sub(pat, rep, seen[file])
+
+
+def parses(code):
+    with tempfile.NamedTemporaryFile(suffix=".js") as f:
+        f.write(code)
+        f.flush()
+        return subprocess.run(["node", "--check", f.name], capture_output=True, timeout=120).returncode == 0
+
+
+class EachPiece(Case):
+    """Every piece goes in or is left out on its own: a one-byte break of any of its anchors leaves out that piece and the pieces that need it, and the rest goes in."""
+
+    def breaks_on_their_own(self, raw, web, pkg):
+        mod = load_module()
+        seen = []
+        for field, label, broken, broken_js, want in one_byte_breaks(mod, raw, web):
+            seen.append(field)
+            ext = os.path.join(self.t, "b%d" % len(os.listdir(self.t)))
+            os.makedirs(os.path.join(ext, "webview"))
+            for path, data in (("extension.js", broken), ("webview/index.js", broken_js), ("webview/index.css", web[0]), ("package.json", json.dumps(pkg).encode())):
+                with open(os.path.join(ext, path), "wb") as f:
+                    f.write(data)
+            self.run_script(ext, "--apply")
+            self.assertEqual((self.rc, self.out.splitlines()[0].split()[0]), (0, "patched"), "%s: %s" % (label, self.out + self.err))
+            marker = self.marker(ext)
+            self.assertEqual({f for f, _, _, _ in mod.PIECES if marker[f] is not True}, want, label)
+            self.assertEqual(self.out.count("warning:"), len(want), label)
+            for path in ("extension.js", "webview/index.js"):
+                p = subprocess.run(["node", "--check", os.path.join(ext, path)], capture_output=True, text=True, timeout=120)
+                self.assertEqual(p.returncode, 0, "%s: %s %s" % (label, path, p.stderr))
+            self.run_script(ext, "--undo")
+            self.assertEqual((self.rc, self.js(ext), slurp(os.path.join(ext, "webview", "index.js"))), (0, broken, broken_js), label)
+        self.assertEqual(sorted(set(seen)), sorted(f for f, _, _, _ in mod.PIECES), "every piece was broken")
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_a_one_byte_break_of_any_anchor_of_the_stand_in_leaves_out_only_its_piece(self):
+        self.breaks_on_their_own(build(V327), (WEB["index.css"].encode(), WEB["index.js"].encode()), PKG)
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_a_one_byte_break_of_any_anchor_of_an_installed_claude_extension_leaves_out_only_its_piece(self):
+        """On a copy of the newest installed Claude Code extension (its shipped files, from the backups when it is patched); the install is not changed."""
+        found = sorted(glob.glob(os.path.expanduser("~/.vscode/extensions/anthropic.claude-code-*")))
+        if not found:
+            self.skipTest("no installed Claude Code extension")
+        d = found[-1]
+        orig = lambda p: slurp(os.path.join(d, p + ".callboard-orig")) if os.path.isfile(os.path.join(d, p + ".callboard-orig")) else slurp(os.path.join(d, p))
+        self.breaks_on_their_own(orig("extension.js"), (slurp(os.path.join(d, "webview", "index.css")), orig("webview/index.js")), json.loads(slurp(os.path.join(d, "package.json"))))
+
+    def test_a_renamed_member_leaves_out_only_the_commands_that_call_it(self):
+        for member, out in ((b"archiveSessions(", {"archive"}), (b"toggleRemoteControl(", {"remote"}), (b"persistGroupsFromHost(", {"groups", "archive", "unfile"})):
+            raw = build(V327).replace(member, member.replace(b"(", b"X("))
+            ext, marker = self.applied(raw, name="member%d" % len(os.listdir(self.t)))
+            self.assertEqual({f for f, v in marker.items() if v is False}, out, member)
+            self.assertIn("lacks %s" % member.decode(), self.out)
+
+    # What the patch script built from the shipped files of Claude Code 2.1.331 when every piece went in, before each piece applied on its own.
+    V331 = {"original_sha256": "9dead0c8f6970cb4120bd002ee1eb2b10d025677941e4fc19c7162c67f3f25fa", "patched_sha256": "2b2440773435807d4e8d7de7c7e34cdae60887e3e9a3b9fe183bacf13bf033cc",
+            "web_original_sha256": "b043c87aba7f3799127ebe02843b62a3fdebd27dd4d878c38847f80413a891e3", "web_patched_sha256": "869aa1365124aef08763630c37dbe27fc85ba09029f6943e54b29415d23201fb"}
+
+    def test_the_patch_of_2_1_331_is_byte_identical_to_the_one_built_before(self):
+        """On a copy of an installed 2.1.331 whose shipped files are the ones above; the install is not changed. Every piece went in, the add-dir fix and the
+        run button among them, with the same bytes: a piece silently left out fails here."""
+        src = None
+        for d in glob.glob(os.path.expanduser("~/.vscode/extensions/anthropic.claude-code-2.1.331-*")):
+            pick = lambda p: os.path.join(d, p + ".callboard-orig") if os.path.isfile(os.path.join(d, p + ".callboard-orig")) else os.path.join(d, p)
+            if os.path.isfile(pick("extension.js")) and hashlib.sha256(slurp(pick("extension.js"))).hexdigest() == self.V331["original_sha256"]:
+                src = d, pick
+        if src is None:
+            self.skipTest("no installed Claude Code 2.1.331")
+        d, pick = src
+        ext = os.path.join(self.t, "v331")
+        os.makedirs(os.path.join(ext, "webview"))
+        for path, source in (("extension.js", pick("extension.js")), ("package.json", os.path.join(d, "package.json")), ("webview/index.css", os.path.join(d, "webview", "index.css")), ("webview/index.js", pick("webview/index.js"))):
+            shutil.copy(source, os.path.join(ext, path))
+        self.run_script(ext, "--apply")
+        self.assertEqual((self.rc, self.out.count("warning")), (0, 0), self.out + self.err)
+        marker = self.marker(ext)
+        self.assertEqual({k: marker[k] for k in self.V331}, self.V331)
+        self.assertEqual(hashlib.sha256(slurp(os.path.join(ext, "webview", "index.js"))).hexdigest(), self.V331["web_patched_sha256"])
+        mod = load_module()
+        self.assertEqual({k: v for k, v in marker.items() if k not in self.V331}, {"patch": 1, **{f: True for f, _, _, _ in mod.PIECES}})
 
 
 class Refusals(Case):

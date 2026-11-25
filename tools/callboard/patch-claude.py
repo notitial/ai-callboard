@@ -1,4 +1,5 @@
-"""Lets callboard open a Claude Code panel in any folder of a multi-folder VS Code window. Checks unless --apply, --update or --undo.
+"""Patches the installed Claude Code extension for callboard: the folder patch (a Claude Code panel opens in any folder of a multi-folder VS Code
+window) and the other pieces in PIECES below. Checks unless --apply, --update or --undo.
 
   /usr/bin/python3 -I patch-claude.py EXTENSION_DIR [--apply | --update | --undo]
       EXTENSION_DIR is one installed Claude Code extension folder, for example ~/.vscode/extensions/anthropic.claude-code-<version>-<platform>.
@@ -7,31 +8,21 @@
                                  (with no backup that matches the marker, there is nothing to build from, and the marker decides)
         outdated <why>           the patch is in but an older script built it (the line names what differs): --update brings it current, unless
                                  the backup no longer fits this script or the webview backup is not the recorded original: then --update refuses
-        unpatched-patchable      every anchor was found exactly once: --apply would patch it
-        anchors-missing <names>  an update moved the code the patch hooks into (a name is missing or matches twice): --apply refuses
+        unpatched-patchable      at least one piece can go in: --apply would patch it (a warning line names each piece that would be left out)
+        anchors-missing <why>    no piece can go in (an update moved the code they hook into: an anchor is missing or matches twice): --apply refuses
         leftovers <files>        a backup or the marker from an earlier run is here and does not match the file: --undo first
-      --apply: patch extension.js, keep the original beside it as extension.js.callboard-orig and write callboard-cwd-patch.json
-      (the marker callboard's panels extension reads; its "width", "pie", "pill", "restore", "groups", "archive", "unfile", "remote", "list", "tabgroup", "adddir" and "run" fields say whether the panel width, the context pie, the folder pill, the restore fix, the group command, the archive command, the unfile command, the remote command, the session list, the tab group fix, the add-dir fix and the run button below went in). Patched already: says so and stops; outdated: refuses and names --update. A window reload (Developer: Reload
-      Window) loads it.
+      --apply: patch extension.js with every piece that can go in, keep the original beside it as extension.js.callboard-orig and write callboard-cwd-patch.json
+      (the marker callboard's panels extension reads; one field per piece, named as in PIECES, says whether it went in). Patched already: says so and stops;
+      outdated: refuses and names --update. A window reload (Developer: Reload Window) loads it.
       --update: for an `outdated` install, build the patch again from the backup original and swap it in: extension.js and the marker are
-      replaced (and webview/index.js, when the context pie, the folder pill or the run button is or goes in or out), the backups are not touched. The new bytes are built before anything is written (a refusal changes nothing), and a failed write puts the
+      replaced (and webview/index.js, when a piece that edits it is or goes in or out), the backups are not touched. The new bytes are built before anything is written (a refusal changes nothing), and a failed write puts the
       previous patched files back. Any other state: the same as --apply. An install made by a script that still hid the Remote Control chip reads outdated: --update leaves the chip out.
-      --undo: put the original back from the backup (webview/index.js too, when the pie, the pill or the run button was in) and remove the backups and the marker.
+      --undo: put the original back from the backup (webview/index.js too, when a piece edited it) and remove the backups and the marker.
 
-The patch gives `claude-vscode.editor.open` a `cwd` in its sixth argument ({cwd: folder}), which becomes the working folder of the
-new panel instead of the window's first folder, when it is one of the window's folders (4 edits). A fresh panel opened by a + New session button
-(a call with an options object but no `cwd` or session id) in a window with several folders first shows VS Code's own folder list and uses the pick; Escape
-opens nothing; a bare call (the palette, Open, an @-mention), a resume and a one-folder window never ask. The panel width (WIDTH_CSS below, a style block added to the webview page the extension builds) lets the composer and its permission box use the panel's
-width. Each anchor is a pattern that tolerates renamed minified
-identifiers, and the file is written only when every anchor matches exactly once: otherwise nothing changes and the missing ones
-are named. The optional pieces are separate: the width block goes in when the font tag matches exactly once and the shipped webview has its tokens, the context pie (PIE_ANCHORS below: the composer's stock pie shown always, as one ring,
-against the autocompact level of the settings, in webview/index.js, kept as webview/index.js.callboard-orig) goes in when the font tag and its three anchors there each match once, the folder pill (PILL_ANCHOR below: a name for the session's folder next to the model name in the composer, in webview/index.js, read from <folder>/.archive/.folder and renamed by a click, which asks the extension: PILL_HANDLER_ANCHOR, in extension.js) goes in when its one anchor in each
-matches once, the run button (RUN_CODE_ANCHOR: a button before Copy on shell code blocks, with its app handle in index.js and a case in extension.js, which ask the panels extension's `callboard run block` command: a modal first, then the run, then the output goes back into the chat as the person's message; see the comment above RUN_CODE_ANCHOR) goes in when its three anchors and its style tokens match, the restore fix
-(RESTORE_ANCHORS below: a panel that VS Code restores or Claude reopens keeps the folder of its conversation, found from the session's transcript) goes in
-when its two anchors do, and the group command (GROUPS_ANCHOR below) registers `callboard file session` (session id, group name, order), so callboard's panels
-extension can put the manager, a conductor, a lead or a lane in the sidebar's Manager, Conductor, Lead or Lanes group, with those groups first in that order, when its one anchor matches exactly once, and the archive command (at the same anchor) registers `callboard archive sessions` (group name, session ids), which archives the listed sessions of that group and no other, and the unfile command (at the same anchor) registers `callboard unfile session` (session id, group name), which takes the session out of the group of that name and changes nothing else, and the remote command (at the same anchor) registers `callboard remote session` (session id, on), which turns Remote Control of that session's panel on or off for callboard's panels extension, and the session list (LIST_ANCHOR below: the sidebar lists the saved conversations of every folder of the window, not only the first, so a closed lead of another folder stays listed and a click reopens it) goes in when its one anchor matches exactly once, and the tab group fix (TABGROUP_ANCHORS below: a new Claude tab opens in the editor group the person is in, with no new group and no lock) goes in when its two anchors match once each, and the add-dir fix (ADDDIR_ANCHORS below: a session gets none of the window's other
-folders as additional directories, so no file scope and no .claude skills of theirs) goes in when its one anchor matches once; when one does not, a warning line says so and the folder patch still applies. There is no half patch: a failure after the file was replaced puts the backup back. An update of the extension is a new
-folder, so it starts unpatched and this runs again. It never uses the network, runs nothing else, works only inside EXTENSION_DIR
+The pieces are PIECES below; each has its comment above its anchors. Each anchor is a pattern that tolerates renamed minified identifiers. A piece goes in
+whole when each of its anchors matches exactly once, or is left out with a warning line that names why, with every piece that needs it, and the others
+still apply. A piece that edits webview/index.js keeps the shipped one as webview/index.js.callboard-orig. There is no half patch: a failure after the file
+was replaced puts the backup back. An update of the extension is a new folder, so it starts unpatched and this runs again. It never uses the network, runs nothing else, works only inside EXTENSION_DIR
 and changes no setting. Run it as your user: it refuses root. Tests: /usr/bin/python3 -I tools/callboard/test_patch_claude.py
 Exit codes: 0 done or nothing to do (patched, patchable), 1 refused, outdated or anchors missing, 2 usage.
 """
@@ -80,7 +71,10 @@ WIDTH_CSS = (
 )
 
 
-# (label, pattern, replacement). The replacement gets the match; each pattern is checked on the unpatched file.
+# The folder patch: `claude-vscode.editor.open` takes a `cwd` in its sixth argument ({cwd: folder}), which becomes the working folder of the new panel
+# instead of the window's first folder, when it is one of the window's folders (4 edits). A fresh panel opened by a + New session button (a call with an
+# options object but no `cwd` or session id) in a window with several folders first shows VS Code's own folder list and uses the pick; Escape opens nothing;
+# a bare call (the palette, Open, an @-mention), a resume and a one-folder window never ask. (label, pattern, replacement): the replacement gets the match.
 ANCHORS = (
     ("createPanel signature",
      rb"(async createPanel\((?:ID,){7}ID=!1)\)\{".replace(b"ID", ID),
@@ -103,19 +97,9 @@ def css_tag(field):
     return b'<style id="callboard-' + field.encode() + b'">'
 
 
-def css_problem(raw, web, field, tokens):
-    """Why a CSS piece cannot go in (None when it can): the font tag does not match exactly once, the page already has the block, or the webview lacks a token."""
-    n = raw.count(CSS_ANCHOR)
-    if n != 1:
-        return count_why("font tag anchor", n)
-    if css_tag(field) in raw:
-        return already("callboard-" + field)
-    miss = [t for t in tokens if t.encode() not in b"".join(web)]
-    return "the webview lacks %s" % ", ".join(miss) if miss else None
-
-
-def css_in(raw, field, css):
-    return raw.replace(CSS_ANCHOR, css_tag(field) + css.encode("ascii") + b"</style>" + CSS_ANCHOR, 1)
+def css_edit(field, css):
+    """A CSS piece's edit: its style block in front of the font tag."""
+    return ("ext", "font tag anchor", re.escape(CSS_ANCHOR), lambda m: css_tag(field) + css.encode("ascii") + b"</style>" + m.group(0))
 
 
 # The context pie. The composer's stock pie is hidden until the context used passes the setting claudeCode.contextUsageThreshold (50 percent by default), has three fixed shapes, and measures against the model's window, not the
@@ -132,8 +116,8 @@ def css_in(raw, field, css):
 # names change). The hover text is a bold title, "Context", over the line `used / limit used · percent` in k (126k / 200k used · 63%) in place of Claude Code's "37% of
 # context remaining until auto-compact. Click to compact now.": the pie component hands the used tokens, its limit (its window, where the ring is full) and the
 # percent of it used to the tooltip component, whose text and hint lines take them (before the first usage data the limit is not above 0 and the title stands alone).
-# That is PIE_TIP_ANCHORS, two edits that go in together; when either does not
-# match exactly once in the shipped script, the ring is still the new one and the hover text stays Claude Code's.
+# That is the pie tooltip, a piece of its own that needs the pie (PIE_TIP_ANCHORS, two edits): when either does not match exactly once, it is left out
+# with a warning, the ring is still the new one and the hover text stays Claude Code's.
 PIE_CSS = (
     ":root{--callboard-compact:${(()=>{try{let p=require(\"path\"),n=JSON.parse(require(\"fs\").readFileSync(p.join(process.env.CLAUDE_CONFIG_DIR||"
     "p.join(require(\"os\").homedir(),\".claude\"),\"settings.json\"),\"utf8\")).autoCompactWindow;return Number.isInteger(n)&&n>0?n:0}catch{return 0}})()}}"
@@ -163,33 +147,15 @@ PIE_ANCHORS = (
 )
 
 
-def pie_problem(raw, web):
-    """Why the pie cannot go in (None when it can): the font tag, or an anchor in the shipped index.js, does not match exactly once (a patched script matches none)."""
-    why = css_problem(raw, web, "pie", ())
-    for label, pat, _ in PIE_ANCHORS:
-        n = len(re.findall(pat, web[1]))
-        why = why or (None if n == 1 else count_why("pie anchor " + label, n))
-    return why
-
-
 PIE_TIP_ANCHORS = (
     ("pie tooltip amounts",
      rb"(\{usedTokens:(ID),contextWindow:(ID),threshold:ID,onCompact:ID,buttonClassName:ID\}\)\{[^{}]{0,200}?return ID\(ID,\{percentageUsed:(ID),)".replace(b"ID", ID),
      lambda m: (m.group(1) + b'cbpTip:' + m.group(3) + b'>0?Math.round((' + m.group(2) + b'||0)/1e3)+"k / "+Math.round(' + m.group(3) + b'/1e3)+"k used \xc2\xb7 "+Math.round(+' + m.group(4) + b'||0)+"%":void 0,')),
     ("pie tooltip text",
-     rb"(\{percentageUsed:ID,onCompact:ID,buttonClassName:ID)(\}\)\{let\[ID,ID\]=ID\(!1\),ID=100-ID;.{0,500}?ID&&(ID)\(ID,\{)text:"
+     rb"(?s)(\{percentageUsed:ID,onCompact:ID,buttonClassName:ID)(\}\)\{let\[ID,ID\]=ID\(!1\),ID=100-ID;.{0,500}?ID&&(ID)\(ID,\{)text:"
      rb'`\$\{Math\.round\(ID\)\}% of context remaining until auto-compact\.`,hint:"Click to compact now\."'.replace(b"ID", ID),
      lambda m: m.group(1) + b",cbpTip" + m.group(2) + b'text:' + m.group(3) + b'("b",{style:{fontWeight:600},children:"Context"}),hint:cbpTip'),
 )
-
-
-def pie_web(js):
-    for _, pat, rep in PIE_ANCHORS:
-        js = re.sub(pat, rep, js)
-    if all(len(re.findall(pat, js, re.S)) == 1 for _, pat, _ in PIE_TIP_ANCHORS):
-        for _, pat, rep in PIE_TIP_ANCHORS:
-            js = re.sub(pat, rep, js, flags=re.S)
-    return js
 
 
 # The folder pill: a small pill after the model name in the composer's footer, in webview/index.js, that names the session's folder: the first line of
@@ -241,26 +207,9 @@ PILL_HANDLER = (
 )
 
 
-def pill_problem(raw, web):
-    """Why the pill cannot go in (None when it can): an anchor does not match exactly once (the model pill in index.js, the request switch in extension.js), the
-    shipped script never reads a session's cwd value or has no connection to ask through, or extension.js already has the handler."""
-    for what, pat, text in (("pill anchor", PILL_ANCHOR, web[1]), ("pill handler anchor", PILL_HANDLER_ANCHOR, raw)):
-        n = len(re.findall(pat, text))
-        if n != 1:
-            return count_why(what, n)
-    if b"callboard_folder" in raw:
-        return already("callboard_folder")
-    miss = [t for t in (b".cwd.value", b".getConnection()", b".sendRequest(") if t not in web[1]]
-    return "no " + ", ".join(t.decode() for t in miss) if miss else None
-
-
-def pill_in(raw):
-    return re.sub(PILL_HANDLER_ANCHOR, lambda m: PILL_HANDLER % m.group("r") + m.group(0), raw)
-
-
-def pill_web(js):
-    return re.sub(PILL_ANCHOR, lambda m: m.group(0) + b"typeof " + m.group("s") + b'.cwd?.value=="string"&&' + m.group("s") + b".cwd.value&&(cbfP=>" + m.group("jsx") + b'("span",{style:' + PILL_STYLE
-                  + b",ref:(cbfE)=>cbfP.ref(cbfE," + m.group("s") + b"),onClick:()=>cbfP.click(" + m.group("s") + b")}))(" + PILL_HELPER + b"),", js)
+def pill_page(m):
+    return (m.group(0) + b"typeof " + m.group("s") + b'.cwd?.value=="string"&&' + m.group("s") + b".cwd.value&&(cbfP=>" + m.group("jsx") + b'("span",{style:' + PILL_STYLE
+            + b",ref:(cbfE)=>cbfP.ref(cbfE," + m.group("s") + b"),onClick:()=>cbfP.click(" + m.group("s") + b")}))(" + PILL_HELPER + b"),")
 
 
 # The run button: a button before Copy, with Copy's box and a play triangle the size of Copy's icon, on a chat's shell code blocks (a block with no language, or sh, bash, zsh, shell, console; the style block hides it on any other
@@ -298,36 +247,17 @@ RUN_HANDLER = (
 )
 
 
-def run_problem(raw, web):
-    """Why the run button cannot go in (None when it can): an anchor does not match exactly once (the code block and the app handle in index.js, the request switch in
-    extension.js), the shipped script lacks what the page side calls, extension.js already has the case, or the style block cannot go in (font tag, tokens)."""
-    for what, pat, text in (("run code block anchor", RUN_CODE_ANCHOR, web[1]), ("run app anchor", RUN_APP_ANCHOR, web[1]), ("run handler anchor", PILL_HANDLER_ANCHOR, raw)):
-        n = len(re.findall(pat, text))
-        if n != 1:
-            return count_why(what, n)
-    if b"callboard_run" in raw:
-        return already("callboard_run")
-    miss = [t for t in (b".getConnection()", b".sendRequest(", b"claudeChannelId", b".activeSession.value") if t not in web[1]]
-    return "no " + ", ".join(t.decode() for t in miss) if miss else css_problem(raw, web, "run", ("codeBlockWrapper_", "copyButton_"))
-
-
-def run_in(raw):
-    raw = re.sub(PILL_HANDLER_ANCHOR, lambda m: RUN_HANDLER % (m.group("r"), m.group("r")) + m.group(0), raw)
-    return css_in(raw, "run", RUN_CSS)
-
-
-def run_web(js):
-    js = re.sub(RUN_APP_ANCHOR, lambda m: b"globalThis.cbRunApp=" + m.group("c") + b"," + m.group(0), js)
-    return re.sub(RUN_CODE_ANCHOR, lambda m: m.group(0) + m.group("jsx") + b'("button",{className:"cbRun "+' + m.group("ly") + b'.copyButton,title:"Run",'
-                  b"onClick:(cbxE)=>{if(cbxE.isTrusted)" + RUN_HELPER + b"(" + m.group("ref") + b'.current)},children:' + m.group("jsx") +
-                  b'("svg",{viewBox:"0 0 20 20",width:14,height:14,fill:"currentColor",stroke:"currentColor",strokeWidth:2,strokeLinejoin:"round",children:' + m.group("jsx") + b'("polygon",{points:"6,4.5 15,10 6,15.5"})})}),', js)
+def run_button(m):
+    return (m.group(0) + m.group("jsx") + b'("button",{className:"cbRun "+' + m.group("ly") + b'.copyButton,title:"Run",'
+            b"onClick:(cbxE)=>{if(cbxE.isTrusted)" + RUN_HELPER + b"(" + m.group("ref") + b'.current)},children:' + m.group("jsx") +
+            b'("svg",{viewBox:"0 0 20 20",width:14,height:14,fill:"currentColor",stroke:"currentColor",strokeWidth:2,strokeLinejoin:"round",children:' + m.group("jsx") + b'("polygon",{points:"6,4.5 15,10 6,15.5"})})}),')
 
 
 # The restore fix: a Claude panel that VS Code restores (or Claude reopens) for a session starts in the window's first folder, where that session is not in the
 # list, so it comes back as a new empty session. The saved panel state names no folder, so the fix finds it: the window folder whose project folder holds
 # the session's transcript (<config dir>/projects/<folder, every character but a letter or digit as "-">/<session id>.jsonl, the way Claude names it). Three edits:
 # a method that does the lookup, setupPanel using it when no folder was given, and the panel serializer passing it the restored session's id. The anchors
-# match the file after the folder patch, since they hook into its `cbCwd` argument. Optional: when one misses, none of the three goes in. The lookup answers
+# match the file after the folder patch, since they hook into its `cbCwd` argument, so the fix needs the folder patch. When one misses, none of the three goes in. The lookup answers
 # nothing for a one-folder window, an id that is not a UUID, no transcript found (nothing on disk yet, a path over 200 characters, a folder that is a
 # sub-folder or worktree) or any error, and the panel then starts in the first folder as it did before.
 RESTORE_METHOD = (
@@ -343,15 +273,6 @@ RESTORE_ANCHORS = (
      lambda m: b"let " + m.group(5) + b"=typeof " + m.group(6) + b'?.sessionID==="string"?' + m.group(6) + b".sessionID:" + m.group(3) + b";"
      + m.group(1) + b".setupPanel(" + m.group(2) + b"," + m.group(3) + b",void 0," + m.group(4) + b",void 0,!1," + m.group(1) + b".cbFolderOf(" + m.group(5) + b"));"),
 )
-
-
-def restore_problem(raw, _web):
-    """Why the restore fix cannot go in (None when it can): an anchor does not match exactly once, or the file already has the method."""
-    for label, pat, _ in RESTORE_ANCHORS:
-        n = len(re.findall(pat, raw))
-        if n != 1:
-            return count_why("restore anchor " + label, n)
-    return already("cbFolderOf") if b"cbFolderOf" in raw else None
 
 
 # The tab group fix: a Claude tab opens in the editor group the person is in. Stock createPanel, when no group holds a Claude tab, calls `startClaudeGroup()` (a new group beside
@@ -373,24 +294,13 @@ ADDDIR_ANCHORS = (
 )
 
 
-def edits_problem(anchors, raw):
-    """Why a piece made of plain edits cannot go in (None when it can): an anchor does not match exactly once."""
-    for label, pat, _ in anchors:
-        n = len(re.findall(pat, raw))
-        if n != 1:
-            return count_why(label, n)
-
-
-def edits_in(anchors, raw):
-    for _, pat, rep in anchors:
-        raw = re.sub(pat, rep, raw)
-    return raw
-
-
 # The group command's anchor: the registration of the stock command that adds the active tab to a group, which sits inside an `x.subscriptions.push(...)` call
-# of the extension's activation. Our registration goes in front of it as one more argument of that push.
+# of the extension's activation. Our registration goes in front of it as one more argument of that push. Each command at this anchor goes in only when
+# the shipped extension.js still has the provider's members it calls (GROUPS_MEMBERS and the others below), so a renamed member leaves it out instead of
+# putting in a command that throws.
 GROUPS_ANCHOR = rb'(?P<vs>ID)\.commands\.registerCommand\("claude-vscode\.addSessionTabToGroup",async\(\)=>\{if\(!await (?P<prov>ID)\.addActiveSessionTabToGroup\(\)\)'.replace(b"ID", ID)
 GROUPS_COMMAND = "callboard file session"
+GROUPS_MEMBERS = (b".settings.getSessionGroups()", b".settings.getArchivedSessionIds()", b"persistGroupsFromHost(")
 
 
 def groups_command(m):
@@ -415,18 +325,6 @@ def groups_command(m):
             b"if(cbqJ(cbqG)!==cbqW)" + p + b".persistGroupsFromHost(cbqG);return!0})," + m.group(0))
 
 
-def command_problem(raw, command):
-    """Why a command at the groups anchor cannot go in (None when it can): the anchor does not match exactly once, or the file already has the command."""
-    n = len(re.findall(GROUPS_ANCHOR, raw))
-    if n != 1:
-        return count_why("groups anchor", n)
-    return already(command) if command.encode() in raw else None
-
-
-def groups_in(raw):
-    return re.sub(GROUPS_ANCHOR, groups_command, raw)
-
-
 # The list piece: the sidebar lists the saved conversations of one folder, the window's first (the provider's `sessionListOptions` names it as `dir`), so a conversation
 # of another folder is there only while its panel is open. This one makes the provider's list method scan every folder of the window and join the results, newest first,
 # each session once. The stock body stays as `cbListOne`. A call that names another folder (the stock lookup of one session), a limit or an offset, and a window with
@@ -438,23 +336,13 @@ LIST_ANCHOR = (
 LIST_METHOD = "cbListOne"
 
 
-def list_in(raw):
-    def rep(m):
-        e = m.group("e")
-        return (b'async listSdkSessions(' + e + b'=this.sessionListOptions()){let cblF=(require("vscode").workspace.workspaceFolders||[]).map((cblE)=>cblE.uri.fsPath);'
-                b"if(" + e + b".dir!==this.cwd||" + e + b".limit||" + e + b".offset||cblF.length<2)return this.cbListOne(" + e + b");"
-                b"let cblS=new Set;return(await Promise.all([this.cbListOne(" + e + b"),...cblF.filter((cblE)=>cblE!==this.cwd).map((cblE)=>this.cbListOne({..." + e + b",dir:cblE}).catch(()=>[]))]))"
-                b".flat().filter((cblE)=>!cblS.has(cblE.sessionId)&&cblS.add(cblE.sessionId)).sort((cblA,cblB)=>(cblB.lastModified||0)-(cblA.lastModified||0))}"
-                b"async cbListOne(" + e + b"){" + m.group("body") + b"}")
-    return re.sub(LIST_ANCHOR, rep, raw)
-
-
-def list_problem(raw, _web):
-    """Why the list piece cannot go in (None when it can): the method does not match exactly once, or the file already has the helper."""
-    n = len(re.findall(LIST_ANCHOR, raw))
-    if n != 1:
-        return count_why("list anchor", n)
-    return already(LIST_METHOD) if LIST_METHOD.encode() in raw else None
+def list_method(m):
+    e = m.group("e")
+    return (b'async listSdkSessions(' + e + b'=this.sessionListOptions()){let cblF=(require("vscode").workspace.workspaceFolders||[]).map((cblE)=>cblE.uri.fsPath);'
+            b"if(" + e + b".dir!==this.cwd||" + e + b".limit||" + e + b".offset||cblF.length<2)return this.cbListOne(" + e + b");"
+            b"let cblS=new Set;return(await Promise.all([this.cbListOne(" + e + b"),...cblF.filter((cblE)=>cblE!==this.cwd).map((cblE)=>this.cbListOne({..." + e + b",dir:cblE}).catch(()=>[]))]))"
+            b".flat().filter((cblE)=>!cblS.has(cblE.sessionId)&&cblS.add(cblE.sessionId)).sort((cblA,cblB)=>(cblB.lastModified||0)-(cblA.lastModified||0))}"
+            b"async cbListOne(" + e + b"){" + m.group("body") + b"}")
 
 
 # The archive command, at the groups anchor: `callboard archive sessions` (group name, session ids) archives the listed sessions that sit in the group of that name (any
@@ -462,19 +350,18 @@ def list_problem(raw, _web):
 # only the ids it is given and never chooses a session itself. Returns the ids it archived: none for a bad argument, a group of no such name, or a session that is
 # not in it or is archived already. Uses only members the extension keeps unminified.
 ARCHIVE_COMMAND = "callboard archive sessions"
+ARCHIVE_MEMBERS = (b".settings.getSessionGroups()", b".settings.getArchivedSessionIds()", b"archiveSessions(", b"broadcastSessionArchiveChanged(", b"persistGroupsFromHost(")
 
 
-def archive_in(raw):
-    def rep(m):
-        p = m.group("prov")
-        return (m.group("vs") + b'.commands.registerCommand("' + ARCHIVE_COMMAND.encode() + b'",async(cbqN,cbqI)=>{'
-                b'if(typeof cbqN!="string"||!Array.isArray(cbqI))return[];let cbqL=cbqN.toLowerCase(),cbqT=' + p + b".settings.getSessionGroups().find((cbqE)=>cbqE.name.toLowerCase()===cbqL),"
-                b"cbqA=new Set(" + p + b".settings.getArchivedSessionIds()),"
-                b'cbqD=cbqT?[...new Set(cbqI)].filter((cbqE)=>typeof cbqE=="string"&&cbqT.sessionIds.includes(cbqE)&&!cbqA.has(cbqE)):[];'
-                b"if(!cbqD.length)return[];await " + p + b".settings.archiveSessions(cbqD);for(let cbqE of cbqD)" + p + b".broadcastSessionArchiveChanged(void 0,cbqE,!0);"
-                + p + b".persistGroupsFromHost(" + p + b".settings.getSessionGroups());return cbqD}),"
-                + m.group(0))
-    return re.sub(GROUPS_ANCHOR, rep, raw)
+def archive_command(m):
+    p = m.group("prov")
+    return (m.group("vs") + b'.commands.registerCommand("' + ARCHIVE_COMMAND.encode() + b'",async(cbqN,cbqI)=>{'
+            b'if(typeof cbqN!="string"||!Array.isArray(cbqI))return[];let cbqL=cbqN.toLowerCase(),cbqT=' + p + b".settings.getSessionGroups().find((cbqE)=>cbqE.name.toLowerCase()===cbqL),"
+            b"cbqA=new Set(" + p + b".settings.getArchivedSessionIds()),"
+            b'cbqD=cbqT?[...new Set(cbqI)].filter((cbqE)=>typeof cbqE=="string"&&cbqT.sessionIds.includes(cbqE)&&!cbqA.has(cbqE)):[];'
+            b"if(!cbqD.length)return[];await " + p + b".settings.archiveSessions(cbqD);for(let cbqE of cbqD)" + p + b".broadcastSessionArchiveChanged(void 0,cbqE,!0);"
+            + p + b".persistGroupsFromHost(" + p + b".settings.getSessionGroups());return cbqD}),"
+            + m.group(0))
 
 
 # The unfile command, at the groups anchor: `callboard unfile session` (session id, group name) takes the session out of the group of that name (any letter case) and
@@ -482,18 +369,17 @@ def archive_in(raw):
 # list without the session in that group is not saved. Returns true when the session is in no such group afterwards (it was not in one, or the group does not exist),
 # false for a bad argument. Uses only members the extension keeps unminified.
 UNFILE_COMMAND = "callboard unfile session"
+UNFILE_MEMBERS = (b".settings.getSessionGroups()", b"persistGroupsFromHost(")
 
 
-def unfile_in(raw):
-    def rep(m):
-        p = m.group("prov")
-        return (m.group("vs") + b'.commands.registerCommand("' + UNFILE_COMMAND.encode() + b'",async(cbqS,cbqN)=>{'
-                b'if(typeof cbqS!="string"||typeof cbqN!="string"||!cbqN)return!1;let cbqG=' + p + b".settings.getSessionGroups(),cbqL=cbqN.toLowerCase(),"
-                b"cbqT=cbqG.find((cbqE)=>cbqE.name.toLowerCase()===cbqL);"
-                b"if(cbqT&&cbqT.sessionIds.includes(cbqS))" + p + b".persistGroupsFromHost(cbqG.map((cbqE)=>cbqE===cbqT?{...cbqE,sessionIds:cbqE.sessionIds.filter((cbqI)=>cbqI!==cbqS)}:cbqE));"
-                b"return!0}),"
-                + m.group(0))
-    return re.sub(GROUPS_ANCHOR, rep, raw)
+def unfile_command(m):
+    p = m.group("prov")
+    return (m.group("vs") + b'.commands.registerCommand("' + UNFILE_COMMAND.encode() + b'",async(cbqS,cbqN)=>{'
+            b'if(typeof cbqS!="string"||typeof cbqN!="string"||!cbqN)return!1;let cbqG=' + p + b".settings.getSessionGroups(),cbqL=cbqN.toLowerCase(),"
+            b"cbqT=cbqG.find((cbqE)=>cbqE.name.toLowerCase()===cbqL);"
+            b"if(cbqT&&cbqT.sessionIds.includes(cbqS))" + p + b".persistGroupsFromHost(cbqG.map((cbqE)=>cbqE===cbqT?{...cbqE,sessionIds:cbqE.sessionIds.filter((cbqI)=>cbqI!==cbqS)}:cbqE));"
+            b"return!0}),"
+            + m.group(0))
 
 
 # The remote command, at the groups anchor: `callboard remote session` (session id, on) turns Remote Control of the panel that holds that session on or off, as the panel's own
@@ -502,37 +388,59 @@ def unfile_in(raw):
 # id with its first message), "ambiguous" (two channels hold it), "busy" (the channel is still connecting) or "failed" (the toggle threw or left another state).
 # Uses only members the extension keeps unminified.
 REMOTE_COMMAND = "callboard remote session"
+REMOTE_MEMBERS = (b".allComms", b".channels", b"toggleRemoteControl(", b"remoteControlState")
 
 
-def remote_in(raw):
-    def rep(m):
-        p = m.group("prov")
-        return (m.group("vs") + b'.commands.registerCommand("' + REMOTE_COMMAND.encode() + b'",async(cbqS,cbqO)=>{'
-                b'if(typeof cbqS!="string"||typeof cbqO!="boolean")return"bad-request";let cbqC=[];'
-                b"for(let cbqM of " + p + b".allComms||[])for(let[cbqK,cbqH]of cbqM.channels||[])if(cbqH.sessionId===cbqS)cbqC.push([cbqM,cbqK,cbqH]);"
-                b'if(!cbqC.length)return"no-channel";if(cbqC.length>1)return"ambiguous";let[cbqM,cbqK,cbqH]=cbqC[0],cbqT=cbqO?"connected":"disconnected";'
-                b'if(cbqH.remoteControlState?.status==="connecting")return"busy";'
-                b'if(cbqH.remoteControlState?.status!==cbqT)try{await cbqM.toggleRemoteControl(cbqK,cbqO)}catch{return"failed"}'
-                b'return cbqH.remoteControlState?.status===cbqT?"ok":"failed"}),'
-                + m.group(0))
-    return re.sub(GROUPS_ANCHOR, rep, raw)
+def remote_command(m):
+    p = m.group("prov")
+    return (m.group("vs") + b'.commands.registerCommand("' + REMOTE_COMMAND.encode() + b'",async(cbqS,cbqO)=>{'
+            b'if(typeof cbqS!="string"||typeof cbqO!="boolean")return"bad-request";let cbqC=[];'
+            b"for(let cbqM of " + p + b".allComms||[])for(let[cbqK,cbqH]of cbqM.channels||[])if(cbqH.sessionId===cbqS)cbqC.push([cbqM,cbqK,cbqH]);"
+            b'if(!cbqC.length)return"no-channel";if(cbqC.length>1)return"ambiguous";let[cbqM,cbqK,cbqH]=cbqC[0],cbqT=cbqO?"connected":"disconnected";'
+            b'if(cbqH.remoteControlState?.status==="connecting")return"busy";'
+            b'if(cbqH.remoteControlState?.status!==cbqT)try{await cbqM.toggleRemoteControl(cbqK,cbqO)}catch{return"failed"}'
+            b'return cbqH.remoteControlState?.status===cbqT?"ok":"failed"}),'
+            + m.group(0))
 
 
-# The optional pieces, in the order they go in: (marker field, name in messages, why it cannot go in, how it goes in). A piece that cannot go in is left out
-# with a warning, and the folder patch still applies.
+def command(name, rep, members):
+    """A command registered at the groups anchor: its one edit, the provider's members it calls, and its command string as the name it adds."""
+    return [("ext", "groups anchor", GROUPS_ANCHOR, rep)], [("ext", t) for t in members], (name.encode(),)
+
+
+def web_tokens(*tokens):
+    return [("web", t.encode()) for t in tokens]
+
+
+# Every piece, in the order it goes in: (marker field, name in messages, the fields of the pieces it needs, its parts). The parts are read when the piece
+# is built, so they take the constants above as they are then: (edits, tokens, names).
+#   edits   [(file, label, pattern, replacement)], the file "ext" (extension.js) or "web" (webview/index.js): each pattern must match exactly once in the
+#           bytes the piece sees, the file after the pieces before it and its own earlier edits.
+#   tokens  [(file, token)]: what the piece's code calls, which the shipped file must hold: "ext" is extension.js, "web" the webview (index.css and index.js).
+#   names   what the piece adds where stock code could have it already: the piece is left out when the shipped extension.js holds one.
+# A piece goes in whole or not at all. One that cannot go in is left out with a warning, with every piece that needs it, and the others still apply.
 PIECES = (
-    ("width", "panel width", lambda raw, web: css_problem(raw, web, "width", ("inputWrapper_", "permissionsContainer_", "inputContainer_")), lambda raw: css_in(raw, "width", WIDTH_CSS)),
-    ("pie", "context pie", pie_problem, lambda raw: css_in(raw, "pie", PIE_CSS)),
-    ("pill", "folder pill", pill_problem, pill_in),  # its page side is in webview/index.js (pill_web)
-    ("restore", "restore fix", restore_problem, lambda raw: edits_in(RESTORE_ANCHORS, raw)),
-    ("groups", "group command", lambda raw, _: command_problem(raw, GROUPS_COMMAND), groups_in),
-    ("archive", "archive command", lambda raw, _: command_problem(raw, ARCHIVE_COMMAND), archive_in),
-    ("unfile", "unfile command", lambda raw, _: command_problem(raw, UNFILE_COMMAND), unfile_in),
-    ("remote", "remote command", lambda raw, _: command_problem(raw, REMOTE_COMMAND), remote_in),
-    ("list", "session list", list_problem, list_in),
-    ("tabgroup", "tab group fix", lambda raw, _: edits_problem(TABGROUP_ANCHORS, raw), lambda raw: edits_in(TABGROUP_ANCHORS, raw)),
-    ("adddir", "add-dir fix", lambda raw, _: edits_problem(ADDDIR_ANCHORS, raw), lambda raw: edits_in(ADDDIR_ANCHORS, raw)),
-    ("run", "run button", run_problem, run_in),  # its page side is in webview/index.js (run_web)
+    ("cwd", "folder patch", (), lambda: ([("ext",) + a for a in ANCHORS], [], (NAME, b"cbqC"))),
+    ("width", "panel width", (), lambda: ([css_edit("width", WIDTH_CSS)], web_tokens("inputWrapper_", "permissionsContainer_", "inputContainer_"), (b"callboard-width",))),
+    ("pie", "context pie", (), lambda: ([css_edit("pie", PIE_CSS)] + [("web", "pie anchor " + label, pat, rep) for label, pat, rep in PIE_ANCHORS], [], (b"callboard-pie",))),
+    ("pietip", "pie tooltip", ("pie",), lambda: ([("web",) + a for a in PIE_TIP_ANCHORS], [], ())),
+    ("pill", "folder pill", (), lambda: ([("web", "pill anchor", PILL_ANCHOR, pill_page),
+                                         ("ext", "pill handler anchor", PILL_HANDLER_ANCHOR, lambda m: PILL_HANDLER % m.group("r") + m.group(0))],
+                                        web_tokens(".cwd.value", ".getConnection()", ".sendRequest("), (b"callboard_folder",))),
+    ("restore", "restore fix", ("cwd",), lambda: ([("ext", "restore anchor " + label, pat, rep) for label, pat, rep in RESTORE_ANCHORS], [], (b"cbFolderOf",))),
+    ("groups", "group command", (), lambda: command(GROUPS_COMMAND, groups_command, GROUPS_MEMBERS)),
+    ("archive", "archive command", (), lambda: command(ARCHIVE_COMMAND, archive_command, ARCHIVE_MEMBERS)),
+    ("unfile", "unfile command", (), lambda: command(UNFILE_COMMAND, unfile_command, UNFILE_MEMBERS)),
+    ("remote", "remote command", (), lambda: command(REMOTE_COMMAND, remote_command, REMOTE_MEMBERS)),
+    ("list", "session list", (), lambda: ([("ext", "list anchor", LIST_ANCHOR, list_method)], [], (LIST_METHOD.encode(),))),
+    ("tabgroup", "tab group fix", (), lambda: ([("ext",) + a for a in TABGROUP_ANCHORS], [], ())),
+    ("adddir", "add-dir fix", (), lambda: ([("ext",) + a for a in ADDDIR_ANCHORS], [], ())),
+    ("run", "run button", (), lambda: ([("web", "run code block anchor", RUN_CODE_ANCHOR, run_button),
+                                       ("web", "run app anchor", RUN_APP_ANCHOR, lambda m: b"globalThis.cbRunApp=" + m.group("c") + b"," + m.group(0)),
+                                       ("ext", "run handler anchor", PILL_HANDLER_ANCHOR, lambda m: RUN_HANDLER % (m.group("r"), m.group("r")) + m.group(0)),
+                                       css_edit("run", RUN_CSS)],
+                                      web_tokens(".getConnection()", ".sendRequest(", "claudeChannelId", ".activeSession.value", "codeBlockWrapper_", "copyButton_"),
+                                      (b"callboard_run", b"callboard-run"))),
 )
 
 
@@ -619,19 +527,6 @@ def marker_of(ext):
     return m if ok else None
 
 
-def problems(raw):
-    """What stops a patch: a label per anchor that matches nothing or more than once. [] means every anchor matches exactly once."""
-    out = []
-    for used in (NAME, b"cbq"):
-        if used in raw:
-            out.append(already(used.decode()))
-    for label, pat, _ in ANCHORS:
-        n = len(re.findall(pat, raw))
-        if n != 1:
-            out.append(count_why(label, n))
-    return out
-
-
 def shipped(ext, *paths):
     """The first of these files (paths inside EXTENSION_DIR) that is a regular file, read never through a link; b"" when none is."""
     if os.path.islink(os.path.join(ext, "webview")):
@@ -643,28 +538,38 @@ def shipped(ext, *paths):
 
 
 def webview(ext):
-    """The shipped webview's (stylesheet, script): the CSS pieces check their tokens against both, the pie, the pill and the run button patch the script, which is read
-    from its backup when one of them is in. A missing, linked or odd file counts as empty, so those pieces are left out with a warning and the rest still applies."""
+    """The shipped webview's (stylesheet, script): the pieces check their "web" tokens against both and edit the script, which is read from its backup when one
+    of them is in. A missing, linked or odd file counts as empty, so the pieces that need it are left out with a warning and the rest still applies."""
     return shipped(ext, "webview/index.css"), shipped(ext, WEB_BACKUP, WEB)
 
 
 def patched(raw, web):
-    """(the patched bytes, {piece: why it is left out, or None when it went in}, the patched webview script or None when none of the pie, the pill and the run button is in). Every anchor is
-    replaced on these very bytes and must match exactly once, else nothing is written; the optional pieces are the anchors that may miss, and the CSS pieces
-    check their tokens in `web`."""
-    for label, pat, rep in ANCHORS:
-        raw, n = re.subn(pat, rep, raw)
-        if n != 1:
-            refuse("%s matched %d times; nothing was changed" % (label, n))
-    left = {}
-    for field, _, problem, put_in in PIECES:
-        left[field] = problem(raw, web)
-        if left[field] is None:
-            raw = put_in(raw)
-    js = pie_web(web[1]) if left["pie"] is None else web[1]
-    js = pill_web(js) if left["pill"] is None else js
-    js = run_web(js) if left["run"] is None else js
-    return raw, left, None if js == web[1] else js
+    """(the patched extension.js, {piece: why it is left out, or None when it went in}, the patched webview script or None when no piece edits it), built from
+    the shipped extension.js `raw` and the shipped webview `web`. Each piece is built on copies of both files, on the bytes the pieces before it left, and the
+    copies are kept only when it goes in whole: each edit replaced exactly one match, the shipped files hold its tokens and none of its names."""
+    have, left = {"ext": raw, "web": web[1]}, {}
+    names = {field: name for field, name, _, _ in PIECES}
+    for field, _, needs, parts in PIECES:
+        edits, tokens, adds = parts()
+        new = dict(have)
+        why = next(("it needs the %s" % names[n] for n in needs if left.get(n) is not None), None)
+        for file, label, pat, rep in edits:
+            if why is None:
+                new[file], n = re.subn(pat, rep, new[file])
+                why = None if n == 1 else count_why(label, n)
+        why = why or next((already(a.decode()) for a in adds if a in raw), None)
+        for file, where in (("ext", MAIN), ("web", "the webview")):
+            miss = [t.decode() for f, t in tokens if f == file and t not in (raw if file == "ext" else b"".join(web))]
+            why = why or (miss and "%s lacks %s" % (where, ", ".join(miss))) or None
+        left[field] = why
+        if why is None:
+            have = new
+    return have["ext"], left, None if have["web"] == web[1] else have["web"]
+
+
+def none_in(left):
+    """Why no piece can go in (each piece and its reason), or None when one can."""
+    return None if None in left.values() else "; ".join("the %s: %s" % (name, left[field]) for field, name, _, _ in PIECES)
 
 
 def warn_left_out(left, tail):
@@ -679,8 +584,9 @@ def web_foreign(ext, m, web):
 
 
 def can_update(ext):
-    """Whether --update can rebuild an outdated install: the backup still fits this script's anchors and the webview backup is the recorded original."""
-    return not problems(read(os.path.join(ext, BACKUP))) and not web_foreign(ext, marker_of(ext), webview(ext))
+    """Whether --update can rebuild an outdated install: a piece still goes in on the backup and the webview backup is the recorded original."""
+    web = webview(ext)
+    return not none_in(patched(read(os.path.join(ext, BACKUP)), web)[1]) and not web_foreign(ext, marker_of(ext), web)
 
 
 def stale(ext, raw, m):
@@ -688,13 +594,12 @@ def stale(ext, raw, m):
     orig = read(os.path.join(ext, BACKUP))
     if orig is None or digest(orig) != m["original_sha256"]:
         return None
-    bad = problems(orig)
-    if bad:
-        return "this script no longer fits the backup: " + "; ".join(bad)
     web = webview(ext)
+    new, left, new_js = patched(orig, web)
+    if none_in(left):
+        return "this script no longer fits the backup: " + none_in(left)
     if web_foreign(ext, m, web):
         return WEB_FOREIGN
-    new, left, new_js = patched(orig, web)
     if digest(new) == digest(raw) and (web[1] if new_js is None else new_js) == shipped(ext, WEB):
         return None
     for field, name, _, _ in PIECES:
@@ -718,8 +623,8 @@ def state(ext):
     left = [n for n in (MARKER, BACKUP, WEB_BACKUP) if os.path.lexists(os.path.join(ext, n))]
     if left:
         return "leftovers", ver, ", ".join(left)
-    bad = problems(raw)
-    return ("anchors-missing", ver, "; ".join(bad)) if bad else ("unpatched-patchable", ver, "")
+    bad = none_in(patched(raw, webview(ext))[1])
+    return ("anchors-missing", ver, bad) if bad else ("unpatched-patchable", ver, "")
 
 
 def reason(e):
@@ -790,7 +695,7 @@ def apply(ext):
     print("patched %s" % ver)
     both = new_js is not None
     print("Changed: %s (%s: %s, marker: %s, all in %s)" % (MAIN + (" and " + WEB if both else ""), "backups" if both else "backup", BACKUP + (" and " + WEB_BACKUP if both else ""), MARKER, show(ext)))
-    warn_left_out(left, ("is not in", "the folder patch is."))
+    warn_left_out(left, ("is not in", "the rest went in."))
     print("Reload the VS Code window (Developer: Reload Window) to load it. Undo: run this with --undo.")
     return 0
 
@@ -801,13 +706,12 @@ def update(ext):
         return apply(ext)
     main = os.path.join(ext, MAIN)
     orig = read(os.path.join(ext, BACKUP))
-    bad = problems(orig)
-    if bad:
-        refuse("this script cannot build the patch from the backup (%s); nothing was changed" % "; ".join(bad))
     web = webview(ext)
+    new, left, new_js = patched(orig, web)
+    if none_in(left):
+        refuse("this script cannot build the patch from the backup (%s); nothing was changed" % none_in(left))
     if web_foreign(ext, marker_of(ext), web):
         refuse("%s; nothing was changed. Run --undo, or reinstall the extension" % WEB_FOREIGN)
-    new, left, new_js = patched(orig, web)
     # The previous patched file stays reachable under a second name (a hard link, no space) until the new one is in: a failed write puts it back.
     prev = os.path.join(ext, PREVIOUS)
     if os.path.lexists(prev):
@@ -849,7 +753,7 @@ def update(ext):
         print("Changed: %s, %s (back to the shipped script) and %s, rebuilt from the backup %s (not touched), all in %s" % (MAIN, WEB, MARKER, BACKUP, show(ext)))
     else:
         print("Changed: %s and %s, rebuilt from the backup %s (not touched), all in %s" % (MAIN, MARKER, BACKUP, show(ext)))
-    warn_left_out(left, ("is not in", "the folder patch is."))
+    warn_left_out(left, ("is not in", "the rest went in."))
     print("Reload the VS Code window (Developer: Reload Window) to load it. Undo: run this with --undo.")
     return 0
 
@@ -867,9 +771,9 @@ def undo(ext):
     for name, backup, field in ((BACKUP, orig, "original_sha256"), (WEB_BACKUP, orig_js, "web_original_sha256")):
         if backup is None or m is None or digest(backup) == m.get(field):
             continue
-        # An --update of an install made before the marker held web hashes can stop after the webview script was patched and before the new marker: the backup is the original
-        # then, shown by the script now being it, or any of the pieces built from it.
-        if field == "web_original_sha256" and field not in m and js in (backup, pie_web(backup), pill_web(backup), pill_web(pie_web(backup))):
+        # An --update that brings a webview piece into an install with none (its marker holds no web hashes) can stop after the webview script was written and
+        # before the new marker: the backup is the original then, shown by the script being it or what this script builds from it.
+        if field == "web_original_sha256" and field not in m and js in (backup, patched(orig or b"", (shipped(ext, "webview/index.css"), backup))[2]):
             continue
         refuse("%s does not match the marker's recorded original; left alone. Reinstall the extension instead" % name)
     raw = read(main)
@@ -909,7 +813,7 @@ def main(argv):
     name, ver, detail = state(ext)
     print("%s %s%s" % (name, ver, ": " + detail if detail else ""))
     if name == "unpatched-patchable":
-        warn_left_out(patched(read(os.path.join(ext, MAIN)), webview(ext))[1], ("would be left out", "the folder patch would still apply."))
+        warn_left_out(patched(read(os.path.join(ext, MAIN)), webview(ext))[1], ("would be left out", "the rest would go in."))
     if name == "patched":
         for field, piece, _, _ in PIECES:
             if marker_of(ext).get(field) is not True:
