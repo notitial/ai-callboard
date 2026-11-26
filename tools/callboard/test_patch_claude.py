@@ -1452,7 +1452,7 @@ console.log(JSON.stringify({ fresh, colour, window: [props(1, 1000000).contextWi
 CIRC = 2 * 3.141592653589793 * 7.25
 # What an older script that had no pie amounts to: anchors that match nothing, so the piece is left out.
 NO_PIE = (("pie component", rb"no such code", lambda m: b""),)
-# An older script that had no webview piece (no pie, pill or run button), so the webview script is left as it was shipped.
+# An older script that had no webview piece (no pie, pill, run button or auth banner), so the webview script is left as it was shipped.
 NO_WEB = dict(PIE_ANCHORS=NO_PIE, PILL_ANCHOR=rb"no such code", RUN_CODE_ANCHOR=rb"no such code", AUTH_WARNING_ANCHOR=rb"no such code")
 
 
