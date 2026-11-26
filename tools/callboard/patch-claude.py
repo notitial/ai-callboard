@@ -57,7 +57,7 @@ def already(what):
 
 # The CSS pieces: each a style block of its own in the webview page the extension builds, put in front of the font configuration style tag. That tag
 # is the one anchor they share: it still matches once after each insert. The rules carry !important, so they win over the page's own. Each block ends
-# up inside a JavaScript template literal, so it holds no backtick or backslash, and no "${" but the pie's one (below). Class names of the page carry a build hash, so the selectors match their
+# up inside a JavaScript template literal, so it holds no backtick, backslash or "${". Class names of the page carry a build hash, so the selectors match their
 # stable prefix. A rule whose selector goes stale does not fail, so a piece goes in only when the shipped webview (webview/index.css and index.js) still carries
 # every token it names; one that misses is left out with a warning and the others still apply.
 CSS_ANCHOR = b'<style id="claude-font-configuration">'
@@ -102,12 +102,10 @@ def css_edit(field, css):
     return ("ext", "font tag anchor", re.escape(CSS_ANCHOR), lambda m: css_tag(field) + css.encode("ascii") + b"</style>" + m.group(0))
 
 
-# The context pie. The composer's stock pie is hidden until the context used passes the setting claudeCode.contextUsageThreshold (50 percent by default), has three fixed shapes, and measures against the model's window, not the
-# autocompact level of the person's settings. This piece shows it always, as one ring, against that level. It edits webview/index.js (its own backup, WEB_BACKUP)
-# in three places, and puts the level into the page as the CSS variable --callboard-compact: the pie's style block, in extension.js, reads `autoCompactWindow` from
-# <CLAUDE_CONFIG_DIR or ~/.claude>/settings.json each time a panel's page is built (0 when it is not a number above 0; project settings are not read). Where the
-# level is below the model's window, the stock threshold (window - the smaller of the output limit and 20000 - 13000) is taken from the level instead of the window.
-# The three anchors are patterns on the minified code; the piece goes in only when each matches exactly once in the shipped index.js and the font tag matches once.
+# The context pie. The composer's stock pie is hidden until the context used passes the setting claudeCode.contextUsageThreshold (50 percent by default) and has three
+# fixed shapes. This piece shows it always, as one ring, full at the window the composer passes (from 2.1.332 capped at the CLI's compaction point). It edits webview/index.js (its own backup, WEB_BACKUP) in two places and puts a style block into the page.
+# The two anchors are patterns on the minified code; the piece goes in only when each matches exactly once in the shipped index.js and the font tag matches once.
+# The pie component's props may carry one more prop between onCompact and buttonClassName (onShowContextUsage).
 # The ring is drawn 18px wide (its viewBox stays 20, so the stroke scales), with a stroke of 2.25. Its arc takes its colour from the tokens used, which the pie component
 # leaves in `cbpU` for the ring it draws: green below 200k, blue from 200k, amber from 300k and red from 400k (the theme's chart colours, each with a fallback), and the
 # stock orange while the amount is not a number. Only the arc's stroke attribute changes with it, which the footer's observer (child nodes and text) does not see.
@@ -119,18 +117,12 @@ def css_edit(field, css):
 # That is the pie tooltip, a piece of its own that needs the pie (PIE_TIP_ANCHORS, two edits): when either does not match exactly once, it is left out
 # with a warning, the ring is still the new one and the hover text stays Claude Code's.
 PIE_CSS = (
-    ":root{--callboard-compact:${(()=>{try{let p=require(\"path\"),n=JSON.parse(require(\"fs\").readFileSync(p.join(process.env.CLAUDE_CONFIG_DIR||"
-    "p.join(require(\"os\").homedir(),\".claude\"),\"settings.json\"),\"utf8\")).autoCompactWindow;return Number.isInteger(n)&&n>0?n:0}catch{return 0}})()}}"
     '[class*="usageButtonV2_"]{width:auto!important;height:auto!important;padding:2px!important}[class*="usageButtonV2_"] svg{width:18px!important;height:18px!important}'
-)
-PIE_CAP = (
-    b'var cbpN,cbpU;function cbpCap(cbpW){cbpN??=parseInt(getComputedStyle(document.documentElement).getPropertyValue("--callboard-compact"))||0;'
-    b"return cbpN>0&&cbpW>cbpN?cbpN:cbpW}"
 )
 PIE_ANCHORS = (
     ("pie component",
-     rb"(function ID\(\{usedTokens:(ID),contextWindow:(ID),threshold:(ID),onCompact:ID,buttonClassName:ID\}\)\{let ID=\3>0\?Math\.min\(\2/\3\*100,100\):0;)if\(\3===0\|\|ID<=\4\)return null;".replace(b"ID", ID),
-     lambda m: PIE_CAP + m.group(1) + b"cbpU=" + m.group(2) + b";if(" + m.group(3) + b"===0)return null;"),
+     rb"(function ID\(\{usedTokens:(ID),contextWindow:(ID),threshold:(ID),onCompact:ID,(?:ID:ID,)?buttonClassName:ID\}\)\{let ID=\3>0\?Math\.min\(\2/\3\*100,100\):0;)if\(\3===0\|\|ID<=\4\)return null;".replace(b"ID", ID),
+     lambda m: b"var cbpU;" + m.group(1) + b"cbpU=" + m.group(2) + b";if(" + m.group(3) + b"===0)return null;"),
     ("pie drawing",
      rb'(function ID\(\{percentage:(ID),className:(ID)\}\)\{)let ID=ID\(\2\),ID=\2/100,\[ID,ID\]=\2<50\?\[ID\(0,ID\),ID\(ID\+ID,1-ID\)\]:\[ID\[ID\],ID\[ID\]\];return (ID)\("svg",\{'
      rb'(width:"20",height:"20",viewBox:"0 0 20 20",fill:"none",'
@@ -141,26 +133,26 @@ PIE_ANCHORS = (
                 + b'[' + m.group(6) + b'("circle",{cx:"10",cy:"10",r:"7.25",stroke:"currentColor",strokeOpacity:"0.15",strokeWidth:"2.25"}),cbpR>0&&' + m.group(6)
                 + b'("circle",{cx:"10",cy:"10",r:"7.25",stroke:cbpC,strokeWidth:"2.25",strokeLinecap:"round",strokeDasharray:cbpR+" 100",'
                 b'transform:"rotate(-90 10 10)"})]})}')),
-    ("pie window",
-     rb"contextWindow:(ID)\((ID)\.usageData\.value\.contextWindow,\2\.usageData\.value\.maxOutputTokens\),threshold:".replace(b"ID", ID),
-     lambda m: b"contextWindow:" + m.group(1) + b"(cbpCap(" + m.group(2) + b".usageData.value.contextWindow)," + m.group(2) + b".usageData.value.maxOutputTokens),threshold:"),
 )
 
 
+# The tooltip component may keep a second hover state (keyboard focus) and then picks its hint by the state ("Press Enter to compact now." on focus); the new
+# hover text replaces both hints.
 PIE_TIP_ANCHORS = (
     ("pie tooltip amounts",
-     rb"(\{usedTokens:(ID),contextWindow:(ID),threshold:ID,onCompact:ID,buttonClassName:ID\}\)\{[^{}]{0,200}?return ID\(ID,\{percentageUsed:(ID),)".replace(b"ID", ID),
+     rb"(\{usedTokens:(ID),contextWindow:(ID),threshold:ID,onCompact:ID,(?:ID:ID,)?buttonClassName:ID\}\)\{[^{}]{0,200}?return ID\(ID,\{percentageUsed:(ID),)".replace(b"ID", ID),
      lambda m: (m.group(1) + b'cbpTip:' + m.group(3) + b'>0?Math.round((' + m.group(2) + b'||0)/1e3)+"k / "+Math.round(' + m.group(3) + b'/1e3)+"k used \xc2\xb7 "+Math.round(+' + m.group(4) + b'||0)+"%":void 0,')),
     ("pie tooltip text",
-     rb"(?s)(\{percentageUsed:ID,onCompact:ID,buttonClassName:ID)(\}\)\{let\[ID,ID\]=ID\(!1\),ID=100-ID;.{0,500}?ID&&(ID)\(ID,\{)text:"
-     rb'`\$\{Math\.round\(ID\)\}% of context remaining until auto-compact\.`,hint:"Click to compact now\."'.replace(b"ID", ID),
+     rb"(?s)(\{percentageUsed:ID,onCompact:ID,(?:ID:ID,)?buttonClassName:ID)(\}\)\{let\[ID,ID\]=ID\(!1\),(?:\[ID,ID\]=ID\(!1\),)?ID=100-ID;.{0,800}?&&(ID)\(ID,\{)text:"
+     rb'`\$\{Math\.round\(ID\)\}% of context remaining until auto-compact\.`,hint:(?:ID\?)?"Click to compact now\."(?::"Press Enter to compact now\.")?(?=[,}])'.replace(b"ID", ID),
      lambda m: m.group(1) + b",cbpTip" + m.group(2) + b'text:' + m.group(3) + b'("b",{style:{fontWeight:600},children:"Context"}),hint:cbpTip'),
 )
 
 
 # The folder pill: a small pill after the model name in the composer's footer, in webview/index.js, that names the session's folder: the first line of
 # <cwd>/.archive/.folder when that holds a name, else the folder's last part. Shown only in a window with more than one folder; a click renames it. The anchor is the
-# model pill (shown unless the footer's fit stage is 2, the narrowest) followed by the model list; the session is read from that list's props. The file, the folder
+# model pill (shown unless the footer's fit stage is 2, the narrowest) followed by the model list (up to three props, such as busy, may sit between its onClose and
+# its models); the session is read from that list's props. The file, the folder
 # count and the rename box live in extension.js (PILL_HANDLER_ANCHOR): the webview asks through the connection the session already has (the way it asks to open an
 # url) and gets {name, folders} back, so the pill goes in only when both anchors match. The pill takes the model pill's own look through the page's CSS variables,
 # inline, so it needs no stylesheet. The name is text put into the span after the reply, never HTML, and the span has no title and no path.
@@ -169,7 +161,7 @@ PIE_TIP_ANCHORS = (
 # kept (a render that finds it asks for nothing), and the span's text is written only when it differs, into the text node it already has: a render then writes nothing.
 # A rename is the only later write, once per rename.
 PILL_ANCHOR = (
-    rb"(?<![\w$.])ID!==2&&(?P<jsx>ID)\(ID,\{\.\.\.ID\}\),(?=(?P=jsx)\(ID,\{isOpen:ID\.isOpen,onClose:ID\.onClose,availableModels:(?P<s>ID)\.drawnClaudeConfig\.value\?\.models,)"
+    rb"(?<![\w$.])ID!==2&&(?P<jsx>ID)\(ID,\{\.\.\.ID\}\),(?=(?P=jsx)\(ID,\{isOpen:ID\.isOpen,onClose:ID\.onClose,(?:ID:[^,{}]{1,80},){0,3}availableModels:(?P<s>ID)\.drawnClaudeConfig\.value\?\.models,)"
     .replace(b"ID", ID)
 )
 PILL_STYLE = (

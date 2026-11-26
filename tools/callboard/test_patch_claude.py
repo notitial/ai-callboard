@@ -466,9 +466,7 @@ class Css(Case):
         mod = load_module()
         for bad in ("`", "\\", "${"):
             self.assertNotIn(bad, mod.WIDTH_CSS)
-        for bad in ("`", "\\"):
             self.assertNotIn(bad, mod.PIE_CSS)
-        self.assertEqual(mod.PIE_CSS.count("${"), 1)
         for part in ("inputWrapper_", "permissionsContainer_", "inputContainer_", "max-width:none"):
             self.assertIn(part, mod.WIDTH_CSS)
 
@@ -481,7 +479,7 @@ class Css(Case):
         page = json.loads(p.stdout)
         self.assertIn('<link href="/a.css" rel="stylesheet">', page)
         self.assertIn(mod.WIDTH_CSS, page)
-        self.assertIn(":root{--callboard-compact:0}", page, "no settings are readable in the stand-in: no level")
+        self.assertIn(mod.PIE_CSS, page)
         self.assertIn("--vscode-editor-font-family: mono", page)
 
     def test_a_missing_or_linked_webview_leaves_out_the_pieces_that_need_it(self):
@@ -1428,15 +1426,13 @@ class Restore(Case):
         self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "patched 2.1.328"))
 
 
-# Runs the patched stand-in of the webview script under fakes: the composer's pie component, the ring and the bar that passes the window, with the level the
-# page carries as a CSS variable.
+# Runs the patched stand-in of the webview script under fakes: the composer's pie component, the ring and the bar that passes the window.
 WEB_RUNNER = r"""
 const vm = require('vm'), fs = require('fs')
-const [file, level, sv, pc] = process.argv.slice(1)
+const [file, sv, pc] = process.argv.slice(1)
 const m = (t, p) => ({ t, p }), k = (t, p) => ({ t, p })
 const stock = (w, o) => w - Math.min(o, 20000) - 13000
-const ctx = vm.createContext({ m, k, B: () => [true, () => {}], VA: 'VA', lv: { host: 'h' }, TAe: {}, BFt: 'BFt', ia: { usageButtonV2: 'u' }, a: 'compact', PBn: () => 50, tFt: stock, _Bt: stock,
-  getComputedStyle: () => ({ getPropertyValue: (n) => (n === '--callboard-compact' ? level : '') }), document: { documentElement: {} } })
+const ctx = vm.createContext({ m, k, B: () => [true, () => {}], VA: 'VA', lv: { host: 'h' }, TAe: {}, BFt: 'BFt', ia: { usageButtonV2: 'u' }, a: 'compact', PBn: () => 50, tFt: stock, _Bt: stock })
 vm.runInContext(fs.readFileSync(file, 'utf8') + ';globalThis.F = { sv: ' + sv + ', pc: ' + pc + ', Bar }', ctx)
 const props = (used, w, o = 20000) => ctx.F.Bar({ usageData: { value: { totalTokens: used, contextWindow: w, maxOutputTokens: o } } }, 50).p.children[1].p
 const used = (u, w) => { const r = ctx.F.pc(props(u, w)); return r && r.p.percentageUsed }
@@ -1445,7 +1441,7 @@ const hover = (u, w) => { const r = ctx.F.pc(props(u, w)); return r && r.t(r.p).
 const arc = () => ctx.F.sv({ percentage: 50, className: 'c' }).p.children.map((c) => [c.t, c.p.stroke, c.p.strokeWidth])
 const fresh = arc(), colour = [0, 199999, 200000, 299999, 300000, 399999, 400000, 2000000, undefined, NaN, '250000', -1].map((u) => (ctx.F.pc(props(u, 1000000)), arc()))
 const sized = ctx.F.sv({ percentage: 50, className: 'c' }).p
-console.log(JSON.stringify({ fresh, colour, window: [props(1, 1000000).contextWindow, props(1, 400000).contextWindow, props(1, 1000000, 8000).contextWindow], used: [used(1000, 1000000), used(233500, 1000000), used(900000, 1000000)],
+console.log(JSON.stringify({ fresh, colour, window: [props(1, 1000000).contextWindow, props(1, 400000).contextWindow, props(1, 1000000, 8000).contextWindow], used: [used(1000, 1000000), used(483500, 1000000), used(1000000, 1000000)],
   ring: [ring(0), ring(50), ring(150), ring(NaN), ring(undefined)], size: [sized.width, sized.height, sized.viewBox],
   hover: [hover(126430, 233000), hover(0, 233000), hover(500, 233000), hover(499, 233000), hover(250000, 233000), hover(1, 33000), hover(undefined, 233000), hover(126430, 1000000), hover(0, 0)] }))
 """
@@ -1457,17 +1453,17 @@ NO_WEB = dict(PIE_ANCHORS=NO_PIE, PILL_ANCHOR=rb"no such code", RUN_CODE_ANCHOR=
 
 
 class Pie(Case):
-    """The context pie: one optional piece that edits webview/index.js (kept as webview/index.js.callboard-orig) and puts the autocompact level into the page."""
+    """The context pie: one optional piece that edits webview/index.js (kept as webview/index.js.callboard-orig) and puts its style block into the page."""
 
     WEBJS = os.path.join("webview", "index.js")
     BAK = os.path.join("webview", "index.js.callboard-orig")
 
-    def shown(self, ext, level, names=JS330):
-        p = subprocess.run(["node", "-e", WEB_RUNNER, os.path.join(ext, self.WEBJS), level, names["sv"], names["pc"]], capture_output=True, text=True, timeout=60)
+    def shown(self, ext, names=JS330):
+        p = subprocess.run(["node", "-e", WEB_RUNNER, os.path.join(ext, self.WEBJS), names["sv"], names["pc"]], capture_output=True, text=True, timeout=60)
         self.assertEqual(p.returncode, 0, p.stderr)
         return json.loads(p.stdout)
 
-    def test_the_patch_edits_the_three_places_once_keeps_the_shipped_script_and_undo_puts_it_back(self):
+    def test_the_patch_edits_each_place_once_keeps_the_shipped_script_and_undo_puts_it_back(self):
         for names in (JS330, JSB):
             web = dict(WEB, **{"index.js": PIE_JS.format(**names)})
             ext = self.make(V327, name="pie" + names["pc"], web=web)
@@ -1478,7 +1474,7 @@ class Pie(Case):
             new, marker = slurp(os.path.join(ext, self.WEBJS)), self.marker(ext)
             self.assertEqual(slurp(os.path.join(ext, self.BAK)), orig)
             self.assertEqual((marker["pie"], marker["web_original_sha256"], marker["web_patched_sha256"]), (True, hashlib.sha256(orig).hexdigest(), hashlib.sha256(new).hexdigest()))
-            self.assertEqual((new.count(b"cbpCap("), new.count(b"cbpN,cbpU;"), new.count(b"<circle"), new.count(b'"circle"')), (2, 1, 0, 2))
+            self.assertEqual((new.count(b"var cbpU;"), new.count(b"<circle"), new.count(b'"circle"')), (1, 0, 2))
             self.assertNotIn(b"r<=n", new)
             self.assertNotIn(b'"path"', new)
             self.assertEqual((new.count(b'width:"18",height:"18"'), new.count(b'"20"'), new.count(b"cbpTip"), new.count(b"of context remaining")), (1, 0, 3, 0))
@@ -1489,14 +1485,14 @@ class Pie(Case):
             self.assertEqual((sorted(os.listdir(ext)), sorted(os.listdir(os.path.join(ext, "webview")))), (STOCK, ["index.css", "index.js"]))
 
     @unittest.skipUnless(shutil.which("node"), "needs node")
-    def test_the_pie_always_shows_against_the_level_and_the_ring_is_continuous(self):
+    def test_the_pie_always_shows_against_the_bars_limit_and_the_ring_is_continuous(self):
         for names in (JS330, JSB):
             web = dict(WEB, **{"index.js": PIE_JS.format(**names)})
             ext = self.make(V327, name="run" + names["pc"], web=web)
             self.run_script(ext, "--apply")
-            got = self.shown(ext, " 500000", names)
-            self.assertEqual(got["window"], [467000, 367000, 467000 + 12000], "the level caps the window; a smaller window stays; the output limit still counts")
-            self.assertEqual(got["used"], [1000 / 467000 * 100, 50, 100], "shown from the first token, against the level, never past full")
+            got = self.shown(ext, names)
+            self.assertEqual(got["window"], [967000, 367000, 967000 + 12000], "the bar's own limit, unchanged")
+            self.assertEqual(got["used"], [1000 / 967000 * 100, 50, 100], "shown from the first token, against the bar's limit, never past full")
             track, ring = got["ring"][1]
             self.assertEqual((track["r"], ring["r"], track.get("d")), ("7.25", "7.25", None))
             self.assertAlmostEqual(float(ring["d"].split()[0]), CIRC / 2, places=6)
@@ -1510,9 +1506,6 @@ class Pie(Case):
             self.assertEqual(got["colour"], [[track, ["circle", c, "2.25"]] for c in want],
                              "green below 200k, blue from 200k, amber from 300k, red from 400k, whatever the level; the stock colour when the amount is no number; the same two nodes each time")
             self.assertEqual(got["fresh"], [track, ["circle", stock, "2.25"]], "before the pie component ran, the stock colour")
-            for none in ("", " 0", " garbage", " -5"):
-                self.assertEqual(self.shown(ext, none, names)["window"][0], 967000, "no usable level: the stock window")
-            self.assertEqual(self.shown(ext, " 5000000", names)["window"][0], 967000, "a level above the window changes nothing")
 
     @unittest.skipUnless(shutil.which("node"), "needs node")
     def test_the_ring_is_18px_and_the_hover_has_a_title_and_used_over_limit_in_k_with_the_percent(self):
@@ -1520,20 +1513,20 @@ class Pie(Case):
             web = dict(WEB, **{"index.js": PIE_JS.format(**names)})
             ext = self.make(V327, name="hov" + names["pc"], web=web)
             self.run_script(ext, "--apply")
-            got = self.shown(ext, "", names)
+            got = self.shown(ext, names)
             self.assertEqual(got["size"], ["18", "18", "0 0 20 20"], "the drawing keeps its 20 box, so the stroke scales")
             self.assertEqual([h and h.get("hint") for h in got["hover"]],
                              ["126k / 200k used · 63%", "0k / 200k used · 0%", "1k / 200k used · 0%", "0k / 200k used · 0%", "250k / 200k used · 100%", None, "0k / 200k used · 0%",
                               "126k / 967k used · 13%", None], "whole k, the percent of the limit rounded and never past 100; used past the limit shows as it is; no limit draws nothing")
             self.assertEqual(got["hover"][8].keys(), {"text"}, "before the first usage data (a limit below 0) the bold title stands alone, with no hint line")
             self.assertTrue(all(h is None or h["text"] == {"t": "b", "p": {"style": {"fontWeight": 600}, "children": "Context"}} for h in got["hover"]), "a bold title line")
-            self.assertEqual(self.shown(ext, " 100000", names)["hover"][0]["hint"], "126k / 67k used · 100%", "the limit is the compaction point of the level, where the ring is full")
 
     def test_a_missing_tooltip_anchor_leaves_the_stock_hover_and_keeps_the_ring(self):
         js = WEB["index.js"]
         cases = {
             "amounts": (js.replace("percentageUsed:r,onCompact:i", "percentage:r,onCompact:i", 1), "pie tooltip amounts (no match)"),
             "text": (js.replace("of context remaining", "of context left", 1), "pie tooltip text (no match)"),
+            "second hint": (js.replace('hint:"Click to compact now."', 'hint:i?"Click to compact now.":"Press Space to compact."', 1), "pie tooltip text (no match)"),
             "doubled": (js + js[js.index("function jzn"):js.index("function Bar")], "pie tooltip text (2 matches)"),
         }
         for label, (bad, why) in cases.items():
@@ -1542,8 +1535,8 @@ class Pie(Case):
             self.assertEqual((self.rc, self.out.count("warning")), (0, 1), self.out)
             self.assertIn("warning: the pie tooltip is not in (%s)" % why, self.out, label)
             new = slurp(os.path.join(ext, self.WEBJS))
-            self.assertEqual((self.marker(ext)["pie"], self.marker(ext)["pietip"], new.count(b'width:"18",height:"18"'), new.count(b"cbpTip"), new.count(b"cbpCap("), new.count(b"Click to compact now.")),
-                             (True, False, 1, 0, 2, 1 if label != "doubled" else 2), label)
+            self.assertEqual((self.marker(ext)["pie"], self.marker(ext)["pietip"], new.count(b'width:"18",height:"18"'), new.count(b"cbpTip"), new.count(b"var cbpU;"), new.count(b"Click to compact now.")),
+                             (True, False, 1, 0, 1, 1 if label != "doubled" else 2), label)
             self.run_script(ext)
             self.assertEqual((self.rc, self.out), (0, "patched 2.1.328\nwarning: the pie tooltip is not in this patch.\n"), label)
 
@@ -1555,26 +1548,32 @@ class Pie(Case):
         self.assertNotIn(b"cbpTip", slurp(os.path.join(ext, self.WEBJS)))
 
     @unittest.skipUnless(shutil.which("node"), "needs node")
-    def test_the_page_carries_the_level_from_the_settings_of_the_config_folder(self):
-        ext, _ = self.applied(build(V327), name="page")
-        cfg = os.path.join(self.t, "cfg")
-        os.makedirs(cfg)
-        script = PAGE.replace("require: () => ({})", "require, process: { env: { CLAUDE_CONFIG_DIR: process.argv[2] } }")
-        for text, want in (('{"autoCompactWindow": 500000}', 500000), ('{"autoCompactWindow": "500000"}', 0), ('{"autoCompactWindow": -1}', 0), ('{"autoCompactWindow": 1.5}', 0), ("{}", 0), ("[", 0), (None, 0)):
-            if text is None:
-                os.path.exists(os.path.join(cfg, "settings.json")) and os.unlink(os.path.join(cfg, "settings.json"))
-            else:
-                with open(os.path.join(cfg, "settings.json"), "w") as f:
-                    f.write(text)
-            p = subprocess.run(["node", "-e", script, os.path.join(ext, "extension.js"), cfg], capture_output=True, text=True, timeout=60)
-            self.assertEqual(p.returncode, 0, p.stderr)
-            self.assertIn(":root{--callboard-compact:%d}" % want, json.loads(p.stdout), text)
+    def test_the_shapes_of_2_1_332_take_the_pie_the_tooltip_and_the_pill(self):
+        """The pie component passes one more prop, the tooltip keeps a focus state and picks its hint by it, the model list takes a busy prop."""
+        js = WEB["index.js"]
+        for old, new in (
+            ("onCompact:i,buttonClassName:o}){let r=", "onCompact:i,onShowContextUsage:s,buttonClassName:o}){let r="),
+            ("percentageUsed:r,onCompact:i,buttonClassName:o})", "percentageUsed:r,onCompact:i,...void 0,buttonClassName:o})"),
+            ("onCompact:t,buttonClassName:n}){let[i,o]=B(!1),r=100-e;", "onCompact:t,onShowContextUsage:s,buttonClassName:n}){let[i,o]=B(!1),[a,c]=B(!1),r=100-e;"),
+            ("}),i&&m(VA,{text:", "}),(i||a)&&m(VA,{text:"),
+            ('hint:"Click to compact now."}', 'hint:i?"Click to compact now.":"Press Enter to compact now.",...void 0}'),
+            ("onClose:p.onClose,availableModels", "onClose:p.onClose,busy:e.busy.value||Uy(q)>0,availableModels"),
+        ):
+            self.assertEqual(js.count(old), 1, old)
+            js = js.replace(old, new)
+        ext = self.make(V327, name="v332", web=dict(WEB, **{"index.js": js}))
+        self.run_script(ext, "--apply")
+        self.assertEqual((self.rc, self.out.count("warning")), (0, 0), self.out)
+        self.assertEqual({k for k, v in self.marker(ext).items() if v is False}, set())
+        new = slurp(os.path.join(ext, self.WEBJS))
+        self.assertEqual((new.count(b"Press Enter"), new.count(b"Click to compact"), new.count(b'"span"')), (0, 0, 1))
+        self.assertTrue(parses(new))
+        self.assertEqual(self.shown(ext)["hover"][0]["hint"], "126k / 200k used · 63%")
 
     def test_an_anchor_that_misses_or_doubles_costs_only_the_pie(self):
         mod = load_module()
         js = WEB["index.js"]
         cases = {
-            "threshold": js.replace("e.usageData.value.contextWindow,e.usageData", "e.usageData.value.window,e.usageData", 1),
             "pie component": js.replace("||r<=n)return null;", ")return null;", 1),
             "drawing": js.replace('strokeOpacity:"0.15"', 'strokeOpacity:"0.2"', 1),
             "doubled": js + js[js.index("function jBt"):js.index("function Bar")],
@@ -1599,7 +1598,7 @@ class Pie(Case):
             self.assertIn("warning: the context pie is not in this patch.", self.out, label)
             self.run_script(ext, "--undo")
             self.assertEqual((self.rc, sorted(os.listdir(ext))), (0, STOCK), label)
-        self.assertEqual(len(mod.PIE_ANCHORS), 3)
+        self.assertEqual(len(mod.PIE_ANCHORS), 2)
 
     def test_a_pie_with_a_fixed_threshold_leaves_the_pie_out_and_names_the_anchor(self):
         # A pie component whose threshold is fixed at 50 and not passed as a prop; the pie anchors must not match it.
@@ -2124,7 +2123,7 @@ class Pill(Case):
             self.assertEqual((marker["pill"], marker["pie"], marker["width"], marker["restore"]), (False, True, True, True), label)
             self.assertNotIn(b'"span"', slurp(os.path.join(ext, self.WEBJS)), label)
             self.assertNotIn(b"callboard_folder", self.js(ext), label)
-            self.assertIn(b"cbpCap(", slurp(os.path.join(ext, self.WEBJS)), label)
+            self.assertIn(b"var cbpU;", slurp(os.path.join(ext, self.WEBJS)), label)
             self.run_script(ext)
             self.assertIn("warning: the folder pill is not in this patch.", self.out, label)
             self.run_script(ext, "--undo")
@@ -2495,32 +2494,32 @@ class EachPiece(Case):
             self.assertEqual({f for f, v in marker.items() if v is False}, out, member)
             self.assertIn("lacks %s" % member.decode(), self.out)
 
-    # The patch of Claude Code 2.1.331's shipped files with every piece applied.
-    V331 = {"original_sha256": "9dead0c8f6970cb4120bd002ee1eb2b10d025677941e4fc19c7162c67f3f25fa", "patched_sha256": "2b2440773435807d4e8d7de7c7e34cdae60887e3e9a3b9fe183bacf13bf033cc",
-            "web_original_sha256": "b043c87aba7f3799127ebe02843b62a3fdebd27dd4d878c38847f80413a891e3", "web_patched_sha256": "869aa1365124aef08763630c37dbe27fc85ba09029f6943e54b29415d23201fb"}
+    # The patch of Claude Code 2.1.332's shipped files with every piece applied.
+    V332 = {"original_sha256": "29af37a51d50eb222d35ee7dd1485aec2508d30eb1dcd71b30c8cf488d4481d9", "patched_sha256": "d862a056dc61524d269b36eedee8491508e2e6458a401ef8e867ef2d50067aca",
+            "web_original_sha256": "1f9884c4943be26ff4c3ca16b6d46db6879df5d203111a8bf07fc64f51df9420", "web_patched_sha256": "d08868cdcddfe266633e025b73c5527aa7251ddea4e2e50e52e22b38391d6f41"}
 
-    def test_the_patch_of_2_1_331_has_the_pinned_hashes(self):
-        """On a copy of an installed 2.1.331 whose shipped files are the ones above; the install is not changed. Every piece went in, the add-dir fix and the
-        run button among them, with the same bytes: a piece silently left out fails here."""
+    def test_the_patch_of_2_1_332_has_the_pinned_hashes(self):
+        """On a copy of an installed 2.1.332 whose shipped files are the ones above; the install is not changed. Every piece went in, the pie, its tooltip
+        and the pill among them, with the same bytes: a piece silently left out fails here."""
         src = None
-        for d in glob.glob(os.path.expanduser("~/.vscode/extensions/anthropic.claude-code-2.1.331-*")):
+        for d in glob.glob(os.path.expanduser("~/.vscode/extensions/anthropic.claude-code-2.1.332-*")):
             pick = lambda p: os.path.join(d, p + ".callboard-orig") if os.path.isfile(os.path.join(d, p + ".callboard-orig")) else os.path.join(d, p)
-            if os.path.isfile(pick("extension.js")) and hashlib.sha256(slurp(pick("extension.js"))).hexdigest() == self.V331["original_sha256"]:
+            if os.path.isfile(pick("extension.js")) and hashlib.sha256(slurp(pick("extension.js"))).hexdigest() == self.V332["original_sha256"]:
                 src = d, pick
         if src is None:
-            self.skipTest("no installed Claude Code 2.1.331")
+            self.skipTest("no installed Claude Code 2.1.332")
         d, pick = src
-        ext = os.path.join(self.t, "v331")
+        ext = os.path.join(self.t, "v332")
         os.makedirs(os.path.join(ext, "webview"))
         for path, source in (("extension.js", pick("extension.js")), ("package.json", os.path.join(d, "package.json")), ("webview/index.css", os.path.join(d, "webview", "index.css")), ("webview/index.js", pick("webview/index.js"))):
             shutil.copy(source, os.path.join(ext, path))
         self.run_script(ext, "--apply")
         self.assertEqual((self.rc, self.out.count("warning")), (0, 0), self.out + self.err)
         marker = self.marker(ext)
-        self.assertEqual({k: marker[k] for k in self.V331}, self.V331)
-        self.assertEqual(hashlib.sha256(slurp(os.path.join(ext, "webview", "index.js"))).hexdigest(), self.V331["web_patched_sha256"])
+        self.assertEqual({k: marker[k] for k in self.V332}, self.V332)
+        self.assertEqual(hashlib.sha256(slurp(os.path.join(ext, "webview", "index.js"))).hexdigest(), self.V332["web_patched_sha256"])
         mod = load_module()
-        self.assertEqual({k: v for k, v in marker.items() if k not in self.V331}, {"patch": 1, **{f: True for f, _, _, _ in mod.PIECES}})
+        self.assertEqual({k: v for k, v in marker.items() if k not in self.V332}, {"patch": 1, **{f: True for f, _, _, _ in mod.PIECES}})
 
 
 class Refusals(Case):
