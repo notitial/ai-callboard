@@ -113,9 +113,9 @@ def snap(root):
 
 
 def mod_pill(js, run=False):
-    """The stand-in webview script with only the pill put in (and the run button too, with run=True; no pie), as the script builds it."""
+    """The stand-in webview script with only the pieces that need no page block put in (the pill and the auth banner, and the run button too, with run=True; no pie), as the script builds it."""
     mod = load_module()
-    mod.PIECES = tuple(p for p in mod.PIECES if p[0] in ("pill", "run" if run else "pill"))
+    mod.PIECES = tuple(p for p in mod.PIECES if p[0] in ("pill", "authbanner", "run" if run else "pill"))
     return mod.patched(build(V327), (WEB["index.css"].encode(), js.encode()))[2]
 
 
@@ -147,7 +147,11 @@ PIE_JS = (
     'function {cb}({{children:e}}){{let t=Ref(null);return k("div",{{className:{ly}.codeBlockWrapper,children:[{rj}(Q5,{{getText:()=>{{let n=t.current?.textContent??"";return n.trimEnd()}},className:{ly}.copyButton}}),'
     'm("pre",{{ref:t,children:e}})]}})}}'
     'function App(c,a){{return r.add(()=>{{x}}),a.activateSessionEvents.add(({{sessionId:D,initialPrompt:q}})=>{{fUn(c,D,q,x,y)}}),s.add(c.activeSession.value)}}'
-    'class Sess{{async send(e,t,n,i,o){{return 1}}getConnection(){{return 1}}}}var claudeChannelId'
+    'class Sess{{async send(e,t,n,i,o){{return 1}}getConnection(){{return 1}}}}var claudeChannelId;'
+    # The session's auth conflict state (X: the signal constructor, je: the computed): the dismissed key, the warning computed and the dismiss method.
+    'class Auth{{dismissedAuthConflictKey=X(null);authConflictWarning=je(()=>{{let e=this.claudeConfig.value?.auth_conflict;'
+    'if(e===void 0||JSON.stringify(e)===this.dismissedAuthConflictKey.value)return null;return"warning "+JSON.stringify(e)}});'
+    'dismissAuthConflictWarning(){{let e=this.claudeConfig.value?.auth_conflict;if(e===void 0)return;this.dismissedAuthConflictKey.value=JSON.stringify(e)}}}}'
 )
 JS330 = dict(sv="$Bt", pc="jBt", tf="_Bt", fb="jzn", st="_", mp="fAe", cb="F8n", ly="Ly", rj="m")
 JSB = dict(sv="SFt", pc="kFt", tf="tFt", fb="dBn", st="U$", mp="Rr", cb="Xk", ly="Zq", rj="mm")
@@ -1449,7 +1453,7 @@ CIRC = 2 * 3.141592653589793 * 7.25
 # What an older script that had no pie amounts to: anchors that match nothing, so the piece is left out.
 NO_PIE = (("pie component", rb"no such code", lambda m: b""),)
 # An older script that had no webview piece (no pie, pill or run button), so the webview script is left as it was shipped.
-NO_WEB = dict(PIE_ANCHORS=NO_PIE, PILL_ANCHOR=rb"no such code", RUN_CODE_ANCHOR=rb"no such code")
+NO_WEB = dict(PIE_ANCHORS=NO_PIE, PILL_ANCHOR=rb"no such code", RUN_CODE_ANCHOR=rb"no such code", AUTH_WARNING_ANCHOR=rb"no such code")
 
 
 class Pie(Case):
@@ -2376,6 +2380,204 @@ class Run(Case):
         self.assertEqual(slurp(os.path.join(ext, self.WEBJS)).count(b'className:"cbRun "'), 1)
 
 
+# Runs the patched stand-in webview script (one vm context per page) against the patched stand-in extension.js (one vm context, the host): the sessions' auth warning and what
+# reaches the host. X is a plain signal, je a computed that runs again on every read, which stands in for the page's reactivity.
+AUTH_RUNNER = r"""
+const vm = require('vm'), fs = require('fs')
+const [webFile, extFile] = process.argv.slice(1)
+const tick = () => new Promise((r) => setTimeout(r, 5))
+const host = () => {
+  const fake = { workspace: { workspaceFolders: [] }, commands: { registerCommand: () => ({}) }, window: {} }
+  const ctx = vm.createContext({ x: [], Wp: () => {}, F: () => ({}), c: {}, kS: async () => {}, rl: async () => {}, $e: fake, Pe: fake, require: (m) => (m === 'vscode' ? fake : require(m)) })
+  vm.runInContext(fs.readFileSync(extFile, 'utf8') + ';globalThis.P = P', ctx)
+  const opened = []
+  const send = async (request) => ctx.P.prototype.processRequest.call({ openURL: async (u) => opened.push(u) }, { request, channelId: 'ch' }, undefined)
+  return { send, opened, keys: () => [...(ctx.cbHidden ?? [])] }
+}
+const page = (h, mode = 'ok') => {
+  const lists = []
+  const ctx = vm.createContext({ X: (v) => { if (Array.isArray(v)) lists.push(v); return { value: v } }, je: (fn) => ({ get value() { return fn() } }) })
+  vm.runInContext(fs.readFileSync(webFile, 'utf8') + ';globalThis.Auth = Auth', ctx)
+  const log = []
+  const session = (conflict) => {
+    const s = new ctx.Auth()
+    s.claudeConfig = { value: conflict === undefined ? undefined : { auth_conflict: conflict } }
+    s.getConnection = () => {
+      if (mode === 'throws') throw new Error('no connection')
+      if (mode === 'none') return undefined
+      return Promise.resolve({ sendRequest: async (req) => { log.push(req); if (mode === 'rejects') throw new Error('host failed'); return h.send(req) } })
+    }
+    return s
+  }
+  return { ctx, log, session, lists }
+}
+const warn = (s) => s.authConflictWarning.value
+;(async () => {
+  const out = {}, C1 = { token_source: 'env', api_key_source: 'env' }, C2 = { token_source: 'profile', api_key_source: 'env' }, K1 = 'auth:' + JSON.stringify(C1)
+  const h = host(), p1 = page(h)
+  const a = p1.session(C1)
+  out.aFirst = warn(a); await tick()
+  out.aAsked = p1.log.slice()
+  a.dismissAuthConflictWarning(); await tick()
+  out.aAfter = warn(a)
+  out.aSent = p1.log.slice(1)
+  out.hostKeys = h.keys()
+  const n = p1.log.length, b = p1.session(C1)
+  out.lists = p1.lists.length
+  out.bSame = warn(b); await tick(); out.bAsked = p1.log.length - n
+  warn(b); await tick(); out.bAskedOnce = p1.log.length - n
+  out.bOther = warn(p1.session(C2))
+  const p2 = page(h), c = p2.session(undefined)
+  out.cEarly = warn(c); await tick()
+  c.claudeConfig.value = { auth_conflict: C1 }
+  out.cSame = warn(c); out.cOther = warn((() => { const s = p2.session(C2); return s })())
+  out.cAsked = p2.log
+  const h2 = host(), p3 = page(h2)
+  out.otherWindow = warn(p3.session(C1)); await tick(); out.otherWindowAfter = warn(p3.session(C1))
+  out.failed = []
+  for (const mode of ['rejects', 'throws', 'none']) {
+    const hh = host(), pf = page(hh, mode), s = pf.session(C1)
+    const first = warn(s); await tick(); s.dismissAuthConflictWarning(); await tick()
+    out.failed.push([mode, first.slice(0, 7), warn(s), warn(pf.session(C1)).slice(0, 7), hh.keys()])
+  }
+  const h3 = host()
+  out.caps = {}
+  for (let i = 0; i < 60; i++) await h3.send({ type: 'callboard_hide', key: 'k' + i })
+  out.caps.count = h3.keys().length
+  out.caps.last = (await h3.send({ type: 'callboard_hide', key: 'late' })).keys.length
+  const h4 = host()
+  out.long = []
+  for (const key of ['x'.repeat(4000), 'y'.repeat(4001)]) out.long.push((await h4.send({ type: 'callboard_hide', key })).keys.map((k) => k.length))
+  const h5 = host()
+  out.bad = []
+  for (const key of [7, null, {}, ['a'], true, undefined]) out.bad.push((await h5.send({ type: 'callboard_hide', key })).keys)
+  out.noKey = await h5.send({ type: 'callboard_hide' })
+  out.res = await h5.send({ type: 'callboard_hide', key: 'k' })
+  out.stock = [await h5.send({ type: 'open_url', url: 'u' }), h5.opened]
+  console.log(JSON.stringify(out))
+})()
+"""
+
+
+class AuthBanner(Case):
+    """The auth conflict banner: one optional piece, in webview/index.js (the warning and the dismiss) and in extension.js (the window's list of hidden keys)."""
+
+    WEBJS = os.path.join("webview", "index.js")
+    BAK = os.path.join("webview", "index.js.callboard-orig")
+    VARIANTS = ((V327, JS330), (V328, JSB))
+
+    def applied_ext(self, name, variant=V327, names=JS330, raw=None, web=None):
+        web = web if web is not None else dict(WEB, **{"index.js": PIE_JS.format(**names)})
+        ext = self.make(variant, name=name, raw=raw, web=web)
+        self.run_script(ext, "--apply")
+        return ext
+
+    def test_the_warning_the_dismiss_and_the_host_case_go_in_once_and_undo_takes_them_out(self):
+        for variant, names in self.VARIANTS:
+            web = dict(WEB, **{"index.js": PIE_JS.format(**names)})
+            ext = self.make(variant, name="auth" + names["cb"], web=web)
+            orig_js, orig_main = slurp(os.path.join(ext, self.WEBJS)), self.js(ext)
+            self.run_script(ext, "--apply")
+            self.assertEqual((self.rc, self.out.count("warning")), (0, 0), self.out)
+            new, main = slurp(os.path.join(ext, self.WEBJS)), self.js(ext)
+            self.assertEqual((self.marker(ext)["authbanner"], slurp(os.path.join(ext, self.BAK))), (True, orig_js))
+            self.assertEqual((new.count(b"globalThis.cbHide??="), new.count(b"globalThis.cbHide?.add(this,"), new.count(b"callboard_hide")), (1, 1, 1))
+            self.assertEqual((main.count(b'case"callboard_hide":'), main.index(b'case"callboard_hide":') < main.index(b'case"open_url":')), (1, True), "a case of the request switch")
+            self.assertEqual((main.count(b'case"callboard_folder":'), main.count(b'case"callboard_run":'), main.count(b'case"open_url":')), (1, 1, 1), "the pill's and the run button's cases and the stock one stay")
+            self.reads_patched(ext)
+            self.run_script(ext, "--undo")
+            self.assertEqual((self.rc, slurp(os.path.join(ext, self.WEBJS)), sorted(os.listdir(ext)), self.js(ext)), (0, orig_js, STOCK, orig_main))
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_a_dismissal_hides_the_same_conflict_in_every_later_chat_of_the_window_and_only_that_conflict(self):
+        for variant, names in self.VARIANTS:
+            ext = self.applied_ext("run" + names["cb"], variant, names)
+            p = subprocess.run(["node", "-e", AUTH_RUNNER, os.path.join(ext, self.WEBJS), os.path.join(ext, "extension.js")], capture_output=True, text=True, timeout=60)
+            self.assertEqual(p.returncode, 0, p.stderr)
+            got = json.loads(p.stdout)
+            k1 = 'auth:{"token_source":"env","api_key_source":"env"}'
+            self.assertTrue(got["aFirst"].startswith("warning "), "a conflict nobody dismissed shows as stock does")
+            self.assertEqual(got["aAsked"], [{"type": "callboard_hide"}], "the first evaluation of a session's warning asks the host for the list, with no key")
+            self.assertEqual((got["aAfter"], got["aSent"], got["hostKeys"]), (None, [{"type": "callboard_hide", "key": k1}], [k1]), "the dismiss sends the key, the host keeps it")
+            self.assertEqual((got["bSame"], got["bOther"].startswith("warning ")), (None, True), "a new chat of the same page hides the same conflict at once and shows another")
+            self.assertEqual((got["bAsked"], got["bAskedOnce"]), (1, 1), "a session asks once, however often its warning is read")
+            self.assertEqual((got["cEarly"], got["cSame"], got["cOther"].startswith("warning ")), (None, None, True), "a new page asks the host before the config arrives, so the banner does not flash; another conflict shows")
+            self.assertEqual(got["cAsked"], [{"type": "callboard_hide"}] * 2, "one ask per session")
+            self.assertEqual((got["otherWindow"].startswith("warning "), got["otherWindowAfter"].startswith("warning ")), (True, True), "another window's host knows nothing")
+            self.assertEqual(got["lists"], 1, "the page's list of hidden keys is one signal, made with the page's own signal constructor")
+            for mode, first, after, other, keys in got["failed"]:
+                self.assertEqual((first, after, other, keys), ("warning", None, "warning", []), "%s: a failed request leaves the warning shown in every other chat; the session's own dismiss still hides it there" % mode)
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_the_host_case_keeps_at_most_50_string_keys_of_at_most_4000_characters_and_answers_with_the_list(self):
+        for variant, names in self.VARIANTS:
+            ext = self.applied_ext("host" + names["cb"], variant, names)
+            p = subprocess.run(["node", "-e", AUTH_RUNNER, os.path.join(ext, self.WEBJS), os.path.join(ext, "extension.js")], capture_output=True, text=True, timeout=60)
+            self.assertEqual(p.returncode, 0, p.stderr)
+            got = json.loads(p.stdout)
+            self.assertEqual(got["caps"], {"count": 50, "last": 50}, "the 51st and later keys are ignored")
+            self.assertEqual(got["long"], [[4000], [4000]], "4000 characters are kept, 4001 are not")
+            self.assertEqual(got["bad"], [[]] * 6, "a key that is not a string is ignored")
+            self.assertEqual((got["noKey"], got["res"]), ({"type": "callboard_hide_response", "keys": []}, {"type": "callboard_hide_response", "keys": ["k"]}), "a request with no key is a read")
+            self.assertEqual(got["stock"], [{"type": "open_url_response"}, ["u"]], "the stock case still answers")
+
+    def test_a_missing_or_doubled_anchor_or_token_costs_only_the_auth_banner(self):
+        js = PIE_JS.format(**JS330)
+        raw = build(V327)
+        auth = js[js.index("class Auth"):]
+        cases = {
+            "warning": (dict(WEB, **{"index.js": js.replace("authConflictWarning=je(", "authConflictWarning2=je(")}), raw, "auth banner warning (no match)"),
+            "doubled warning": (dict(WEB, **{"index.js": js + auth}), raw, "auth banner warning (2 matches)"),
+            "dismiss": (dict(WEB, **{"index.js": js.replace("dismissAuthConflictWarning()", "dismissAuthConflict()")}), raw, "auth banner dismiss (no match)"),
+            "doubled dismiss": (dict(WEB, **{"index.js": js + auth[auth.index("dismissAuthConflictWarning"):]}), raw, "auth banner dismiss (2 matches)"),
+            "no connection": (dict(WEB, **{"index.js": js.replace("getConnection()", "getConn()")}), raw, "the webview lacks .getConnection()"),
+            "no sendRequest": (dict(WEB, **{"index.js": js.replace("sendRequest(", "send(")}), raw, "the webview lacks .sendRequest("),
+            "already there": (WEB, raw + b";var x='callboard_hide'", "the file already contains callboard_hide"),
+        }
+        for label, (web, main, why) in cases.items():
+            ext = self.make(V327, name="miss" + label.replace(" ", ""), raw=main, web=web)
+            before = snap(ext)
+            self.run_script(ext)
+            self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "unpatched-patchable 2.1.328"), label)
+            self.assertIn("warning: the auth conflict banner would be left out (%s)" % why, self.out, label)
+            self.assertEqual(snap(ext), before, label)
+            self.run_script(ext, "--apply")
+            self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "patched 2.1.328"), label)
+            self.assertIn("warning: the auth conflict banner is not in (%s)" % why, self.out, label)
+            marker = self.marker(ext)
+            self.assertEqual(marker["authbanner"], False, label)
+            self.assertEqual((marker["cwd"], marker["width"], marker["groups"], marker["adddir"]), (True, True, True, True), label)
+            self.assertEqual(slurp(os.path.join(ext, self.WEBJS)).count(b"cbHide"), 0, label)
+            self.assertEqual(self.js(ext).count(b'case"callboard_hide":'), 0, label)
+            self.run_script(ext)
+            self.assertIn("warning: the auth conflict banner is not in this patch.", self.out, label)
+
+    def test_a_missing_or_doubled_request_switch_anchor_costs_the_auth_banner_too(self):
+        for label, raw, count in (("missing", build(V327).replace(b'case"open_url"', b'case"open_urx"'), 0), ("doubled", None, 2)):
+            main = raw if raw is not None else build(V327).replace(b'case"x":return 2', b'case"x":return 2;case"open_url":return await this.openURL(e.request.url)')
+            ext = self.make(V327, name="host" + label, raw=main)
+            self.run_script(ext, "--apply")
+            self.assertEqual((self.rc, self.out.splitlines()[0]), (0, "patched 2.1.328"), label)
+            self.assertIn("warning: the auth conflict banner is not in (hide handler anchor (%s))" % ("no match" if count == 0 else "2 matches"), self.out, label)
+            marker = self.marker(ext)
+            self.assertEqual((marker["authbanner"], marker["run"], marker["pill"], marker["pie"], marker["groups"]), (False, False, False, True, True), label)
+            self.assertNotIn(b"cbHide", slurp(os.path.join(ext, self.WEBJS)), label)
+
+    def test_an_install_from_before_the_auth_banner_reads_outdated_and_update_brings_it_in(self):
+        ext = self.make(V327, name="old")
+        orig_js = slurp(os.path.join(ext, self.WEBJS))
+        self.older(ext, AUTH_WARNING_ANCHOR=rb"no such code")
+        self.assertEqual(self.marker(ext)["authbanner"], False)
+        self.assertNotIn(b"cbHide", slurp(os.path.join(ext, self.WEBJS)))
+        self.reads_outdated_then_updates(ext, "the auth conflict banner is not in")
+        self.assertEqual((self.marker(ext)["authbanner"], slurp(os.path.join(ext, self.BAK))), (True, orig_js))
+        self.assertEqual(slurp(os.path.join(ext, self.WEBJS)).count(b"globalThis.cbHide??="), 1)
+        self.assertEqual(self.js(ext).count(b'case"callboard_hide":'), 1)
+        self.reads_patched(ext)
+        self.run_script(ext, "--undo")
+        self.assertEqual((self.rc, slurp(os.path.join(ext, self.WEBJS)), sorted(os.listdir(ext))), (0, orig_js, STOCK))
+
+
 # Words a one-byte break must not touch: a changed keyword no longer parses.
 KEYWORDS = set(b"""async await break case catch class const continue debugger default delete do else export extends finally for function get if import in
 instanceof let new of return set static super switch this throw try typeof var void while with yield""".split())
@@ -2495,8 +2697,8 @@ class EachPiece(Case):
             self.assertIn("lacks %s" % member.decode(), self.out)
 
     # The patch of Claude Code 2.1.332's shipped files with every piece applied.
-    V332 = {"original_sha256": "29af37a51d50eb222d35ee7dd1485aec2508d30eb1dcd71b30c8cf488d4481d9", "patched_sha256": "d862a056dc61524d269b36eedee8491508e2e6458a401ef8e867ef2d50067aca",
-            "web_original_sha256": "1f9884c4943be26ff4c3ca16b6d46db6879df5d203111a8bf07fc64f51df9420", "web_patched_sha256": "d08868cdcddfe266633e025b73c5527aa7251ddea4e2e50e52e22b38391d6f41"}
+    V332 = {"original_sha256": "29af37a51d50eb222d35ee7dd1485aec2508d30eb1dcd71b30c8cf488d4481d9", "patched_sha256": "d7b6de0fec997294c3718b56c9c50781d632df9c9f17db78ce4ebcf4b879167a",
+            "web_original_sha256": "1f9884c4943be26ff4c3ca16b6d46db6879df5d203111a8bf07fc64f51df9420", "web_patched_sha256": "84531edd8933cd16adebb6b1be8c792c732e96edfaf42361d2aebd4b8a04e8cc"}
 
     def test_the_patch_of_2_1_332_has_the_pinned_hashes(self):
         """On a copy of an installed 2.1.332 whose shipped files are the ones above; the install is not changed. Every piece went in, the pie, its tooltip

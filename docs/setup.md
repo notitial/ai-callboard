@@ -105,7 +105,8 @@ the manager all work. These need it:
 - the session list of every folder of the window;
 - the folder pill, the context ring, the wider composer and the restore fix;
 - a new Claude tab opening in the editor group you are in, with no split and no locked group;
-- a session that gets none of the window's other folders as additional directories.
+- a session that gets none of the window's other folders as additional directories;
+- the auth conflict warning staying dismissed in new chats for the rest of the window.
 
 It edits only the Claude Code extension's own folder, and nothing else: no setting and no
 network. Run it as your user, in any terminal, then reload each VS Code window (Command Palette, Developer: Reload
@@ -200,6 +201,12 @@ EXT_DIR="$(ls -d "$HOME"/.vscode/extensions/anthropic.claude-code-* | sort -V | 
   can read and edit their files without asking and loads their `.claude` skills, commands and agents. With the fix a
   session gets only its own folder, and reading or editing a file in another folder of the window asks first.
   `/add-dir` typed in a session and `permissions.additionalDirectories` in your settings still add a folder. An install made before it reads `outdated`, and `--update` brings it in.
+- The auth banner piece is optional in the same way (the marker's `authbanner` field, a warning when an anchor is not found):
+  when the CLI reports two credentials at once (such as an OAuth token and an API key), every chat shows a warning above the
+  composer, and its X hides it for that chat only. With the piece, the dismissal is kept in the extension host, so every chat
+  opened after it hides the same warning until the window reloads or closes (also when the conflict goes away and comes
+  back the same); a different conflict shows at once. A panel that is already open keeps its own state until its next chat, and the settings-error banner is not touched.
+  It needs two anchors in `webview/index.js` and one in `extension.js` (the request switch the folder pill and the Run button use too). An install made before it reads `outdated`, and `--update` brings it in.
 - The group command is another piece, optional in the same way (the marker's `groups` field): it adds the command
   `callboard file session`, which the panels extension calls to file each callboard session in the Session Manager group
   of its tier: the manager in Manager, a conductor in Conductor, a lead in Lead and a lane in Lanes (a group of that name
