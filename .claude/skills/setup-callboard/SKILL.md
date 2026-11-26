@@ -1,9 +1,9 @@
 ---
-name: setup-manager
-description: "Check this Mac against docs/setup.md in one pass and show a status table first: prerequisites, ai-toolkit, the live checkout, old installs, the panels extension link, the Claude Code extension patch, the rule link, the default load, the deny line, the protected-paths hook and its markers, the usage watcher, the update reminder and the manager-name file. Then it lists only what needs the person's hand, grouped by stop. Runs only read-only checks and dry runs; every --apply, sudo, settings edit, link and launchctl bootout is shown as an exact command for the person to run, and the patch is applied only by the person's own /patch-vs-claude. Use on '/setup-manager'. An agent runs it only when the person asks for the setup check, or from /update-manager."
+name: setup-callboard
+description: "Check this Mac against docs/setup.md in one pass and show a status table first: prerequisites, ai-toolkit, the live checkout, old installs, the panels extension link, the Claude Code extension patch, the rule link, the default load, the deny line, the protected-paths hook and its markers, the usage watcher, the update reminder and the manager-name file. Then it lists only what needs the person's hand, grouped by stop. Runs only read-only checks and dry runs; every --apply, sudo, settings edit, link and launchctl bootout is shown as an exact command for the person to run, and the patch is applied only by the person's own /patch-vs-claude. Use on '/setup-callboard'. An agent runs it only when the person asks for the setup check, or from /update-callboard."
 ---
 
-# /setup-manager
+# /setup-callboard
 
 A sync check of [docs/setup.md](../../../docs/setup.md): run it on every Mac after a pull, or on a fresh one. Run it in
 a session in this checkout. That guide is the source for every check here, and wins where the two differ.
@@ -21,7 +21,7 @@ a session in this checkout. That guide is the source for every check here, and w
   or `$()`, which draw a permission prompt; filter the output yourself. Send independent calls together.
 - `<checkout>` is `pwd -P` in a session started in the live checkout. It must match `^/[A-Za-z0-9._/-]+$`; otherwise
   build no command with it, and stop. Callboard loads from it, so it stays on `main` and moves only by a fast-forward
-  to a reviewed commit (docs/setup.md, Updating): never pull, check out or edit there yourself (`/update-manager`
+  to a reviewed commit (docs/setup.md, Updating): never pull, check out or edit there yourself (`/update-callboard`
   pulls, before it runs this skill).
 - `<toolkit>` is the ai-toolkit checkout, read from the machine (Reads, 1). It must match the same pattern;
   otherwise build no command with it, and stop.
@@ -43,7 +43,7 @@ except where it says stop.
    not installed, so tell the person to run `/setup-toolkit` and skip the checks that need `<toolkit>`. `<checkout>`
    must not be inside `<toolkit>`.
 2. **The live checkout.** `git -C <checkout> remote get-url origin` must print
-   `https://github.com/notitial/ai-manager.git`, else show it and stop. Then
+   `https://github.com/notitial/ai-callboard.git`, else show it and stop. Then
    `git -C <checkout> --no-pager -c core.hooksPath=/dev/null -c core.fsmonitor=false status -sb` (the flags keep git
    from running a pager, hook or monitor a changed `.git/config` could name). Good: `## main...origin/main`, with
    ` [behind N]` allowed after it (never `[ahead`), and nothing else. Anything else: show it and stop; the person
@@ -116,7 +116,7 @@ except where it says stop.
 9. **The update reminder** (docs/setup.md, The update reminder). `ls ~/.claude/hooks/update-check.sh`: missing means
    ai-toolkit's update check is not installed, so there is no reminder (update ai-toolkit and run `/setup-toolkit`).
    Present: `jq -e --arg c '<checkout>' '[.hooks.SessionStart[]? | select(.matcher == "startup") | .hooks[]? |
-   .command // ""] | any(endswith("update-check.sh --update /update-manager " + $c))' ~/.claude/settings.json`.
+   .command // ""] | any(endswith("update-check.sh --update /update-callboard " + $c))' ~/.claude/settings.json`.
    `false`: show the `SessionStart` entry from docs/setup.md with `<checkout>` filled in, to add to
    `hooks.SessionStart` by hand beside ai-toolkit's own.
 10. **The manager name.** `cat ~/.claude/callboard/manager-name` and show the name. Missing: the row says so, and
@@ -164,7 +164,7 @@ group what it is and whether it ends their session. Skip a group with nothing in
    `claude cwd patch:` line; no such entry means the extension did not load, so check the link and that the Claude
    Code extension is enabled.
 
-Nothing open: say so in one line. To confirm after the steps, run `/setup-manager` again. Tests are not part of the
+Nothing open: say so in one line. To confirm after the steps, run `/setup-callboard` again. Tests are not part of the
 check: `bash tools/test-all.sh --quick` on request.
 
 On a new machine, the next step is the manager: start it as [docs/manager/README.md](../../../docs/manager/README.md),

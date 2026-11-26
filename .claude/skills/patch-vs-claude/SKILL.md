@@ -42,7 +42,7 @@ Callboard is then back to one repo per window. This is the person's way out at a
    folder, show a diff, and open a PR so the repair is kept for the next update. A no leaves the patch as it is: without the
    pieces left out, and at one repo per window when nothing went in or the folder patch is left out.
    Only on a yes:
-   - Clone the repo to `/tmp/ai-manager-patch-<version>` (a plain clone, git MCP with `path`), on a branch `fix/claude-patch-<version>`.
+   - Clone the repo to `/tmp/ai-callboard-patch-<version>` (a plain clone, git MCP with `path`), on a branch `fix/claude-patch-<version>`.
    - Read the new `extension.js` (one huge line: use `grep -o` with a bounded context, never print the file) around the
      code the left-out piece's anchors name (the folder patch's: `createPanel(`, `setupPanel(`, `"claude-vscode.editor.open"`).
      Change only that piece's anchor patterns (its entry in `PIECES` names them), so each matches exactly once in the new

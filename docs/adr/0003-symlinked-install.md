@@ -128,3 +128,5 @@ getting the person's yes ([ADR 0016](0016-release-update-reminder.md)). The chec
 agent, never leaves `main`, and moves only to `origin/main`'s fast-forward.
 
 *Note 2026-11-14: the six checkout `Edit` deny lines under Permission rules are no longer asked for. ai-toolkit's protected-paths hook with the `.protected-checkout` marker denies agent writes to the live checkout, so `docs/setup.md` and `/setup-manager` drop them. The two store and list-file denies stay.*
+
+*Amended 2026-11-26: the repo was renamed from ai-manager to ai-callboard, and its skills `/setup-manager` and `/update-manager` to `/setup-callboard` and `/update-callboard`. This ADR keeps the names of its time.*

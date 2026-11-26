@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-ai-manager holds the manager role and its mechanism. The manager is one Claude Code session per machine that
+ai-callboard holds the manager role and its mechanism. The manager is one Claude Code session per machine that
 coordinates the other sessions on it, the leads and their lanes: it decides across them, reviews and reports, and
 does no work itself. Every go stays with the person. The repo also carries the tools the role leans on: the callboard
 plugin, a usage watcher and the manager's project skills. ai-toolkit
@@ -37,8 +37,8 @@ Outside those directories, do not search for `package.json`, `Makefile`, or simi
 - `docs/adr/` — the decisions behind the design (index: `docs/adr/README.md`). Check them before proposing an
   architectural change; propose a new ADR when a significant decision is made.
 - `docs/setup.md` — the install order on a machine.
-- `.claude/skills/` — the manager's project skills; `.claude/skills/setup-manager/` checks a Mac against
-  `docs/setup.md` in one pass, and `.claude/skills/update-manager/` updates the install and then runs it.
+- `.claude/skills/` — the manager's project skills; `.claude/skills/setup-callboard/` checks a Mac against
+  `docs/setup.md` in one pass, and `.claude/skills/update-callboard/` updates the install and then runs it.
 - `rules/callboard.md` — an always-on global rule for callboard's turns, linked into `~/.claude/rules/` by hand.
 - `tools/` — the callboard plugin and its panels extension, and the usage watcher, each with its own tests;
   `tools/test-all.sh` runs them all.
@@ -75,9 +75,9 @@ The person's checkout of this repo is the live install: the callboard plugin and
 from it (`docs/setup.md`). It stays on `main` and moves only by a fast-forward to a reviewed commit after a merge
 (`docs/setup.md`, Updating), so a branch or a half-done edit never goes live.
 
-- Code changes go in a plain clone under `/tmp`, such as `/tmp/ai-manager-<task>`, never a worktree. Git MCP calls
+- Code changes go in a plain clone under `/tmp`, such as `/tmp/ai-callboard-<task>`, never a worktree. Git MCP calls
   pass `path` set to that clone.
-- Never edit tracked files in the live checkout, and never switch its branch. The one agent move is `/update-manager`'s
+- Never edit tracked files in the live checkout, and never switch its branch. The one agent move is `/update-callboard`'s
   fast-forward pull, after the person has seen what comes in. `.archive/` (state, handoffs, reports)
   stays in the live checkout.
 - `/tmp` is wiped on reboot: push the branch before stopping or handing over.

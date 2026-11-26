@@ -6,9 +6,9 @@ set -u
 ROOT=$(cd "$(dirname "$0")/.." && pwd -P) || exit 1
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/test-turn-XXXXXX") || exit 1
 trap 'rm -r "$TMP"' EXIT
-export AI_MANAGER_TEST_LOCK="$TMP/lock" AI_MANAGER_TEST_POLL=0.2
-unset AI_MANAGER_TEST_TURN
-LOCK=$AI_MANAGER_TEST_LOCK
+export AI_CALLBOARD_TEST_LOCK="$TMP/lock" AI_CALLBOARD_TEST_POLL=0.2
+unset AI_CALLBOARD_TEST_TURN
+LOCK=$AI_CALLBOARD_TEST_LOCK
 FAILED=0
 ok() { echo "ok   $1"; }
 bad() { echo "FAIL $1"; FAILED=1; }
@@ -22,13 +22,13 @@ said_waiting() { grep -q 'Another test run is in progress' "$1"; }
 make_stale() { touch -d '30 minutes ago' "$1" 2>/dev/null || touch -A -003000 "$1"; }
 
 # A free turn is taken and given back.
-out=$(bash -c '. "$0/tools/test-turn.sh"; take_test_turn || exit 9; [ -d "$AI_MANAGER_TEST_LOCK" ] || exit 8
-  echo "$AI_MANAGER_TEST_TURN/$TEST_TURN_NICE"; release_test_turn; [ ! -e "$AI_MANAGER_TEST_LOCK" ]' "$ROOT" 2>&1)
+out=$(bash -c '. "$0/tools/test-turn.sh"; take_test_turn || exit 9; [ -d "$AI_CALLBOARD_TEST_LOCK" ] || exit 8
+  echo "$AI_CALLBOARD_TEST_TURN/$TEST_TURN_NICE"; release_test_turn; [ ! -e "$AI_CALLBOARD_TEST_LOCK" ]' "$ROOT" 2>&1)
 check "a free turn is taken, marked held and given back" [ "$?/$out" = "0/held/nice -n 10" ]
 
 # A caller that holds the turn: no wait, no lock of its own, no second nice, and its lock is left alone.
 mkdir "$LOCK"
-out=$(AI_MANAGER_TEST_TURN=held bash -c '. "$0/tools/test-turn.sh"; take_test_turn || exit 9
+out=$(AI_CALLBOARD_TEST_TURN=held bash -c '. "$0/tools/test-turn.sh"; take_test_turn || exit 9
   echo "[$TEST_TURN_NICE]"; release_test_turn' "$ROOT" 2>&1)
 check "under a caller that holds the turn: no wait, no nice" [ "$?/$out" = "0/[]" ]
 check "under a caller that holds the turn: its lock is left alone" [ -d "$LOCK" ]
@@ -63,8 +63,8 @@ rm "$LOCK/pid"
 rmdir "$LOCK"
 
 # The lock carries its holder's pid, and only that run gives it back.
-out=$(bash -c '. "$0/tools/test-turn.sh"; take_test_turn || exit 9; [ "$(cat "$AI_MANAGER_TEST_LOCK/pid")" = "$$" ] || exit 8
-  echo 1 > "$AI_MANAGER_TEST_LOCK/pid"; release_test_turn; [ -d "$AI_MANAGER_TEST_LOCK" ]' "$ROOT" 2>&1)
+out=$(bash -c '. "$0/tools/test-turn.sh"; take_test_turn || exit 9; [ "$(cat "$AI_CALLBOARD_TEST_LOCK/pid")" = "$$" ] || exit 8
+  echo 1 > "$AI_CALLBOARD_TEST_LOCK/pid"; release_test_turn; [ -d "$AI_CALLBOARD_TEST_LOCK" ]' "$ROOT" 2>&1)
 check "the lock carries the holder's pid; another run's lock is not given back" [ "$?" = 0 ]
 rm "$LOCK/pid"
 rmdir "$LOCK"

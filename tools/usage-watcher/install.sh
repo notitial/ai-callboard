@@ -1,6 +1,6 @@
 #!/bin/bash
 # Usage-watcher installer: installs watch.py and the launchd job io.notitial.usage-watcher from a
-# commit of https://github.com/notitial/ai-manager.git. It never reads the working tree it sits in.
+# commit of https://github.com/notitial/ai-callboard.git. It never reads the working tree it sits in.
 #
 #   bash tools/usage-watcher/install.sh [--ref <commit>]           dry run: fetch, then print what --apply would do
 #   bash tools/usage-watcher/install.sh [--ref <commit>] --apply   install or update, then reload the job and verify
@@ -42,7 +42,7 @@
 set -euo pipefail
 umask 077
 
-readonly ORIGIN_URL='https://github.com/notitial/ai-manager.git'
+readonly ORIGIN_URL='https://github.com/notitial/ai-callboard.git'
 readonly ORIGIN_PROTO='https'
 readonly LABEL='io.notitial.usage-watcher'
 readonly SRC_DIR='tools/usage-watcher'
