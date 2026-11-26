@@ -150,12 +150,11 @@ EXT_DIR="$(ls -d "$HOME"/.vscode/extensions/anthropic.claude-code-* | sort -V | 
   it out with the rest. The Remote Control chip is left as Claude Code draws it: an install made by an older script that hid it
   reads `outdated`, and `--update` takes the hiding out.
 - The context pie (the marker's `pie` field) shows the composer's own context pie always, as one ring, in place of Claude
-  Code's, which appears only when the context used passes its `claudeCode.contextUsageThreshold` setting (50 percent by default), in three fixed shapes, measured against the model's window.
-  The ring is measured against the compaction point of your `autoCompactWindow` setting (`~/.claude/settings.json`, or
-  `CLAUDE_CONFIG_DIR` of the VS Code process; project settings are not read; read each time a panel opens, so a reload picks up
-  a changed value): full where Claude Code compacts. With no such setting it uses the model's window, as the stock pie does.
-  The ring is 18px with 2px around it (the footer's own stylesheet sizes it to 26px, so the piece's style block sets the size too), and its arc is coloured by the tokens used: green below 200k, blue from 200k, amber from 300k, red from 400k (the theme's chart colours; fixed amounts, whatever your `autoCompactWindow`). Its hover text is a bold "Context" over `used / limit used · percent` in k (`126k / 200k used · 63%`, the limit being where the ring is full: your `autoCompactWindow` less about 33k); a click
-  still compacts. It also edits `webview/index.js`, as the folder pill below does, in three places that must each match once (the check
+  Code's, which appears only when the context used passes its `claudeCode.contextUsageThreshold` setting (50 percent by default), in three fixed shapes.
+  The ring is full where Claude Code's own gauge is: the model's window less about 33k, and from 2.1.332 no later than the
+  auto-compact threshold the CLI reports (which follows your `autoCompactWindow`).
+  The ring is 18px with 2px around it (the footer's own stylesheet sizes it to 26px, so the piece's style block sets the size too), and its arc is coloured by the tokens used: green below 200k, blue from 200k, amber from 300k, red from 400k (the theme's chart colours; fixed amounts). Its hover text is a bold "Context" over `used / limit used · percent` in k (`126k / 200k used · 63%`, the limit being where the ring is full), in place of both of Claude Code's hints (mouse and keyboard focus); a click
+  still compacts. It also edits `webview/index.js`, as the folder pill below does, in two places that must each match once (the check
   names the one that does not), and in two more for the hover text, a piece of its own (the marker's `pietip` field) that
   needs the pie: when either of those does not match once, the hover text stays Claude Code's, with a warning, and the rest
   of the pie still goes in. The shipped script is kept as
