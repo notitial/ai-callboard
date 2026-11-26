@@ -138,14 +138,14 @@ test('the upkeep in every world: an unknown read changes nothing; an off row and
 
 test('a name Claude generated for a new panel (source auto or derived) never replaces the row\'s name; a name given by /rename does; a loose session keeps its generated one', () => {
   for (const nameSource of ['auto', 'derived']) {
-    const gen = liveView([reg(M, MANAGER), reg(A, 'A'), reg(L1, 'ai-manager-ef', { nameSource })], lanes, MANAGER)
+    const gen = liveView([reg(M, MANAGER), reg(A, 'A'), reg(L1, 'ai-callboard-ef', { nameSource })], lanes, MANAGER)
     assert.equal(nameOf(gen, L1), 'L1')
     assert.equal(tidy(lanes, gen, () => undefined, NOW)[L1].name, 'L1')
   }
   const given = liveView([reg(M, MANAGER), reg(A, 'A'), reg(L1, 'L1b', { nameSource: 'user' })], lanes, MANAGER)
   assert.equal(nameOf(given, L1), 'L1b')
   assert.equal(tidy(lanes, given, () => undefined, NOW)[L1].name, 'L1b')
-  assert.equal(nameOf(liveView([reg('sid-loose', 'ai-manager-17', { nameSource: 'auto' })], {}, MANAGER), 'sid-loose'), 'ai-manager-17')
+  assert.equal(nameOf(liveView([reg('sid-loose', 'ai-callboard-17', { nameSource: 'auto' })], {}, MANAGER), 'sid-loose'), 'ai-callboard-17')
 })
 
 test('a signed lane retires as soon as it is out of its turn; a park still waits IDLE_MS; a lane in a turn or waiting is refused either way', () => {

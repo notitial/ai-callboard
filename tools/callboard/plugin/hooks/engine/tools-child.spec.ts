@@ -460,7 +460,7 @@ const kidReg = (f: F, x: object) => {
 test('a new lane is known by its own name: its panel, named by Claude, renames itself to the lane at its first quiet tick, and lane_start finds it by the lane name', async () => {
   const f = world()
   await laneCreateCall(f.$, { name: 'NEW', folder: '/w/repo/new', brief: 'b' }, next)
-  f.seed({ sid: 'sid-new', pid: 30, name: 'ai-manager-ef', nameSource: 'derived', cwd: '/w/repo/new', kind: 'interactive', statusUpdatedAt: T0 - MIN })
+  f.seed({ sid: 'sid-new', pid: 30, name: 'ai-callboard-ef', nameSource: 'derived', cwd: '/w/repo/new', kind: 'interactive', statusUpdatedAt: T0 - MIN })
   window(f, (req) => (req.op === 'open' ? { ok: true, sid: 'sid-new' } : undefined))
   assert.match(text(await laneOpenCall(f.$, { lane: 'NEW' }, next)), /`NEW` opened as session `sid-new`/)
   assert.match(text(await laneListCall(f.$, {}, next)), /\| NEW \|/)
@@ -545,9 +545,9 @@ test('a lane that signed done retires right after its turn ends; a park at that 
 test('the self-rename touches only a lane\'s panel that still has its generated name, and only when no cue waits: a named panel, a row with no brief and a loose session keep their names', async () => {
   const f = world()
   f.table({ ...table(f), 'sid-kid': { name: 'kid', folder: '/w/repo/kid', under: 'sid-me' }, 'sid-named': { name: 'LANE', folder: '/w/repo/kid', under: 'sid-me', brief: '/w/repo/kid/.archive/LANE/BRIEF.md' } })
-  kidReg(f, { name: 'ai-manager-01', nameSource: 'auto' })
+  kidReg(f, { name: 'ai-callboard-01', nameSource: 'auto' })
   f.seed({ sid: 'sid-named', pid: 31, name: 'mine', nameSource: 'user', cwd: '/w/repo/kid', kind: 'interactive' })
-  f.seed({ sid: 'sid-loose', pid: 32, name: 'ai-manager-02', nameSource: 'auto', cwd: '/w/repo/kid', kind: 'interactive' })
+  f.seed({ sid: 'sid-loose', pid: 32, name: 'ai-callboard-02', nameSource: 'auto', cwd: '/w/repo/kid', kind: 'interactive' })
   for (const sid of ['sid-kid', 'sid-named', 'sid-loose']) {
     f.h.sid = sid
     mem.view = undefined

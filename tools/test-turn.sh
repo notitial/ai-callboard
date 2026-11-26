@@ -8,15 +8,15 @@
 #                       clear it and never deletes it.
 #   release_test_turn   give the turn back, only if the lock carries this shell's pid. Call it from an EXIT trap.
 #   $TEST_TURN_NICE     prefix for the heavy commands: `nice -n 10`, or empty when the caller already holds the turn.
-# A script that holds the turn exports AI_MANAGER_TEST_TURN=held, so a test script it calls neither waits on the
+# A script that holds the turn exports AI_CALLBOARD_TEST_TURN=held, so a test script it calls neither waits on the
 # turn nor lowers the priority a second time.
-# AI_MANAGER_TEST_LOCK (the lock folder) and AI_MANAGER_TEST_POLL (seconds between tries) exist for the tests.
+# AI_CALLBOARD_TEST_LOCK (the lock folder) and AI_CALLBOARD_TEST_POLL (seconds between tries) exist for the tests.
 
-TEST_TURN_LOCK=${AI_MANAGER_TEST_LOCK:-/tmp/ai-manager-fulltest.lock}
+TEST_TURN_LOCK=${AI_CALLBOARD_TEST_LOCK:-/tmp/ai-callboard-fulltest.lock}
 TEST_TURN_NICE="nice -n 10"
 
 take_test_turn() {
-  if [ "${AI_MANAGER_TEST_TURN:-}" = held ]; then TEST_TURN_NICE=""; return 0; fi
+  if [ "${AI_CALLBOARD_TEST_TURN:-}" = held ]; then TEST_TURN_NICE=""; return 0; fi
   local said=0 pid
   until mkdir "$TEST_TURN_LOCK" 2>/dev/null; do
     pid=$(cat "$TEST_TURN_LOCK/pid" 2>/dev/null)
@@ -25,7 +25,7 @@ take_test_turn() {
       *)
         if ! ps -p "$pid" >/dev/null 2>&1 && take_over_test_turn "$pid"; then
           echo "The test run that held the turn (pid $pid) is gone without giving it back; taking the turn over." >&2
-          export AI_MANAGER_TEST_TURN=held
+          export AI_CALLBOARD_TEST_TURN=held
           return 0
         fi
         ;;
@@ -39,10 +39,10 @@ take_test_turn() {
       echo "Another test run is in progress ($TEST_TURN_LOCK); waiting for it to finish." >&2
       said=1
     fi
-    sleep "${AI_MANAGER_TEST_POLL:-5}"
+    sleep "${AI_CALLBOARD_TEST_POLL:-5}"
   done
   echo "$$" > "$TEST_TURN_LOCK/pid"
-  export AI_MANAGER_TEST_TURN=held
+  export AI_CALLBOARD_TEST_TURN=held
 }
 
 # take_over_test_turn <pid of the dead holder>: put this shell's pid in its place. The `takeover` folder lets one

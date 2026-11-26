@@ -280,7 +280,7 @@ known to be gone, the script stops with exit 3. Check that no test run is still 
 script again:
 
 ```bash
-rm -r /tmp/ai-manager-fulltest.lock
+rm -r /tmp/ai-callboard-fulltest.lock
 ```
 
 Paths that act on cues, restores and compaction run only against mocks. Before a change reaches the live checkout,

@@ -203,7 +203,7 @@ tmp_left() { /bin/ls -A "$T/tmp" | /usr/bin/grep -c '^uw-install\.' || true; }
 
 # --- static: the URL is a constant -----------------------------------------------------------------------------------
 
-check "$(/usr/bin/grep -c "^readonly ORIGIN_URL='https://github.com/notitial/ai-manager.git'$" "$SRC")" 1 "install.sh pins the HTTPS URL"
+check "$(/usr/bin/grep -c "^readonly ORIGIN_URL='https://github.com/notitial/ai-callboard.git'$" "$SRC")" 1 "install.sh pins the HTTPS URL"
 check "$(/usr/bin/grep -c "^readonly ORIGIN_PROTO='https'$" "$SRC")" 1 "install.sh pins the https transport"
 check "$(/usr/bin/grep -c 'ORIGIN_URL=' "$SRC")" 1 "ORIGIN_URL is assigned once"
 check "$(/usr/bin/grep -c 'ORIGIN_PROTO=' "$SRC")" 1 "ORIGIN_PROTO is assigned once"
@@ -430,7 +430,7 @@ H10=$T/home10
 new_home "$H10"
 tg init -q "$T/co"
 tg -C "$T/co" config "url.file://$T/evil.git.insteadOf" "file://$T/origin.git"
-tg -C "$T/co" config --add "url.file://$T/evil.git.insteadOf" "https://github.com/notitial/ai-manager.git"
+tg -C "$T/co" config --add "url.file://$T/evil.git.insteadOf" "https://github.com/notitial/ai-callboard.git"
 CWD=$T/co
 run -- "$H10" "$INST" --apply
 CWD=$T/cwd

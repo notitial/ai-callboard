@@ -4,7 +4,7 @@ From nothing to a working manager setup on one Mac: callboard loaded from your c
 that keep agents off its files, the usage watcher running, and the callboard rule linked.
 
 You run every install step yourself. An agent never edits settings or permissions: where a step changes
-`~/.claude/settings.json`, you make the edit. The `setup-manager` skill checks the same parts in one pass (see
+`~/.claude/settings.json`, you make the edit. The `setup-callboard` skill checks the same parts in one pass (see
 [The guided way](#the-guided-way)).
 
 `<checkout>` below is your live checkout of this repo: the absolute path of one clone that stays on `main` and moves
@@ -13,7 +13,7 @@ from it, so that update is callboard's install. Agents never edit it: they work 
 (CLAUDE.md, Where agents edit).
 `<commit>` is a full 40-character commit of `main` you have read, for the usage watcher.
 
-The usage watcher's installer fetches `main` from the fixed URL `https://github.com/notitial/ai-manager.git` over
+The usage watcher's installer fetches `main` from the fixed URL `https://github.com/notitial/ai-callboard.git` over
 HTTPS, without credentials, into a fresh temporary repository, and installs from the commit there, never from your
 working tree or the checkout's git store. Callboard (step 1) and the rule link (step 3) fetch nothing.
 
@@ -449,7 +449,7 @@ left for an agent to answer. Until the hook is in place:
    settings `env` that sets `HOME` or a matcher that leaves out Edit, Write or Bash weaken the hook without callboard
    noticing. An agent never edits settings.
 2. The hook protects a folder only when it holds a `.protected-checkout` file. The file is untracked, so only you
-   make it. Run these once, with `<checkout>` your ai-manager checkout and `<toolkit>` your ai-toolkit checkout:
+   make it. Run these once, with `<checkout>` your ai-callboard checkout and `<toolkit>` your ai-toolkit checkout:
 
 ```
 touch <checkout>/.protected-checkout
@@ -666,7 +666,7 @@ Control lists every machine's sessions: write that name into `manager-name` on t
 | Part | Check | Good when |
 |---|---|---|
 | Live checkout | `git -C <checkout> --no-pager -c core.hooksPath=/dev/null -c core.fsmonitor=false status -sb` | `## main...origin/main`, with ` [behind N]` allowed after it (never `[ahead`), and nothing else |
-| Origin | `git -C <checkout> remote get-url origin` | `https://github.com/notitial/ai-manager.git` |
+| Origin | `git -C <checkout> remote get-url origin` | `https://github.com/notitial/ai-callboard.git` |
 | Old install gone | `ls /usr/local/libexec/callboard` | No such file or directory |
 | Old panels copy | `ls ~/.vscode/extensions \| grep -i local.callboard-panels` | it prints nothing |
 | Panels extension | `ls -l ~/.vscode/extensions \| grep callboard-panels` | one link, to `<checkout>/tools/callboard/extension` |
@@ -681,28 +681,28 @@ Control lists every machine's sessions: write that name into `manager-name` on t
 | Usage watcher | `bash tools/usage-watcher/install.sh --status --ref <commit>` | exit 0, the job loaded |
 | Summary | `ls -l ~/.local/state/usage-watcher/usage-summary.json` | written in the last 5 minutes |
 | Retired hook | read `hooks.SessionStart` in `~/.claude/settings.json` | no `account-stamp.sh` entry |
-| Update reminder | `jq -e --arg c '<checkout>' '[.hooks.SessionStart[]? \| select(.matcher == "startup") \| .hooks[]? \| .command // ""] \| any(endswith("update-check.sh --update /update-manager " + $c))' ~/.claude/settings.json` | `true`; optional, and needs ai-toolkit's `~/.claude/hooks/update-check.sh` ([The update reminder](#the-update-reminder)) |
+| Update reminder | `jq -e --arg c '<checkout>' '[.hooks.SessionStart[]? \| select(.matcher == "startup") \| .hooks[]? \| .command // ""] \| any(endswith("update-check.sh --update /update-callboard " + $c))' ~/.claude/settings.json` | `true`; optional, and needs ai-toolkit's `~/.claude/hooks/update-check.sh` ([The update reminder](#the-update-reminder)) |
 | Old watcher | `launchctl list \| grep usage-watcher` | only `io.notitial.usage-watcher` |
 | Rule link | `ls -l ~/.claude/rules/callboard.md` | it points at `<checkout>/rules/callboard.md` |
 | Tests | `bash tools/test-all.sh` | every suite passes or skips |
 
 ## Updating
 
-Type `/update-manager` in a session in this checkout. The skill
-([.claude/skills/update-manager/SKILL.md](../.claude/skills/update-manager/SKILL.md)) checks that the checkout is on
+Type `/update-callboard` in a session in this checkout. The skill
+([.claude/skills/update-callboard/SKILL.md](../.claude/skills/update-callboard/SKILL.md)) checks that the checkout is on
 `main` and clean, fetches, shows you the commits and the files that come in, and pulls (`git pull --ff-only`) only on
-your yes. It then shows what changed since your old version, runs `/setup-manager`'s one-pass check, and ends with the
+your yes. It then shows what changed since your old version, runs `/setup-callboard`'s one-pass check, and ends with the
 version now installed and anything left for you to do, such as copying a settings entry or reloading VS Code. Read the diff
 first if the change matters: [By hand](#by-hand) shows the command, and is the way to install one specific reviewed
 commit instead of the newest.
 
 ### The update reminder
 
-Once a week, at the start of a session, ai-toolkit's `update-check.sh` asks GitHub for ai-manager's latest release
+Once a week, at the start of a session, ai-toolkit's `update-check.sh` asks GitHub for ai-callboard's latest release
 and, while your checkout is behind it, prints one line naming the new version. It sends nothing about you or your
 machine, makes one unauthenticated request with a 3 second cap, and says nothing when offline. It needs ai-toolkit
-installed (`/setup-toolkit` puts the script at `~/.claude/hooks/update-check.sh`); without it `/setup-manager` says so
-and skips this check. `/setup-manager` shows you the `SessionStart` entry to add to `~/.claude/settings.json`
+installed (`/setup-toolkit` puts the script at `~/.claude/hooks/update-check.sh`); without it `/setup-callboard` says so
+and skips this check. `/setup-callboard` shows you the `SessionStart` entry to add to `~/.claude/settings.json`
 by hand, beside ai-toolkit's own; `<checkout>` is this checkout, which tells the script which repo to ask about:
 
 ```json
@@ -711,7 +711,7 @@ by hand, beside ai-toolkit's own; `<checkout>` is this checkout, which tells the
   "hooks": [
     {
       "type": "command",
-      "command": "$HOME/.claude/hooks/update-check.sh --update /update-manager <checkout>",
+      "command": "$HOME/.claude/hooks/update-check.sh --update /update-callboard <checkout>",
       "timeout": 10
     }
   ]
@@ -719,22 +719,22 @@ by hand, beside ai-toolkit's own; `<checkout>` is this checkout, which tells the
 ```
 
 The reminder names `/skip-update` and `/disable-update`; those are ai-toolkit's own skills and act on the ai-toolkit
-checkout, so in ai-manager's checkout run the script directly. To skip the newest release until a later one
+checkout, so in ai-callboard's checkout run the script directly. To skip the newest release until a later one
 appears:
 
 ```
-bash ~/.claude/hooks/update-check.sh --update /update-manager --skip <checkout>
+bash ~/.claude/hooks/update-check.sh --update /update-callboard --skip <checkout>
 ```
 
 To turn the reminder off, or back on when it is off:
 
 ```
-bash ~/.claude/hooks/update-check.sh --update /update-manager --toggle <checkout>
+bash ~/.claude/hooks/update-check.sh --update /update-callboard --toggle <checkout>
 ```
 
 ### By hand
 
-First check where it pulls from: this must print `https://github.com/notitial/ai-manager.git`. Anything else: stop.
+First check where it pulls from: this must print `https://github.com/notitial/ai-callboard.git`. Anything else: stop.
 
 ```
 git -C <checkout> remote get-url origin
@@ -744,7 +744,7 @@ Then fetch `main` from the fixed URL, not from whatever the checkout's config na
 brought:
 
 ```
-git -C <checkout> -c core.hooksPath=/dev/null -c core.fsmonitor=false -c credential.helper= fetch https://github.com/notitial/ai-manager.git +refs/heads/main:refs/remotes/origin/main
+git -C <checkout> -c core.hooksPath=/dev/null -c core.fsmonitor=false -c credential.helper= fetch https://github.com/notitial/ai-callboard.git +refs/heads/main:refs/remotes/origin/main
 ```
 
 ```
@@ -781,8 +781,8 @@ can still relay a prompt to you. For the usage watcher, run its installer again 
 
 ## The guided way
 
-Type `/setup-manager` in a session in this checkout. The skill
-([.claude/skills/setup-manager/SKILL.md](../.claude/skills/setup-manager/SKILL.md)) is a sync check: in one pass it
+Type `/setup-callboard` in a session in this checkout. The skill
+([.claude/skills/setup-callboard/SKILL.md](../.claude/skills/setup-callboard/SKILL.md)) is a sync check: in one pass it
 reads the machine and runs the read-only checks and dry runs, the patch's check among them, and shows a status table
 first. It then lists only what is open, grouped by where you must act, as exact commands to run (every `--apply`,
 settings edit, link and `launchctl bootout`), and sends you to `/patch-vs-claude` for the patch. It runs neither

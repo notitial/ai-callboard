@@ -130,7 +130,7 @@ The spec put the output in a shared spool directory, and the review asked for ei
 
 macOS only. Needs the Command Line Tools and `/usr/bin/python3` 3.9 or later. Nothing installs itself: you run `tools/usage-watcher/install.sh`.
 
-The installer fetches `main` from `https://github.com/notitial/ai-manager.git` over HTTPS, without credentials, into a temporary repository. It installs from that commit, never from your working tree, and never reads the checkout's objects or git config. That URL is fixed: no option, and no variable or git config the installer reads, changes it. The fetch ignores proxy environment variables.
+The installer fetches `main` from `https://github.com/notitial/ai-callboard.git` over HTTPS, without credentials, into a temporary repository. It installs from that commit, never from your working tree, and never reads the checkout's objects or git config. That URL is fixed: no option, and no variable or git config the installer reads, changes it. The fetch ignores proxy environment variables.
 
 The fetch has no credentials.
 

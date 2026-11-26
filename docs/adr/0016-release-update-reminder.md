@@ -1,6 +1,6 @@
 # 16. A weekly release reminder and an agent-run update
 
-**Status:** proposed
+**Status:** proposed, amended
 **Date:** 2026-11-23
 
 Scope: how a machine learns that a newer ai-manager release exists, and who moves the live checkout to it. It reuses
@@ -56,3 +56,5 @@ update command as arguments, and reads the repo from `origin`.
   `.git` (hooks and config included) while the `.protected-checkout` marker is in place.
 - A checkout ahead of its last tag compares by that tag, so a reminder can name a release whose content it already has.
 - Cutting a release stays a manual step for the owner.
+
+*Amended 2026-11-26: the repo was renamed from ai-manager to ai-callboard, and `/setup-manager` and `/update-manager` to `/setup-callboard` and `/update-callboard`. The decision stands; this ADR keeps the names of its time.*
