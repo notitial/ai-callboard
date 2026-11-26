@@ -245,6 +245,50 @@ def run_button(m):
             b'("svg",{viewBox:"0 0 20 20",width:14,height:14,fill:"currentColor",stroke:"currentColor",strokeWidth:2,strokeLinejoin:"round",children:' + m.group("jsx") + b'("polygon",{points:"6,4.5 15,10 6,15.5"})})}),')
 
 
+# The auth banner: the warning above the composer that the CLI's config carries as `auth_conflict` (two credentials at once, such as an OAuth token and an API key). Its dismiss
+# state is a signal on the session object, so every new chat shows it again. This piece keeps what was dismissed in the extension host, which lives as long as the VS Code window
+# (the way stock keeps the trust line closed until the window reloads), so a dismissal in any chat hides the same conflict in every chat opened after it, until the window
+# reloads or closes. The key is `auth:` plus the conflict's JSON, so another conflict shows at once. A panel that is already open is not told: it keeps its own state until its
+# next chat. The host's list is never cleared, so a conflict that goes away and comes back the same stays hidden until the window reloads. Three edits: the session's warning computed also asks the host's list (HIDE_HELPER, built once per page), the dismiss method also sends the key, and in
+# extension.js a case in front of the one that opens an url (PILL_HANDLER_ANCHOR, which the pill and the run button use too). The host keeps at most 50 keys of at most 4000
+# characters in one Set on its `globalThis` and answers every request with the whole list. A request that fails hides nothing (the warning stays as stock shows it). The
+# piece goes in only when all three anchors match exactly once and the shipped webview carries the tokens it calls; otherwise it is left out whole, with a warning.
+AUTH_WARNING_ANCHOR = (
+    rb"dismissedAuthConflictKey=(?P<sig>ID)\(null\);authConflictWarning=(?P<cmp>ID)\(\(\)=>\{let (?P<c>ID)=this\.claudeConfig\.value\?\.auth_conflict;"
+    rb"if\((?P=c)===void 0\|\|JSON\.stringify\((?P=c)\)===this\.dismissedAuthConflictKey\.value\)return null;".replace(b"ID", ID)
+)
+AUTH_DISMISS_ANCHOR = (
+    rb"dismissAuthConflictWarning\(\)\{let (?P<c>ID)=this\.claudeConfig\.value\?\.auth_conflict;if\((?P=c)===void 0\)return;"
+    rb"this\.dismissedAuthConflictKey\.value=JSON\.stringify\((?P=c)\)\}".replace(b"ID", ID)
+)
+# The page side, built once per page: cbhL is the page's list of hidden keys, a signal made with the page's own signal constructor (%s), so the warning computed runs again when
+# the host's answer lands. `of` asks the host once per session, at the warning's first evaluation (the composer's first render, before the CLI has sent its config, so a hidden
+# banner never flashes) and returns the list; `add` sends a key. Only the host's answer writes the list, so a key the host did not keep (a failed request, the caps) hides nothing
+# in other chats. The request starts from a resolved promise, so a getConnection that throws or gives no connection is a failed request too, never a throw into the render.
+HIDE_HELPER = (
+    b'(globalThis.cbHide??=((cbhX)=>{let cbhL=cbhX([]),cbhA=new WeakSet,'
+    b'cbhAsk=(cbhS,cbhK)=>Promise.resolve().then(()=>cbhS.getConnection()).then((cbhC)=>cbhC.sendRequest({type:"callboard_hide",key:cbhK}))'
+    b'.then((cbhR)=>{if(Array.isArray(cbhR?.keys))cbhL.value=cbhR.keys},()=>{});'
+    b'return{of(cbhS){if(!cbhA.has(cbhS)){cbhA.add(cbhS);cbhAsk(cbhS)}return cbhL.value},add:cbhAsk}})(%s))'
+)
+# The extension side: it adds a string key to the window's Set and answers with the whole list; anything else is only a read.
+HIDE_HANDLER = (
+    b'case"callboard_hide":{let cbhS=globalThis.cbHidden??=new Set,cbhK=%s.request?.key;if(typeof cbhK=="string"&&cbhK.length<=4000&&cbhS.size<50)cbhS.add(cbhK);'
+    b'return{type:"callboard_hide_response",keys:[...cbhS]}}'
+)
+
+
+def auth_warning(m):
+    c = m.group("c")
+    return (b"dismissedAuthConflictKey=" + m.group("sig") + b"(null);authConflictWarning=" + m.group("cmp") + b"(()=>{let cbhH=" + HIDE_HELPER % m.group("sig") + b".of(this)," + c
+            + b"=this.claudeConfig.value?.auth_conflict;if(" + c + b"===void 0||JSON.stringify(" + c + b")===this.dismissedAuthConflictKey.value||cbhH.includes(\"auth:\"+JSON.stringify(" + c
+            + b")))return null;")
+
+
+def auth_dismiss(m):
+    return m.group(0)[:-1] + b';globalThis.cbHide?.add(this,"auth:"+JSON.stringify(' + m.group("c") + b"))}"
+
+
 # The restore fix: a Claude panel that VS Code restores (or Claude reopens) for a session starts in the window's first folder, where that session is not in the
 # list, so it comes back as a new empty session. The saved panel state names no folder, so the fix finds it: the window folder whose project folder holds
 # the session's transcript (<config dir>/projects/<folder, every character but a letter or digit as "-">/<session id>.jsonl, the way Claude names it). Three edits:
@@ -433,6 +477,10 @@ PIECES = (
                                        css_edit("run", RUN_CSS)],
                                       web_tokens(".getConnection()", ".sendRequest(", "claudeChannelId", ".activeSession.value", "codeBlockWrapper_", "copyButton_"),
                                       (b"callboard_run", b"callboard-run"))),
+    ("authbanner", "auth conflict banner", (), lambda: ([("web", "auth banner warning", AUTH_WARNING_ANCHOR, auth_warning),
+                                                         ("web", "auth banner dismiss", AUTH_DISMISS_ANCHOR, auth_dismiss),
+                                                         ("ext", "hide handler anchor", PILL_HANDLER_ANCHOR, lambda m: HIDE_HANDLER % m.group("r") + m.group(0))],
+                                                        web_tokens(".getConnection()", ".sendRequest("), (b"callboard_hide", b"cbHide"))),
 )
 
 

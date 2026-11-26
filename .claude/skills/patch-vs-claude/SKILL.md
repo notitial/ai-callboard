@@ -1,5 +1,5 @@
 ---
-description: "Report whether callboard's patch of the Claude Code VS Code extension is in and current, apply it when it is missing, bring it up to date when an older version of the script built it, and, only after a question, repair the patch script when an update moved the code a piece hooks into. The patch is a set of pieces that each go in on their own: the folder patch, which lets one multi-folder VS Code window open lanes in any of its folders and ask which folder a new session starts in, and the others docs/setup.md lists (the wider composer, the context pie, the folder pill, the Run button, the restore, tab group and add-dir fixes, the Session Manager commands and the session list). Use on '/patch-vs-claude' after the Claude Code extension updated, and '/patch-vs-claude undo' to take the patch out."
+description: "Report whether callboard's patch of the Claude Code VS Code extension is in and current, apply it when it is missing, bring it up to date when an older version of the script built it, and, only after a question, repair the patch script when an update moved the code a piece hooks into. The patch is a set of pieces that each go in on their own: the folder patch, which lets one multi-folder VS Code window open lanes in any of its folders and ask which folder a new session starts in, and the others docs/setup.md lists (the wider composer, the context pie, the folder pill, the Run button, the restore, tab group and add-dir fixes, the auth banner that stays dismissed for the window, the Session Manager commands and the session list). Use on '/patch-vs-claude' after the Claude Code extension updated, and '/patch-vs-claude undo' to take the patch out."
 disable-model-invocation: true
 ---
 
@@ -32,7 +32,7 @@ Callboard is then back to one repo per window. This is the person's way out at a
    patch from the backup original and swaps `extension.js` and the marker; the backup is not touched; a failed write puts the
    previous patch back), say what it printed and that each VS Code window needs Developer: Reload Window. If `--update`
    refuses, nothing was changed: report its message and stop. **`unpatched-patchable`:** run the same command with `--apply`, say the version and what
-   was changed (`extension.js`, backup `extension.js.callboard-orig`, marker `callboard-cwd-patch.json`, and, when the pie, the pill or the Run button went in, `webview/index.js` with its backup `webview/index.js.callboard-orig`, all in that
+   was changed (`extension.js`, backup `extension.js.callboard-orig`, marker `callboard-cwd-patch.json`, and, when the pie, the pill, the Run button or the auth banner went in, `webview/index.js` with its backup `webview/index.js.callboard-orig`, all in that
    folder), which pieces did not go in (one `warning:` line each), and that each VS Code window needs Developer: Reload Window.
    When a `warning:` line remains after any of these, go on to step 4.
 4. **The check or the apply refuses, or a piece is left out** (`anchors-missing`: an update moved the minified code and no
